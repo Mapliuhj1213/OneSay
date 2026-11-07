@@ -1410,6 +1410,11 @@ public class WakeService extends Service {
     public void onCreate() {
         super.onCreate();
         sInstance = this;
+        // 唤醒修复（11-08 真机 ANR「startForegroundService() did not then call startForeground()」）：
+        //   前台声明是本服务的<b>第一件事</b>，排在任何初始化（调参中心 / 云端 ASR / 屏幕状态 / 唤醒锁）之前 ——
+        //   重装后第一次冷启动（dex 还没优化、主线程同时在建控制台）onCreate 本身就可能吃掉好几秒，
+        //   旧实现要等 onCreate 全部跑完、onStartCommand 才声明，超过系统时限就 ANR。之后任何路径（含将来的提前返回）都已在前台。
+        ensureForeground("onCreate");
         // 凭据明文 → Keystore 密文的一次性迁移（后台线程；失败保持明文，不影响启动）
         final Context appCtx = getApplicationContext();
         com.onesay.assistant.v2.util.Threads.start("secret-migrate", new Runnable() {
@@ -1469,7 +1474,8 @@ public class WakeService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         sInstance = this;
-        startForeground(NOTIF_ID, buildNotification(AssistantPause.notificationText(AssistantPause.isPaused(this), sRunning)));
+        // 每次 startForegroundService 都对应一次 onStartCommand —— 第一行再声明一次（幂等），任何 return / stopSelf 都在它之后。
+        ensureForeground("onStartCommand");
 
         if (!sRunning) {
             sRunning = true;
@@ -4287,6 +4293,32 @@ public class WakeService extends Service {
         return s.mScreenPolicy.stats() + " paused=" + s.mPausedCached + " micRecording=" + s.mMicState.recording()
                 + "(" + s.mMicState.reason() + ") partialHeld=" + held
                 + " | " + s.mScreenPolicy.config();
+    }
+
+    /**
+     * 唤醒修复：前台声明（startForegroundService 的约定）。onCreate / onStartCommand 的第一句。
+     * <p>任何不该继续运行的情况（没有录音权限、Root 未就绪、助手暂停 / 关闭、模型缺失）都必须<b>先调本方法再 stopSelf</b>，
+     * 不许在它之前 return —— 否则系统时限一到就是 ANR，服务被拆掉时还会补一个 RemoteServiceException 崩溃。
+     * 通知构造失败时退回最简通知再试一次；两次都失败只记日志（不能让声明本身把服务弄崩）。
+     */
+    private void ensureForeground(String why) {
+        try {
+            String text;
+            try {
+                text = AssistantPause.notificationText(AssistantPause.isPaused(this), sRunning);
+            } catch (Throwable t) {
+                text = "启动中";
+            }
+            startForeground(NOTIF_ID, buildNotification(text));
+            return;
+        } catch (Throwable t) {
+            Log.w(TAG, "[FG] startForeground 失败（" + why + "），改用最简通知重试: " + t);
+        }
+        try {
+            startForeground(NOTIF_ID, buildNotification("启动中"));
+        } catch (Throwable t2) {
+            Log.e(TAG, "[FG] startForeground 两次都失败（" + why + "）: " + t2);
+        }
     }
 
     private Notification buildNotification(String content) {
