@@ -44,7 +44,7 @@ public final class PcPairing {
         Map<String, String> q = new LinkedHashMap<String, String>();
         for (String kv : s.substring(PREFIX.length()).split("&")) {
             int eq = kv.indexOf('=');
-            if (eq > 0) q.put(kv.substring(0, eq), dec(kv.substring(eq + 1)));
+            if (eq > 0) q.put(kv.substring(0, eq), dec(kv.substring(eq + 1))); // 参数名已在 normalize 里统一小写
         }
         String relay = get(q, "relay"), token = get(q, "token"), key = get(q, "key"), peer = get(q, "peer"), lan = get(q, "lan");
         if (key.length() == 0 || peer.length() == 0 || !validId(peer)) throw new IllegalArgumentException("配对码不完整");
@@ -77,23 +77,60 @@ public final class PcPairing {
         return new PcPairing(peer, k, hosts.toString(), lanPort, relay.length() > 0);
     }
 
-    /** 手打 / 输入法转写容错：全角 ：？＆＝ 转半角，去掉空白，scheme 部分不分大小写（oss-device-1108：真机经输入法输入被拒「不是电脑端的配对码」）。 */
+    /**
+     * 输入容错，返回从 {@code onesay://pair?} 开始的规范串；找不到前缀返回去掉空白后的原文（让 parse 报「不是电脑端的配对码」）。
+     *
+     * <p>真机（oss-device-1108）：配对码经讯飞等中文输入法「打」进输入框时，输入法把按键改写了——
+     * 中文模式下 {@code : ? & = / , .} 变成全角 {@code ：？＆＝／，．} 或 {@code 。、}，{@code _} 变成 {@code ——}，
+     * 英文模式下首字母可能被自动大写，还会夹进空格 / 零宽字符；从聊天里复制时前后还常带别的字（「配对串：onesay://…」）。
+     * 电脑端（0.4.2 {@code Config.pairingString}）本身只输出 ASCII：scheme 固定小写、值经 URLEncoder 编码，
+     * 所以把这些改写还原回 ASCII 不会把一个合法串变成另一个合法串。
+     */
     static String normalize(String raw) {
         if (raw == null) return "";
         StringBuilder b = new StringBuilder(raw.length());
         for (int i = 0; i < raw.length(); i++) {
             char ch = raw.charAt(i);
-            if (ch == '\uFF1A') ch = ':';
-            else if (ch == '\uFF1F') ch = '?';
-            else if (ch == '\uFF06') ch = '&';
-            else if (ch == '\uFF1D') ch = '=';
-            else if (ch == '\uFF0F') ch = '/';
-            if (Character.isWhitespace(ch)) continue;
+            if (ch >= '\uFF01' && ch <= '\uFF5E') ch = (char) (ch - 0xFEE0); // 全角 ASCII → 半角（：？＆＝／，．＿－％ 及全角字母数字）
+            else if (ch == '\u3002' || ch == '\uFF61') ch = '.'; // 。｡
+            else if (ch == '\u3001') ch = '/'; // 、（中文输入法里 / 键）
+            else if (ch == '\u2014') { // ——（中文输入法里 shift+- 即 _）
+                if (i + 1 < raw.length() && raw.charAt(i + 1) == '\u2014') i++;
+                ch = '_';
+            }
+            if (Character.isWhitespace(ch) || Character.isSpaceChar(ch) || ch == '\u200B' || ch == '\u200C' || ch == '\u200D' || ch == '\u2060' || ch == '\uFEFF') continue;
             b.append(ch);
         }
         String s = b.toString();
-        if (s.length() >= PREFIX.length() && s.substring(0, PREFIX.length()).equalsIgnoreCase(PREFIX)) s = PREFIX + s.substring(PREFIX.length());
-        return s;
+        int at = s.toLowerCase(java.util.Locale.ROOT).indexOf(PREFIX);
+        if (at < 0) return s;
+        int end = PREFIX.length() + at;
+        while (end < s.length() && urlChar(s.charAt(end))) end++; // 串后面跟着的中文 / 括号等不要
+        while (end > at + PREFIX.length() && ".,:".indexOf(s.charAt(end - 1)) >= 0) end--; // 句末标点（电脑端的串不会以这些结尾）
+        // 参数名不分大小写（输入法自动大写 Key= / Peer=），统一成小写；值（base64 钥匙等）区分大小写，不动
+        StringBuilder q = new StringBuilder(PREFIX);
+        for (String kv : s.substring(at + PREFIX.length(), end).split("&", -1)) {
+            if (q.length() > PREFIX.length()) q.append('&');
+            int eq = kv.indexOf('=');
+            q.append(eq > 0 ? kv.substring(0, eq).toLowerCase(java.util.Locale.ROOT) + kv.substring(eq) : kv);
+        }
+        return q.toString();
+    }
+
+    /** 配对串前缀后面可能出现的字符：电脑端 URLEncoder 只留 {@code A-Za-z0-9 . - * _}（空格成 +、其余成 %XX），再加分隔符和手打时的 {@code : , / ~}。 */
+    private static boolean urlChar(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || ".-*_+%=&:,/~".indexOf(c) >= 0;
+    }
+
+    /** 剪贴板 / 扫码结果里有没有电脑端配对码（只看前缀，内容对不对由 {@link #parse} 判断）。 */
+    public static boolean looksLike(String raw) {
+        return normalize(raw).startsWith(PREFIX);
+    }
+
+    /** 剪贴板里的配对码，规范化后返回；不像配对码返回 null。 */
+    public static String extract(String raw) {
+        String s = normalize(raw);
+        return s.startsWith(PREFIX) ? s : null;
     }
 
     public static boolean validId(String id) {

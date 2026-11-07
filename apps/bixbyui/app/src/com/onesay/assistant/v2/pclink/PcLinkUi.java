@@ -12,6 +12,7 @@ import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.text.InputType;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -83,7 +84,7 @@ public final class PcLinkUi {
         host.actionRow(g, "扫码配对", "扫电脑端 OneSay 设置页上的二维码（要用相机）", "扫码", new Runnable() {
             @Override public void run() { act.startActivity(new Intent(act, PcScanActivity.class)); }
         });
-        host.actionRow(g, "粘贴配对码", "扫不了码时：在电脑端点「复制配对码」，发到手机上，在这里粘贴", "粘贴", new Runnable() {
+        host.actionRow(g, "粘贴配对码", "扫不了码时：在电脑端点「复制配对串」，发到手机上，在这里粘贴", "粘贴", new Runnable() {
             @Override public void run() {
                 pasteDialog(act, new Runnable() {
                     @Override public void run() { refresh(host); }
@@ -354,16 +355,21 @@ public final class PcLinkUi {
     /** 粘贴配对码对话框（控制台和扫码页共用）。成功后调 onPaired。 */
     public static void pasteDialog(final Activity act, final Runnable onPaired) {
         final EditText et = new EditText(act);
-        et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        // 配对码是机器生成的 ASCII 串：要求输入法给英文键盘、不联想不学习，免得中文输入法把 : ? & = 改成全角（oss-device-1108 真机）
+        et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        et.setImeOptions(EditorInfo.IME_FLAG_FORCE_ASCII | EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
         et.setHint("onesay://pair?…");
-        String clip = clipText(act).trim();
-        if (clip.startsWith(PcPairing.PREFIX)) et.setText(clip);
-        new AlertDialog.Builder(act).setTitle("粘贴配对码").setMessage("电脑端 OneSay → 设置 → 配对手机 → 复制配对码。配对码等于钥匙，别发到群里。")
+        // 剪贴板里有配对码（哪怕夹在聊天文字里）就直接填好，不经过输入法
+        String clip = PcPairing.extract(clipText(act));
+        if (clip != null) et.setText(clip);
+        new AlertDialog.Builder(act).setTitle("粘贴配对码").setMessage("电脑端 OneSay → 设置 → 配对手机 →「显示」→「复制配对串」。配对码等于钥匙，别发到群里。")
                 .setView(et)
                 .setPositiveButton("配对", new DialogInterface.OnClickListener() {
                     @Override public void onClick(DialogInterface d, int w) {
                         try {
-                            PcPairing p = PcLink.pair(act, et.getText().toString());
+                            String in = et.getText().toString();
+                            if (in.trim().length() == 0) in = clipText(act); // 没填就用剪贴板
+                            PcPairing p = PcLink.pair(act, in);
                             Toast.makeText(act, "已配对 " + p.peer + "，正在找电脑…", Toast.LENGTH_LONG).show();
                             if (onPaired != null) onPaired.run();
                         } catch (IllegalArgumentException e) {

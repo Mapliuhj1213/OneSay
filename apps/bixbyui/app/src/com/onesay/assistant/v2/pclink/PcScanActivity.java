@@ -160,7 +160,7 @@ public final class PcScanActivity extends Activity implements SurfaceHolder.Call
         if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) {
             if (mHasSurface) openCamera(mSurface.getHolder());
         } else {
-            mHint.setText("没有相机权限，扫不了码。可以点下面「改用粘贴配对码」：在电脑端设置页点「复制配对码」，发到手机上再粘贴。");
+            mHint.setText("没有相机权限，扫不了码。可以点下面「改用粘贴配对码」：在电脑端设置页点「复制配对串」，发到手机上再粘贴。");
         }
     }
 
@@ -315,7 +315,7 @@ public final class PcScanActivity extends Activity implements SurfaceHolder.Call
 
     private void onFound(String text) {
         if (mDone) return;
-        if (!text.trim().startsWith(PcPairing.PREFIX)) {
+        if (!PcPairing.looksLike(text)) {
             long now = System.currentTimeMillis();
             if (now - mLastWrongToast > 3000) {
                 mLastWrongToast = now;

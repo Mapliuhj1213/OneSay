@@ -251,4 +251,60 @@ public class PcProtocolTest {
         } catch (IllegalArgumentException expected) {
         }
     }
+
+    /** 电脑端 0.4.2 {@code Config.pairingString()} 的真实形态（lan 值经 URLEncoder 编码、多地址、0.0.0.0 兜底、可带中转），以及常见输入法改写。 */
+    @Test public void pairingCodeDesktopFormsAndImeVariants() {
+        String k = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g"; // 33 字节
+        String real = "onesay://pair?key=" + k + "&peer=pc-home&lan=192.168.31.20%3A47820%2C10.1.2.3%3A47820";
+        PcPairing p = PcPairing.parse(real);
+        org.junit.Assert.assertEquals("pc-home", p.peer);
+        org.junit.Assert.assertEquals("192.168.31.20:47820,10.1.2.3:47820", p.lanHosts);
+        org.junit.Assert.assertEquals(47820, p.lanPort);
+        org.junit.Assert.assertEquals(33, p.key.length);
+        PcPairing z = PcPairing.parse("onesay://pair?key=" + k + "&peer=pc-x&lan=0.0.0.0%3A47821");
+        org.junit.Assert.assertEquals("", z.lanHosts);
+        org.junit.Assert.assertEquals(47821, z.lanPort);
+        PcPairing r = PcPairing.parse(real + "&relay=https%3A%2F%2Fr.example&token=" + "t0123456789abcdefghijklmn");
+        org.junit.Assert.assertTrue(r.hasRelay);
+
+        String[] variants = {
+                real.replace(":", "\uFF1A").replace("?", "\uFF1F").replace("&", "\uFF06").replace("=", "\uFF1D"), // 中文模式全角标点
+                real.replace("//", "\u3001\u3001"), // 中文模式 / → 、
+                real.replace("%", "\uFF05").replace(".", "\u3002"), // ％ 和 。
+                "Onesay://Pair?Key=" + k + "&Peer=pc-home&Lan=192.168.31.20%3A47820%2C10.1.2.3%3A47820", // 自动大写（只在名字上，值不动）
+                " \u200B" + real + "\uFEFF\n", // 零宽 / BOM / 换行
+                real.substring(0, 40) + " \n" + real.substring(40), // 网页框里折行后复制
+                "配对串：" + real + "（别发群里）", // 聊天里带着前后文字
+                "电脑发来的：" + real + "。", // 句末句号
+        };
+        for (String v : variants) {
+            PcPairing q = PcPairing.parse(v);
+            org.junit.Assert.assertEquals(v, "pc-home", q.peer);
+            org.junit.Assert.assertEquals(v, p.lanHosts, q.lanHosts);
+            org.junit.Assert.assertArrayEquals(v, p.key, q.key);
+            org.junit.Assert.assertTrue(v, PcPairing.looksLike(v));
+            org.junit.Assert.assertEquals(v, real, PcPairing.extract(v));
+        }
+        String under = "onesay://pair?key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwd_x8g&peer=pc_1&lan=1.2.3.4%3A5";
+        org.junit.Assert.assertEquals("pc_1", PcPairing.parse(under.replace("_", "\u2014\u2014")).peer); // 中文模式 _ → ——
+
+        // 不是配对码的照样拒绝，提示不变
+        for (String bad : new String[]{"", "   ", "http://example.com/?key=" + k, "onesay://other?key=" + k, "pair?key=" + k + "&peer=p&lan=1.2.3.4:5"}) {
+            org.junit.Assert.assertFalse(bad, PcPairing.looksLike(bad));
+            org.junit.Assert.assertNull(bad, PcPairing.extract(bad));
+            try {
+                PcPairing.parse(bad);
+                org.junit.Assert.fail(bad);
+            } catch (IllegalArgumentException e) {
+                org.junit.Assert.assertEquals("不是电脑端的配对码", e.getMessage());
+            }
+        }
+        // 前缀对、内容坏的：给具体原因，不是「不是电脑端的配对码」
+        try {
+            PcPairing.parse("onesay://pair?key=AAAA&peer=p&lan=1.2.3.4:5");
+            org.junit.Assert.fail();
+        } catch (IllegalArgumentException e) {
+            org.junit.Assert.assertEquals("配对密钥太短", e.getMessage());
+        }
+    }
 }

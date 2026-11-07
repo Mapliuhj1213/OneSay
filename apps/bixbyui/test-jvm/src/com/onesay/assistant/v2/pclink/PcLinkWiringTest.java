@@ -123,4 +123,26 @@ public class PcLinkWiringTest {
         assertTrue("有只问一次的防护", g > 0);
         assertTrue("防护包住 requestPermissions", body.indexOf("requestPermissions(") > g);
     }
+
+    /**
+     * 粘贴框不能把配对码交给中文输入法改写：要 ASCII 键盘、不联想；剪贴板里的配对码（规范化后）直接填进去；
+     * 扫码页也用同一套规范化判断（oss-device-1108：真机经讯飞输入法输入，两个版本都报「不是电脑端的配对码」）。
+     */
+    @Test public void pasteAndScanBypassImeRewriting() throws Exception {
+        String s = src(P + "pclink/PcLinkUi.java");
+        int d = s.indexOf("public static void pasteDialog(");
+        assertTrue(d > 0);
+        String body = s.substring(d);
+        assertTrue(body.contains("EditorInfo.IME_FLAG_FORCE_ASCII"));
+        assertTrue(body.contains("InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS"));
+        assertTrue(body.contains("InputType.TYPE_TEXT_VARIATION_PASSWORD"));
+        assertTrue("剪贴板预填走规范化", body.contains("PcPairing.extract(clipText(act))"));
+        assertFalse("不再要求剪贴板原文以前缀开头", body.contains("clip.startsWith(PcPairing.PREFIX)"));
+        String scan = src(P + "pclink/PcScanActivity.java");
+        assertTrue(scan.contains("if (!PcPairing.looksLike(text)) {"));
+        assertFalse(scan.contains("text.trim().startsWith(PcPairing.PREFIX)"));
+        // 电脑端 0.4.2 的按钮叫「复制配对串」
+        assertFalse(s.contains("复制配对码"));
+        assertFalse(scan.contains("复制配对码"));
+    }
 }
