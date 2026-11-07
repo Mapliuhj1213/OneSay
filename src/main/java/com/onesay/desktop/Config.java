@@ -24,6 +24,10 @@ public final class Config {
     public int lanPort = LanServer.DEFAULT_PORT; // 局域网直连端口（UDP 发现用 +1）；0 = 关闭局域网
     public String lanHosts = "";      // 对方的局域网地址提示 ip:port,...（配对串带来）
     public String lanLast = "";       // 上次连上的地址
+    public boolean pttEnabled = true; // 长按空格说话（Windows，需识别 Key）
+    public String pttSkip = "mstsc.exe"; // 前台是这些程序时不抢空格，逗号分隔
+    public String asrKey = "";        // 百炼 DashScope API Key（自带）
+    public String asrBase = "";       // 空 = 默认北京地域
     public String relayUrl = "";      // 可选插件：https://onesay.example.com
     public String relayToken = "";
     public String deviceId = "";      // 本机 id
@@ -52,6 +56,10 @@ public final class Config {
         try { c.lanPort = Integer.parseInt(p.getProperty("lan_port", String.valueOf(LanServer.DEFAULT_PORT)).trim()); } catch (NumberFormatException e) { c.lanPort = LanServer.DEFAULT_PORT; }
         c.lanHosts = p.getProperty("lan_hosts", "").trim();
         c.lanLast = p.getProperty("lan_last", "").trim();
+        c.pttEnabled = !"off".equalsIgnoreCase(p.getProperty("ptt", "on").trim());
+        c.pttSkip = p.getProperty("ptt_skip", "mstsc.exe").trim();
+        c.asrKey = p.getProperty("asr_key", "").trim();
+        c.asrBase = p.getProperty("asr_base", "").trim();
         c.relayUrl = p.getProperty("relay_url", "").trim();
         c.relayToken = p.getProperty("relay_token", "").trim();
         c.deviceId = p.getProperty("device_id", "").trim();
@@ -71,6 +79,10 @@ public final class Config {
         p.setProperty("lan_port", String.valueOf(lanPort));
         p.setProperty("lan_hosts", lanHosts);
         p.setProperty("lan_last", lanLast);
+        p.setProperty("ptt", pttEnabled ? "on" : "off");
+        p.setProperty("ptt_skip", pttSkip);
+        p.setProperty("asr_key", asrKey);
+        p.setProperty("asr_base", asrBase);
         p.setProperty("relay_url", relayUrl);
         p.setProperty("relay_token", relayToken);
         p.setProperty("device_id", deviceId);

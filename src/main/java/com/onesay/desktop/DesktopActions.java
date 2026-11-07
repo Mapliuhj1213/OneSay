@@ -46,7 +46,7 @@ public class DesktopActions implements Actions {
         if (!cfg.appMap().isEmpty()) c.add("open_app");
         if (!cfg.filesDir.isEmpty()) { c.add("file_list"); c.add("file_get"); }
         if (!cfg.scriptsDir.isEmpty()) { c.add("shortcut_list"); c.add("shortcut_run"); }
-        if (windows) c.addAll(Arrays.asList("lock", "volume", "media", "sleep", "shutdown"));
+        if (windows) c.addAll(Arrays.asList("lock", "volume", "media", "sleep", "shutdown", "shutdown_abort"));
         return c;
     }
 
@@ -68,6 +68,7 @@ public class DesktopActions implements Actions {
             case "volume": return volume(str(a, "action"), num(a, "steps", 5));
             case "media": return media(str(a, "action"));
             case "sleep": return confirmed(a, "睡眠") ? win("睡眠", "rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0") : needConfirm("睡眠");
+            case "shutdown_abort": return win("已取消关机", "shutdown.exe", "/a");
             case "shutdown": return confirmed(a, "关机") ? win("60 秒后关机，可用 shutdown /a 取消", "shutdown.exe", "/s", "/t", "60") : needConfirm("关机");
             default: return Result.fail("不支持的指令：" + cmd);
         }

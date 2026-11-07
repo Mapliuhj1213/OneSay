@@ -18,11 +18,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.Map;
 import java.util.TreeMap;
 
 public final class Main {
-    static final String VERSION = "0.2.0";
+    static final String VERSION = "0.3.0";
 
     public static void main(String[] argv) throws Exception {
         List<String> a = new ArrayList<>(List.of(argv));
@@ -90,6 +91,11 @@ public final class Main {
         cfg.kind = "pc";
         cfg.filesDir = ask("允许取文件的文件夹（留空=不开）", cfg.filesDir);
         cfg.scriptsDir = ask("快捷指令脚本文件夹（留空=不开）", cfg.scriptsDir);
+        System.out.println("长按空格说话需要百炼（DashScope）API Key，自己申请；留空 = 不开，不抢空格键。");
+        Console c2 = System.console();
+        String ak = c2 != null ? new String(c2.readPassword("识别 Key（输入不显示，回车保留，输 - 清除）：")) : ask("识别 Key", "");
+        if (ak.trim().equals("-")) cfg.asrKey = "";
+        else if (!ak.isBlank()) cfg.asrKey = ak.trim();
         cfg.save();
         System.out.println("已保存到 " + cfg.file + "\n下一步：run 常驻；pair 拿配对串，在下令端 join。"
                 + (cfg.lanEnabled() ? "\n首次 run 时 Windows 防火墙会问是否允许 Java 联网：勾「专用网络」。" : ""));
@@ -133,22 +139,28 @@ public final class Main {
     static void run(Config cfg, boolean console) throws Exception {
         if (!cfg.ready()) { System.out.println("还没设置，先运行 setup"); return; }
         Actions actions = "1".equals(System.getenv("ONESAY_TEST_ACTIONS")) ? new TestActions() : new DesktopActions(cfg);
-        Agent agent = new Agent(cfg, actions, s -> System.out.println("[" + java.time.LocalTime.now().withNano(0) + "] " + s));
+        Consumer<String> log = s -> System.out.println("[" + java.time.LocalTime.now().withNano(0) + "] " + s);
+        Agent agent = new Agent(cfg, actions, log);
         agent.start();
-        Runtime.getRuntime().addShutdownHook(new Thread(agent::stop));
-        if (!console && !GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray(cfg, agent);
+        Voice voice = new Voice(cfg, actions, log);
+        voice.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); }));
+        if (!console && !GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray(cfg, agent, voice);
         Thread.currentThread().join();
     }
 
-    static void tray(Config cfg, Agent agent) throws Exception {
+    static void tray(Config cfg, Agent agent, Voice voice) throws Exception {
         PopupMenu menu = new PopupMenu();
         MenuItem st = new MenuItem("OneSay：" + agent.status);
         st.setEnabled(false);
+        MenuItem vs = new MenuItem("说话：" + voice.status);
+        vs.setEnabled(false);
         MenuItem copy = new MenuItem("复制配对串");
         copy.addActionListener(e -> java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(cfg.pairingString()), null));
         MenuItem quit = new MenuItem("退出");
         quit.addActionListener(e -> { agent.stop(); System.exit(0); });
         menu.add(st);
+        menu.add(vs);
         menu.addSeparator();
         menu.add(copy);
         menu.add(quit);
@@ -160,6 +172,7 @@ public final class Main {
             while (true) {
                 boolean on = agent.connected();
                 st.setLabel("OneSay：" + agent.status);
+                vs.setLabel("说话：" + voice.status);
                 if (on != last) { icon.setImage(dot(on)); last = on; }
                 try { Thread.sleep(2000); } catch (InterruptedException e) { return; }
             }

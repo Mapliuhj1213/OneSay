@@ -11,9 +11,13 @@ TOKEN=$(sed -n 's/^RELAY_TOKEN=//p' "$RELAY_DIR/.dev.vars")
 pass=0; fail=0
 ok() { if [ "$1" = 0 ]; then pass=$((pass+1)); echo "ok   $2"; else fail=$((fail+1)); echo "FAIL $2"; fi; }
 
-for p in $(pgrep workerd); do kill $p 2>/dev/null; done; sleep 1
+stop_relay() { for p in $(pgrep -f "wrangler-dist/cli.js dev --port 8787") $(pgrep -f "bin/wrangler dev --port 8787"); do kill $p 2>/dev/null; done; sleep 0.5; for p in $(pgrep workerd); do kill $p 2>/dev/null; done; }
+stop_relay; sleep 1
 (cd "$RELAY_DIR" && rm -rf .wrangler/state && npx wrangler dev --port 8787 --ip 127.0.0.1 > "$W/relay.log" 2>&1) &
 RP=$!
+# wrangler 的 node 进程会脱离父进程并在 workerd 被杀后自动重启它（之前「workerd 崩溃重启」的来源），所以先杀 node 再杀 workerd
+cleanup() { kill $RP ${PP:-} ${LPP:-} 2>/dev/null; stop_relay; }
+trap cleanup EXIT INT TERM
 for i in $(seq 1 60); do grep -q "Ready on" "$W/relay.log" 2>/dev/null && curl -s 127.0.0.1:8787/healthz >/dev/null && break; sleep 1; done
 
 # 电脑端配置（不走交互 setup，直接写）
@@ -116,7 +120,7 @@ kill $LPP; sleep 1
 java -jar "$JAR" --config "$W/lancli.properties" send pc-lan ping > "$W/l2" 2>/dev/null
 [ $? = 2 ]; ok $? "局域网：电脑退出后提示离线"
 
-kill $RP 2>/dev/null; for p in $(pgrep workerd); do kill $p 2>/dev/null; done
+kill $RP 2>/dev/null; stop_relay
 echo "通过 $pass，失败 $fail"
 [ -n "${KEEP:-}" ] && echo "W=$W" || rm -rf "$W"
 [ $fail = 0 ]
