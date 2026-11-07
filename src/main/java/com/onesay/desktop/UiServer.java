@@ -69,6 +69,7 @@ public final class UiServer {
                 send(ex, 200, "text/html; charset=utf-8", html.getBytes(StandardCharsets.UTF_8));
                 return;
             }
+            if (path.equals("/favicon.ico")) { send(ex, 200, "image/x-icon", resource("onesay/ui/favicon.ico")); return; }
             if (path.equals("/qr.js")) { send(ex, 200, "text/javascript; charset=utf-8", resource("onesay/ui/qr.js")); return; }
             if (path.equals("/ping")) { send(ex, 200, "text/plain", "onesay".getBytes()); return; }
             if (!path.startsWith("/api/")) { send(ex, 404, "text/plain", "not found".getBytes()); return; }
