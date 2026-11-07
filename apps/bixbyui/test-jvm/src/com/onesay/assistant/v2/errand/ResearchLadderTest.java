@@ -77,6 +77,11 @@ public class ResearchLadderTest {
 
     static final class FakeExternal implements ResearchLadder.External {
         String opened;
+        boolean desktop;
+
+        @Override public boolean openedDesktop() {
+            return desktop;
+        }
 
         @Override public boolean available() {
             return true;
@@ -204,6 +209,38 @@ public class ResearchLadderTest {
         assertEquals("https://a.b/c", DefaultBrowser.checkUrl(" https://a.b/c "));
         assertNull(DefaultBrowser.checkUrl("intent://x#Intent;end"));
         assertNull(DefaultBrowser.checkUrl("javascript:alert(1)"));
+        assertFalse(o.note.contains("桌面版"));
+    }
+
+    /** 只有 Intent 真的带了桌面版参数，文案才说「桌面版」。 */
+    @Test
+    public void browser_note_desktop_only_when_intent_carries_it() {
+        FakeExternal x = new FakeExternal();
+        x.desktop = true;
+        FakeBrowser b = new FakeBrowser(BrowseResult.blocked("https://m.example.com/p", "站点拒绝 WebView"));
+        ResearchLadder.Outcome o = new ResearchLadder(new FakeSearch(), new FakeExtract(), b, x, ECHO).run(ErrandIntent.parse("读一下 example.com/p"), null);
+        assertEquals("已在浏览器（桌面版）打开，请你接着看", o.note);
+    }
+
+    /** 默认浏览器 Intent：标准 extras、可配置桌面参数、选择器 / ResolverActivity 不当默认浏览器。 */
+    @Test
+    public void default_browser_spec() {
+        DefaultBrowser.Spec s = DefaultBrowser.spec(" https://x.com/a ", "org.example.browser", "com.onesay.assistant", "desktop_mode=1;bad key=1;off=0");
+        assertEquals("https://x.com/a", s.url);
+        assertEquals("org.example.browser", s.pkg);
+        assertEquals("com.onesay.assistant", s.extras.get(DefaultBrowser.EXTRA_APP_ID));
+        assertEquals(Boolean.TRUE, s.extras.get(DefaultBrowser.EXTRA_NEW_TAB));
+        assertEquals(Boolean.TRUE, s.extras.get("desktop_mode"));
+        assertEquals(Boolean.FALSE, s.extras.get("off"));
+        assertFalse(s.extras.containsKey("bad key"));
+        assertTrue(s.desktop);
+        assertFalse(DefaultBrowser.spec("https://x.com", null, null, "").desktop);
+        assertNull(DefaultBrowser.spec("file:///sdcard/x", null, null, null));
+        assertNull(DefaultBrowser.defaultPkgFrom("android", "com.android.internal.app.ResolverActivity"));
+        assertNull(DefaultBrowser.defaultPkgFrom("com.x", "com.x.ResolverActivity"));
+        assertEquals("org.example.browser", DefaultBrowser.defaultPkgFrom("org.example.browser", "org.example.browser.Main"));
+        assertTrue(DefaultBrowser.amCommand(s).contains("-p"));
+        assertFalse(DefaultBrowser.amCommand(DefaultBrowser.spec("https://x.com", null, null, null)).contains("-p"));
     }
 
     @Test

@@ -14,7 +14,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * ★ int/1102：厂商唤醒音的 Android 侧——解码已装三星原声（MediaExtractor + MediaCodec；WAV 直接读 PCM），
+ * 唤醒提示音「系统提示音」来源的 Android 侧——用户在控制台从 RingtoneManager 列出的通知音 / 铃声里选一个（pref {@link #K_URI}），
+ * 没选用系统默认通知音；解码（MediaExtractor + MediaCodec；WAV 直接读 PCM），
  * 解码结果缓存在应用私有目录 {@code files/wakecue/}（只存本机解码后的 PCM，不外传、不进 APK）。选来源 / 回退逻辑在 {@link WakeCue}。
  */
 public final class WakeCueLoader {
@@ -22,16 +23,64 @@ public final class WakeCueLoader {
     private static final String TAG = "WakeCue";
     /** 与 WakeTuning 同一个 prefs 文件。 */
     static final String PREF_NAME = "wake_tuning";
+    /** 用户选的系统提示音 uri（空 = 系统默认通知音）。 */
+    public static final String K_URI = "wake_cue_uri";
+
+    /** 候选顺序：用户选的 → 系统默认通知音（纯函数，JVM 可测）。 */
+    public static WakeCue.Candidate[] candidatesFor(String userUri, String defaultUri) {
+        java.util.List<WakeCue.Candidate> l = new java.util.ArrayList<WakeCue.Candidate>();
+        if (userUri != null && userUri.trim().length() > 0) l.add(new WakeCue.Candidate("uri", null, userUri.trim()));
+        if (defaultUri != null && defaultUri.length() > 0 && (userUri == null || !defaultUri.equals(userUri.trim())))
+            l.add(new WakeCue.Candidate("uri", null, defaultUri));
+        return l.toArray(new WakeCue.Candidate[0]);
+    }
+
+    /** 记下用户选的系统提示音并重新解码（后台线程）。 */
+    public static String setUri(Context ctx, String uri) {
+        ctx.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().putString(K_URI, uri == null ? "" : uri).commit();
+        WakeCue.setVendor(null, null);
+        new File(new File(ctx.getFilesDir(), "wakecue"), "vendor.src").delete();
+        return set(ctx, "system");
+    }
+
+    /** 列出手机自带的通知音（标题, uri），给控制台选择。 */
+    public static java.util.List<String[]> listSystemSounds(Context ctx) {
+        java.util.List<String[]> out = new java.util.ArrayList<String[]>();
+        try {
+            android.media.RingtoneManager rm = new android.media.RingtoneManager(ctx);
+            rm.setType(android.media.RingtoneManager.TYPE_NOTIFICATION);
+            android.database.Cursor cur = rm.getCursor();
+            while (cur != null && cur.moveToNext() && out.size() < 200) {
+                out.add(new String[]{cur.getString(android.media.RingtoneManager.TITLE_COLUMN_INDEX),
+                        String.valueOf(rm.getRingtoneUri(cur.getPosition()))});
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "[WAKE-CUE] 列系统提示音失败: " + t.getClass().getSimpleName());
+        }
+        return out;
+    }
+
+    private static void fillCandidates(Context ctx) {
+        String user = ctx.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).getString(K_URI, "");
+        String def = null;
+        try {
+            android.net.Uri d = android.media.RingtoneManager.getActualDefaultRingtoneUri(ctx, android.media.RingtoneManager.TYPE_NOTIFICATION);
+            if (d == null) d = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION);
+            def = d == null ? null : d.toString();
+        } catch (Throwable ignored) {
+        }
+        WakeCue.setCandidates(candidatesFor(user, def));
+    }
 
     private WakeCueLoader() {}
 
-    /** 后台线程调用：读 pref，按需加载厂商原声，打一行 [WAKE-CUE]。 */
+    /** 后台线程调用：读 pref，按需加载系统提示音，打一行 [WAKE-CUE]。 */
     public static void init(final Context ctx) {
         if (ctx == null) return;
         try {
             String v = ctx.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).getString(WakeCue.K_WAKE_CUE, "a");
             WakeCue.setPref(WakeCue.parse(v));
-            if (WakeCue.pref() == WakeCue.Source.VENDOR && WakeCue.vendorFrom() == null) load(ctx);
+            if (WakeCue.pref() == WakeCue.Source.SYSTEM && WakeCue.vendorFrom() == null) load(ctx);
             Log.i(TAG, "[WAKE-CUE] " + WakeCue.describe());
         } catch (Throwable t) {
             Log.w(TAG, "[WAKE-CUE] 初始化异常，用方案 A: " + t.getMessage());
@@ -43,14 +92,15 @@ public final class WakeCueLoader {
         WakeCue.Source s = WakeCue.parse(v);
         ctx.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().putString(WakeCue.K_WAKE_CUE, WakeCue.key(s)).commit();
         WakeCue.setPref(s);
-        if (s == WakeCue.Source.VENDOR && WakeCue.vendorFrom() == null) load(ctx);
+        if (s == WakeCue.Source.SYSTEM && WakeCue.vendorFrom() == null) load(ctx);
         String d = WakeCue.describe();
         Log.i(TAG, "[WAKE-CUE] 设为 " + d);
         return d;
     }
 
     static void load(final Context ctx) {
-        if (WakeCue.VENDOR_CANDIDATES.length == 0) return;   // 开源版：只用 App 自带提示音
+        fillCandidates(ctx);
+        if (WakeCue.candidates().length == 0) return;
         final File dir = new File(ctx.getFilesDir(), "wakecue");
         final File pcmF = new File(dir, "vendor.pcm"), srcF = new File(dir, "vendor.src");
         // 缓存：同一出处的文件 / 包还在就直接用
@@ -73,7 +123,7 @@ public final class WakeCueLoader {
             }
         });
         if (used == null) {
-            Log.i(TAG, "[WAKE-CUE] 没找到厂商唤醒原声（候选 " + java.util.Arrays.toString(WakeCue.VENDOR_CANDIDATES) + "），退回方案 A");
+            Log.i(TAG, "[WAKE-CUE] 系统提示音不可用（候选 " + WakeCue.candidates().length + " 个），退回方案 A");
             return;
         }
         try {
@@ -95,6 +145,10 @@ public final class WakeCueLoader {
     private static boolean stillThere(Context ctx, String src) {
         if (src == null || src.length() == 0) return false;
         if (src.startsWith("/")) return new File(src).canRead();
+        if (src.startsWith("content:") || src.startsWith("file:")) {
+            for (WakeCue.Candidate c : WakeCue.candidates()) if (src.equals(c.name)) return true;   // 还是当前选择
+            return false;
+        }
         int i = src.indexOf("/raw/");
         if (i <= 0) return false;
         try {
@@ -108,6 +162,7 @@ public final class WakeCueLoader {
     static WakeCue.Decoded decodeCandidate(Context ctx, WakeCue.Candidate c) {
         AssetFileDescriptor afd = null;
         try {
+            if ("uri".equals(c.kind)) return decodeUri(ctx, android.net.Uri.parse(c.name));
             if ("file".equals(c.kind)) {
                 File f = new File(c.name);
                 if (!f.canRead()) return null;
@@ -119,7 +174,7 @@ public final class WakeCueLoader {
             if (id == 0) return null;
             afd = pc.getResources().openRawResourceFd(id);
             if (afd == null) return null;
-            // WAV（toneplay_bos / voice_bos）：先试直接读 RIFF
+            // WAV：先试直接读 RIFF
             java.io.InputStream is = pc.getResources().openRawResource(id);
             byte[] head = new byte[12];
             int n = is.read(head);
@@ -139,6 +194,16 @@ public final class WakeCueLoader {
             return null;
         } finally {
             if (afd != null) try { afd.close(); } catch (Throwable ignored) {}
+        }
+    }
+
+    private static WakeCue.Decoded decodeUri(Context ctx, android.net.Uri u) throws Exception {
+        android.content.res.AssetFileDescriptor fd = ctx.getContentResolver().openAssetFileDescriptor(u, "r");
+        if (fd == null) return null;
+        try {
+            return decodeWith(null, fd);
+        } finally {
+            try { fd.close(); } catch (Throwable ignored) {}
         }
     }
 

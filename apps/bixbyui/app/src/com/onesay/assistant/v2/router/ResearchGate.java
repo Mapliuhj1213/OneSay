@@ -48,7 +48,7 @@ public final class ResearchGate {
 
     private static final String[] SHOP_IRRELEVANT = {
             "settings.brightness", "settings.autobrightness", "volume.", "torch.", "settings.rotation", "settings.screentimeout",
-            "settings.aod", "settings.edge_lighting", "settings.haptic", "settings.autotime", "settings.smartcapture",
+            "settings.aod", "settings.ambient", "settings.haptic", "settings.autotime",
             "connectivity.", "battery.saver", "alarm.", "clock.", "sys.reboot", "sys.poweroff", "sys.wipe", "notes.new",
     };
 

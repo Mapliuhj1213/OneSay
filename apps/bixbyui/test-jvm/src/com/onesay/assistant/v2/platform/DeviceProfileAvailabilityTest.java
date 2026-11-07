@@ -5,28 +5,26 @@ import static org.junit.Assert.*;
 import org.junit.Test;
 
 /**
- * refactor/oss：Note 8 画像（root 可用、三星、Bixby 键、Android 8.0 / 9）下现有功能全部可用、默认值不变；
- * 缺能力（无 root / 非三星 / 无 Bixby 键，如魅族 21 Pro）时置灰并给出原因与无 root 替代；「未确认」不置灰。
+ * refactor/oss：已 root 的旧机画像（Android 8.0 / 9，能力齐全）下现有功能全部可用、默认值不变；
+ * 缺能力（无 root、无障碍没开，如一台未 root 的 Android 14 手机）时置灰并给出原因与无 root 替代；「未确认」不置灰。
  */
 public class DeviceProfileAvailabilityTest {
 
     static DeviceProfile note8(int sdk) {
-        DeviceProfile.Builder b = new DeviceProfile.Builder().manufacturer("samsung").brand("samsung").model("SM-N950N")
+        DeviceProfile.Builder b = new DeviceProfile.Builder().manufacturer("Generic").brand("generic").model("Phone-8")
                 .sdkInt(sdk).abi("arm64-v8a").probedAtMs(1L);
-        for (DeviceCap c : new DeviceCap[]{DeviceCap.ROOT, DeviceCap.EXEC_DAEMON, DeviceCap.KEY_DAEMON, DeviceCap.BIXBY_KEY,
-                DeviceCap.SAMSUNG_BROWSER, DeviceCap.SAMSUNG_CLOCK, DeviceCap.GALAXY_STORE, DeviceCap.BIXBY_SYSTEM,
+        for (DeviceCap c : new DeviceCap[]{DeviceCap.ROOT, DeviceCap.EXEC_DAEMON,
                 DeviceCap.MIC, DeviceCap.OVERLAY, DeviceCap.NOTIFICATION_LISTENER, DeviceCap.DEFAULT_ASSISTANT,
                 DeviceCap.ACCESSIBILITY}) b.set(c, Tri.YES);
         b.set(DeviceCap.SHIZUKU, Tri.NO);
         return b.deriveStatic().build();
     }
 
-    /** 魅族 21 Pro 式画像：骁龙 8 Gen 3、Android 14、没 root、没 Bixby 键、没三星应用。 */
+    /** 魅族 21 Pro 式画像：Android 14、没 root、无障碍没开。 */
     static DeviceProfile meizuNoRoot() {
         DeviceProfile.Builder b = new DeviceProfile.Builder().manufacturer("Meizu").brand("meizu").model("MEIZU 21 Pro")
                 .sdkInt(34).abi("arm64-v8a");
-        for (DeviceCap c : new DeviceCap[]{DeviceCap.ROOT, DeviceCap.EXEC_DAEMON, DeviceCap.KEY_DAEMON, DeviceCap.BIXBY_KEY,
-                DeviceCap.SAMSUNG_BROWSER, DeviceCap.SAMSUNG_CLOCK, DeviceCap.GALAXY_STORE, DeviceCap.BIXBY_SYSTEM,
+        for (DeviceCap c : new DeviceCap[]{DeviceCap.ROOT, DeviceCap.EXEC_DAEMON,
                 DeviceCap.SHIZUKU, DeviceCap.ACCESSIBILITY, DeviceCap.DEFAULT_ASSISTANT}) b.set(c, Tri.NO);
         for (DeviceCap c : new DeviceCap[]{DeviceCap.MIC, DeviceCap.OVERLAY, DeviceCap.NOTIFICATION_LISTENER}) b.set(c, Tri.YES);
         return b.deriveStatic().build();
@@ -35,8 +33,6 @@ public class DeviceProfileAvailabilityTest {
     @Test public void note8AllShippedFeaturesAvailable() {
         for (int sdk : new int[]{26, 28}) {
             DeviceProfile p = note8(sdk);
-            assertTrue(p.isSamsung());
-            assertEquals(Tri.YES, p.get(DeviceCap.SAMSUNG));
             assertEquals(Tri.YES, p.get(DeviceCap.API_26));
             assertEquals(Tri.NO, p.get(DeviceCap.API_30));
             assertEquals(Tri.YES, p.get(DeviceCap.ARM64));
@@ -46,7 +42,7 @@ public class DeviceProfileAvailabilityTest {
                     assertFalse(f.id, a.switchEnabled());
                     continue;
                 }
-                assertEquals("Note 8 API " + sdk + " 上应可用：" + f.id, FeatureAvailability.State.AVAILABLE, a.state);
+                assertEquals("root 旧机 API " + sdk + " 上应可用：" + f.id, FeatureAvailability.State.AVAILABLE, a.state);
                 assertTrue(f.id, a.switchEnabled());
                 assertNull(f.id, a.reason());
             }
@@ -55,8 +51,8 @@ public class DeviceProfileAvailabilityTest {
 
     @Test public void note8ExistingDefaultsAllOn() {
         // 能力页只登记：有开关的现有功能默认值全部仍是「开」
-        for (FeatureSpec f : FeatureRegistry.all()) if (f.hasSwitch() && !"errand.samsung".equals(f.id)) assertTrue("默认值变了：" + f.id, f.def);
-        assertFalse("OneSay：三星浏览器适配默认关", FeatureRegistry.get("errand.samsung").def);
+        for (FeatureSpec f : FeatureRegistry.all()) if (f.hasSwitch() && !"errand.browser".equals(f.id)) assertTrue("默认值变了：" + f.id, f.def);
+        assertFalse("浏览器兜底档默认关", FeatureRegistry.get("errand.browser").def);
     }
 
     @Test public void note8MissingGrantDoesNotGreyOut() {
@@ -85,12 +81,11 @@ public class DeviceProfileAvailabilityTest {
     @Test public void missingCapsGreyOutWithReasonAndAlternative() {
         DeviceProfile p = meizuNoRoot();
         assertTrue(p.isMeizu());
-        assertFalse(p.isSamsung());
-        FeatureAvailability key = FeatureAvailability.evaluate(FeatureRegistry.get("wake.bixby_key"), p);
-        assertEquals(FeatureAvailability.State.UNAVAILABLE, key.state);
-        assertFalse(key.switchEnabled());
-        assertTrue(key.reason().contains("需要 root"));
-        assertTrue(key.reason().contains("Bixby 键"));
+        FeatureAvailability key = FeatureAvailability.evaluate(FeatureRegistry.get("wake.key"), p);
+        assertNotEquals("无障碍没开：按键唤醒不算可用", FeatureAvailability.State.AVAILABLE, key.state);
+        assertNotNull(key.reason());
+        FeatureAvailability exec = FeatureAvailability.evaluate(FeatureRegistry.get("exec.system"), p);
+        assertTrue(exec.reason().contains("需要 root"));
         FeatureAvailability screen = FeatureAvailability.evaluate(FeatureRegistry.get("screen.ref"), p);
         assertFalse(screen.switchEnabled());
         assertTrue(screen.reason().contains("需要 root"));
@@ -145,8 +140,8 @@ public class DeviceProfileAvailabilityTest {
     }
 
     @Test public void deriveStaticDoesNotOverride() {
-        DeviceProfile p = new DeviceProfile.Builder().manufacturer("samsung").sdkInt(0).set(DeviceCap.SAMSUNG, Tri.NO).deriveStatic().build();
-        assertEquals(Tri.NO, p.get(DeviceCap.SAMSUNG));
+        DeviceProfile p = new DeviceProfile.Builder().manufacturer("Generic").sdkInt(0).set(DeviceCap.API_26, Tri.NO).deriveStatic().build();
+        assertEquals(Tri.NO, p.get(DeviceCap.API_26));
         assertEquals("sdk 未知时不推版本能力", Tri.UNKNOWN, p.get(DeviceCap.API_26));
     }
 
@@ -169,23 +164,12 @@ public class DeviceProfileAvailabilityTest {
             DeviceProfile p = b.deriveStatic().build();
             assertEquals(Tri.YES, p.get(DeviceCap.API_30));
             assertEquals(Tri.YES, p.get(DeviceCap.API_34));
-            assertEquals(Tri.NO, p.get(DeviceCap.SAMSUNG));
             assertEquals(FeatureAvailability.State.AVAILABLE, FeatureAvailability.evaluate(FeatureRegistry.get("wake.kws"), p).state);
             assertTrue(FeatureAvailability.evaluate(FeatureRegistry.get("island"), p).switchEnabled());
             assertFalse(FeatureAvailability.evaluate(FeatureRegistry.get("screen.ref"), p).switchEnabled());
         }
         DeviceProfile n8 = note8(28);
         assertEquals(Tri.NO, n8.get(DeviceCap.API_34));
-    }
-
-    @Test public void vendorServices() {
-        assertSame(VendorServices.SAMSUNG, VendorServices.forDevice("samsung", null));
-        assertSame(VendorServices.MEIZU, VendorServices.forDevice(null, "Meizu "));
-        assertSame(VendorServices.GENERIC, VendorServices.forProfile(null));
-        assertEquals("market://search?q=abc", VendorServices.GENERIC.storeSearchUri("abc"));
-        assertEquals("samsungapps://SearchResult/abc", VendorServices.SAMSUNG.storeSearchUri("abc"));
-        assertTrue(VendorServices.SAMSUNG.mayHaveBixbyKey);
-        assertFalse(VendorServices.MEIZU.mayHaveBixbyKey);
     }
 
     @Test public void rootOpsDaemonDelegates() {

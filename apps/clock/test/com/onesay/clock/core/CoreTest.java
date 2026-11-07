@@ -201,10 +201,11 @@ public class CoreTest {
     }
 
     static void haptics() {
-        // 0.1.3：默认映射 = 本机三星时钟 7.0.92.4 实测做法
+        // 默认映射：老式系统时钟的触感分布，用标准 VibrationEffect 实现
         HapticMap.Act g = HapticMap.active(HapticMap.Ev.SLIDE_GRAB), tr = HapticMap.active(HapticMap.Ev.SLIDE_TRIGGER);
-        ok("hap 滑动按住 semVibrate(50025)", g.kind == HapticMap.Kind.SEM_VIBRATE && g.code == 50025 && g.fallback == 1);
-        ok("hap 滑动触发 semVibrate(50025)", tr.kind == HapticMap.Kind.SEM_VIBRATE && tr.code == 50025);
+        ok("hap 滑动按住 = 点击振动", g.kind == HapticMap.Kind.VIBRATE && g.code == HapticMap.VIB_CLICK && g.fallback == 1);
+        ok("hap 滑动触发 = 点击振动", tr.kind == HapticMap.Kind.VIBRATE && tr.code == HapticMap.VIB_CLICK);
+        ok("hap 点击振动 12 ms 满幅", HapticMap.oneShotMs(HapticMap.VIB_CLICK) == 12 && HapticMap.amplitude(HapticMap.VIB_CLICK) == 255);
         HapticMap.Act tk = HapticMap.active(HapticMap.Ev.TIME_TICK);
         ok("hap 滚轮每格 playSoundEffect(105)", tk.kind == HapticMap.Kind.SOUND_EFFECT && tk.code == 105);
         eq("hap 长按交给框架", HapticMap.Kind.FRAMEWORK, HapticMap.active(HapticMap.Ev.LONG_PRESS).kind);
@@ -214,12 +215,6 @@ public class CoreTest {
         ok("hap 触摸时振动=1 → 滑动振", HapticMap.allowed(g, 1));
         ok("hap 滚轮音效由系统触摸音管", HapticMap.allowed(tk, 0));
         ok("hap NONE/FRAMEWORK 永不由 App 发", !HapticMap.allowed(HapticMap.active(HapticMap.Ev.SWITCH_TOGGLE), 1) && !HapticMap.allowed(HapticMap.active(HapticMap.Ev.LONG_PRESS), 1));
-        // 新版对照表（不启用；Android 8 没有 semGetVibrationIndex）
-        eq("hap 新版开关 27", 27, HapticMap.neu(HapticMap.Ev.SWITCH_TOGGLE).code);
-        eq("hap 新版滚轮 32", 32, HapticMap.neu(HapticMap.Ev.TIME_TICK).code);
-        eq("hap 新版贪睡 40", 40, HapticMap.neu(HapticMap.Ev.SNOOZE_STEP).code);
-        eq("hap 新版滑动 43", 43, HapticMap.neu(HapticMap.Ev.SLIDE_GRAB).code);
-        ok("hap 新版 SEM_INDEX 在本机不发", !HapticMap.allowed(HapticMap.neu(HapticMap.Ev.SWITCH_TOGGLE), 1));
     }
 
     static void ringPlan() {

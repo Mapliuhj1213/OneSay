@@ -1474,6 +1474,7 @@ public class WakeService extends Service {
         if (!sRunning) {
             sRunning = true;
             mAbort = false;
+            startKeyTriggerWatcher();
             // 预先拉起 FloatingSheetService，确保其随进程常驻（getInstance 不返回 null）
             try {
                 Intent fsIntent = new Intent(this, FloatingSheetService.class);
@@ -1553,6 +1554,40 @@ public class WakeService extends Service {
                 }
             }
         });
+    }
+
+    /**
+     * 按键唤醒的可选精确路径（触发方式 = 原始按键事件）：root / Shizuku 跑 tools/kdaemon/key_daemon.sh，读 getevent，
+     * 每次按下目标键写 files/key.trigger（{@link KeyTrigger}）。这里只在入口打开、触发方式选了原始按键事件时监听，
+     * 两次按下落在时间窗内 = 双击 → 按设置的动作唤起。
+     */
+    private void startKeyTriggerWatcher() {
+        if (!com.onesay.assistant.v2.entry.Entries.canFire(this, com.onesay.assistant.v2.entry.BuiltinEntries.KEY_WAKE)
+                || com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.trigger(this) != com.onesay.assistant.v2.entry.keywake.KeyWake.Trigger.RAW_INPUT) {
+            return;
+        }
+        final File dir = getFilesDir();
+        final File triggerFile = new File(dir, "key.trigger");
+        final com.onesay.assistant.v2.entry.keywake.DoubleTap tap =
+                new com.onesay.assistant.v2.entry.keywake.DoubleTap(com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.windowMs(this));
+        mTriggerObserver = new FileObserver(dir.getAbsolutePath(), FileObserver.CLOSE_WRITE | FileObserver.MOVED_TO) {
+            @Override
+            public void onEvent(int event, String path) {
+                if (!"key.trigger".equals(path)) return;
+                if (!com.onesay.plugin.api.entry.EntryRegistry.canFire(com.onesay.assistant.v2.entry.BuiltinEntries.KEY_WAKE)) return;
+                KeyTrigger kt = KeyTrigger.parse(readSmall(triggerFile));
+                if (kt.kind != KeyTrigger.Kind.PRESS) return;
+                long t = kt.ms > 0 ? kt.ms : SystemClock.elapsedRealtime();
+                if (tap.onPress(t)) {
+                    com.onesay.assistant.v2.entry.keywake.KeyWake.Action a = com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.action(WakeService.this);
+                    Log.i(TAG, "[KEY] 原始按键双击 → " + a.label);
+                    com.onesay.assistant.v2.entry.Entries.fire(WakeService.this, com.onesay.assistant.v2.entry.BuiltinEntries.KEY_WAKE,
+                            com.onesay.assistant.v2.entry.keywake.KeyWake.modeFor(a));
+                }
+            }
+        };
+        mTriggerObserver.startWatching();
+        Log.i(TAG, "按键唤醒（原始按键事件）监听已启动");
     }
 
     /**

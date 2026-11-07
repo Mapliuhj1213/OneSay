@@ -84,12 +84,17 @@ public final class Entries {
         ensureInit(ctx);
         EntryRegistry.setEnabled(id, on);
         EntryRegistry.apply();
+        if (BuiltinEntries.KEY_WAKE.equals(id)) com.onesay.assistant.v2.a11y.A11yBackend.refreshKeyWake();
     }
 
     static void doSummon(Context app, String source, EntryTrigger.Mode mode) {
         try {
             if (mode == EntryTrigger.Mode.TEXT) {
                 FloatingSheetService.show(app, null);
+                return;
+            }
+            if (mode == EntryTrigger.Mode.SCREEN) {
+                FloatingSheetService.show(app, com.onesay.assistant.v2.entry.keywake.KeyWake.SCREEN_COMMAND);   // 识屏：读当前屏幕并回答
                 return;
             }
             Intent i = new Intent(app, WakeService.class);

@@ -16,8 +16,8 @@ import org.junit.Test;
 
 /**
  * [roles] 安装链（2026-10-10 去应用宝，按国内 / 国外分流）：每条分支一个用例。
- * cn → 三星商店 / market://；intl → 通则 Play，不通 + 无 VPN → 自动代理 App复测，不通 + 已有 VPN → 只给芯片，
- * 代理 App没装 / 复测仍不通 → 退三星商店并说明。
+ * cn → market://（默认应用商店）；intl → 通则 Play，不通 + 无 VPN → 自动代理 App复测，不通 + 已有 VPN → 只给芯片，
+ * 代理 App没装 / 复测仍不通 → 退回默认应用商店并说明。
  */
 public class InstallLinkPlannerTest {
     @org.junit.Before public void vpnApp() { InstallLinkPlanner.setVpnPackage("com.example.vpn"); }
@@ -26,8 +26,6 @@ public class InstallLinkPlannerTest {
 
     static final String DIDI = "com.sdu.didi.psnger";
     static final String UBER = "com.ubercab";
-    static final String GALAXY_URI_DIDI = "samsungapps://ProductDetail/com.sdu.didi.psnger";
-    static final String GALAXY_URI_UBER = "samsungapps://ProductDetail/com.ubercab";
     static final String MARKET_UBER = "market://details?id=com.ubercab";
 
     /** 脚本化假环境：connectivity 按队列依次返回（队列空 = 最后一个值），时钟由 sleepMs 推进。 */
@@ -87,24 +85,27 @@ public class InstallLinkPlannerTest {
     }
 
     static Net phone() {
-        return new Net().install(InstallLinkPlanner.GALAXY_PKG, InstallLinkPlanner.PLAY_PKG, "com.example.vpn");
+        Net n = new Net().install(InstallLinkPlanner.PLAY_PKG, "com.example.vpn");
+        n.resolvable.add("market://details?id=" + DIDI);
+        n.resolvable.add(MARKET_UBER);
+        return n;
     }
 
     // ---------------------------------------------------------------- 国内
 
-    @Test public void cnGalaxy() {
+    @Test public void cnDefaultStore() {
         Net n = phone();
         InstallLinkPlanner.Decision d = InstallLinkPlanner.decide(DIDI, InstallLinkPlanner.Region.CN, n);
         assertEquals(InstallLinkPlanner.Step.OPEN, d.step);
-        assertEquals(InstallLinkPlanner.Kind.GALAXY, d.link.kind);
-        assertEquals(GALAXY_URI_DIDI, d.link.uri);
-        assertEquals(InstallLinkPlanner.GALAXY_PKG, d.link.viaPkg);
+        assertEquals(InstallLinkPlanner.Kind.MARKET, d.link.kind);
+        assertEquals("market://details?id=" + DIDI, d.link.uri);
+        assertNull("不指定商店，交给默认应用商店", d.link.viaPkg);
         assertNull(d.note);
         assertEquals("国内不联网", 0, n.probes);
         assertTrue("国内绝不启动代理 App", n.launched.isEmpty());
     }
 
-    @Test public void cnNoGalaxyMarket() {
+    @Test public void cnMarketOnly() {
         Net n = new Net();
         n.resolvable.add("market://details?id=" + DIDI);
         InstallLinkPlanner.Decision d = InstallLinkPlanner.decide(DIDI, InstallLinkPlanner.Region.CN, n);
@@ -147,7 +148,7 @@ public class InstallLinkPlannerTest {
     }
 
     @Test public void intlOkNoPlayPlainMarket() {
-        Net n = new Net().install(InstallLinkPlanner.GALAXY_PKG).conn(true);
+        Net n = new Net().conn(true);
         n.resolvable.add(MARKET_UBER);
         InstallLinkPlanner.Decision d = InstallLinkPlanner.decide(UBER, InstallLinkPlanner.Region.INTL, n);
         assertEquals(InstallLinkPlanner.Kind.MARKET, d.link.kind);
@@ -170,19 +171,20 @@ public class InstallLinkPlannerTest {
         Net n = phone().conn(false);
         InstallLinkPlanner.Decision d = InstallLinkPlanner.decide(UBER, InstallLinkPlanner.Region.INTL, n);
         assertEquals(InstallLinkPlanner.Step.OPEN, d.step);
-        assertEquals(InstallLinkPlanner.Kind.GALAXY, d.link.kind);
-        assertEquals(GALAXY_URI_UBER, d.link.uri);
-        assertEquals(InstallLinkPlanner.NOTE_FALLBACK, d.note);
+        assertEquals(InstallLinkPlanner.Kind.MARKET, d.link.kind);
+        assertEquals(MARKET_UBER, d.link.uri);
+        assertEquals(InstallLinkPlanner.NOTE_FALLBACK_MARKET, d.note);
         assertEquals(1, n.launched.size());
         assertTrue("最多约 10 秒", n.now <= InstallLinkPlanner.POLL_MAX_MS + InstallLinkPlanner.POLL_INTERVAL_MS + 400);
         assertTrue("至少复测到 10 秒", n.now >= InstallLinkPlanner.POLL_MAX_MS);
     }
 
     @Test public void intlFailNoVpnNoBaicaiyun() {
-        Net n = new Net().install(InstallLinkPlanner.GALAXY_PKG, InstallLinkPlanner.PLAY_PKG).conn(false);
+        Net n = new Net().install(InstallLinkPlanner.PLAY_PKG).conn(false);
+        n.resolvable.add(MARKET_UBER);
         InstallLinkPlanner.Decision d = InstallLinkPlanner.decide(UBER, InstallLinkPlanner.Region.INTL, n);
-        assertEquals(InstallLinkPlanner.Kind.GALAXY, d.link.kind);
-        assertEquals(InstallLinkPlanner.NOTE_FALLBACK, d.note);
+        assertEquals(InstallLinkPlanner.Kind.MARKET, d.link.kind);
+        assertEquals(InstallLinkPlanner.NOTE_FALLBACK_MARKET, d.note);
         assertTrue(n.launched.isEmpty());
     }
 
@@ -190,12 +192,12 @@ public class InstallLinkPlannerTest {
         Net n = phone().conn(false);
         n.launchOk = false;
         InstallLinkPlanner.Decision d = InstallLinkPlanner.decide(UBER, InstallLinkPlanner.Region.INTL, n);
-        assertEquals(InstallLinkPlanner.Kind.GALAXY, d.link.kind);
-        assertEquals(InstallLinkPlanner.NOTE_FALLBACK, d.note);
+        assertEquals(InstallLinkPlanner.Kind.MARKET, d.link.kind);
+        assertEquals(InstallLinkPlanner.NOTE_FALLBACK_MARKET, d.note);
         assertEquals("启动失败不复测", 1, n.probes);
     }
 
-    @Test public void intlFailFallbackNoGalaxy() {
+    @Test public void intlFailFallbackMarket() {
         Net n = new Net().install(InstallLinkPlanner.PLAY_PKG).conn(false);
         n.resolvable.add(MARKET_UBER);
         InstallLinkPlanner.Decision d = InstallLinkPlanner.decide(UBER, InstallLinkPlanner.Region.INTL, n);
@@ -211,7 +213,7 @@ public class InstallLinkPlannerTest {
         n.vpn = Boolean.TRUE;
         InstallLinkPlanner.Decision d = InstallLinkPlanner.decide(UBER, InstallLinkPlanner.Region.INTL, n);
         assertEquals(InstallLinkPlanner.Step.OFFER_VPN_CHIP, d.step);
-        assertEquals("芯片旁的备选 = 三星商店", InstallLinkPlanner.Kind.GALAXY, d.link.kind);
+        assertEquals("芯片旁的备选 = 默认应用商店", InstallLinkPlanner.Kind.MARKET, d.link.kind);
         assertEquals(InstallLinkPlanner.NOTE_VPN_BUSY, d.note);
         assertTrue("已有 VPN 绝不自动启动代理 App", n.launched.isEmpty());
         assertEquals(1, n.probes);
@@ -227,12 +229,13 @@ public class InstallLinkPlannerTest {
     }
 
     @Test public void intlFailVpnActiveNoBaicaiyunFallsBack() {
-        Net n = new Net().install(InstallLinkPlanner.GALAXY_PKG, InstallLinkPlanner.PLAY_PKG).conn(false);
+        Net n = new Net().install(InstallLinkPlanner.PLAY_PKG).conn(false);
+        n.resolvable.add(MARKET_UBER);
         n.vpn = Boolean.TRUE;
         InstallLinkPlanner.Decision d = InstallLinkPlanner.decide(UBER, InstallLinkPlanner.Region.INTL, n);
         assertEquals("没装代理 App就不给芯片", InstallLinkPlanner.Step.OPEN, d.step);
-        assertEquals(InstallLinkPlanner.Kind.GALAXY, d.link.kind);
-        assertEquals(InstallLinkPlanner.NOTE_FALLBACK, d.note);
+        assertEquals(InstallLinkPlanner.Kind.MARKET, d.link.kind);
+        assertEquals(InstallLinkPlanner.NOTE_FALLBACK_MARKET, d.note);
     }
 
     @Test public void intlOkWithVpnStillPlay() {
@@ -252,8 +255,8 @@ public class InstallLinkPlannerTest {
     @Test public void chipTapStillNoNetFallsBack() {
         Net n = phone().conn(false);
         InstallLinkPlanner.Decision d = InstallLinkPlanner.afterVpnChip(UBER, n);
-        assertEquals(InstallLinkPlanner.Kind.GALAXY, d.link.kind);
-        assertEquals(InstallLinkPlanner.NOTE_FALLBACK, d.note);
+        assertEquals(InstallLinkPlanner.Kind.MARKET, d.link.kind);
+        assertEquals(InstallLinkPlanner.NOTE_FALLBACK_MARKET, d.note);
     }
 
     // ---------------------------------------------------------------- 输入校验 / 区域
@@ -264,7 +267,7 @@ public class InstallLinkPlannerTest {
             assertNull(InstallLinkPlanner.decide(bad, InstallLinkPlanner.Region.INTL, n));
             assertNull(InstallLinkPlanner.decide(bad, InstallLinkPlanner.Region.CN, n));
             assertNull(InstallLinkPlanner.afterVpnChip(bad, n));
-            assertNull(InstallLinkPlanner.galaxyOrMarket(bad, n));
+            assertNull(InstallLinkPlanner.defaultMarket(bad, n));
             assertNull(InstallLinkPlanner.play(bad, n));
         }
         assertTrue("非法包名不联网、不启动", n.probes == 0 && n.launched.isEmpty());

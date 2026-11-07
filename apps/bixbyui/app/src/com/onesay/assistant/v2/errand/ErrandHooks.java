@@ -33,7 +33,7 @@ import java.util.Map;
  * <pre>
  *   「帮我调研一下 X」→ route 接管（errand.run，不进 AgentLoop）→ dispatch：
  *     卡片收进灵动岛（s1DetachForCapsule）→ 岛上后台活动「跑腿：X」逐步显示进度（可「停止」）
- *     → 升级链 {@link ResearchLadder}：Tavily search → extract → WebView → 三星浏览器
+ *     → 升级链 {@link ResearchLadder}：Tavily search → extract → WebView → 默认浏览器
  *     → 收工：结论写进卡片（不挂回），岛上展开结果卡，「查看」= 流回卡片看全文（task-result- 前缀）。
  * </pre>
  * 岛没挂载（island.off）→ 卡片不收，进度和结论都画在卡片上。
@@ -501,15 +501,23 @@ public final class ErrandHooks {
         }
     }
 
-    /** ★ C3-4 浏览器兜底：用默认浏览器（系统解析）只打开链接，不做 GUI 点击。 */
+    /** ★ C3-4 浏览器兜底：用默认浏览器（系统解析）只打开链接，不做 GUI 点击；可配桌面版参数（见 {@link DefaultBrowser}）。 */
     static ResearchLadder.External external(final Context ctx) {
         return new ResearchLadder.External() {
             @Override public boolean available() {
                 return ErrandSettings.BROWSER.on(ctx) && DefaultBrowser.available(ctx);
             }
 
+            private volatile boolean mDesktop;
+
             @Override public boolean open(String url) {
-                return DefaultBrowser.open(ctx, url);
+                DefaultBrowser.Spec sp = DefaultBrowser.launch(ctx, url);
+                mDesktop = sp != null && sp.desktop;
+                return sp != null;
+            }
+
+            @Override public boolean openedDesktop() {
+                return mDesktop;
             }
         };
     }

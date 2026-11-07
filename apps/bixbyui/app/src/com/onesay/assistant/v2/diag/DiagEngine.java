@@ -187,7 +187,7 @@ public final class DiagEngine {
     /** 一个修复在当前快照下的芯片；不适用（键不存在、已经是目标值）返回 null。 */
     public static Chip chip(DiagKnowledge.Fix f, Map<String, String> snap) {
         if (f == null) return null;
-        if (f.kind == DiagKnowledge.FixKind.PAGE) {
+        if (f.kind == DiagKnowledge.FixKind.PAGE || f.kind == DiagKnowledge.FixKind.UI_FIND) {
             return new Chip(f.id, f.label, null, null, f.label);
         }
         String cur = snap != null ? snap.get(f.keyId) : null;
@@ -221,7 +221,7 @@ public final class DiagEngine {
         DiagKnowledge.Key k = DiagKnowledge.key(f.keyId);
         StringBuilder sb = new StringBuilder(f.label);
         sb.append("：").append(k != null ? k.label : "").append(' ').append(before).append(" → ").append(after);
-        if (k != null && k.verify != DiagKnowledge.Verify.AOSP && f.kind == DiagKnowledge.FixKind.SETTING) sb.append("（三星设置项，未在本机核实）");
+        if (k != null && k.verify != DiagKnowledge.Verify.AOSP && f.kind == DiagKnowledge.FixKind.SETTING) sb.append("（未在本机核实的设置项）");
         else if (f.note != null) sb.append("（").append(f.note).append("）");
         if (f.reversible) sb.append("；10 分钟内说「撤销」可改回");
         return sb.toString();

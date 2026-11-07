@@ -375,6 +375,20 @@
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
+        <!-- 无障碍服务「OneSay 读屏与按键唤醒」：读控件树 / 点按（无 root 读屏）、通用设置诊断、按键唤醒（双击电源键 / 长按音量键）。
+             不自动开启、不写系统设置；用户在「设置 › 无障碍」里手动打开才绑定。空壳类名固定（照 Mika 的做法，Apache-2.0）。 -->
+        <service
+            android:name="com.onesay.assistant.v2.a11y.OneSayA11yService"
+            android:exported="true"
+            android:label="@string/onesay_a11y_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/onesay_a11y_service" />
+        </service>
         <!-- DEBUG-ONLY-BEGIN（build_linux.sh / build.sh 在非 DEBUG 构建中删除本段，勿改此标记）-->
         <!-- 自动化回归与测试驱动广播接收器
              · 只打进 debug 包（DEBUG=1）；release 包里没有这个类，也没有这个组件；
@@ -388,20 +402,6 @@
                 <action android:name="com.onesay.assistant.action.RUN_TEST" />
             </intent-filter>
         </receiver>
-        <!-- ★ mika-plug（mika.a11y，B2 可选后端，默认不启用）：无障碍服务只进 debug 包；不自动开启、不写系统设置，
-             用户在「设置 › 无障碍」里手动打开才绑定。空壳类名固定（照 Mika MikaAccessibilityService 的做法）。 -->
-        <service
-            android:name="com.onesay.assistant.v2.a11y.OneSayA11yService"
-            android:exported="true"
-            android:label="OneSay Debug 读屏（B2）"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/onesay_a11y_service" />
-        </service>
         <!-- DEBUG-ONLY-END -->
 
     </application>

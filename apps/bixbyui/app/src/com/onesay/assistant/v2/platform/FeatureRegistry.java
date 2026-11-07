@@ -44,6 +44,11 @@ public final class FeatureRegistry {
                 new DeviceCap[]{MIC, ARM64}, "按键 / 默认助理手势 / 打字", "本地 sherpa-onnx KWS，不需要 root"));
         l.add(FeatureSpec.status("wake.assist", "默认数字助理手势（长按 Home 等）", G_WAKE, FeatureSpec.Status.SHIPPED,
                 new DeviceCap[]{DEFAULT_ASSISTANT}, "按键 / 语音唤醒", "VoiceInteractionService，不需要 root；在系统「默认应用 › 数字助理」里选本 App"));
+        l.add(FeatureSpec.status("wake.key", "按键唤醒（双击电源键 / 长按音量键 → 语音唤起 / 识屏 / 文字面板）", G_WAKE, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{ACCESSIBILITY}, "root / Shizuku 跑 tools/kdaemon/key_daemon.sh 读原始按键事件；或语音唤醒、快捷开关",
+                "托管在 OneSay 无障碍服务里：熄屏 / 亮屏广播对判定双击电源键，按键过滤判定音量键长按；入口默认关"));
+        l.add(FeatureSpec.status("wake.cue", "唤醒提示音（自带 / 手机自带通知音自选）", G_WAKE, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{}, "App 自带提示音", "RingtoneManager 列出系统通知音，运行时解码，不打包"));
         // ---------------------------------------------------------------- 执行与读屏
         l.add(FeatureSpec.status("exec.system", "系统设置类执行（Wi-Fi / 亮度 / 勿扰 / 清后台…）", G_EXEC, FeatureSpec.Status.SHIPPED,
                 new DeviceCap[]{ROOT, EXEC_DAEMON}, ALT_EXEC, "统一执行网关 → root 执行守护（文件 IPC + HMAC）"));
@@ -62,13 +67,18 @@ public final class FeatureRegistry {
                 "bixby_island", "enabled", true, "island.off"));
         l.add(FeatureSpec.toggle("notice", "灵动岛消息提醒", G_DISPLAY, new DeviceCap[]{OVERLAY, NOTIFICATION_LISTENER}, "无",
                 "通知使用权转发到岛上", "bixby_notice", "enabled", true, "notice.off"));
-        l.add(FeatureSpec.status("a11y.backend", "无障碍读屏后端（B2）", G_DISPLAY, FeatureSpec.Status.DEBUG_ONLY,
-                new DeviceCap[]{ACCESSIBILITY}, "root 读屏", "只在 debug 包；无 root 设备读屏的首选替代"));
+        l.add(FeatureSpec.status("a11y.backend", "无障碍读屏后端（读屏 / 代点 / 按键唤醒）", G_DISPLAY, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{ACCESSIBILITY}, "root 读屏", "用户在系统无障碍里手动打开；无 root 设备读屏的首选替代"));
+        l.add(FeatureSpec.status("diag.settings", "设置诊断（读设置页控件树 → 报告 → 确认后代点）", G_EXEC, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{ACCESSIBILITY}, "只给出标准设置页入口，让用户自己看",
+                "标准 Settings.ACTION_* 打开对应页，找不到时用设置搜索；不知道在哪就用已配置的搜索 / 大模型 key 查路径；每次操作前问你"));
+        l.add(FeatureSpec.status("city.home", "家乡 / 所在城市（手动设置 · 系统定位 · 读默认天气 App 屏幕）", G_DISPLAY, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{}, "手动设置常用城市", "不读任何厂商私有数据库"));
+        l.add(FeatureSpec.status("store.default", "装 App：默认应用商店（market://）", G_DISPLAY, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{}, "网页版商店链接", "market://details / market://search，由系统交给默认商店"));
         l.add(FeatureSpec.toggle("errand.browser", "浏览器跑腿：最后用默认浏览器打开", G_DISPLAY, new DeviceCap[]{},
                 "无", "跑腿阶梯的最后一档（默认关）；ACTION_VIEW 交给系统默认浏览器", "bixby_errand", "browser", false, "errand.off", "errand_browser.off"));
         // ---------------------------------------------------------------- 受限未实现
-        l.add(FeatureSpec.notBuilt("wake.other_key", "其他按键唤醒（音量键组合 / 侧键）", new DeviceCap[]{ACCESSIBILITY},
-                "无障碍服务 onKeyEvent 过滤（需 flagRequestFilterKeyEvents）；或 root getevent", "没有 Bixby 键的机型（如魅族 21 Pro）的首选按键入口"));
         l.add(FeatureSpec.notBuilt("wake.floating", "悬浮球唤醒", new DeviceCap[]{OVERLAY},
                 "复用灵动岛的 overlay 窗口加一个可拖动按钮", "无 root、无按键时最稳的入口"));
         l.add(FeatureSpec.notBuilt("exec.shizuku", "Shizuku 执行后端", new DeviceCap[]{SHIZUKU},

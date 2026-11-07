@@ -115,8 +115,7 @@ public class V2SelfTest {
             "system:screen_brightness", "system:accelerometer_rotation", "system:screen_off_timeout",
             // 2026-10-03 新增
             "system:screen_brightness_mode", "system:haptic_feedback_enabled",
-            "global:low_power", "system:aod_mode", "system:edge_lighting",
-            "system:enable_smart_capture"
+            "global:low_power", "secure:doze_always_on", "secure:doze_enabled"
     };
 
     private static volatile boolean sRunning = false;

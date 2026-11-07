@@ -11,11 +11,10 @@ import android.view.View;
 import com.onesay.clock.L;
 import com.onesay.clock.core.HapticMap;
 
-import java.lang.reflect.Method;
 
 /**
  * UI 触感执行器（映射见 core.HapticMap，默认 = 系统通用触感）。
- * 不碰响铃振动：响铃波形 Basic call [0,1500,2000] 由 RingService 自己的 Vibrator 播放；滑动解除按住时的 semVibrate 若打断了它，
+ * 不碰响铃振动：响铃波形 Basic call [0,1500,2000] 由 RingService 自己的 Vibrator 播放；滑动解除按住时的点击振动若打断了它，
  * 松手时 RingService 会重新起波形（REVIB）。
  */
 public final class Haptics {
@@ -36,13 +35,19 @@ public final class Haptics {
                     if (am != null) am.playSoundEffect(a.code);   // 超出范围的音效框架直接忽略
                     return am != null;
                 }
-                case SEM_VIBRATE: {
+                case VIBRATE: {
                     Vibrator vib = (Vibrator) c.getSystemService(Context.VIBRATOR_SERVICE);
-                    if (vib == null || !vib.hasVibrator()) return false;
-                    if (a.fallback >= 0 && v.performHapticFeedback(a.fallback)) return true;
-                    // 都不行：20 ms 短振（Android 8 起有 VibrationEffect）
-                    if (Build.VERSION.SDK_INT >= 26) vib.vibrate(VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE));
-                    else vib.vibrate(20);
+                    if (vib == null || !vib.hasVibrator()) {
+                        return a.fallback >= 0 && v.performHapticFeedback(a.fallback);
+                    }
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        vib.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK));
+                    } else if (Build.VERSION.SDK_INT >= 26) {
+                        int amp = vib.hasAmplitudeControl() ? HapticMap.amplitude(a.code) : VibrationEffect.DEFAULT_AMPLITUDE;
+                        vib.vibrate(VibrationEffect.createOneShot(HapticMap.oneShotMs(a.code), amp));
+                    } else {
+                        vib.vibrate(HapticMap.oneShotMs(a.code));
+                    }
                     return true;
                 }
                 default: return false;

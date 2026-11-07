@@ -126,9 +126,9 @@ public class ToolTiersTest {
     @Test public void mountedSignsFromToolsArray() throws Exception {
         org.json.JSONArray tools = CapabilityRegistry.getInstance().exportToolsSchema(
                 java.util.Arrays.asList(CapabilityRegistry.getInstance().describe("app.launch"),
-                        CapabilityRegistry.getInstance().describe("settings.edge_lighting.on")));
+                        CapabilityRegistry.getInstance().describe("settings.ambient.on")));
         Set<String> m = ToolTiers.mountedSigns(tools);
         assertTrue(m.contains("app.launch"));
-        assertTrue(m.contains("settings.edge_lighting.on"));
+        assertTrue(m.contains("settings.ambient.on"));
     }
 }

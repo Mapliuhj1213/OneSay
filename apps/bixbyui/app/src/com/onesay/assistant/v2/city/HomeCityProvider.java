@@ -16,10 +16,10 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * [lane C 第 2 项] 常用城市（Android 侧）：手动设置 → 三星系统天气城市列表 → 定位反查 → 空（旧行为）。
+ * [lane C 第 2 项] 常用城市（Android 侧）：手动设置 → 默认天气 App 屏幕上的城市（{@link WeatherAppCity}，用户点了才读）→ 定位反查 → 空。
  * 裁决规则见 {@link HomeCityPolicy}。
  *
- * <p>线程：{@link #resolve} 可能走 root IPC 与网络，<b>只能在后台线程调</b>（天气问句检索本来就在后台线程）。
+ * <p>线程：{@link #resolve} 可能走网络，<b>只能在后台线程调</b>（天气问句检索本来就在后台线程）。
  * 结果缓存在 {@code bixby_city}（6 h；什么都没拿到时 30 min 内不重试）。
  *
  * <p>Kill-switch：{@code city.off}（文件存在 = 只用手动设置，和 R15 一样）。
@@ -68,8 +68,9 @@ public final class HomeCityProvider {
                 }
                 return new HomeCityPolicy.Result(cached, src);
             }
-            String sys = "";   // 开源版不读任何厂商天气库：只用手动设置 / 定位
+            String sys = WeatherAppCity.cached(app);   // 默认天气 App 屏幕上读到的城市（用户在控制台触发过才有）
             List<String> list = new ArrayList<String>();
+            if (sys.length() > 0) list.add(sys);
             boolean granted = locationGranted(app);
             String loc = "";
             if (sys.length() == 0 && granted) loc = locationCity(app);

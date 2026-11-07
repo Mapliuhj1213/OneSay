@@ -42,8 +42,6 @@
 #   G3 受控媒体写：mkdir / cp / screencap 到 Pictures/<本包媒体子目录> 或固定截图文件，守护自己执行，
 #      逐级拒符号链接、校验属主 / 设备号 / SELinux 标签与 Pictures 根一致，先写临时名再 rename（不跟随目标处的链接）。
 #   G4 dumpsys nfc、dumpsys account（只许不带参数，后面可接受控过滤器）。
-#   G7 按键守护状态模板（ConsoleStatus.DAEMON_PROBE 原文 或 bixby-status）：守护内建实现，只读固定路径，
-#      只输出 ALIVE|DEAD / MOD|NOMOD / 规范化版本行 / END，不回显任何文件内容。
 #   G8 读别的 App 私有数据（存图缓存层）保持拦截：拒绝码改为明确的 OTHER_APP_DATA(<包名>)，allow_raw 也放不开。
 #
 # 兼容性：
@@ -113,13 +111,8 @@ REVOKED_SIGS=" ${BIXBY_EXEC_REVOKED_SIGS:-} "
 #   两种写法都是守护自己执行（逐级 mkdir、cp/screencap 先写到不可预测的临时名再 rename），见 media_*。
 #   App 侧路径：Environment.getExternalStoragePublicDirectory(PICTURES) = /storage/emulated/0/Pictures；ShellPrograms 用 /sdcard/Pictures。
 MEDIA_ROOTS="/storage/emulated/0/Pictures /sdcard/Pictures"
-# 按键守护状态模板（ConsoleStatus.DAEMON_PROBE）读的固定路径
-HJ_PIDFILE=/data/local/tmp/.bixby_hijack.pid
-HJ_MODDIR=/data/adb/modules/bixbykey_hijack
 if [ -n "${BIXBY_EXEC_DIR:-}" ]; then          # 测试钩子：只在离线 PoC 下可覆盖
   MEDIA_ROOTS=${BIXBY_EXEC_MEDIA_ROOTS:-$MEDIA_ROOTS}
-  HJ_PIDFILE=$BIXBY_EXEC_DIR/hijack.pid
-  HJ_MODDIR=$BIXBY_EXEC_DIR/modules/bixbykey_hijack
 fi
 
 # 离线校验模式：BIXBY_EXEC_CHECK=1 sh exec_daemon.v4.sh '<命令>' [pkg]
@@ -443,8 +436,8 @@ set_prefixes() {
   p=$1; CUR_PKG=$1
   set_media "$1"
   PFX_W="/data/user/0/$p/ /data/data/$p/ /data/local/tmp/$p/ /storage/emulated/0/Android/data/$p/ /sdcard/Android/data/$p/"
-  # 只读：OneSay 时钟的导出文件（BriefDetail 走 cat 读）、三星天气时钟库（HomeCityPolicy）
-  PFX_R="$PFX_W /data/data/com.onesay.clock/files/ /data/data/com.sec.android.daemonapp/databases/WeatherClock /sys/class/leds/torch-sec1/brightness /data/adb/modules/bixbykey_hijack/ /storage/emulated/0/DCIM/ /sdcard/DCIM/ /storage/emulated/0/Pictures/ /sdcard/Pictures/ /storage/emulated/0/Download/ /sdcard/Download/"
+  # 只读：OneSay 时钟的导出文件（BriefDetail 走 cat 读）、相册 / 下载目录
+  PFX_R="$PFX_W /data/data/com.onesay.clock/files/ /storage/emulated/0/DCIM/ /sdcard/DCIM/ /storage/emulated/0/Pictures/ /sdcard/Pictures/ /storage/emulated/0/Download/ /sdcard/Download/"
   if [ -n "${BIXBY_EXEC_DIR:-}" ]; then
     PFX_W="$PFX_W $BIXBY_EXEC_DIR/"
     PFX_R="$PFX_R $BIXBY_EXEC_DIR/"
@@ -575,33 +568,6 @@ media_run() {
   esac
 }
 
-# ---------- v4.1 G7：按键守护状态（只读固定路径，只输出状态字符串） ----------
-# App 侧逐字常量（ConsoleStatus.DAEMON_PROBE）；守护不执行它，只按这份内建实现回答。
-STATUS_PROBE_CMD="a=DEAD; p=\$(cat /data/local/tmp/.bixby_hijack.pid 2>/dev/null); if [ -n \"\$p\" ] && grep -qa hijack_daemon /proc/\$p/cmdline 2>/dev/null; then a=ALIVE; else for d in /proc/[0-9]*; do grep -qa hijack_daemon \$d/cmdline 2>/dev/null && { a=ALIVE; break; }; done; fi; echo \$a; M=/data/adb/modules/bixbykey_hijack; if [ -d \$M ]; then echo MOD; else echo NOMOD; fi; head -n 6 \$M/hijack_daemon.sh 2>/dev/null | grep -m1 'daemon - v' ; echo END"
-status_report() {
-  _a=DEAD; _p=''
-  [ -f "$HJ_PIDFILE" ] && [ ! -L "$HJ_PIDFILE" ] && { IFS= read -r _p < "$HJ_PIDFILE"; } 2>/dev/null   # 内建 read（toybox head 没有 -c）
-  case $_p in ''|*[!0-9]*) _p='' ;; esac
-  if [ -n "$_p" ] && grep -qa hijack_daemon "/proc/$_p/cmdline" 2>/dev/null; then
-    _a=ALIVE
-  else
-    for _d in /proc/[0-9]*; do
-      grep -qa hijack_daemon "$_d/cmdline" 2>/dev/null && { _a=ALIVE; break; }
-    done
-  fi
-  echo "$_a"
-  if [ -d "$HJ_MODDIR" ]; then echo MOD; else echo NOMOD; fi
-  # 版本行只回显规范化后的版本号，绝不回显模块脚本原文
-  _v=$(head -n 6 "$HJ_MODDIR/hijack_daemon.sh" 2>/dev/null | grep -m1 'daemon - v')
-  case $_v in
-    *'daemon - v'*)
-      _v=${_v#*'daemon - v'}; _v=${_v%%[!0-9.]*}
-      case $_v in ''|*[!0-9.]*) _v='' ;; esac
-      [ -n "$_v" ] && echo "hijack daemon - v$_v" ;;
-  esac
-  echo END
-}
-
 is_num() { case $1 in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 is_tok() { case $1 in ''|*[!A-Za-z0-9_.-]*) return 1 ;; *) return 0 ;; esac; }   # 标识符类
 is_nonce() { case $1 in *[!A-Za-z0-9]*) return 1 ;; esac; [ ${#1} -ge 8 ] && [ ${#1} -le 64 ]; }
@@ -613,7 +579,7 @@ is_pkg() { case $1 in ''|*[!A-Za-z0-9_.]*) return 1 ;; *) return 0 ;; esac; }
 SETTINGS_DENY=" enabled_accessibility_services accessibility_enabled touch_exploration_enabled default_input_method enabled_input_methods selected_input_method_subtype adb_enabled adb_wifi_enabled development_settings_enabled install_non_market_apps package_verifier_enable verifier_verify_adb_installs package_verifier_user_consent lockscreen.disabled lock_screen_owner_info lockscreen.password_type device_provisioned user_setup_complete enabled_notification_listeners enabled_notification_policy_access_packages voice_interaction_service assistant sms_default_application dialer_default_application http_proxy global_http_proxy_host global_http_proxy_port always_on_vpn_app always_on_vpn_lockdown "
 # 本通道真实写过的键（DiagKnowledge / caps/* / DiagEngine 回滚，2026-10-25 从仓库收集）。
 # 新加能力要写新键：要么加进这里（随守护版本下发），要么 root 建 $SECDIR/allow_any_setting。
-SETTINGS_ALLOW=" global:airplane_mode_on global:auto_time global:auto_time_zone global:bluetooth_on global:data_roaming global:low_power global:mode_ringer global:wifi_on global:wifi_scan_always_enabled global:wifi_sleep_policy global:zen_mode secure:location_mode secure:location_providers_allowed secure:night_display_activated secure:wake_gesture_enabled system:accelerometer_rotation system:all_sound_off system:aod_mode system:blue_light_filter system:edge_lighting system:enable_smart_capture system:font_scale system:haptic_feedback_enabled system:intelligent_sleep_mode system:motion_pick_up system:screen_brightness system:screen_brightness_mode system:screen_off_pocket system:screen_off_timeout system:user_rotation system:vibrate_when_ringing system:volume_music_speaker system:volume_notification_speaker system:volume_ring_speaker "
+SETTINGS_ALLOW=" global:airplane_mode_on global:auto_time global:auto_time_zone global:bluetooth_on global:data_roaming global:low_power global:mode_ringer global:wifi_on global:wifi_scan_always_enabled global:wifi_sleep_policy global:zen_mode secure:location_mode secure:doze_always_on secure:doze_enabled secure:location_providers_allowed secure:night_display_activated secure:wake_gesture_enabled system:accelerometer_rotation system:font_scale system:haptic_feedback_enabled system:screen_brightness system:screen_brightness_mode system:screen_off_timeout system:user_rotation system:vibrate_when_ringing system:volume_music_speaker system:volume_notification_speaker system:volume_ring_speaker "
 FLAG_ANY_SETTING=$SECDIR/allow_any_setting
 setting_writable() {
   case $SETTINGS_DENY in *" $2 "*) DENY="SETTINGS_KEY_FORBIDDEN($2)"; return 1 ;; esac
@@ -915,12 +881,8 @@ fixed_template() {
     'settings put global airplane_mode_on 0 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false'|\
     'settings put secure location_providers_allowed +gps; settings put secure location_providers_allowed +network'|\
     'settings put secure location_providers_allowed -gps; settings put secure location_providers_allowed -network'|\
-    'echo 1 > /sys/class/leds/torch-sec1/brightness'|\
-    'echo 0 > /sys/class/leds/torch-sec1/brightness'|\
     'reboot'|'reboot -p')   # SystemCaps 重启/关机：App 侧有确认卡；守护侧只放这两种字面量
       FIXED_CMD=$1; FIXED_KIND=sh; return 0 ;;
-    'bixby-status'|"$STATUS_PROBE_CMD")   # v4.1 G7：按键守护状态。不执行请求内容，走内建 status_report
-      FIXED_CMD=bixby-status; FIXED_KIND=status; return 0 ;;
     'bixby-fastscreen-start')   # v4.3：拉起常驻读屏助手（内建实现 fastscreen_start，不执行请求内容）
       FIXED_CMD=bixby-fastscreen-start; FIXED_KIND=fastscreen; return 0 ;;
     'bixby-clear-recents')   # v4.4（fix/triage-fast）：清空后台（内建实现 clear_recents，不执行请求内容、不带参数）
@@ -975,9 +937,7 @@ clear_recents() {
 # run_template <tmp> <res> <odir> <tag> <signed 0|1>：执行 FIXED_CMD / FIXED_KIND（在子 shell 里调用）
 run_template() {
   t0=$(date '+%s')
-  if [ "$FIXED_KIND" = status ]; then
-    out=$(status_report 2>&1); rc=$?
-  elif [ "$FIXED_KIND" = fastscreen ]; then
+  if [ "$FIXED_KIND" = fastscreen ]; then
     out=$(fastscreen_start "$pkg" "$duid" 2>&1); rc=$?
   elif [ "$FIXED_KIND" = recents ]; then
     out=$(clear_recents 2>&1); rc=$?

@@ -98,6 +98,6 @@ public class ResearchLadderEscalationTest {
         assertTrue(h.contains("new ResearchLadder(s, e, browser(ctx, id, ch, onIsland, cancel), external(ctx), summarizer(ctx))"));
         assertTrue(h.contains("ErrandSettings.WEBVIEW.on(ctx) && planner.ready()"));
         assertTrue(h.contains("ErrandSettings.BROWSER.on(ctx) && DefaultBrowser.available(ctx)"));
-        assertTrue("不指定浏览器包名，交给系统解析默认浏览器", h.contains("return DefaultBrowser.open(ctx, url);"));
+        assertTrue("交给系统解析的默认浏览器", h.contains("DefaultBrowser.launch(ctx, url)"));
     }
 }

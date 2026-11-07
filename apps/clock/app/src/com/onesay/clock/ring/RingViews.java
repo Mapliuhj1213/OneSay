@@ -223,7 +223,7 @@ final class RingViews {
                         grabbed = false; releasing = true; pressT0 = SystemClock.uptimeMillis();
                         haloT0 = pressT0 + 300;                // 收回动画后光晕从头开始
                         host.onGrab(false);
-                        if (grabBuzz) { grabBuzz = false; host.onHapticDone(); }   // 按住时的 semVibrate 可能打断响铃波形 → 让服务重起
+                        if (grabBuzz) { grabBuzz = false; host.onHapticDone(); }   // 按住时的点击振动可能打断响铃波形 → 让服务重起
                         invalidate();
                     }
                     return true;

@@ -631,3 +631,10 @@ com/onesay/assistant/v2/ui/KeysActivity.java
 com/onesay/assistant/v2/net/LlmEndpoints.java
 com/onesay/assistant/v2/entry/BuiltinEntries.java
 com/onesay/assistant/v2/net/UserEndpoint.java
+com/onesay/assistant/v2/entry/keywake/KeyWake.java
+com/onesay/assistant/v2/entry/keywake/PowerDoubleDetector.java
+com/onesay/assistant/v2/entry/keywake/LongPressDetector.java
+com/onesay/assistant/v2/entry/keywake/DoubleTap.java
+com/onesay/assistant/v2/errand/DefaultBrowser.java
+com/onesay/assistant/v2/diag/SettingsNav.java
+com/onesay/assistant/v2/city/WeatherAppCity.java

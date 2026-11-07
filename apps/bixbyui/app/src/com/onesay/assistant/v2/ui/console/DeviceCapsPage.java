@@ -128,8 +128,76 @@ final class DeviceCapsPage extends Console.BuiltPage {
             r.setSubTone(a == com.onesay.plugin.api.entry.EntryTrigger.Tri.NO ? ConsoleHost.TONE_WARN : ConsoleHost.TONE_MUTED);
             if (a == com.onesay.plugin.api.entry.EntryTrigger.Tri.NO) r.setEnabled(false);
         }
-        k.footer(parent, "关掉的入口触发一律丢弃。外部 App 唤起默认关；唤醒词 / 厂商按键改动后重启唤醒服务生效。"
+        addKeyWake(parent);
+        k.footer(parent, "关掉的入口触发一律丢弃。外部 App 唤起默认关；唤醒词改动后重启唤醒服务生效。"
                 + "接入自定义入口见 README「如何接入自定义入口」。");
+    }
+
+    /** 按键唤醒的触发方式 / 动作 / 时间窗，以及快捷开关、小部件、快捷方式点一下做什么。 */
+    private void addKeyWake(LinearLayout parent) {
+        final ConsoleKit k = c.kit;
+        final Context app = c.act.getApplicationContext();
+        LinearLayout g = k.group(parent, com.onesay.assistant.v2.entry.keywake.KeyWake.LABEL);
+        final com.onesay.assistant.v2.entry.keywake.KeyWake.Trigger[] ts = com.onesay.assistant.v2.entry.keywake.KeyWake.Trigger.values();
+        final String[] tl = new String[ts.length];
+        for (int i = 0; i < ts.length; i++) tl[i] = ts[i].label;
+        final com.onesay.assistant.v2.entry.keywake.KeyWake.Trigger curT = com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.trigger(app);
+        k.actionRow(g, "触发方式", "默认双击电源键（按熄屏 / 亮屏判定）。很多手机把双击电源键给了相机，请先在系统设置里关掉", curT.label, new Runnable() {
+            @Override public void run() {
+                k.dialog().setTitle("触发方式").setSingleChoiceItems(tl, curT.ordinal(), new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int w) {
+                        d.dismiss();
+                        com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.setTrigger(app, ts[w]);
+                        com.onesay.assistant.v2.a11y.A11yBackend.refreshKeyWake();
+                        if (col != null) fill();
+                    }
+                }).setNegativeButton("取消", null).show();
+            }
+        });
+        actionChooser(g, "按下后", "默认语音唤起；也可以直接识屏或只开文字面板", null);
+        final int[] wins = {400, 500, 600, 800, 1000};
+        final String[] wl = {"400 ms", "500 ms", "600 ms（默认）", "800 ms", "1000 ms"};
+        final int curW = com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.windowMs(app);
+        k.actionRow(g, "双击间隔", "两次按电源键之间最多隔多久", curW + " ms", new Runnable() {
+            @Override public void run() {
+                int sel = 2;
+                for (int i = 0; i < wins.length; i++) if (wins[i] == curW) sel = i;
+                k.dialog().setTitle("双击间隔").setSingleChoiceItems(wl, sel, new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int w) {
+                        d.dismiss();
+                        com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.setWindowMs(app, wins[w]);
+                        com.onesay.assistant.v2.a11y.A11yBackend.refreshKeyWake();
+                        if (col != null) fill();
+                    }
+                }).setNegativeButton("取消", null).show();
+            }
+        });
+        actionChooser(g, "快捷开关点一下", "语音唤起 / 识屏 / 文字面板", com.onesay.assistant.v2.entry.BuiltinEntries.QS_TILE);
+        actionChooser(g, "小部件点一下", "语音唤起 / 识屏 / 文字面板", com.onesay.assistant.v2.entry.BuiltinEntries.WIDGET);
+    }
+
+    /** entryId == null = 按键唤醒本身的动作。 */
+    private void actionChooser(LinearLayout g, final String title, String sub, final String entryId) {
+        final ConsoleKit k = c.kit;
+        final Context app = c.act.getApplicationContext();
+        final com.onesay.assistant.v2.entry.keywake.KeyWake.Action[] as = com.onesay.assistant.v2.entry.keywake.KeyWake.Action.values();
+        final String[] al = new String[as.length];
+        for (int i = 0; i < as.length; i++) al[i] = as[i].label;
+        final com.onesay.assistant.v2.entry.keywake.KeyWake.Action cur = entryId == null
+                ? com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.action(app)
+                : com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.entryAction(app, entryId);
+        k.actionRow(g, title, sub, cur.label, new Runnable() {
+            @Override public void run() {
+                k.dialog().setTitle(title).setSingleChoiceItems(al, cur.ordinal(), new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int w) {
+                        d.dismiss();
+                        if (entryId == null) com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.setAction(app, as[w]);
+                        else com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.setEntryAction(app, entryId, as[w]);
+                        if (col != null) fill();
+                    }
+                }).setNegativeButton("取消", null).show();
+            }
+        });
     }
 
     /** 不经用户配置就会发生的外部请求：一律默认关，在这里打开。 */
@@ -137,6 +205,21 @@ final class DeviceCapsPage extends Console.BuiltPage {
         final ConsoleKit k = c.kit;
         final Context app = c.act.getApplicationContext();
         LinearLayout g = k.group(parent, "隐私与外部请求");
+        k.actionRow(g, "从天气 App 读城市", "打开你手机上的天气 App，经无障碍读它首屏显示的城市，当作常用城市的来源（只在你点的时候读一次）",
+                "读取", new Runnable() {
+                    @Override public void run() {
+                        com.onesay.assistant.v2.util.Threads.start("city-screen", new Runnable() {
+                            @Override public void run() {
+                                final String msg = com.onesay.assistant.v2.city.WeatherAppCity.capture(app);
+                                c.act.runOnUiThread(new Runnable() {
+                                    @Override public void run() {
+                                        android.widget.Toast.makeText(c.act, msg, android.widget.Toast.LENGTH_LONG).show();
+                                    }
+                                });
+                            }
+                        });
+                    }
+                });
         k.switchRow(g, "联网反查所在城市", "问天气没说城市、也没手动设常用城市时，把约 1 km 精度的位置发给 BigDataCloud / OpenStreetMap Nominatim 反查城市名。默认关",
                 com.onesay.assistant.v2.city.HomeCityProvider.isNetReverseEnabled(app), new ConsoleHost.Toggle() {
                     @Override public void onToggle(boolean v) { com.onesay.assistant.v2.city.HomeCityProvider.setNetReverseEnabled(app, v); }

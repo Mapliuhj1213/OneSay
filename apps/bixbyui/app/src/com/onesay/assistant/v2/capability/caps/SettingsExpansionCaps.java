@@ -224,72 +224,52 @@ public final class SettingsExpansionCaps {
                 .reply("省电模式已关闭")
                 .build());
 
-        // ================= 三、三星特有（6 条）=================
+        // ================= 三、息屏显示 / 通知亮屏（AOSP 公开键，4 条）=================
+        // Settings.Secure.DOZE_ALWAYS_ON（息屏显示，Android 8.1+）与 DOZE_ENABLED（来通知时点亮屏幕）；
+        // ROM 不认这两个键时 check 回读不一致 → 如实报没生效，可走设置诊断的读屏查找。
 
-        reg.register(new Capability.Builder("settings.aod.on", "打开息屏提醒")
+        reg.register(new Capability.Builder("settings.aod.on", "打开息屏显示")
                 .domain("settings").category("settings")
-                .verbs("打开", "开启").entities("setting").examples("息屏提醒 AOD")
+                .verbs("打开", "开启").entities("setting").examples("息屏显示 AOD")
                 .sideEffect(SideEffect.DEVICE_CONTROL).risk(1, false)
                 .executor("shell")
-                .cmd("settings put system aod_mode 1")
-                .check("settings get system aod_mode", "1")
+                .cmd("settings put secure doze_always_on 1")
+                .check("settings get secure doze_always_on", "1")
                 .say("打开息屏提醒", "开启息屏显示", "打开AOD")
-                .reply("息屏提醒已打开")
+                .reply("息屏显示已打开")
                 .build());
 
-        reg.register(new Capability.Builder("settings.aod.off", "关闭息屏提醒")
+        reg.register(new Capability.Builder("settings.aod.off", "关闭息屏显示")
                 .domain("settings").category("settings")
-                .verbs("关闭", "关掉").entities("setting").examples("息屏提醒 AOD")
+                .verbs("关闭", "关掉").entities("setting").examples("息屏显示 AOD")
                 .sideEffect(SideEffect.DEVICE_CONTROL).risk(1, false)
                 .executor("shell")
-                .cmd("settings put system aod_mode 0")
-                .check("settings get system aod_mode", "0")
+                .cmd("settings put secure doze_always_on 0")
+                .check("settings get secure doze_always_on", "0")
                 .say("关闭息屏提醒", "关掉息屏显示", "关闭AOD")
-                .reply("息屏提醒已关闭")
+                .reply("息屏显示已关闭")
                 .build());
 
-        reg.register(new Capability.Builder("settings.edge_lighting.on", "打开侧屏闪光")
+        reg.register(new Capability.Builder("settings.ambient.on", "打开通知亮屏")
                 .domain("settings").category("settings")
-                .verbs("打开", "开启").entities("setting").examples("侧屏闪光")
+                .verbs("打开", "开启").entities("setting").examples("通知亮屏")
                 .sideEffect(SideEffect.DEVICE_CONTROL).risk(1, false)
                 .executor("shell")
-                .cmd("settings put system edge_lighting 1")
-                .check("settings get system edge_lighting", "1")
-                .say("打开侧屏闪光", "开启侧屏灯效", "打开边缘照明")
-                .reply("侧屏闪光已打开")
+                .cmd("settings put secure doze_enabled 1")
+                .check("settings get secure doze_enabled", "1")
+                .say("打开通知亮屏", "来通知时亮屏", "开启通知亮屏", "打开侧屏闪光", "打开边缘照明")
+                .reply("通知亮屏已打开")
                 .build());
 
-        reg.register(new Capability.Builder("settings.edge_lighting.off", "关闭侧屏闪光")
+        reg.register(new Capability.Builder("settings.ambient.off", "关闭通知亮屏")
                 .domain("settings").category("settings")
-                .verbs("关闭", "关掉").entities("setting").examples("侧屏闪光")
+                .verbs("关闭", "关掉").entities("setting").examples("通知亮屏")
                 .sideEffect(SideEffect.DEVICE_CONTROL).risk(1, false)
                 .executor("shell")
-                .cmd("settings put system edge_lighting 0")
-                .check("settings get system edge_lighting", "0")
-                .say("关闭侧屏闪光", "关掉侧屏灯效", "关闭边缘照明")
-                .reply("侧屏闪光已关闭")
-                .build());
-
-        reg.register(new Capability.Builder("settings.smartcapture.on", "打开智能截屏")
-                .domain("settings").category("settings")
-                .verbs("打开", "开启").entities("setting").examples("智能截屏")
-                .sideEffect(SideEffect.DEVICE_CONTROL).risk(1, false)
-                .executor("shell")
-                .cmd("settings put system enable_smart_capture 1")
-                .check("settings get system enable_smart_capture", "1")
-                .say("打开智能截屏", "开启手掌滑动截屏", "打开智能捕获")
-                .reply("智能截屏已打开")
-                .build());
-
-        reg.register(new Capability.Builder("settings.smartcapture.off", "关闭智能截屏")
-                .domain("settings").category("settings")
-                .verbs("关闭", "关掉").entities("setting").examples("智能截屏")
-                .sideEffect(SideEffect.DEVICE_CONTROL).risk(1, false)
-                .executor("shell")
-                .cmd("settings put system enable_smart_capture 0")
-                .check("settings get system enable_smart_capture", "0")
-                .say("关闭智能截屏", "关掉手掌滑动截屏", "关闭智能捕获")
-                .reply("智能截屏已关闭")
+                .cmd("settings put secure doze_enabled 0")
+                .check("settings get secure doze_enabled", "0")
+                .say("关闭通知亮屏", "来通知时不要亮屏", "关掉通知亮屏", "关闭侧屏闪光", "关闭边缘照明")
+                .reply("通知亮屏已关闭")
                 .build());
 
         // ================= 四、页面直达（10 条，零副作用）=================
