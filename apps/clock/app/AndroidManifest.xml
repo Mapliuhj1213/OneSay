@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.onesay.clock"
+    android:versionCode="8"
+    android:versionName="0.1.6">
+
+    <!-- 给 OneSay 发 BRIEF_STATE：OneSay 的接收器受 signature 级权限保护，只有同一证书签名时系统才授予 -->
+    <uses-permission android:name="com.onesay.assistant.permission.CONTROL" />
+
+    <!-- 对外闹钟接口（AlarmApiReceiver）的调用权限：signature 级，只授予与 Clock 同一证书签名的 App（OneSay 助手）。
+         OneSay 助手清单里也声明了同名权限（同证书可重复声明），先装哪个都能授予。不内置任何证书指纹。 -->
+    <permission
+        android:name="com.onesay.clock.permission.ALARM_CONTROL"
+        android:label="设置、开关、删除 OneSay 时钟的闹钟"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 三星天气 ContentProvider（读手机天气，不需要 root；系统里没有这个权限时无影响） -->
+    <uses-permission android:name="com.sec.android.daemonapp.ap.accuweather.ACCUWEATHER_DAEMON_ACCESS_PROVIDER" />
+    <uses-permission android:name="com.sec.android.widgetapp.ap.hero.accuweather.permission.READ_ACCU_DATA" />
+
+    <application
+        android:name=".App"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:theme="@style/AppTheme"
+        android:supportsRtl="false">
+
+        <activity android:name=".ui.MainActivity" android:launchMode="singleTask"
+            android:screenOrientation="portrait" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".ui.EditActivity" android:screenOrientation="portrait" android:exported="false"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity android:name=".ui.SettingsActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".ui.KeysActivity" android:screenOrientation="portrait" android:exported="false"
+            android:excludeFromRecents="true" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.OnboardActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".ring.RingActivity" android:theme="@style/RingTheme" android:screenOrientation="portrait"
+            android:launchMode="singleInstance" android:excludeFromRecents="true" android:taskAffinity="com.onesay.clock.ring"
+            android:showWhenLocked="true" android:turnScreenOn="true" android:exported="false" />
+
+        <service android:name=".ring.RingService" android:exported="false" />
+        <service android:name=".gen.GenService" android:exported="false" />
+
+        <!-- 只接自己的 PendingIntent -->
+        <receiver android:name=".sched.AlarmReceiver" android:exported="false" />
+        <!-- 系统广播（受保护广播，第三方发不了） -->
+        <receiver android:name=".sched.BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <!-- 对外闹钟接口（设 / 开关 / 删 / 查，协议见 core/AlarmApi）：导出，但受 signature 级权限保护 -->
+        <receiver android:name=".api.AlarmApiReceiver" android:exported="true"
+            android:permission="com.onesay.clock.permission.ALARM_CONTROL">
+            <intent-filter>
+                <action android:name="com.onesay.clock.action.ALARM_SET" />
+                <action android:name="com.onesay.clock.action.ALARM_TOGGLE" />
+                <action android:name="com.onesay.clock.action.ALARM_CANCEL" />
+                <action android:name="com.onesay.clock.action.ALARM_QUERY" />
+            </intent-filter>
+        </receiver>
+        <!-- 调试入口：不导出，只有 root am broadcast -n 能到 -->
+        <receiver android:name=".ControlReceiver" android:exported="false" />
+    </application>
+</manifest>

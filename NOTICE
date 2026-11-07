@@ -1,0 +1,45 @@
+OneSay
+Copyright 2026 Mapliuhj1213
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+----------------------------------------------------------------------
+Third-party attributions (Apache License 2.0, Section 4(d))
+----------------------------------------------------------------------
+
+This product includes software derived from Mika
+  https://github.com/wangzan101/mika (upstream revision ebb0e44)
+  Mika
+  Copyright 2026 wangzan101
+  Licensed under the Apache License, Version 2.0.
+  Ported parts (Kotlin -> Java 7, modified; each file carries a
+  "Portions derived from Mika" header):
+    com.onesay.assistant.plug.{screen,action,guard,evidence,outbox,intent,inbox,outcome,appkb}.core,
+    apps/bixbyui/app/assets/kb_app_*.md, com.onesay.assistant.v2.a11y
+
+This product includes software derived from phongent (based on Mika)
+  https://github.com/mylea1/phongent (reference commit 0b57e35)
+  NOTICE: Mika, Copyright 2026 wangzan101; extensions by mylea.
+  Licensed under the Apache License, Version 2.0.
+  Ported parts (Kotlin -> Java 7, modified; each file carries a change notice):
+    (paths relative to apps/bixbyui/)
+    app/src/com/onesay/assistant/plug/phongent/core/PgHttp.java
+    app/src/com/onesay/assistant/plug/phongent/core/PgAuth.java
+    app/src/com/onesay/assistant/plug/phongent/core/PgTasks.java
+    app/src/com/onesay/assistant/plug/phongent/core/PgMessages.java
+    app/src/com/onesay/assistant/plug/phongent/core/PgState.java
+    app/src/com/onesay/assistant/plug/phongent/core/PgApi.java
+    app/src/com/onesay/assistant/plug/phongent/core/PgServer.java
+    app/src/com/onesay/assistant/plug/phongent/core/PgVideo.java
+    app/src/com/onesay/assistant/plug/phongent/core/PgScreen.java
+    app/src/com/onesay/assistant/v2/phongent/PgScreenSource.java
+    app/src/com/onesay/assistant/v2/phongent/PhongentService.java
+
+This product includes sherpa-onnx (Java sources and prebuilt JNI)
+  https://github.com/k2-fsa/sherpa-onnx
+  Copyright (c) Xiaomi Corporation and contributors
+  Licensed under the Apache License, Version 2.0.
+
+Other third-party components (ONNX Runtime - MIT, Jakarta Mail/Activation -
+EPL-2.0 or GPL-2.0 with Classpath Exception, mermaid - MIT, Chart.js - MIT)
+are listed with their licenses in THIRD_PARTY_NOTICES.md.

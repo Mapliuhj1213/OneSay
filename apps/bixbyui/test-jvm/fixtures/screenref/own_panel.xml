@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.LinearLayout" package="com.onesay.assistant" content-desc="" clickable="false" password="false" bounds="[0,1900][1440,2960]">
+    <node index="0" text="正在聆听" resource-id="" class="android.widget.TextView" package="com.onesay.assistant" content-desc="" clickable="false" password="false" bounds="[100,1950][600,2010]" />
+    <node index="1" text="我在听，请讲..." resource-id="" class="android.widget.TextView" package="com.onesay.assistant" content-desc="" clickable="false" password="false" bounds="[100,2100][1300,2200]" />
+  </node>
+</hierarchy>

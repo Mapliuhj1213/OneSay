@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.onesay.plan"
+    android:versionCode="8"
+    android:versionName="0.1.7">
+
+    <!-- 数据接口权限：signature 级，只授予与 Plan 同一证书签名的包。另有同签名校验兜底，见 core/AccessPolicy。 -->
+    <permission
+        android:name="com.onesay.plan.permission.ACCESS"
+        android:label="读写计划（日程、待办、票、取件码、自动任务）"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:theme="@style/AppTheme"
+        android:supportsRtl="false">
+
+        <activity android:name=".ui.MainActivity"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- OneSay 控制台「打开计划」跳转：com.onesay.plan.action.OPEN（extra tab=today|events|todos|tickets|pickups|automations） -->
+            <intent-filter>
+                <action android:name="com.onesay.plan.action.OPEN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".ui.TicketActivity"
+            android:theme="@style/TicketTheme"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true"
+            android:exported="false" />
+
+        <!-- 快捷指令：桌面快捷方式落点（无界面，发起一次运行后立即关闭）。不导出：固定快捷方式由桌面以本 App 身份启动。 -->
+        <!-- taskAffinity="" = 自己一个任务，点完不把计划 App 拉到前台（冒烟：点旧图标弹提示后计划 App 跳了出来） -->
+        <activity android:name=".ui.ShortcutRunActivity"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:exported="false" />
+
+        <!-- 数据接口：导出，但每次调用在代码里过门卫（AccessPolicy）：本 App / 持 signature 权限 / 同证书签名，其他（含 root、adb shell）一律拒绝。 -->
+        <provider
+            android:name=".data.PlanProvider"
+            android:authorities="com.onesay.plan.provider"
+            android:exported="true"
+            android:grantUriPermissions="false" />
+
+        <receiver android:name=".remind.RemindReceiver" android:exported="false" />
+        <receiver android:name=".remind.BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

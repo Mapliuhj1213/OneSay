@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onesay_shortcut_voice">语音唤起</string>
+    <string name="onesay_perm_summon_desc">允许这个应用唤起 OneSay 并打开麦克风聆听一句话。</string>
+</resources>

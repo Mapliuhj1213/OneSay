@@ -1,0 +1,84 @@
+name: 问题报告 / Bug report
+description: 能复现的问题。信息越完整，越快能修。
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **不要贴任何 API Key、口令、Token、手机号、地址。** 日志请先按 CONTRIBUTING.md 的方法打码。
+  - type: dropdown
+    id: app
+    attributes:
+      label: 哪个 App
+      options: [OneSay（助手）, OneSay Plan, OneSay Clock]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App 版本
+      description: 设置 › 关于 里的版本名与版本号，例如 0.1.0 (21)
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 手机型号
+      placeholder: 例如 Pixel 7 / 小米 14 / Galaxy Note 8
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android 版本
+      placeholder: 例如 Android 14
+    validations:
+      required: true
+  - type: input
+    id: rom
+    attributes:
+      label: 系统 / ROM
+      placeholder: 例如 HyperOS 2.0、ColorOS 15、One UI 6、原生 AOSP、LineageOS 21
+    validations:
+      required: true
+  - type: checkboxes
+    id: keys
+    attributes:
+      label: 已配置的服务（只勾选，**不要填 Key**）
+      options:
+        - label: DeepSeek（大模型）
+        - label: 阿里云百炼 DashScope（识别 / 朗读 / 识屏）
+        - label: 云端朗读已选音色
+        - label: 自定义了云端语音服务地址
+        - label: Tavily / 博查（联网搜索）
+        - label: 和风天气
+        - label: 执行后端：root 或 Shizuku
+        - label: 本地唤醒词
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开 …
+        2. 说 / 点 …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（已打码）
+      description: 按 CONTRIBUTING.md「怎么安全地取日志」操作。贴之前再检查一遍：没有 Key、Authorization、手机号、地址、邮箱。
+      render: text

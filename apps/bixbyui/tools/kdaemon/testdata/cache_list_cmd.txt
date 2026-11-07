@@ -1,0 +1,1 @@
+echo "__NOW $(date +%s)"; for d in /data/data/com.tencent.mm/cache /data/data/com.tencent.mm/app_* /data/data/com.tencent.mm/files /sdcard/Android/data/com.tencent.mm/cache; do [ -d "$d" ] && find "$d" -maxdepth 7 -type f -mmin -3 -size +8k 2>/dev/null; done | head -400 | while read f; do stat -c '%Y %s %n' "$f" 2>/dev/null; done; true

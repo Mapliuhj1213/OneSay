@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ★ r2/sysux P2-1：默认数字助理声明。sessionService 与 recognitionService 必须同时存在（AOSP O VoiceInteractionServiceInfo），
+     缺任何一个系统都判无效并清掉设置 —— 10-04「Bixby 键打开浏览器」就是旧文件只写了 sessionService。类名写全限定（debug 包改了包名但 Java 包不变）。 -->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.onesay.assistant.v2.assist.OneSaySessionService"
+    android:recognitionService="com.onesay.assistant.v2.assist.OneSayRecognitionService"
+    android:settingsActivity="com.onesay.assistant.v2.ui.MainActivity"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true"
+    android:supportsLocalInteraction="false" />

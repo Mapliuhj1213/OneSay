@@ -1,0 +1,82 @@
+# OneSay CI：三个 App 的 JVM 单元测试 + 秘密扫描。不出 APK、不签名，不需要任何私有文件。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 秘密扫描（只报位置与长度，不打印值）
+        run: python3 apps/bixbyui/tools/ci/scan_secrets.py
+      - name: keystore / 口令文件不在仓库里
+        run: |
+          if git ls-files | grep -E '\.(keystore|jks|p12|pfx|pass)$'; then echo "signing material tracked"; exit 1; fi
+
+  assistant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/bixbyui
+    env:
+      TOOLS: ${{ github.workspace }}/.ci-tools
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Android SDK platform 28
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-28" > /dev/null
+          echo "SDK=$ANDROID_HOME" >> "$GITHUB_ENV"
+      - name: 测试依赖（Maven Central，sha256 校验）
+        run: bash tools/ci/fetch_test_deps.sh
+      - name: JVM tests
+        run: BIXBY_TEST_BUILD="$RUNNER_TEMP/assistant-test" bash run_unit_tests.sh
+
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/plan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Android platform 28
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-28" > /dev/null
+      - name: Test libraries (Maven Central, SHA-256 pinned)
+        run: bash tools/fetch_test_libs.sh "$RUNNER_TEMP/test-libs"
+      - name: JVM tests
+        env:
+          TEST_LIBS: ${{ runner.temp }}/test-libs
+          OUT: ${{ runner.temp }}/plan-test
+        run: bash test/run_linux.sh
+
+  clock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/clock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: JVM tests
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          OUT: ${{ runner.temp }}/clock-test
+        run: bash test/run_linux.sh

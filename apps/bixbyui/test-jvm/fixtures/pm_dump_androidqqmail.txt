@@ -1,0 +1,981 @@
+# ============================================================================
+# REAL DEVICE DUMP —— 真机抓取（用户 2026-10-07 真机验收回传 pm_dump_androidqqmail.real.txt，
+# SM-N950N / Android 8 上 `pm dump com.tencent.androidqqmail`），已裁剪：
+#   保留：Activity Resolver Table 的 Schemes / Non-Data Actions / MIME Typed Actions 三节、
+#         Receiver/Service Resolver Table、Permissions、Registered ContentProviders、ContentProvider Authorities
+#         —— 以上逐字原样（qqmail / mailto / qqmail_3dtouch 等 Schemes 段一字未改）。
+#   删除：Full/Base/Wild MIME Types（与 MIME Typed Actions 是同一批 filter 的重复索引）、
+#         Key Set Manager / Packages（安装路径、时间戳、用户信息）及之后的
+#         dumpsys activity / meminfo / procstats / usagestats / batterystats（含其它应用使用记录等个人数据）。
+#   裁剪前后 AppInterfaceMiner.mine() 的输出逐条一致（2026-10-08 对完整原文件离线比对过）。
+# 结论（真机报告 M-1）：qqmail scheme 只由 LaunchWebPush 声明、没有 Host/Path → qqmail://inbox 与 qqmail://compose
+# 落同一主界面；写信的真实入口是 mailto: → LaunchComposeMail。
+# 原始完整文件含个人数据，不入库（_probe/dump/ 已被 .gitignore 忽略）。
+# ============================================================================
+DUMP OF SERVICE package:
+  Activity Resolver Table:
+    Schemes:
+        com.tencent.androidqqmail.savetomyftn:
+          4195f77 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchSaveToMyFtn filter 266cba9
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Scheme: "com.tencent.androidqqmail.savetomyftn"
+        com.tencent.androidqqmail:
+          6ee17e4 com.tencent.androidqqmail/net.openid.appauth.RedirectUriReceiverActivity filter 3eac292
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "com.tencent.androidqqmail"
+        mailto:
+          41b8d76 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeNote filter 2449f71
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.SENDTO"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "mailto"
+          82510aa com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeMail filter ccdec4
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.SENDTO"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "mailto"
+        qqmail:
+          cffd44d com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchWebPush filter 588652e
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.BROWSABLE"
+            Category: "android.intent.category.DEFAULT"
+            Scheme: "qqmail"
+        tencent100686947:
+          c2b0b02 com.tencent.androidqqmail/com.tencent.tauth.AuthActivity filter d7968f5
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "tencent100686947"
+        file:
+          477c811 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchFapiaoUpload filter 1299873
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "content"
+            Scheme: "file"
+            Type: "application/pdf"
+            Type: "image"
+            mPriority=0, mHasPartialTypes=true
+          6aa3038 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchReadIcs filter 8c7425c
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "file"
+            Authority: "": -1 WILD
+            Path: "PatternMatcher{GLOB: .*\.ics}"
+            Type: "application/calendar"
+            Type: "text"
+            mPriority=0, mHasPartialTypes=true
+        http:
+          13a7c13 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchAppLink filter 6904918
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "http"
+            Scheme: "https"
+            Authority: "mail.qq.com": -1
+            AutoVerify=true
+        https:
+          13a7c13 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchAppLink filter 6904918
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "http"
+            Scheme: "https"
+            Authority: "mail.qq.com": -1
+            AutoVerify=true
+        qqmail_3dtouch:
+          166ce50 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchShortCutActivity filter bb42848
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "qqmail_3dtouch"
+            Authority: "com.tencent.androidqqmail.touch": -1
+            Authority: "com.tencent.androidqqmail.touch": -1
+            Authority: "com.tencent.androidqqmail.touch": -1
+            Authority: "com.tencent.androidqqmail.touch": -1
+            Path: "PatternMatcher{LITERAL: /open_inbox}"
+            Path: "PatternMatcher{LITERAL: /open_search}"
+            Path: "PatternMatcher{LITERAL: /compose_mail}"
+            Path: "PatternMatcher{LITERAL: /compose_note}"
+        content:
+          477c811 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchFapiaoUpload filter 1299873
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "content"
+            Scheme: "file"
+            Type: "application/pdf"
+            Type: "image"
+            mPriority=0, mHasPartialTypes=true
+
+    Non-Data Actions:
+        android.intent.action.MAIN:
+          d826849 com.tencent.androidqqmail/com.tencent.qqmail.launcher.desktop.LauncherActivity filter d2a868a
+            Action: "android.intent.action.MAIN"
+            Category: "android.intent.category.LAUNCHER"
+        android.intent.action.VIEW:
+          dc2d54e com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchTpPushActivity filter 97b48cf
+            Action: "qqmail.intent.action.TPPUSH"
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+        qqmail.intent.action.TPPUSH:
+          dc2d54e com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchTpPushActivity filter 97b48cf
+            Action: "qqmail.intent.action.TPPUSH"
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+        com.tencent.qqmail.launcher.LaunchWeWorkAuthActivity.action:
+          146c66f com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchWeWorkAuthActivity filter 2377965
+            Action: "com.tencent.qqmail.launcher.LaunchWeWorkAuthActivity.action"
+            Category: "android.intent.category.DEFAULT"
+        com.tencent.androidqqmail.widget:
+          4727f7c com.tencent.androidqqmail/com.tencent.qqmail.widget.WidgetEventActivity filter 16d75d7
+            Action: "com.tencent.androidqqmail.widget"
+        android.intent.action.CREATE_SHORTCUT:
+          d826849 com.tencent.androidqqmail/com.tencent.qqmail.launcher.desktop.LauncherActivity filter 8d584fb
+            Action: "android.intent.action.CREATE_SHORTCUT"
+
+    MIME Typed Actions:
+        android.intent.action.EDIT:
+          82510aa com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeMail filter 2b2c1ad
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.EDIT"
+            Action: "qqmail.intent.action.SEND_DATA"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Type: "application/msexcel"
+            Type: "application/ms-excel"
+            Type: "application/vnd.ms-excel"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            Type: "application/vnd.ms-excel.sheet.binary.macroenabled.12"
+            Type: "application/vnd.ms-excel.template.macroenabled.12"
+            Type: "application/vnd.ms-excel.sheet.macroEnabled.12"
+            Type: "application/vnd.ms-excel.addin.macroEnabled.12"
+            Type: "application/mspowerpoint"
+            Type: "application/ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            Type: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.template"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+            Type: "application/msword"
+            Type: "application/ms-word"
+            Type: "application/vnd.ms-word"
+            Type: "application/vnd.ms-works"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            Type: "application/octet-stream"
+            Type: "application/log"
+            Type: "application/kswps"
+            Type: "application/kset"
+            Type: "application/ksdps"
+            Type: "application/wps"
+            Type: "application/et"
+            Type: "application/dps"
+            Type: "application/dpt"
+            Type: "application/wpt"
+            Type: "application/ett"
+            Type: "application/pdf"
+            Type: "application/xlsb"
+            Type: "application/rtf"
+            Type: "application/pptm"
+            Type: "application/ppsm"
+            Type: "application/potm"
+            Type: "application/mht"
+            Type: "application/zip"
+            Type: "application/x-gtar"
+            Type: "application/x-gzip"
+            Type: "audio"
+            Type: "image"
+            Type: "text"
+            Type: "plain"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          58149b com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchFtnUpload filter 5ed5ce2
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.EDIT"
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Type: "application/msexcel"
+            Type: "application/ms-excel"
+            Type: "application/vnd.ms-excel"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            Type: "application/vnd.ms-excel.sheet.binary.macroenabled.12"
+            Type: "application/vnd.ms-excel.template.macroenabled.12"
+            Type: "application/vnd.ms-excel.sheet.macroEnabled.12"
+            Type: "application/vnd.ms-excel.addin.macroEnabled.12"
+            Type: "application/mspowerpoint"
+            Type: "application/ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            Type: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.template"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+            Type: "application/msword"
+            Type: "application/ms-word"
+            Type: "application/vnd.ms-word"
+            Type: "application/vnd.ms-works"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            Type: "application/octet-stream"
+            Type: "application/log"
+            Type: "application/kswps"
+            Type: "application/kset"
+            Type: "application/ksdps"
+            Type: "application/wps"
+            Type: "application/et"
+            Type: "application/dps"
+            Type: "application/dpt"
+            Type: "application/wpt"
+            Type: "application/ett"
+            Type: "application/pdf"
+            Type: "application/xlsb"
+            Type: "application/rtf"
+            Type: "application/pptm"
+            Type: "application/ppsm"
+            Type: "application/potm"
+            Type: "application/mht"
+            Type: "audio"
+            Type: "image"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+        android.intent.action.SEND:
+          41b8d76 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeNote filter 2328156
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Category: "android.intent.category.DEFAULT"
+            Type: "image"
+            Type: "audio/mp3"
+            Type: "plain"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          82510aa com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeMail filter 2b2c1ad
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.EDIT"
+            Action: "qqmail.intent.action.SEND_DATA"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Type: "application/msexcel"
+            Type: "application/ms-excel"
+            Type: "application/vnd.ms-excel"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            Type: "application/vnd.ms-excel.sheet.binary.macroenabled.12"
+            Type: "application/vnd.ms-excel.template.macroenabled.12"
+            Type: "application/vnd.ms-excel.sheet.macroEnabled.12"
+            Type: "application/vnd.ms-excel.addin.macroEnabled.12"
+            Type: "application/mspowerpoint"
+            Type: "application/ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            Type: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.template"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+            Type: "application/msword"
+            Type: "application/ms-word"
+            Type: "application/vnd.ms-word"
+            Type: "application/vnd.ms-works"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            Type: "application/octet-stream"
+            Type: "application/log"
+            Type: "application/kswps"
+            Type: "application/kset"
+            Type: "application/ksdps"
+            Type: "application/wps"
+            Type: "application/et"
+            Type: "application/dps"
+            Type: "application/dpt"
+            Type: "application/wpt"
+            Type: "application/ett"
+            Type: "application/pdf"
+            Type: "application/xlsb"
+            Type: "application/rtf"
+            Type: "application/pptm"
+            Type: "application/ppsm"
+            Type: "application/potm"
+            Type: "application/mht"
+            Type: "application/zip"
+            Type: "application/x-gtar"
+            Type: "application/x-gzip"
+            Type: "audio"
+            Type: "image"
+            Type: "text"
+            Type: "plain"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          58149b com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchFtnUpload filter 5ed5ce2
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.EDIT"
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Type: "application/msexcel"
+            Type: "application/ms-excel"
+            Type: "application/vnd.ms-excel"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            Type: "application/vnd.ms-excel.sheet.binary.macroenabled.12"
+            Type: "application/vnd.ms-excel.template.macroenabled.12"
+            Type: "application/vnd.ms-excel.sheet.macroEnabled.12"
+            Type: "application/vnd.ms-excel.addin.macroEnabled.12"
+            Type: "application/mspowerpoint"
+            Type: "application/ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            Type: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.template"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+            Type: "application/msword"
+            Type: "application/ms-word"
+            Type: "application/vnd.ms-word"
+            Type: "application/vnd.ms-works"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            Type: "application/octet-stream"
+            Type: "application/log"
+            Type: "application/kswps"
+            Type: "application/kset"
+            Type: "application/ksdps"
+            Type: "application/wps"
+            Type: "application/et"
+            Type: "application/dps"
+            Type: "application/dpt"
+            Type: "application/wpt"
+            Type: "application/ett"
+            Type: "application/pdf"
+            Type: "application/xlsb"
+            Type: "application/rtf"
+            Type: "application/pptm"
+            Type: "application/ppsm"
+            Type: "application/potm"
+            Type: "application/mht"
+            Type: "audio"
+            Type: "image"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          477c811 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchFapiaoUpload filter 71b2330
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Category: "android.intent.category.DEFAULT"
+            Type: "application/pdf"
+            Type: "image"
+            mPriority=0, mHasPartialTypes=true
+        android.intent.action.VIEW:
+          41b8d76 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeNote filter 2328156
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Category: "android.intent.category.DEFAULT"
+            Type: "image"
+            Type: "audio/mp3"
+            Type: "plain"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          82510aa com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeMail filter 2b2c1ad
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.EDIT"
+            Action: "qqmail.intent.action.SEND_DATA"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Type: "application/msexcel"
+            Type: "application/ms-excel"
+            Type: "application/vnd.ms-excel"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            Type: "application/vnd.ms-excel.sheet.binary.macroenabled.12"
+            Type: "application/vnd.ms-excel.template.macroenabled.12"
+            Type: "application/vnd.ms-excel.sheet.macroEnabled.12"
+            Type: "application/vnd.ms-excel.addin.macroEnabled.12"
+            Type: "application/mspowerpoint"
+            Type: "application/ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            Type: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.template"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+            Type: "application/msword"
+            Type: "application/ms-word"
+            Type: "application/vnd.ms-word"
+            Type: "application/vnd.ms-works"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            Type: "application/octet-stream"
+            Type: "application/log"
+            Type: "application/kswps"
+            Type: "application/kset"
+            Type: "application/ksdps"
+            Type: "application/wps"
+            Type: "application/et"
+            Type: "application/dps"
+            Type: "application/dpt"
+            Type: "application/wpt"
+            Type: "application/ett"
+            Type: "application/pdf"
+            Type: "application/xlsb"
+            Type: "application/rtf"
+            Type: "application/pptm"
+            Type: "application/ppsm"
+            Type: "application/potm"
+            Type: "application/mht"
+            Type: "application/zip"
+            Type: "application/x-gtar"
+            Type: "application/x-gzip"
+            Type: "audio"
+            Type: "image"
+            Type: "text"
+            Type: "plain"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          58149b com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchFtnUpload filter 5ed5ce2
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.EDIT"
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Type: "application/msexcel"
+            Type: "application/ms-excel"
+            Type: "application/vnd.ms-excel"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            Type: "application/vnd.ms-excel.sheet.binary.macroenabled.12"
+            Type: "application/vnd.ms-excel.template.macroenabled.12"
+            Type: "application/vnd.ms-excel.sheet.macroEnabled.12"
+            Type: "application/vnd.ms-excel.addin.macroEnabled.12"
+            Type: "application/mspowerpoint"
+            Type: "application/ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            Type: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.template"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+            Type: "application/msword"
+            Type: "application/ms-word"
+            Type: "application/vnd.ms-word"
+            Type: "application/vnd.ms-works"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            Type: "application/octet-stream"
+            Type: "application/log"
+            Type: "application/kswps"
+            Type: "application/kset"
+            Type: "application/ksdps"
+            Type: "application/wps"
+            Type: "application/et"
+            Type: "application/dps"
+            Type: "application/dpt"
+            Type: "application/wpt"
+            Type: "application/ett"
+            Type: "application/pdf"
+            Type: "application/xlsb"
+            Type: "application/rtf"
+            Type: "application/pptm"
+            Type: "application/ppsm"
+            Type: "application/potm"
+            Type: "application/mht"
+            Type: "audio"
+            Type: "image"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          477c811 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchFapiaoUpload filter 1299873
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "content"
+            Scheme: "file"
+            Type: "application/pdf"
+            Type: "image"
+            mPriority=0, mHasPartialTypes=true
+          6aa3038 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchReadIcs filter 8c7425c
+            Action: "android.intent.action.VIEW"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Scheme: "file"
+            Authority: "": -1 WILD
+            Path: "PatternMatcher{GLOB: .*\.ics}"
+            Type: "application/calendar"
+            Type: "text"
+            mPriority=0, mHasPartialTypes=true
+        android.intent.action.SEND_MULTIPLE:
+          41b8d76 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeNote filter 2328156
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Category: "android.intent.category.DEFAULT"
+            Type: "image"
+            Type: "audio/mp3"
+            Type: "plain"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          82510aa com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeMail filter 2b2c1ad
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.EDIT"
+            Action: "qqmail.intent.action.SEND_DATA"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Type: "application/msexcel"
+            Type: "application/ms-excel"
+            Type: "application/vnd.ms-excel"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            Type: "application/vnd.ms-excel.sheet.binary.macroenabled.12"
+            Type: "application/vnd.ms-excel.template.macroenabled.12"
+            Type: "application/vnd.ms-excel.sheet.macroEnabled.12"
+            Type: "application/vnd.ms-excel.addin.macroEnabled.12"
+            Type: "application/mspowerpoint"
+            Type: "application/ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            Type: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.template"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+            Type: "application/msword"
+            Type: "application/ms-word"
+            Type: "application/vnd.ms-word"
+            Type: "application/vnd.ms-works"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            Type: "application/octet-stream"
+            Type: "application/log"
+            Type: "application/kswps"
+            Type: "application/kset"
+            Type: "application/ksdps"
+            Type: "application/wps"
+            Type: "application/et"
+            Type: "application/dps"
+            Type: "application/dpt"
+            Type: "application/wpt"
+            Type: "application/ett"
+            Type: "application/pdf"
+            Type: "application/xlsb"
+            Type: "application/rtf"
+            Type: "application/pptm"
+            Type: "application/ppsm"
+            Type: "application/potm"
+            Type: "application/mht"
+            Type: "application/zip"
+            Type: "application/x-gtar"
+            Type: "application/x-gzip"
+            Type: "audio"
+            Type: "image"
+            Type: "text"
+            Type: "plain"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          58149b com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchFtnUpload filter 5ed5ce2
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.EDIT"
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Type: "application/msexcel"
+            Type: "application/ms-excel"
+            Type: "application/vnd.ms-excel"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            Type: "application/vnd.ms-excel.sheet.binary.macroenabled.12"
+            Type: "application/vnd.ms-excel.template.macroenabled.12"
+            Type: "application/vnd.ms-excel.sheet.macroEnabled.12"
+            Type: "application/vnd.ms-excel.addin.macroEnabled.12"
+            Type: "application/mspowerpoint"
+            Type: "application/ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            Type: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.template"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+            Type: "application/msword"
+            Type: "application/ms-word"
+            Type: "application/vnd.ms-word"
+            Type: "application/vnd.ms-works"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            Type: "application/octet-stream"
+            Type: "application/log"
+            Type: "application/kswps"
+            Type: "application/kset"
+            Type: "application/ksdps"
+            Type: "application/wps"
+            Type: "application/et"
+            Type: "application/dps"
+            Type: "application/dpt"
+            Type: "application/wpt"
+            Type: "application/ett"
+            Type: "application/pdf"
+            Type: "application/xlsb"
+            Type: "application/rtf"
+            Type: "application/pptm"
+            Type: "application/ppsm"
+            Type: "application/potm"
+            Type: "application/mht"
+            Type: "audio"
+            Type: "image"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+          477c811 com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchFapiaoUpload filter 71b2330
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Category: "android.intent.category.DEFAULT"
+            Type: "application/pdf"
+            Type: "image"
+            mPriority=0, mHasPartialTypes=true
+        qqmail.intent.action.SEND_DATA:
+          82510aa com.tencent.androidqqmail/com.tencent.qqmail.launcher.third.LaunchComposeMail filter 2b2c1ad
+            Action: "android.intent.action.SEND"
+            Action: "android.intent.action.SEND_MULTIPLE"
+            Action: "android.intent.action.VIEW"
+            Action: "android.intent.action.EDIT"
+            Action: "qqmail.intent.action.SEND_DATA"
+            Category: "android.intent.category.DEFAULT"
+            Category: "android.intent.category.BROWSABLE"
+            Type: "application/msexcel"
+            Type: "application/ms-excel"
+            Type: "application/vnd.ms-excel"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            Type: "application/vnd.openxmlformats-officedocument.spreadsheetml.template"
+            Type: "application/vnd.ms-excel.sheet.binary.macroenabled.12"
+            Type: "application/vnd.ms-excel.template.macroenabled.12"
+            Type: "application/vnd.ms-excel.sheet.macroEnabled.12"
+            Type: "application/vnd.ms-excel.addin.macroEnabled.12"
+            Type: "application/mspowerpoint"
+            Type: "application/ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint"
+            Type: "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            Type: "application/vnd.ms-powerpoint.slideshow.macroEnabled.12"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.template"
+            Type: "application/vnd.openxmlformats-officedocument.presentationml.slideshow"
+            Type: "application/msword"
+            Type: "application/ms-word"
+            Type: "application/vnd.ms-word"
+            Type: "application/vnd.ms-works"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            Type: "application/vnd.openxmlformats-officedocument.wordprocessingml.template"
+            Type: "application/octet-stream"
+            Type: "application/log"
+            Type: "application/kswps"
+            Type: "application/kset"
+            Type: "application/ksdps"
+            Type: "application/wps"
+            Type: "application/et"
+            Type: "application/dps"
+            Type: "application/dpt"
+            Type: "application/wpt"
+            Type: "application/ett"
+            Type: "application/pdf"
+            Type: "application/xlsb"
+            Type: "application/rtf"
+            Type: "application/pptm"
+            Type: "application/ppsm"
+            Type: "application/potm"
+            Type: "application/mht"
+            Type: "application/zip"
+            Type: "application/x-gtar"
+            Type: "application/x-gzip"
+            Type: "audio"
+            Type: "image"
+            Type: "text"
+            Type: "plain"
+            Type: "video"
+            Type: "message/rfc822"
+            mPriority=0, mHasPartialTypes=true
+
+  Receiver Resolver Table:
+    Non-Data Actions:
+        android.intent.action.BATTERY_OKAY:
+          d804005 com.tencent.androidqqmail/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryNotLowProxy filter c622a6
+            Action: "android.intent.action.BATTERY_OKAY"
+            Action: "android.intent.action.BATTERY_LOW"
+        com.xiaomi.mipush.MESSAGE_ARRIVED:
+          bfaf85a com.tencent.androidqqmail/com.tencent.qqmail.utilities.push.mipush.QMMiPushReceiver filter be15485
+            Action: "com.xiaomi.mipush.MESSAGE_ARRIVED"
+        com.tencent.qqmail.LOW_MEN:
+          1235a8b com.tencent.androidqqmail/com.tencent.qqmail.utilities.qmbroadcastreceiver.QMBonusBroadCast filter cbcf582
+            Action: "com.tencent.qqmail.LOW_MEN"
+        android.intent.action.ACTION_POWER_DISCONNECTED:
+          4261768 com.tencent.androidqqmail/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryChargingProxy filter a67b401
+            Action: "android.intent.action.ACTION_POWER_CONNECTED"
+            Action: "android.intent.action.ACTION_POWER_DISCONNECTED"
+        com.xiaomi.mipush.ERROR:
+          bfaf85a com.tencent.androidqqmail/com.tencent.qqmail.utilities.push.mipush.QMMiPushReceiver filter a8fb2da
+            Action: "com.xiaomi.mipush.ERROR"
+        com.huawei.android.push.intent.REGISTRATION:
+          1c9d781 com.tencent.androidqqmail/com.huawei.hms.support.api.push.PushReceiver filter fc3f62c
+            Action: "com.huawei.android.push.intent.REGISTRATION"
+            Action: "com.huawei.android.push.intent.RECEIVE"
+        com.tencent.qqmail.widget.inbox.refresh.ui:
+          1604026 com.tencent.androidqqmail/com.tencent.qqmail.widget.inbox.InboxWidgetProvider filter 3ce5493
+            Action: "android.appwidget.action.APPWIDGET_UPDATE"
+            Action: "com.tencent.qqmail.widget.inbox.refresh.ui"
+        androidx.profileinstaller.action.SAVE_PROFILE:
+          ceb1467 com.tencent.androidqqmail/androidx.profileinstaller.ProfileInstallReceiver filter e25e239
+            Action: "androidx.profileinstaller.action.SAVE_PROFILE"
+        android.intent.action.DEVICE_STORAGE_LOW:
+          ef94214 com.tencent.androidqqmail/androidx.work.impl.background.systemalarm.ConstraintProxy$StorageNotLowProxy filter 54f84e7
+            Action: "android.intent.action.DEVICE_STORAGE_LOW"
+            Action: "android.intent.action.DEVICE_STORAGE_OK"
+        android.net.conn.CONNECTIVITY_CHANGE:
+          1bb6abd com.tencent.androidqqmail/androidx.work.impl.background.systemalarm.ConstraintProxy$NetworkStateProxy filter f042894
+            Action: "android.net.conn.CONNECTIVITY_CHANGE"
+        com.huawei.intent.action.PUSH_DELAY_NOTIFY:
+          28038b2 com.tencent.androidqqmail/com.huawei.hms.support.api.push.PushMsgReceiver filter 58e29df
+            Action: "com.huawei.intent.action.PUSH_DELAY_NOTIFY"
+            Action: "com.huawei.intent.action.PUSH"
+        android.intent.action.DEVICE_STORAGE_OK:
+          ef94214 com.tencent.androidqqmail/androidx.work.impl.background.systemalarm.ConstraintProxy$StorageNotLowProxy filter 54f84e7
+            Action: "android.intent.action.DEVICE_STORAGE_LOW"
+            Action: "android.intent.action.DEVICE_STORAGE_OK"
+        com.tencent.qqmail.DATA_LOG_SUBMIT:
+          d8a9003 com.tencent.androidqqmail/com.tencent.qqmail.utilities.qmbroadcastreceiver.QMDataSubmitBroadCast filter f54d8cd
+            Action: "com.tencent.qqmail.DATA_LOG_SUBMIT"
+        com.huawei.android.push.intent.RECEIVE:
+          1c9d781 com.tencent.androidqqmail/com.huawei.hms.support.api.push.PushReceiver filter fc3f62c
+            Action: "com.huawei.android.push.intent.REGISTRATION"
+            Action: "com.huawei.android.push.intent.RECEIVE"
+        com.tencent.qqmail.CALENDAR_SENTINEL:
+          1326b80 com.tencent.androidqqmail/com.tencent.qqmail.calendar.reminder.QMRemindererBroadcast filter e1a5e64
+            Action: "com.tencent.qqmail.CALENDAR_TICK"
+            Action: "com.tencent.qqmail.CALENDAR_EVENT"
+            Action: "com.tencent.qqmail.CALENDAR_SENTINEL"
+        com.vivo.pushclient.action.RECEIVE:
+          438f5b9 com.tencent.androidqqmail/com.tencent.qqmail.utilities.push.vivopush.QMVivoPushReceiverImpl filter 649c30b
+            Action: "com.vivo.pushclient.action.RECEIVE"
+        androidx.profileinstaller.action.INSTALL_PROFILE:
+          ceb1467 com.tencent.androidqqmail/androidx.profileinstaller.ProfileInstallReceiver filter 3058883
+            Action: "androidx.profileinstaller.action.INSTALL_PROFILE"
+        com.tencent.qqmail.CALENDAR_TICK:
+          1326b80 com.tencent.androidqqmail/com.tencent.qqmail.calendar.reminder.QMRemindererBroadcast filter e1a5e64
+            Action: "com.tencent.qqmail.CALENDAR_TICK"
+            Action: "com.tencent.qqmail.CALENDAR_EVENT"
+            Action: "com.tencent.qqmail.CALENDAR_SENTINEL"
+        android.intent.action.BATTERY_LOW:
+          d804005 com.tencent.androidqqmail/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryNotLowProxy filter c622a6
+            Action: "android.intent.action.BATTERY_OKAY"
+            Action: "android.intent.action.BATTERY_LOW"
+        androidx.profileinstaller.action.SKIP_FILE:
+          ceb1467 com.tencent.androidqqmail/androidx.profileinstaller.ProfileInstallReceiver filter 1453a00
+            Action: "androidx.profileinstaller.action.SKIP_FILE"
+        com.tencent.qqmail.CALENDAR_EVENT:
+          1326b80 com.tencent.androidqqmail/com.tencent.qqmail.calendar.reminder.QMRemindererBroadcast filter e1a5e64
+            Action: "com.tencent.qqmail.CALENDAR_TICK"
+            Action: "com.tencent.qqmail.CALENDAR_EVENT"
+            Action: "com.tencent.qqmail.CALENDAR_SENTINEL"
+        androidx.profileinstaller.action.BENCHMARK_OPERATION:
+          ceb1467 com.tencent.androidqqmail/androidx.profileinstaller.ProfileInstallReceiver filter 224e07e
+            Action: "androidx.profileinstaller.action.BENCHMARK_OPERATION"
+        android.intent.action.ACTION_POWER_CONNECTED:
+          4261768 com.tencent.androidqqmail/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryChargingProxy filter a67b401
+            Action: "android.intent.action.ACTION_POWER_CONNECTED"
+            Action: "android.intent.action.ACTION_POWER_DISCONNECTED"
+        com.tencent.qqmail.wetest:
+          d352dfe com.tencent.androidqqmail/com.tencent.qqmail.wetest.QMInstructionReceiver filter c5795e8
+            Action: "com.tencent.qqmail.wetest"
+        com.tencent.qqmail.widget.month.refresh.ui:
+          41c295f com.tencent.androidqqmail/com.tencent.qqmail.widget.calendar.MonthWidgetProvider filter 9c8e7ce
+            Action: "android.appwidget.action.APPWIDGET_UPDATE"
+            Action: "com.tencent.qqmail.widget.month.refresh.ui"
+        com.xiaomi.push.PING_TIMER:
+          312bfac com.tencent.androidqqmail/com.xiaomi.push.service.receivers.PingReceiver filter 87fa6ef
+            Action: "com.xiaomi.push.PING_TIMER"
+        com.xiaomi.mipush.RECEIVE_MESSAGE:
+          bfaf85a com.tencent.androidqqmail/com.tencent.qqmail.utilities.push.mipush.QMMiPushReceiver filter f1115fc
+            Action: "com.xiaomi.mipush.RECEIVE_MESSAGE"
+        android.appwidget.action.APPWIDGET_UPDATE:
+          1604026 com.tencent.androidqqmail/com.tencent.qqmail.widget.inbox.InboxWidgetProvider filter 3ce5493
+            Action: "android.appwidget.action.APPWIDGET_UPDATE"
+            Action: "com.tencent.qqmail.widget.inbox.refresh.ui"
+          6a3475 com.tencent.androidqqmail/com.tencent.qqmail.widget.notelist.NoteWidgetProvider filter 950fcd0
+            Action: "android.appwidget.action.APPWIDGET_UPDATE"
+          b22c0a com.tencent.androidqqmail/com.tencent.qqmail.widget.calendar.CalendarWidgetProvider filter d6334c9
+            Action: "android.appwidget.action.APPWIDGET_UPDATE"
+            Action: "com.tencent.qqmail.widget.calendar.refresh.ui"
+          41c295f com.tencent.androidqqmail/com.tencent.qqmail.widget.calendar.MonthWidgetProvider filter 9c8e7ce
+            Action: "android.appwidget.action.APPWIDGET_UPDATE"
+            Action: "com.tencent.qqmail.widget.month.refresh.ui"
+        androidx.work.diagnostics.REQUEST_DIAGNOSTICS:
+          f03fc7b com.tencent.androidqqmail/androidx.work.impl.diagnostics.DiagnosticsReceiver filter 2a1c332
+            Action: "androidx.work.diagnostics.REQUEST_DIAGNOSTICS"
+        com.huawei.intent.action.PUSH:
+          28038b2 com.tencent.androidqqmail/com.huawei.hms.support.api.push.PushMsgReceiver filter 58e29df
+            Action: "com.huawei.intent.action.PUSH_DELAY_NOTIFY"
+            Action: "com.huawei.intent.action.PUSH"
+        androidx.work.impl.background.systemalarm.UpdateProxies:
+          dc22a98 com.tencent.androidqqmail/androidx.work.impl.background.systemalarm.ConstraintProxyUpdateReceiver filter f9a8f3d
+            Action: "androidx.work.impl.background.systemalarm.UpdateProxies"
+        com.tencent.qqmail.widget.calendar.refresh.ui:
+          b22c0a com.tencent.androidqqmail/com.tencent.qqmail.widget.calendar.CalendarWidgetProvider filter d6334c9
+            Action: "android.appwidget.action.APPWIDGET_UPDATE"
+            Action: "com.tencent.qqmail.widget.calendar.refresh.ui"
+
+  Service Resolver Table:
+    Non-Data Actions:
+        android.content.SyncAdapter:
+          e36a2f1 com.tencent.androidqqmail/com.tencent.qqmail.utilities.syncadapter.QMSyncService filter 5b83c15
+            Action: "android.content.SyncAdapter"
+        android.service.quicksettings.action.QS_TILE:
+          a4efed6 com.tencent.androidqqmail/com.tencent.qqmail.tile.ComposeMailTileService filter 43b6ba0
+            Action: "android.service.quicksettings.action.QS_TILE"
+          4cbe557 com.tencent.androidqqmail/com.tencent.qqmail.tile.ComposeNoteTileService filter 5d7c359
+            Action: "android.service.quicksettings.action.QS_TILE"
+          2fb5844 com.tencent.androidqqmail/com.tencent.qqmail.tile.UploadFtnTileService filter a397b1e
+            Action: "android.service.quicksettings.action.QS_TILE"
+          2817d2d com.tencent.androidqqmail/com.tencent.qqmail.tile.ScanTileService filter 530bfff
+            Action: "android.service.quicksettings.action.QS_TILE"
+        android.net.VpnService:
+          3143262 com.tencent.androidqqmail/com.tencent.moai.proxycat.ProxyVPNService filter babcff6
+            Action: "android.net.VpnService"
+        com.huawei.push.msg.NOTIFY_MSG:
+          bf7ff3 com.tencent.androidqqmail/com.huawei.hms.support.api.push.service.HmsMsgService filter fc8aff7
+            Action: "com.huawei.push.msg.NOTIFY_MSG"
+            Action: "com.huawei.push.msg.PASSBY_MSG"
+        com.heytap.mcs.action.RECEIVE_MCS_MESSAGE:
+          377b4b0 com.tencent.androidqqmail/com.tencent.qqmail.utilities.push.opush.QMOAppPushService filter 4a70eb8
+            Action: "com.heytap.mcs.action.RECEIVE_MCS_MESSAGE"
+        com.coloros.mcs.action.RECEIVE_MCS_MESSAGE:
+          325bf29 com.tencent.androidqqmail/com.tencent.qqmail.utilities.push.opush.QMOPushService filter fdb5d1b
+            Action: "com.coloros.mcs.action.RECEIVE_MCS_MESSAGE"
+        android.accounts.AccountAuthenticator:
+          a0712ae com.tencent.androidqqmail/com.tencent.qqmail.utilities.syncadapter.QMAuthenticatorService filter e7ba1cc
+            Action: "android.accounts.AccountAuthenticator"
+        com.huawei.push.msg.PASSBY_MSG:
+          bf7ff3 com.tencent.androidqqmail/com.huawei.hms.support.api.push.service.HmsMsgService filter fc8aff7
+            Action: "com.huawei.push.msg.NOTIFY_MSG"
+            Action: "com.huawei.push.msg.PASSBY_MSG"
+        com.hihonor.push.action.MESSAGING_EVENT:
+          d48284f com.tencent.androidqqmail/com.tencent.qqmail.utilities.push.honorpush.HonorPushService filter bed8491
+            Action: "com.hihonor.push.action.MESSAGING_EVENT"
+        com.huawei.push.action.MESSAGING_EVENT:
+          1b6bdc com.tencent.androidqqmail/com.tencent.qqmail.utilities.push.hwpush.HwPushService filter efe2b2a
+            Action: "com.huawei.push.action.MESSAGING_EVENT"
+
+  Permissions:
+    Permission [com.tencent.androidqqmail.permission.MIPUSH_RECEIVE] (eb224e5):
+      sourcePackage=com.tencent.androidqqmail
+      uid=10227 gids=null type=0 prot=signature
+      perm=Permission{735abba com.tencent.androidqqmail.permission.MIPUSH_RECEIVE}
+      packageSetting=PackageSetting{808fa6b com.tencent.androidqqmail/10227}
+    Permission [com.tencent.androidqqmail.permission.PUSH_WRITE_PROVIDER] (1e169c8):
+      sourcePackage=com.tencent.androidqqmail
+      uid=10227 gids=null type=0 prot=signature
+      perm=Permission{3e52a61 com.tencent.androidqqmail.permission.PUSH_WRITE_PROVIDER}
+      packageSetting=PackageSetting{808fa6b com.tencent.androidqqmail/10227}
+    Permission [com.tencent.androidqqmail.permission.PROCESS_PUSH_MSG] (382c986):
+      sourcePackage=com.tencent.androidqqmail
+      uid=10227 gids=null type=0 prot=signature
+      perm=Permission{bbad247 com.tencent.androidqqmail.permission.PROCESS_PUSH_MSG}
+      packageSetting=PackageSetting{808fa6b com.tencent.androidqqmail/10227}
+    Permission [com.tencent.androidqqmail.permission.INNER_IPC_BROADCAST] (4875a74):
+      sourcePackage=com.tencent.androidqqmail
+      uid=10227 gids=null type=0 prot=signature
+      perm=Permission{4e90b9d com.tencent.androidqqmail.permission.INNER_IPC_BROADCAST}
+      packageSetting=PackageSetting{808fa6b com.tencent.androidqqmail/10227}
+    Permission [com.tencent.androidqqmail.permission.PUSH_PROVIDER] (131f812):
+      sourcePackage=com.tencent.androidqqmail
+      uid=10227 gids=null type=0 prot=signature
+      perm=Permission{bc84be3 com.tencent.androidqqmail.permission.PUSH_PROVIDER}
+      packageSetting=PackageSetting{808fa6b com.tencent.androidqqmail/10227}
+    Permission [com.tencent.androidqqmail.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION] (ff9a9e0):
+      sourcePackage=com.tencent.androidqqmail
+      uid=10227 gids=null type=0 prot=signature
+      perm=Permission{24fc499 com.tencent.androidqqmail.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION}
+      packageSetting=PackageSetting{808fa6b com.tencent.androidqqmail/10227}
+
+  Registered ContentProviders:
+    com.tencent.androidqqmail/.wxapi.WXShareFileProvider:
+      Provider{133835e com.tencent.androidqqmail/.wxapi.WXShareFileProvider}
+    com.tencent.androidqqmail/com.tencent.qqmail.ams.AMSDownloadFileProvider:
+      Provider{da9c33f com.tencent.androidqqmail/com.tencent.qqmail.ams.AMSDownloadFileProvider}
+    com.tencent.androidqqmail/androidx.core.content.FileProvider:
+      Provider{c7f840c com.tencent.androidqqmail/androidx.core.content.FileProvider}
+    com.tencent.androidqqmail/com.tencent.qqmail.utilities.syncadapter.QMSyncProvider:
+      Provider{9cf1155 com.tencent.androidqqmail/com.tencent.qqmail.utilities.syncadapter.QMSyncProvider}
+    com.tencent.androidqqmail/com.huawei.hms.support.api.push.PushProvider:
+      Provider{130776a com.tencent.androidqqmail/com.huawei.hms.support.api.push.PushProvider}
+    com.tencent.androidqqmail/com.tencent.qqmail.gdtsupport.ams.AMSFileProvider:
+      Provider{c01545b com.tencent.androidqqmail/com.tencent.qqmail.gdtsupport.ams.AMSFileProvider}
+    com.tencent.androidqqmail/com.huawei.hms.aaid.InitProvider:
+      Provider{da6d4f8 com.tencent.androidqqmail/com.huawei.hms.aaid.InitProvider}
+    com.tencent.androidqqmail/com.tencent.rmonitor.launch.AppLaunchMonitorInstaller:
+      Provider{4bc6dd1 com.tencent.androidqqmail/com.tencent.rmonitor.launch.AppLaunchMonitorInstaller}
+    com.tencent.androidqqmail/com.tencent.xweb.XWebCoreContentProvider:
+      Provider{e56a036 com.tencent.androidqqmail/com.tencent.xweb.XWebCoreContentProvider}
+    com.tencent.androidqqmail/androidx.startup.InitializationProvider:
+      Provider{f76db37 com.tencent.androidqqmail/androidx.startup.InitializationProvider}
+    com.tencent.androidqqmail/com.huawei.agconnect.core.provider.AGConnectInitializeProvider:
+      Provider{ff048a4 com.tencent.androidqqmail/com.huawei.agconnect.core.provider.AGConnectInitializeProvider}
+
+  ContentProvider Authorities:
+    [com.tencent.androidqqmail.sync.qmsyncprovider]:
+      Provider{9cf1155 com.tencent.androidqqmail/com.tencent.qqmail.utilities.syncadapter.QMSyncProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.tencent.androidqqmail.AGCInitializeProvider]:
+      Provider{ff048a4 com.tencent.androidqqmail/com.huawei.agconnect.core.provider.AGConnectInitializeProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.tencent.androidqqmail.sdk.xweb.XWebCoreProvider]:
+      Provider{e56a036 com.tencent.androidqqmail/com.tencent.xweb.XWebCoreContentProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.tencent.androidqqmail.aaidinitprovider]:
+      Provider{da6d4f8 com.tencent.androidqqmail/com.huawei.hms.aaid.InitProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.tencent.androidqqmail.androidx-startup]:
+      Provider{f76db37 com.tencent.androidqqmail/androidx.startup.InitializationProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.tencent.androidqqmail.sharemm.fileprovider]:
+      Provider{133835e com.tencent.androidqqmail/.wxapi.WXShareFileProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.qq.downloader.fileprovider]:
+      Provider{da9c33f com.tencent.androidqqmail/com.tencent.qqmail.ams.AMSDownloadFileProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.tencent.androidqqmail.huawei.push.provider]:
+      Provider{130776a com.tencent.androidqqmail/com.huawei.hms.support.api.push.PushProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.tencent.androidqqmail.rmonitor-installer]:
+      Provider{4bc6dd1 com.tencent.androidqqmail/com.tencent.rmonitor.launch.AppLaunchMonitorInstaller}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.tencent.androidqqmail.fileprovider]:
+      Provider{c01545b com.tencent.androidqqmail/com.tencent.qqmail.gdtsupport.ams.AMSFileProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+    [com.tencent.androidqqmail.attachprovider]:
+      Provider{c7f840c com.tencent.androidqqmail/androidx.core.content.FileProvider}
+        applicationInfo=ApplicationInfo{249160d com.tencent.androidqqmail}
+

@@ -1,0 +1,35 @@
+# 分诊盲测集 v2（SYNTHETIC，2026-10-09 19:4x 编写并冻结）
+# 规则：在修 D-3b 那 4 条错判、动任何分诊规则**之前**写好并冻结；不是那 4 条的改写；
+# 冻结后不改一个字节（TriageBlindV2Test 校验 SHA-256），修完只跑一次，如实报结果。
+# 用户以后补句子请另起 blind_v3.txt，不要改本文件。
+# 格式：句子<TAB>期望标签（ASK / DO_READ / DO_ACT / MIXED / CLARIFY / DIAGNOSE）
+红烧肉要炖多久	ASK
+光年是什么单位	ASK
+写一段生日祝福送给同事	ASK
+三十七乘以二十四等于多少	ASK
+明朝是哪一年灭亡的	ASK
+你今天心情怎么样	ASK
+失眠了怎么办	ASK
+现在电量还剩多少	DO_READ
+蓝牙开着没有	DO_READ
+今天的日程有哪些	DO_READ
+看一下存储空间还剩多少	DO_READ
+读一下最新的短信	DO_READ
+现在连的是哪个wifi	DO_READ
+字体调小一号	DO_ACT
+打开微信扫一扫	DO_ACT
+给妈妈打个电话	DO_ACT
+打开个人热点	DO_ACT
+录个屏	DO_ACT
+播放周杰伦的歌	DO_ACT
+每天早上七点提醒我吃药	DO_ACT
+把勿扰模式打开	DO_ACT
+如果明早下雨就把闹钟提前半小时	MIXED
+查查剩余流量够不够看完这集	MIXED
+把音量关掉再告诉我明天天气怎么样	MIXED
+等我到公司了就提醒我开会	MIXED
+帮我发条短信	CLARIFY
+设一个提醒	CLARIFY
+充电特别慢是怎么回事	DIAGNOSE
+键盘打字没有声音了	DIAGNOSE
+手机发烫得厉害	DIAGNOSE

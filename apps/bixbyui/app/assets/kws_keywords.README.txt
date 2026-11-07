@@ -1,0 +1,23 @@
+# 本地唤醒词（KWS）· 说明（本文件不被程序读取，仅作文档）
+
+OneSay 开源版不内置任何唤醒词，本地唤醒词是可选功能、默认关闭。默认入口是按钮 / 默认数字助理。
+在「设置 › 设备能力与功能 › 本地唤醒词」里打开并填写自己的唤醒词；程序据此生成 keywords.txt（files/kws/），
+词表一变版本戳就变（WakeService.KWS_KEYWORDS_VER + 词表哈希），下次启动重新落盘。
+
+模型（sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20）不随仓库分发，见根目录 README 与 tools/fetch_kws_model.sh。
+
+## 格式
+每行一条：<token 序列> [@名字]
+  - token 必须都在模型的 tokens.txt 里（中英混合表）；
+  - 中文：带声调拼音的 token；英文：CMU 音素（如 HH EY1 W AH1 N S EY1）；
+  - @名字只能用字母、数字、下划线，省略则自动命名 WAKE_1、WAKE_2……
+  - 本版没有「任意中英文 → token」的端上转换器（后续计划），填错时设置页会指出是哪个 token 不在 tokens.txt 里。
+
+## 通用调参经验
+  - 生成的 keywords.txt 不能有注释行：sherpa-onnx 的关键词解析器不跳过 # 行，会把注释当关键词，
+    遇到非数字 token 抛 "invalid stof argument"，整个 KWS 初始化失败。
+  - 不要为了「提高召回」堆叠高度重叠的变体（只差一个音素 / 重音的几条）：它们会在 beam 里互相挤占，
+    命中率反而下降。每个唤醒词一两条即可。
+  - 行内 :boost #threshold 会替代（不是叠加）全局值，有效区间很窄；全局回落值见 WakeTuning（keywords score / threshold）。
+    官方默认 boost 1.0 在本模型上基本无效，建议保持全局默认，不要逐条乱调。
+  - 2 音节以下的短唤醒词误唤醒多，建议 3–4 个音节。

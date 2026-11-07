@@ -1,0 +1,1227 @@
+{
+ "source": "pm dump Activity Resolver Table（自动挖掘）",
+ "generated_from": 370,
+ "count": 134,
+ "intents": [
+  {
+   "sign": "bixby.launcher",
+   "software": "bixby",
+   "summary": "launcher",
+   "component": "com.samsung.android.bixby.agent/com.samsung.android.bixby.LauncherActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "bixby.voice_command",
+   "software": "bixby",
+   "summary": "voice_command",
+   "component": "com.samsung.android.bixby.agent/com.samsung.android.bixby.HeadSetReceiver",
+   "action": "android.intent.action.VOICE_COMMAND",
+   "flags": []
+  },
+  {
+   "sign": "browser.intent_dispatcher_33",
+   "software": "browser",
+   "summary": "intent_dispatcher",
+   "component": "com.android.chrome/com.google.android.apps.chrome.IntentDispatcher",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "browser.main",
+   "software": "browser",
+   "summary": "main",
+   "component": "com.android.chrome/com.google.android.apps.chrome.Main",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "browser.print_share",
+   "software": "browser",
+   "summary": "print_share",
+   "component": "com.android.chrome/org.chromium.chrome.browser.printing.PrintShareActivity",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "calendar.agenda_pick",
+   "software": "calendar",
+   "summary": "agenda_pick",
+   "component": "com.samsung.android.calendar/com.android.calendar.agenda.AgendaPickActivity",
+   "action": "android.intent.action.PICK",
+   "flags": []
+  },
+  {
+   "sign": "calendar.agenda_search",
+   "software": "calendar",
+   "summary": "agenda_search",
+   "component": "com.samsung.android.calendar/com.android.calendar.agenda.AgendaSearchActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "calendar.all_in_one_4",
+   "software": "calendar",
+   "summary": "all_in_one",
+   "component": "com.samsung.android.calendar/com.android.calendar.AllInOneActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "calendar.calendar_search",
+   "software": "calendar",
+   "summary": "calendar_search",
+   "component": "com.samsung.android.calendar/com.android.calendar.CalendarSearchActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "calendar.calendar_timezone_2",
+   "software": "calendar",
+   "summary": "calendar_timezone",
+   "component": "com.samsung.android.calendar/com.android.calendar.timezone.CalendarTimezoneActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "calendar.edit_event",
+   "software": "calendar",
+   "summary": "edit_event",
+   "component": "com.samsung.android.calendar/com.android.calendar.EditEventActivity",
+   "action": "android.intent.action.EDIT",
+   "flags": []
+  },
+  {
+   "sign": "camera.camera",
+   "software": "camera",
+   "summary": "camera",
+   "component": "com.sec.android.app.camera/com.sec.android.app.camera.Camera",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "clock.clock_package",
+   "software": "clock",
+   "summary": "clock_package",
+   "component": "com.sec.android.app.clockpackage/com.sec.android.app.clockpackage.ClockPackage",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "clock.dismiss_alarm",
+   "software": "clock",
+   "summary": "dismiss_alarm",
+   "component": "com.sec.android.app.clockpackage/com.sec.android.app.clockpackage.alarm.activity.AlarmCTSHandleActivity",
+   "action": "android.intent.action.DISMISS_ALARM",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "clock.set_alarm",
+   "software": "clock",
+   "summary": "set_alarm",
+   "component": "com.sec.android.app.clockpackage/com.sec.android.app.clockpackage.alarm.activity.AlarmCTSHandleActivity",
+   "action": "android.intent.action.SET_ALARM",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "clock.set_timer",
+   "software": "clock",
+   "summary": "set_timer",
+   "component": "com.sec.android.app.clockpackage/com.sec.android.app.clockpackage.timer.viewmodel.TimerCTSHandleActivity",
+   "action": "android.intent.action.SET_TIMER",
+   "flags": []
+  },
+  {
+   "sign": "clock.show_alarms",
+   "software": "clock",
+   "summary": "show_alarms",
+   "component": "com.sec.android.app.clockpackage/com.sec.android.app.clockpackage.alarm.activity.AlarmCTSHandleActivity",
+   "action": "android.intent.action.SHOW_ALARMS",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "clock.snooze_alarm",
+   "software": "clock",
+   "summary": "snooze_alarm",
+   "component": "com.sec.android.app.clockpackage/com.sec.android.app.clockpackage.alarm.activity.AlarmCTSHandleActivity",
+   "action": "android.intent.action.SNOOZE_ALARM",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "contacts.call_button",
+   "software": "contacts",
+   "summary": "call_button",
+   "component": "com.samsung.android.contacts/com.android.dialer.DialtactsActivity",
+   "action": "android.intent.action.CALL_BUTTON",
+   "flags": []
+  },
+  {
+   "sign": "contacts.call_button_2",
+   "software": "contacts",
+   "summary": "call_button",
+   "component": "com.samsung.android.contacts/com.android.contacts.NonPhoneActivity",
+   "action": "android.intent.action.CALL_BUTTON",
+   "flags": []
+  },
+  {
+   "sign": "contacts.contact_editor",
+   "software": "contacts",
+   "summary": "contact_editor",
+   "component": "com.samsung.android.contacts/com.android.contacts.activities.ContactEditorActivity",
+   "action": "android.intent.action.INSERT",
+   "flags": []
+  },
+  {
+   "sign": "contacts.contact_selection",
+   "software": "contacts",
+   "summary": "contact_selection",
+   "component": "com.samsung.android.contacts/com.android.contacts.activities.ContactSelectionActivity",
+   "action": "android.intent.action.GET_CONTENT",
+   "flags": []
+  },
+  {
+   "sign": "contacts.contacts_integrated_search",
+   "software": "contacts",
+   "summary": "contacts_integrated_search",
+   "component": "com.samsung.android.contacts/com.samsung.contacts.list.ContactsIntegratedSearchActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "contacts.dial",
+   "software": "contacts",
+   "summary": "dial",
+   "component": "com.samsung.android.contacts/com.android.dialer.DialtactsActivity",
+   "action": "android.intent.action.DIAL",
+   "flags": []
+  },
+  {
+   "sign": "contacts.dial_10",
+   "software": "contacts",
+   "summary": "dial",
+   "component": "com.samsung.android.contacts/com.android.contacts.NonPhoneActivity",
+   "action": "android.intent.action.DIAL",
+   "flags": []
+  },
+  {
+   "sign": "contacts.dialtacts_4",
+   "software": "contacts",
+   "summary": "dialtacts",
+   "component": "com.samsung.android.contacts/com.android.dialer.DialtactsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "contacts.insert_or_edit",
+   "software": "contacts",
+   "summary": "insert_or_edit",
+   "component": "com.samsung.android.contacts/com.android.contacts.activities.ContactSelectionActivity",
+   "action": "android.intent.action.INSERT_OR_EDIT",
+   "flags": []
+  },
+  {
+   "sign": "contacts.integrated_search",
+   "software": "contacts",
+   "summary": "integrated_search",
+   "component": "com.samsung.android.contacts/com.samsung.dialer.search.IntegratedSearchActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "contacts.non_phone_3",
+   "software": "contacts",
+   "summary": "non_phone",
+   "component": "com.samsung.android.contacts/com.android.contacts.NonPhoneActivity",
+   "action": "android.intent.action.VIEW",
+   "flags": []
+  },
+  {
+   "sign": "contacts.people_8",
+   "software": "contacts",
+   "summary": "people",
+   "component": "com.samsung.android.contacts/com.android.contacts.activities.PeopleActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "contacts.picker_select",
+   "software": "contacts",
+   "summary": "picker_select",
+   "component": "com.samsung.android.contacts/com.samsung.contacts.picker.PickerSelectActivity",
+   "action": "android.intent.action.PICK",
+   "flags": []
+  },
+  {
+   "sign": "contacts.quick_contact_8",
+   "software": "contacts",
+   "summary": "quick_contact",
+   "component": "com.samsung.android.contacts/com.android.contacts.quickcontact.QuickContactActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "contacts.set_profile_photo",
+   "software": "contacts",
+   "summary": "set_profile_photo",
+   "component": "com.samsung.android.contacts/com.samsung.contacts.editor.SetProfilePhotoActivity",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "edge.panel_search",
+   "software": "edge",
+   "summary": "panel_search",
+   "component": "com.samsung.android.app.cocktailbarservice/com.samsung.android.app.cocktailbarservice.settings.search.PanelSearchActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "files.main_5",
+   "software": "files",
+   "summary": "main",
+   "component": "com.sec.android.app.myfiles/com.sec.android.app.myfiles.common.MainActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "gallery.gallery",
+   "software": "gallery",
+   "summary": "gallery",
+   "component": "com.sec.android.gallery3d/com.sec.android.gallery3d.app.GalleryActivity",
+   "action": "android.intent.action.VIEW",
+   "flags": []
+  },
+  {
+   "sign": "gallery.gallery_opaque",
+   "software": "gallery",
+   "summary": "gallery_opaque",
+   "component": "com.sec.android.gallery3d/com.sec.android.gallery3d.app.GalleryOpaqueActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "game.add_apps",
+   "software": "game",
+   "summary": "add_apps",
+   "component": "com.samsung.android.game.gamehome/com.samsung.android.game.gamehome.addapps.AddAppsActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "game.dex",
+   "software": "game",
+   "summary": "dex",
+   "component": "com.samsung.android.game.gamehome/com.samsung.android.game.gamehome.dex.DexActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": []
+  },
+  {
+   "sign": "game.search",
+   "software": "game",
+   "summary": "search",
+   "component": "com.samsung.android.game.gamehome/com.samsung.android.game.gamehome.search.SearchActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "game.start",
+   "software": "game",
+   "summary": "start",
+   "component": "com.samsung.android.game.gamehome/com.samsung.android.game.gamehome.activity.StartActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "notes.audio_picker",
+   "software": "notes",
+   "summary": "audio_picker",
+   "component": "com.samsung.android.app.notes/com.samsung.android.support.senl.nt.stt.picker.AudioPickerActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "notes.doc_open_trigger_22",
+   "software": "notes",
+   "summary": "doc_open_trigger",
+   "component": "com.samsung.android.app.notes/com.samsung.android.support.senl.nt.app.trigger.DocOpenTriggerActivity",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "notes.memo_list_2",
+   "software": "notes",
+   "summary": "memo_list",
+   "component": "com.samsung.android.app.notes/com.samsung.android.app.notes.memolist.MemoListActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "notes.memo_list_activity1",
+   "software": "notes",
+   "summary": "memo_list_activity1",
+   "component": "com.samsung.android.app.notes/com.samsung.android.app.notes.memolist.MemoListActivity1",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "notes.memo_list_activity2",
+   "software": "notes",
+   "summary": "memo_list_activity2",
+   "component": "com.samsung.android.app.notes/com.samsung.android.app.notes.memolist.MemoListActivity2",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "notes.memo_list_activity3",
+   "software": "notes",
+   "summary": "memo_list_activity3",
+   "component": "com.samsung.android.app.notes/com.samsung.android.app.notes.memolist.MemoListActivity3",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "notes.memo_list_activity4",
+   "software": "notes",
+   "summary": "memo_list_activity4",
+   "component": "com.samsung.android.app.notes/com.samsung.android.app.notes.memolist.MemoListActivity4",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "notes.memo_picker",
+   "software": "notes",
+   "summary": "memo_picker",
+   "component": "com.samsung.android.app.notes/com.samsung.android.app.notes.memolist.MemoPickerActivity",
+   "action": "android.intent.action.PICK",
+   "flags": []
+  },
+  {
+   "sign": "notes.native_composer_action_new",
+   "software": "notes",
+   "summary": "native_composer_action_new",
+   "component": "com.samsung.android.app.notes/com.samsung.android.app.notes.nativecomposer.NativeComposerActionNewActivity",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "phone.accept_call_dialog",
+   "software": "phone",
+   "summary": "accept_call_dialog",
+   "component": "com.android.phone/com.android.phone.operator.usa.AcceptCallDialogActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": []
+  },
+  {
+   "sign": "phone.accessibility_settings",
+   "software": "phone",
+   "summary": "accessibility_settings",
+   "component": "com.android.phone/com.android.phone.settings.AccessibilitySettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": []
+  },
+  {
+   "sign": "phone.call",
+   "software": "phone",
+   "summary": "call",
+   "component": "com.android.phone/com.android.phone.OutgoingCallBroadcaster",
+   "action": "android.intent.action.CALL",
+   "flags": []
+  },
+  {
+   "sign": "phone.call_emergency",
+   "software": "phone",
+   "summary": "call_emergency",
+   "component": "com.android.phone/com.android.phone.EmergencyOutgoingCallBroadcaster",
+   "action": "android.intent.action.CALL_EMERGENCY",
+   "flags": []
+  },
+  {
+   "sign": "phone.call_privileged",
+   "software": "phone",
+   "summary": "call_privileged",
+   "component": "com.android.phone/com.android.phone.PrivilegedOutgoingCallBroadcaster",
+   "action": "android.intent.action.CALL_PRIVILEGED",
+   "flags": []
+  },
+  {
+   "sign": "phone.call_settings",
+   "software": "phone",
+   "summary": "call_settings",
+   "component": "com.android.phone/com.android.phone.callsettings.CallSettingsActivity",
+   "action": "android.intent.action.VIEW",
+   "flags": []
+  },
+  {
+   "sign": "phone.ip_call",
+   "software": "phone",
+   "summary": "ip_call",
+   "component": "com.android.phone/com.android.phone.callsettings.IpCall",
+   "action": "android.intent.action.MAIN",
+   "flags": []
+  },
+  {
+   "sign": "phone.sub_number_manager",
+   "software": "phone",
+   "summary": "sub_number_manager",
+   "component": "com.android.phone/com.android.phone.callsettings.SubNumberManager",
+   "action": "android.intent.action.MAIN",
+   "flags": []
+  },
+  {
+   "sign": "reminder.details_view_2",
+   "software": "reminder",
+   "summary": "details_view",
+   "component": "com.samsung.android.app.reminder/com.samsung.android.app.reminder.detail.DetailsViewActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "reminder.launch_main",
+   "software": "reminder",
+   "summary": "launch_main",
+   "component": "com.samsung.android.app.reminder/com.samsung.android.app.reminder.ui.LaunchMainActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "reminder.share_intent_receiver",
+   "software": "reminder",
+   "summary": "share_intent_receiver",
+   "component": "com.samsung.android.app.reminder/com.samsung.android.app.reminder.share.receiver.ShareIntentReceiverActivity",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "settings.accessibility_settings",
+   "software": "settings",
+   "summary": "accessibility_settings",
+   "component": "com.android.settings/com.android.settings.Settings$AccessibilitySettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.android_settings_voice_control_airplane_mode",
+   "software": "settings",
+   "summary": "android.settings.VOICE_CONTROL_AIRPLANE_MODE",
+   "component": "com.android.settings/com.android.settings.AirplaneModeVoiceActivity",
+   "action": "android.settings.VOICE_CONTROL_AIRPLANE_MODE",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.android_settings_voice_control_battery_saver_mode",
+   "software": "settings",
+   "summary": "android.settings.VOICE_CONTROL_BATTERY_SAVER_MODE",
+   "component": "com.android.settings/com.android.settings.fuelgauge.BatterySaverModeVoiceActivity",
+   "action": "android.settings.VOICE_CONTROL_BATTERY_SAVER_MODE",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.android_settings_voice_control_do_not_disturb_mode",
+   "software": "settings",
+   "summary": "android.settings.VOICE_CONTROL_DO_NOT_DISTURB_MODE",
+   "component": "com.android.settings/com.android.settings.notification.ZenModeVoiceActivity",
+   "action": "android.settings.VOICE_CONTROL_DO_NOT_DISTURB_MODE",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.apn_editor",
+   "software": "settings",
+   "summary": "apn_editor",
+   "component": "com.android.settings/com.android.settings.Settings$ApnEditorActivity",
+   "action": "android.intent.action.VIEW",
+   "flags": []
+  },
+  {
+   "sign": "settings.apn_settings",
+   "software": "settings",
+   "summary": "apn_settings",
+   "component": "com.android.settings/com.android.settings.Settings$ApnSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.backup_settings",
+   "software": "settings",
+   "summary": "backup_settings",
+   "component": "com.android.settings/com.android.settings.backup.BackupSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.band_mode",
+   "software": "settings",
+   "summary": "band_mode",
+   "component": "com.android.settings/com.android.settings.BandMode",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.bluetooth_opp_launcher",
+   "software": "settings",
+   "summary": "bluetooth_opp_launcher",
+   "component": "com.android.bluetooth/com.android.bluetooth.opp.BluetoothOppLauncherActivity",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "settings.bluetooth_settings",
+   "software": "settings",
+   "summary": "bluetooth_settings",
+   "component": "com.android.settings/com.android.settings.Settings$BluetoothSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.cloud_account_settings",
+   "software": "settings",
+   "summary": "cloud_account_settings",
+   "component": "com.android.settings/com.android.settings.Settings$CloudAccountSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.configure_wifi_settings",
+   "software": "settings",
+   "summary": "configure_wifi_settings",
+   "component": "com.android.settings/com.android.settings.Settings$ConfigureWifiSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.connected_device_dashboard",
+   "software": "settings",
+   "summary": "connected_device_dashboard",
+   "component": "com.android.settings/com.android.settings.Settings$ConnectedDeviceDashboardActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.date_time_settings",
+   "software": "settings",
+   "summary": "date_time_settings",
+   "component": "com.android.settings/com.android.settings.Settings$DateTimeSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.default_autofill_picker",
+   "software": "settings",
+   "summary": "default_autofill_picker",
+   "component": "com.android.settings/com.android.settings.Settings$DefaultAutofillPickerActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": []
+  },
+  {
+   "sign": "settings.device_admin_settings",
+   "software": "settings",
+   "summary": "device_admin_settings",
+   "component": "com.android.settings/com.android.settings.Settings$DeviceAdminSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.device_info_settings",
+   "software": "settings",
+   "summary": "device_info_settings",
+   "component": "com.android.settings/com.android.settings.Settings$DeviceInfoSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.device_visibility_settings",
+   "software": "settings",
+   "summary": "device_visibility_settings",
+   "component": "com.android.settings/com.android.settings.Settings$DeviceVisibilitySettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.display_settings",
+   "software": "settings",
+   "summary": "display_settings",
+   "component": "com.android.settings/com.android.settings.Settings$DisplaySettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.dock_settings",
+   "software": "settings",
+   "summary": "dock_settings",
+   "component": "com.android.settings/com.android.settings.Settings$DockSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.general_device_settings",
+   "software": "settings",
+   "summary": "general_device_settings",
+   "component": "com.android.settings/com.android.settings.Settings$GeneralDeviceSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.home_settings",
+   "software": "settings",
+   "summary": "home_settings",
+   "component": "com.android.settings/com.android.settings.Settings$HomeSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.icc_lock_settings",
+   "software": "settings",
+   "summary": "icc_lock_settings",
+   "component": "com.android.settings/com.android.settings.Settings$IccLockSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.imei_information",
+   "software": "settings",
+   "summary": "imei_information",
+   "component": "com.android.settings/com.android.settings.Settings$ImeiInformationActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.input_method_and_subtype_enabler",
+   "software": "settings",
+   "summary": "input_method_and_subtype_enabler",
+   "component": "com.android.settings/com.android.settings.inputmethod.InputMethodAndSubtypeEnablerActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.language_and_input_settings",
+   "software": "settings",
+   "summary": "language_and_input_settings",
+   "component": "com.android.settings/com.android.settings.Settings$LanguageAndInputSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.led_cover_caller_i_d_settings",
+   "software": "settings",
+   "summary": "led_cover_caller_i_d_settings",
+   "component": "com.android.settings/com.android.settings.Settings$LedCoverCallerIDSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": []
+  },
+  {
+   "sign": "settings.locale_picker",
+   "software": "settings",
+   "summary": "locale_picker",
+   "component": "com.android.settings/com.android.settings.Settings$LocalePickerActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.location_settings",
+   "software": "settings",
+   "summary": "location_settings",
+   "component": "com.android.settings/com.android.settings.Settings$LocationSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.lock_and_security_settings",
+   "software": "settings",
+   "summary": "lock_and_security_settings",
+   "component": "com.android.settings/com.android.settings.Settings$LockAndSecuritySettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.lockscreen_menu",
+   "software": "settings",
+   "summary": "lockscreen_menu",
+   "component": "com.android.settings/com.android.settings.Settings$LockscreenMenuActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.manage_applications",
+   "software": "settings",
+   "summary": "manage_applications",
+   "component": "com.android.settings/com.android.settings.Settings$ManageApplicationsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.nearby_settings",
+   "software": "settings",
+   "summary": "nearby_settings",
+   "component": "com.android.settings/com.android.settings.Settings$NearbySettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.network_dashboard",
+   "software": "settings",
+   "summary": "network_dashboard",
+   "component": "com.android.settings/com.android.settings.Settings$NetworkDashboardActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.pick_activity",
+   "software": "settings",
+   "summary": "pick_activity",
+   "component": "com.android.settings/com.android.settings.ActivityPicker",
+   "action": "android.intent.action.PICK_ACTIVITY",
+   "flags": []
+  },
+  {
+   "sign": "settings.print_settings",
+   "software": "settings",
+   "summary": "print_settings",
+   "component": "com.android.settings/com.android.settings.Settings$PrintSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.privacy_reset_settings",
+   "software": "settings",
+   "summary": "privacy_reset_settings",
+   "component": "com.android.settings/com.android.settings.Settings$PrivacyResetSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.privacy_settings",
+   "software": "settings",
+   "summary": "privacy_settings",
+   "component": "com.android.settings/com.android.settings.Settings$PrivacySettingsActivity",
+   "action": "android.settings.PRIVACY_SETTINGS",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.running_services",
+   "software": "settings",
+   "summary": "running_services",
+   "component": "com.android.settings/com.android.settings.Settings$RunningServicesActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.samsung_ad_id_about",
+   "software": "settings",
+   "summary": "samsung_ad_id_about",
+   "component": "com.android.settings/com.samsung.android.settings.deviceinfo.SamsungAdIdAboutActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.sec_search",
+   "software": "settings",
+   "summary": "sec_search",
+   "component": "com.android.settings/com.samsung.android.settings.search.SecSearchActivity",
+   "action": "com.samsung.android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "settings.security_settings",
+   "software": "settings",
+   "summary": "security_settings",
+   "component": "com.android.settings/com.android.settings.Settings$SecuritySettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.settings",
+   "software": "settings",
+   "summary": "settings",
+   "component": "com.android.settings/com.android.settings.Settings",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "settings.sim_lock_status",
+   "software": "settings",
+   "summary": "sim_lock_status",
+   "component": "com.android.settings/com.android.settings.Settings$SimLockStatusActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.sim_status",
+   "software": "settings",
+   "summary": "sim_status",
+   "component": "com.android.settings/com.android.settings.Settings$SimStatusActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.sound_settings",
+   "software": "settings",
+   "summary": "sound_settings",
+   "component": "com.android.settings/com.android.settings.Settings$SoundSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.spell_checkers_settings",
+   "software": "settings",
+   "summary": "spell_checkers_settings",
+   "component": "com.android.settings/com.android.settings.Settings$SpellCheckersSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.spr_tether_settings",
+   "software": "settings",
+   "summary": "spr_tether_settings",
+   "component": "com.android.settings/com.android.settings.Settings$SprTetherSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.status",
+   "software": "settings",
+   "summary": "status",
+   "component": "com.android.settings/com.android.settings.Settings$StatusActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.storage_dashboard",
+   "software": "settings",
+   "summary": "storage_dashboard",
+   "component": "com.android.settings/com.android.settings.Settings$StorageDashboardActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.storage_use",
+   "software": "settings",
+   "summary": "storage_use",
+   "component": "com.android.settings/com.android.settings.Settings$StorageUseActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.tether_settings",
+   "software": "settings",
+   "summary": "tether_settings",
+   "component": "com.android.settings/com.android.settings.Settings$TetherSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.usb_settings",
+   "software": "settings",
+   "summary": "usb_settings",
+   "component": "com.android.settings/com.android.settings.UsbSettings",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.user_dictionary_settings",
+   "software": "settings",
+   "summary": "user_dictionary_settings",
+   "component": "com.android.settings/com.android.settings.Settings$UserDictionarySettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.vpn_settings",
+   "software": "settings",
+   "summary": "vpn_settings",
+   "component": "com.android.settings/com.android.settings.Settings$VpnSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.wifi_ap_settings",
+   "software": "settings",
+   "summary": "wifi_ap_settings",
+   "component": "com.android.settings/com.android.settings.Settings$WifiApSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.wifi_ap_settings_2",
+   "software": "settings",
+   "summary": "wifi_ap_settings",
+   "component": "com.android.settings/com.android.settings.wifi.mobileap.WifiApSettings",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.wifi_calling_settings",
+   "software": "settings",
+   "summary": "wifi_calling_settings",
+   "component": "com.android.settings/com.android.settings.Settings$WifiCallingSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.wifi_offload",
+   "software": "settings",
+   "summary": "wifi_offload",
+   "component": "com.android.settings/com.samsung.android.settings.wifi.WifiOffloadDialog",
+   "action": "android.intent.action.MAIN",
+   "flags": []
+  },
+  {
+   "sign": "settings.wifi_p2p_settings",
+   "software": "settings",
+   "summary": "wifi_p2p_settings",
+   "component": "com.android.settings/com.android.settings.Settings$WifiP2pSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.wifi_settings",
+   "software": "settings",
+   "summary": "wifi_settings",
+   "component": "com.android.settings/com.android.settings.Settings$WifiSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "settings.wireless_settings",
+   "software": "settings",
+   "summary": "wireless_settings",
+   "component": "com.android.settings/com.android.settings.Settings$WirelessSettingsActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "VOICE"
+   ]
+  },
+  {
+   "sign": "sms.compose_message_mms",
+   "software": "sms",
+   "summary": "compose_message_mms",
+   "component": "com.samsung.android.messaging/com.android.mms.ui.ComposeMessageMms",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "sms.compose_message_mms_no_v_item",
+   "software": "sms",
+   "summary": "compose_message_mms_no_v_item",
+   "component": "com.samsung.android.messaging/com.android.mms.ui.ComposeMessageMmsNoVItem",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "sms.conversation_composer_14",
+   "software": "sms",
+   "summary": "conversation_composer",
+   "component": "com.samsung.android.messaging/com.android.mms.ui.ConversationComposer",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "sms.rcs_transfer_content",
+   "software": "sms",
+   "summary": "rcs_transfer_content",
+   "component": "com.samsung.android.messaging/com.android.mms.ui.RcsTransferContent",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "sms.search",
+   "software": "sms",
+   "summary": "search",
+   "component": "com.samsung.android.messaging/com.android.mms.ui.SearchActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "sms.tmo_transfer_content",
+   "software": "sms",
+   "summary": "tmo_transfer_content",
+   "component": "com.samsung.android.messaging/com.android.mms.ui.TmoTransferContent",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "sms.transfer_content",
+   "software": "sms",
+   "summary": "transfer_content",
+   "component": "com.samsung.android.messaging/com.android.mms.ui.TransferContent",
+   "action": "android.intent.action.SEND",
+   "flags": []
+  },
+  {
+   "sign": "store.asset_browser",
+   "software": "store",
+   "summary": "asset_browser",
+   "component": "com.android.vending/com.android.vending.AssetBrowserActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "store.main_7",
+   "software": "store",
+   "summary": "main",
+   "component": "com.android.vending/com.google.android.finsky.activities.MainActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  },
+  {
+   "sign": "store.samsung_apps_main",
+   "software": "store",
+   "summary": "samsung_apps_main",
+   "component": "com.sec.android.app.samsungapps/com.sec.android.app.samsungapps.SamsungAppsMainActivity",
+   "action": "android.intent.action.MAIN",
+   "flags": [
+    "LAUNCHER"
+   ]
+  },
+  {
+   "sign": "store.search_result",
+   "software": "store",
+   "summary": "search_result",
+   "component": "com.sec.android.app.samsungapps/com.sec.android.app.samsungapps.SearchResultActivity",
+   "action": "android.intent.action.SEARCH",
+   "flags": []
+  }
+ ]
+}

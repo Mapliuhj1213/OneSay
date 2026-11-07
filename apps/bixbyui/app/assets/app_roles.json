@@ -1,0 +1,78 @@
+{
+  "_comment": "默认应用角色（App Role）定义。加一个角色 = 在 roles 里加一条，不改代码。字段说明见 deliverable/-默认应用角色.md §3。seeds 只是元数据提示（标签/别名/交接方式），seeds 的顺序 = 热门度（国外 App 排在最后，不影响 4 个补位）；region = cn（国内，安装走三星商店）/ intl（国外，安装走 Play，连不上再代理 App / 退三星商店），不写按 cn：选择芯片固定补足 4 个时按这个顺序用未安装的补位（R5），候选 App 以运行时推导为准（已安装包 ∩/∪ 标准 intent 解析 ∪ 挖掘接口）。",
+  "version": 1,
+  "roles": [
+    {
+      "id": "taxi",
+      "label": "打车",
+      "triggers": ["打车", "打个车", "打辆车", "叫车", "叫个车", "叫辆车", "约车", "约个车", "网约车"],
+      "trigger_regex": "打的(?!时候)",
+      "slot": "address",
+      "clip_chip": "TAXI",
+      "seeds": [
+        {"id": "didi", "pkg": "com.sdu.didi.psnger", "label": "滴滴出行", "launch": "滴滴", "aliases": ["滴滴出行", "滴滴打车", "滴滴"], "region": "cn"},
+        {"id": "amap", "pkg": "com.autonavi.minimap", "label": "高德地图", "launch": "高德地图", "aliases": ["高德地图", "高德打车", "高德导航", "高德"], "dest_sign": "s1.taxi.to", "region": "cn"},
+        {"id": "meituan", "pkg": "com.sankuai.meituan", "label": "美团", "launch": "美团", "aliases": ["美团打车", "美团"], "region": "cn"},
+        {"id": "huaxiaozhu", "pkg": "com.huaxiaozhu.rider", "label": "花小猪打车", "launch": "花小猪", "aliases": ["花小猪打车", "花小猪"], "region": "cn"},
+        {"id": "caocao", "pkg": "cn.caocaokeji.user", "label": "曹操出行", "launch": "曹操出行", "aliases": ["曹操出行", "曹操"], "region": "cn"},
+        {"id": "t3", "pkg": "com.t3go.passenger", "label": "T3出行", "launch": "T3出行", "aliases": ["t3出行", "t3"], "region": "cn"},
+        {"id": "uber", "pkg": "com.ubercab", "label": "Uber", "launch": "Uber", "aliases": ["uber", "优步"], "region": "intl"}
+      ]
+    },
+    {
+      "id": "nav",
+      "label": "导航",
+      "triggers": [],
+      "trigger_regex": "导航(?!栏|键|条)",
+      "slot": "address",
+      "clip_chip": "NAV",
+      "probe": {"action": "android.intent.action.VIEW", "data": "geo:0,0?q=test"},
+      "dest_sign": "s2.nav.app",
+      "seeds": [
+        {"id": "amap", "pkg": "com.autonavi.minimap", "label": "高德地图", "launch": "高德地图", "aliases": ["高德地图", "高德打车", "高德导航", "高德"], "region": "cn"},
+        {"id": "baidumap", "pkg": "com.baidu.BaiduMap", "label": "百度地图", "launch": "百度地图", "aliases": ["百度地图", "百度导航", "百度"], "region": "cn"},
+        {"id": "qqmap", "pkg": "com.tencent.map", "label": "腾讯地图", "launch": "腾讯地图", "aliases": ["腾讯地图"], "region": "cn"},
+        {"id": "googlemap", "pkg": "com.google.android.apps.maps", "label": "谷歌地图", "launch": "Google地图", "aliases": ["谷歌地图", "google地图", "googlemaps", "谷歌导航"], "region": "intl"}
+      ]
+    },
+    {
+      "id": "takeout",
+      "label": "外卖",
+      "triggers": ["外卖", "订餐", "点餐"],
+      "seeds": [
+        {"id": "meituanwm", "pkg": "com.sankuai.meituan.takeoutnew", "label": "美团外卖", "launch": "美团外卖", "aliases": ["美团外卖"], "region": "cn"},
+        {"id": "eleme", "pkg": "me.ele", "label": "饿了么", "launch": "饿了么", "aliases": ["饿了么"], "region": "cn"},
+        {"id": "meituan", "pkg": "com.sankuai.meituan", "label": "美团", "launch": "美团", "aliases": ["美团"], "region": "cn"},
+        {"id": "jd", "pkg": "com.jingdong.app.mall", "label": "京东", "launch": "京东", "aliases": ["京东外卖", "京东秒送", "京东"], "general": true, "region": "cn"}
+      ]
+    },
+    {
+      "id": "bike",
+      "label": "共享单车",
+      "store_query": "共享单车",
+      "always_choose": true,
+      "triggers": ["扫码骑车", "扫码开锁", "骑共享"],
+      "trigger_regex": "(?:扫|骑|找|用)?(?:个|辆|一辆|一个|下)?(?:共享)?(?:电)?单车",
+      "seeds": [
+        {"id": "hellobike", "pkg": "com.jingyao.easybike", "label": "哈啰", "launch": "哈啰", "aliases": ["哈啰出行", "哈啰单车", "哈啰", "哈罗单车", "哈罗"], "region": "cn"},
+        {"id": "meituan", "pkg": "com.sankuai.meituan", "label": "美团", "launch": "美团", "aliases": ["美团单车", "美团"], "region": "cn"},
+        {"id": "alipay", "pkg": "com.eg.android.AlipayGphone", "label": "支付宝", "launch": "支付宝", "aliases": ["支付宝"], "open_uri": "alipays://platformapi/startapp?saId=10000007", "general": true, "region": "cn"},
+        {"id": "wechat", "pkg": "com.tencent.mm", "label": "微信", "launch": "微信", "aliases": ["微信"], "general": true, "region": "cn"}
+      ]
+    },
+    {
+      "id": "music",
+      "label": "听歌",
+      "triggers": ["听歌", "听音乐", "听首歌", "听点歌", "放首歌", "放歌", "放点歌", "放点音乐", "来首歌", "来点音乐", "放音乐"],
+      "probe": {"action": "android.intent.action.MAIN", "category": "android.intent.category.APP_MUSIC"},
+      "seeds": [
+        {"id": "netease", "pkg": "com.netease.cloudmusic", "label": "网易云音乐", "launch": "网易云音乐", "aliases": ["网易云音乐", "网易云"], "region": "cn"},
+        {"id": "qqmusic", "pkg": "com.tencent.qqmusic", "label": "QQ音乐", "launch": "QQ音乐", "aliases": ["qq音乐"], "region": "cn"},
+        {"id": "kugou", "pkg": "com.kugou.android", "label": "酷狗音乐", "launch": "酷狗", "aliases": ["酷狗音乐", "酷狗"], "region": "cn"},
+        {"id": "kuwo", "pkg": "cn.kuwo.player", "label": "酷我音乐", "launch": "酷我", "aliases": ["酷我音乐", "酷我"], "region": "cn"},
+        {"id": "spotify", "pkg": "com.spotify.music", "label": "Spotify", "launch": "Spotify", "aliases": ["spotify", "声破天"], "region": "intl"},
+        {"id": "ytmusic", "pkg": "com.google.android.apps.youtube.music", "label": "YouTube Music", "launch": "YouTube Music", "aliases": ["youtube music", "油管音乐"], "region": "intl"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+AppCaps.java	am start -n com.tencent.mm/.ui.LauncherUI
+AppCaps.java	am start -a android.intent.action.VIEW -d https://example.com
+AppCaps.java	am start -a android.intent.action.VIEW -d https://www.baidu.com/s?wd=abc
+AppCaps.java	am start -a android.intent.action.VIEW -d https://cn.bing.com/search?q=abc
+AppCaps.java	am start -a android.intent.action.VIEW -d https://www.google.com/search?q=abc
+AppCaps.java	am start -a android.intent.action.VIEW -d https://www.sogou.com/web?query=abc
+AppCaps.java	am start -a android.intent.action.VIEW -d https://cn.bing.com
+AppCaps.java	cmd package resolve-activity --brief -a android.intent.action.VIEW -d http://example.com 2>/dev/null | tail -1
+AppCaps.java	am start -a android.settings.MANAGE_DEFAULT_APPS_SETTINGS
+AppCaps.java	am start -a android.intent.action.DELETE -d package:com.tencent.mm
+ClockCaps.java	date +%H:%M
+ClockCaps.java	date +%mæ%dæ¥
+ClockCaps.java	am start -a android.intent.action.SET_ALARM --ei android.intent.extra.alarm.HOUR 7 --ei android.intent.extra.alarm.MINUTES 7 --ez android.intent.extra.alarm.SKIP_UI true
+ClockCaps.java	am start -a android.intent.action.SET_TIMER --ei android.intent.extra.alarm.LENGTH 7 --ez android.intent.extra.alarm.SKIP_UI true
+ConnectivityCaps.java	svc wifi enable
+ConnectivityCaps.java	svc wifi disable
+ConnectivityCaps.java	settings get global wifi_on
+ConnectivityCaps.java	service call bluetooth_manager 6
+ConnectivityCaps.java	service call bluetooth_manager 9 s16 com.android.shell i32 1
+ConnectivityCaps.java	settings get global bluetooth_on
+ConnectivityCaps.java	svc data enable
+ConnectivityCaps.java	svc data disable
+ConnectivityCaps.java	settings get global mobile_data
+ConnectivityCaps.java	settings put global airplane_mode_on 1 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true
+ConnectivityCaps.java	settings put global airplane_mode_on 0 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false
+ConnectivityCaps.java	settings put secure location_providers_allowed +gps; settings put secure location_providers_allowed +network
+ConnectivityCaps.java	settings put secure location_providers_allowed -gps; settings put secure location_providers_allowed -network
+ConnectivityCaps.java	settings put global data_roaming 1
+ConnectivityCaps.java	settings put global data_roaming 0
+SettingsCaps.java	settings put system screen_brightness 5
+SettingsCaps.java	settings get system screen_brightness
+SettingsCaps.java	settings put system screen_off_timeout 30000
+SettingsCaps.java	settings put system accelerometer_rotation 1
+SettingsCaps.java	settings put system accelerometer_rotation 0
+SettingsCaps.java	settings put global auto_time 1
+SettingsCaps.java	settings put global auto_time 0
+SettingsExpansionCaps.java	settings get global airplane_mode_on
+SettingsExpansionCaps.java	settings get global data_roaming
+SettingsExpansionCaps.java	settings get system accelerometer_rotation
+SettingsExpansionCaps.java	settings get system screen_off_timeout
+SettingsExpansionCaps.java	settings get system screen_brightness_mode
+SettingsExpansionCaps.java	settings get system font_scale
+SettingsExpansionCaps.java	settings get global auto_time
+SettingsExpansionCaps.java	dumpsys battery | grep level
+SettingsExpansionCaps.java	settings get global low_power
+SettingsExpansionCaps.java	dumpsys diskstats | grep -m1 Data-Free
+SettingsExpansionCaps.java	settings put system screen_brightness_mode 1
+SettingsExpansionCaps.java	settings put system screen_brightness_mode 0
+SettingsExpansionCaps.java	media volume --stream 5 --set 5
+SettingsExpansionCaps.java	media volume --stream 5 --get | grep -o 'volume is [0-9]*'
+SettingsExpansionCaps.java	settings put system haptic_feedback_enabled 1
+SettingsExpansionCaps.java	settings put system haptic_feedback_enabled 0
+SettingsExpansionCaps.java	settings put global low_power 1
+SettingsExpansionCaps.java	settings put global low_power 0
+SettingsExpansionCaps.java	settings put system aod_mode 1
+SettingsExpansionCaps.java	settings put system aod_mode 0
+SettingsExpansionCaps.java	settings put system edge_lighting 1
+SettingsExpansionCaps.java	settings put system edge_lighting 0
+SettingsExpansionCaps.java	settings put system enable_smart_capture 1
+SettingsExpansionCaps.java	settings put system enable_smart_capture 0
+SettingsExpansionCaps.java	am start -a android.settings.WIFI_SETTINGS
+SettingsExpansionCaps.java	am start -a android.settings.SOUND_SETTINGS
+SettingsExpansionCaps.java	am start -a android.settings.DISPLAY_SETTINGS
+SettingsExpansionCaps.java	am start -a android.settings.DATE_SETTINGS
+SettingsExpansionCaps.java	am start -a android.settings.LOCATION_SOURCE_SETTINGS
+SettingsExpansionCaps.java	am start -a android.settings.INTERNAL_STORAGE_SETTINGS
+SettingsExpansionCaps.java	am start -a android.settings.BATTERY_SAVER_SETTINGS
+SettingsExpansionCaps.java	am start -a android.settings.NOTIFICATION_SETTINGS
+SettingsExpansionCaps.java	am start -a android.settings.APPLICATION_SETTINGS
+SettingsExpansionCaps.java	am start -a android.settings.ACCESSIBILITY_SETTINGS
+SettingsExpansionCaps.java	am start -a android.intent.action.VIEW -d 'samsungapps://SearchResult/abc'
+SettingsExpansionCaps.java	am start -a android.intent.action.VIEW -d 'samsungapps://ProductDetail/com.tencent.mm'
+SettingsExpansionCaps.java	am start -a android.intent.action.VIEW -d 'market://search?q=abc'
+SystemCaps.java	echo 1 > /sys/class/leds/torch-sec1/brightness
+SystemCaps.java	echo 0 > /sys/class/leds/torch-sec1/brightness
+SystemCaps.java	input keyevent 26
+SystemCaps.java	am start -a android.intent.action.CALL -d tel:10086
+SystemCaps.java	am start -a android.intent.action.SENDTO -d smsto:10086 --es sms_body 'abc'
+SystemCaps.java	reboot -p
+SystemCaps.java	am start -a android.settings.PRIVACY_SETTINGS
+VolumeCaps.java	media volume --stream 3 --set 5
+VolumeCaps.java	media volume --stream 3 --set 0
+VolumeCaps.java	media volume --stream 3 --get 2>&1 | grep -o 'volume is [0-9]*' | tr -d '\r\n'
+VolumeCaps.java	media volume --stream 2 --set 5
+VolumeCaps.java	media volume --stream 2 --set 0
+VolumeCaps.java	media volume --stream 2 --get 2>&1 | grep -o 'volume is [0-9]*' | tr -d '\r\n'
+VolumeCaps.java	media volume --stream 4 --set 5
+VolumeCaps.java	media volume --stream 4 --get 2>&1 | grep -o 'volume is [0-9]*' | tr -d '\r\n'
+VolumeCaps.java	media volume --stream 5 --set 0
+McpServerConfig.java	id åªè½æ¯å°åå­æ¯å¼å¤´ç 1â24 ä½ [a-z0-9_-]
+McpServerConfig.java	id ä¸åç½®è¿æ¥å¨éå
+WatchSpec.java	id ä¸åæ³
+FullscreenPolicy.java	dumpsys window policy | grep -E 'mTopIsFullscreen|mLastSystemUiFlags' | head -n 4
+StatusProbe.java	echo OK
+ScreenContextCapture.dumpCmd(v4.1 G2)	uiautomator dump --compressed /data/user/0/com.onesay.assistant/cache/scratch/screenref/sr_ui.xml
+ScreenContextCapture.dumpCmd(lowPriority,v4.1 G2)	nice -n 10 uiautomator dump --compressed /data/user/0/com.onesay.assistant/cache/scratch/screenref/sr_ui.xml
+ShellPrograms.NFC_STATE(v4.1 G4)	dumpsys nfc | grep -m1 mState
+ShellPrograms.STORE_GOOGLE(v4.1 G4)	dumpsys account | grep -c com.google
+ImageSaveController.rootCopySteps#mkdir(v4.1 G3)	mkdir -p '/storage/emulated/0/Pictures/OneSay/com.tencent.mm'
+ImageSaveController.rootCopySteps#cp(v4.1 G3)	cp -f '/data/user/0/com.onesay.assistant/cache/scratch/imgsave/out_OneSay_20261025_120000_1.png' '/storage/emulated/0/Pictures/OneSay/com.tencent.mm/OneSay_20261025_120000_1.png'
+ImageSaveController.rootCopySteps#cp-orig(v4.1 G3)	cp -f '/data/user/0/com.onesay.assistant/cache/scratch/imgsave/out_OneSay_20261025_120000_2_orig.jpg' '/storage/emulated/0/Pictures/OneSay/com.tencent.mm/OneSay_20261025_120000_2_orig.jpg'
+ShellPrograms.screenshotCmd(ui.screenshot,v4.1 G3)	screencap -p /sdcard/Pictures/bixbyui_shot.png
+ConsoleStatus.DAEMON_PROBE(v4.1 G7 模板)	a=DEAD; p=$(cat /data/local/tmp/.bixby_hijack.pid 2>/dev/null); if [ -n "$p" ] && grep -qa hijack_daemon /proc/$p/cmdline 2>/dev/null; then a=ALIVE; else for d in /proc/[0-9]*; do grep -qa hijack_daemon $d/cmdline 2>/dev/null && { a=ALIVE; break; }; done; fi; echo $a; M=/data/adb/modules/bixbykey_hijack; if [ -d $M ]; then echo MOD; else echo NOMOD; fi; head -n 6 $M/hijack_daemon.sh 2>/dev/null | grep -m1 'daemon - v' ; echo END

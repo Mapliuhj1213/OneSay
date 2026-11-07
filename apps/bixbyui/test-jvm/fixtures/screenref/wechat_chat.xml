@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.tencent.mm" content-desc="" clickable="false" password="false" bounds="[0,0][1440,2960]">
+    <node index="0" text="张经理(3)" resource-id="com.tencent.mm:id/ko" class="android.widget.TextView" package="com.tencent.mm" content-desc="" clickable="false" password="false" bounds="[200,100][800,180]" />
+    <node index="1" text="明天下午3点在公司开会，地址：广州市天河区珠江新城华夏路10号富力中心28楼" resource-id="com.tencent.mm:id/b4b" class="android.view.View" package="com.tencent.mm" content-desc="" clickable="true" password="false" bounds="[200,400][1200,620]" />
+    <node index="2" text="有事打我电话 13612345678" resource-id="com.tencent.mm:id/b4b" class="android.view.View" package="com.tencent.mm" content-desc="" clickable="true" password="false" bounds="[200,700][1100,800]" />
+    <node index="3" text="资料在这 https://pan.example.com/s/1AbC" resource-id="com.tencent.mm:id/b4b" class="android.view.View" package="com.tencent.mm" content-desc="" clickable="true" password="false" bounds="[200,880][1200,980]" />
+    <node index="4" text="或者去分公司：北京市海淀区中关村大街27号" resource-id="com.tencent.mm:id/b4b" class="android.view.View" package="com.tencent.mm" content-desc="" clickable="true" password="false" bounds="[200,1060][1200,1160]" />
+  </node>
+</hierarchy>

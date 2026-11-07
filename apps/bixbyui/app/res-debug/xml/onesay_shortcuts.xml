@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面快捷方式（长按图标）：语音唤起。目标是不导出的跳板，由系统以本 App 身份启动。
+     debug 变体覆盖层：targetPackage = com.onesay.assistant.debug。 -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="onesay_voice"
+        android:enabled="true"
+        android:icon="@drawable/ic_entry_mic"
+        android:shortcutShortLabel="@string/onesay_shortcut_voice"
+        android:shortcutLongLabel="@string/onesay_shortcut_voice">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.onesay.assistant.debug"
+            android:targetClass="com.onesay.assistant.v2.entry.EntryLaunchActivity">
+            <extra android:name="entry" android:value="entry.shortcut" />
+        </intent>
+    </shortcut>
+</shortcuts>

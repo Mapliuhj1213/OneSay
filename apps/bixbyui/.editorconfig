@@ -1,0 +1,39 @@
+# OneSay 代码风格（refactor/oss 2026-11-06 依现有代码归纳；只约束新改动，不要求一次性重排旧文件）
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.java]
+# 现有代码行宽大多 ≤ 140，个别长注释到 230；新代码请控制在 140 以内
+max_line_length = 140
+ij_java_class_count_to_use_import_on_demand = 99
+
+[*.{sh,py}]
+indent_size = 4
+
+[*.{xml,json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+
+# 夹具保持原样（真机 dump、网页原文、二进制音频）
+[test-jvm/fixtures/**]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+indent_style = unset
+indent_size = unset
+
+# kws_keywords.txt 必须是纯词表（sherpa-onnx 不跳过注释），不要动它的格式
+[app/assets/kws_keywords.txt]
+insert_final_newline = unset
+trim_trailing_whitespace = unset

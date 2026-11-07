@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DEBUG 图标前景：release 的光球（icfg.xml 原样）+ 右下角黄底「D」角标。仅 DEBUG=1 链接。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FF9F43"
+        android:pathData="M54,54 m-22,0 a22,22 0 1,1 44,0 a22,22 0 1,1 -44,0" />
+    <path android:fillColor="#C56CF0"
+        android:pathData="M54,54 m-13,0 a13,13 0 1,1 26,0 a13,13 0 1,1 -26,0" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M46,46 m-6,0 a6,6 0 1,1 12,0 a6,6 0 1,1 -12,0" />
+    <!-- 角标：黑描边黄圆（在 66dp 安全区内，圆形/方形遮罩都不会被裁） -->
+    <path android:fillColor="#1A1A1A"
+        android:pathData="M70,70 m-13,0 a13,13 0 1,1 26,0 a13,13 0 1,1 -26,0" />
+    <path android:fillColor="#FFD43B"
+        android:pathData="M70,70 m-11,0 a11,11 0 1,1 22,0 a11,11 0 1,1 -22,0" />
+    <!-- 字母 D（evenOdd 挖空） -->
+    <path android:fillColor="#1A1A1A" android:fillType="evenOdd"
+        android:pathData="M65,63 h4.5 a7,7 0 0 1 0,14 h-4.5 z M68,66 h1.5 a4,4 0 0 1 0,8 h-1.5 z" />
+</vector>

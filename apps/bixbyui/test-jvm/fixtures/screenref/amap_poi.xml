@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.autonavi.minimap" content-desc="" clickable="false" password="false" bounds="[0,0][1440,2960]">
+    <node index="0" text="海底捞火锅(万象城店)" resource-id="com.autonavi.minimap:id/poi_name" class="android.widget.TextView" package="com.autonavi.minimap" content-desc="" clickable="false" password="false" bounds="[48,1820][1000,1900]" />
+    <node index="1" text="4.8分 · 火锅 · ¥120/人" resource-id="com.autonavi.minimap:id/poi_desc" class="android.widget.TextView" package="com.autonavi.minimap" content-desc="" clickable="false" password="false" bounds="[48,1910][900,1970]" />
+    <node index="2" text="地址" resource-id="com.autonavi.minimap:id/addr_label" class="android.widget.TextView" package="com.autonavi.minimap" content-desc="" clickable="false" password="false" bounds="[48,2000][160,2060]" />
+    <node index="3" text="深圳市罗湖区宝安南路1881号华润万象城5层" resource-id="com.autonavi.minimap:id/addr" class="android.widget.TextView" package="com.autonavi.minimap" content-desc="" clickable="true" password="false" bounds="[180,2000][1300,2060]" />
+    <node index="4" text="" resource-id="com.autonavi.minimap:id/btn_phone" class="android.widget.ImageView" package="com.autonavi.minimap" content-desc="电话 0755-82668888" clickable="true" password="false" bounds="[1300,2000][1400,2100]" />
+    <node index="5" text="路线" resource-id="com.autonavi.minimap:id/btn_route" class="android.widget.Button" package="com.autonavi.minimap" content-desc="" clickable="true" password="false" bounds="[48,2700][700,2840]" />
+    <node index="6" text="营业中 10:00-次日02:00" resource-id="" class="android.widget.TextView" package="com.autonavi.minimap" content-desc="" clickable="false" password="false" bounds="[48,2100][800,2160]" />
+  </node>
+</hierarchy>

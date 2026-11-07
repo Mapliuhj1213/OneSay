@@ -1,0 +1,15 @@
+ImageSaveController.capture	D=/data/user/0/com.onesay.assistant/files/imgsave; mkdir -p $D; rm -f $D/scr.raw $D/ui.xml; dumpsys activity activities 2>/dev/null | grep -m 2 -E 'mResumedActivity|mFocusedActivity'; echo "__NOW $(date +%s)"; screencap $D/scr.raw & SC=$!; timeout 8 uiautomator dump $D/ui.xml >/dev/null 2>&1 </dev/null; wait $SC; echo __DONE
+ImageSaveController.copy	cp -f '/storage/emulated/0/DCIM/a.jpg' '/storage/emulated/0/Pictures/OneSay/a.jpg' 2>/dev/null && chmod 666 '/storage/emulated/0/Pictures/OneSay/a.jpg'; echo OK
+ImageSaveController.save	mkdir -p '/storage/emulated/0/Pictures/OneSay' && cp -f '/data/user/0/com.onesay.assistant/cache/t.png' '/storage/emulated/0/Pictures/OneSay/t.png'
+QuickNoteThumbs	rm -f '/data/user/0/com.onesay.assistant/files/qn/t.png'; screencap -p '/data/user/0/com.onesay.assistant/files/qn/t.png' </dev/null >/dev/null 2>&1; chmod 600 '/data/user/0/com.onesay.assistant/files/qn/t.png'
+ScreenContextCapture	rm -f /data/user/0/com.onesay.assistant/cache/sc.png; screencap -p /data/user/0/com.onesay.assistant/cache/sc.png; chmod 666 /data/user/0/com.onesay.assistant/cache/sc.png 2>/dev/null; true
+HomeCityPolicy	cat '/data/data/com.sec.android.daemonapp/databases/WeatherClock' > /data/user/0/com.onesay.assistant/files/wc.db && echo "SZ $(wc -c < /data/user/0/com.onesay.assistant/files/wc.db)"
+ReliabilityCheck	dumpsys deviceidle whitelist; echo ---SEP---; cmd appops get com.tencent.mm RUN_IN_BACKGROUND
+PowerWhitelist.probe	dumpsys deviceidle whitelist; echo ---SEP---; (cmd appops get com.tencent.mm RUN_IN_BACKGROUND 2>/dev/null || appops get com.tencent.mm RUN_IN_BACKGROUND)
+ConsoleStatus	a=DEAD; p=$(cat /data/local/tmp/.bixby_hijack.pid 2>/dev/null); echo $a
+AppCaps.browser	C=$(cmd package resolve-activity --brief -a android.intent.action.VIEW -d http://example.com 2>/dev/null | tail -1); if [ -n "$C" ]; then am start -n "$C"; else am start -a android.intent.action.VIEW -d about:blank; fi
+S1Capabilities.geo	if am start -a android.intent.action.VIEW -d 'geo:0,0?q=abc' >/dev/null 2>&1; then :; else am start -a android.intent.action.VIEW -d 'https://uri.amap.com/search?keyword=abc' >/dev/null 2>&1; fi; true
+BriefDetail.read	cat /data/data/com.onesay.clock/files/brief/brief.json
+PowerWhitelist.split-get	cmd appops get com.tencent.mm RUN_IN_BACKGROUND
+PowerWhitelist.split-set	cmd appops set com.tencent.mm RUN_ANY_IN_BACKGROUND allow
+deviceidle.add	dumpsys deviceidle whitelist +com.tencent.mm

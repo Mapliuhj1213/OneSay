@@ -1,0 +1,408 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.onesay.assistant"
+    android:versionCode="21"
+    android:versionName="2.5.0">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
+
+    <!-- 录音权限：语音唤醒与离线语音识别 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 网络通信：L2 云端 LLM 编译器与意图处理 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 常驻前台服务与唤醒锁 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 开机与安装自启自愈 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 悬浮窗权限：底部 Sheet 悬浮面板（TYPE_APPLICATION_OVERLAY） -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!--
+      ============================================================================
+      权限策略（2026-10-03 用户拍板）：**开发板设备，体验优先级最高，全部预授权**。
+      说明：62 个能力里 46 个 shell + 16 个 "intent" 实际都走 root 守护的 `am start`，
+            并不依赖 App 自身的运行时权限；下面这组是为「App 进程内必须持权」的路径
+            （联系人查询、相机、存储、定位等）以及后续能力扩展预留的。
+      配套动作：装机后由 `deploy.sh grant-all` 用 pm grant / appops set 一次性授予。
+      ============================================================================
+    -->
+
+    <!-- 联系人 / 通讯记录：LocalEntityIndexer 读取常用联系人，phone.call 解析姓名 -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
+    <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
+    <!-- 电话：phone.call 能力 -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <!-- 短信：sms.send 能力 -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_MMS" />
+    <!-- 定位：天气/出门提醒（用户要求按系统定位自动获取，不写死城市） -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- 相机 / 手电：torch.on/off 与后续拍照截图 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FLASHLIGHT" />
+    <!-- 存储：ui.screenshot 落盘相册、扫描 /sdcard/Music 作为音乐源 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- 连接开关：connectivity.* 能力族 -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- 音量 / 系统设置：volume.* 与 settings.* 能力族 -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <!-- 没装 OneSay 时钟时设闹钟交给系统 AlarmClock.ACTION_SET_ALARM（普通权限） -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- ★ fix/triage-fast：勿扰快路径（setInterruptionFilter 需要用户在「勿扰权限」里允许；普通权限，不弹运行时框） -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.CHANGE_CONFIGURATION" />
+    <!-- 日历 -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- 面板与后台管理 -->
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- 特殊权限（appops 授予）：用量统计查询 -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <!-- 读写「OneSay Plan」（com.onesay.plan）的后门，signature 级，计划 App 与 release 同证书 -->
+    <uses-permission android:name="com.onesay.plan.permission.ACCESS" />
+    <!-- OneSay 时钟对外闹钟接口（AlarmApiReceiver）：signature 级，只有与时钟同一证书签名才授予。
+         这里也同名声明一次（时钟清单里同样声明；同证书可重复声明），这样先装哪个 App 都能授予。 -->
+    <uses-permission android:name="com.onesay.clock.permission.ALARM_CONTROL" />
+    <permission
+        android:name="com.onesay.clock.permission.ALARM_CONTROL"
+        android:label="设置、开关、删除 OneSay 时钟的闹钟"
+        android:protectionLevel="signature" />
+
+    <!--
+      签名级自定义权限。只有同一把 keystore 签名的 App（以及 root / system，
+      ActivityManager 对 uid 0/1000 不做组件权限检查）才能调用加了此权限的组件。
+      第三方 App 无法再：开麦唤醒、往悬浮面板塞指令、经测试广播执行能力或改密钥/邮箱服务器。
+    -->
+    <permission
+        android:name="com.onesay.assistant.permission.CONTROL"
+        android:label="控制 OneSay"
+        android:protectionLevel="signature" />
+
+    <!-- 公开唤起入口（com.onesay.assistant.action.SUMMON）的调用权限：危险级 = 调用方 App 必须运行时向用户申请，
+         用户逐个 App 授权；入口组件本身默认停用，要在 OneSay 设置里打开「外部 App 唤起」。 -->
+    <permission
+        android:name="com.onesay.assistant.permission.SUMMON"
+        android:label="唤起 OneSay 并开始聆听"
+        android:description="@string/onesay_perm_summon_desc"
+        android:protectionLevel="dangerous" />
+
+    <application
+        android:label="OneSay"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <!-- 控制台主入口面板（桌面启动图标） -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:label="OneSay 控制台">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/onesay_shortcuts" />
+        </activity>
+
+        <!-- 唤起入口（EntryTrigger，见 v2/entry 与 libs/plugin-api 的 com.onesay.plugin.api.entry）。
+             跳板不导出：快捷开关 / 小部件 / 桌面快捷方式都以本 App 身份启动它。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.entry.EntryLaunchActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="com.onesay.assistant.entry"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- 公开唤起入口：默认停用（enabled=false），用户在设置里打开后才启用；调用方还需危险级权限 SUMMON。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.entry.SummonActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="com.onesay.assistant.entry"
+            android:permission="com.onesay.assistant.permission.SUMMON"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="com.onesay.assistant.action.SUMMON" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- 快捷开关（只有系统能绑定）。 -->
+        <service
+            android:name="com.onesay.assistant.v2.entry.SummonTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_entry_mic"
+            android:label="OneSay"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- 桌面小部件（APPWIDGET_UPDATE 只由系统投递）。 -->
+        <receiver
+            android:name="com.onesay.assistant.v2.entry.SummonWidgetProvider"
+            android:exported="true"
+            android:label="OneSay 语音">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/onesay_entry_widget" />
+        </receiver>
+
+        <!-- 截图分析的存储权限申请（透明，弹系统授权框；永久拒绝过就跳应用权限页）。只由本 App 打开，不导出。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.suggest.StoragePermActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:label="截图分析授权" />
+
+        <!-- OneSay：统一 API 密钥面板（FLAG_SECURE）。只由本 App 打开，不导出。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.KeysActivity"
+            android:exported="false"
+            android:label="API 密钥"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- 邮箱（IMAP）设置页。只由本 App 打开（控制台按钮 / 面板「去填写邮箱授权码」），不导出。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.MailSettingsActivity"
+            android:exported="false"
+            android:label="邮箱（IMAP）配置"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- 定时 / 事件任务的权限卡（逐项勾选，确认后才入库）。只由本 App 打开，不导出。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.PermissionCardActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.Dialog.NoActionBar"
+            android:label="任务授权" />
+
+        <!-- 发邮件确认卡（收件人 / 主题 / 摘要，发送 / 修改 / 取消）。全仓库唯一的发送入口，不导出。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.MailConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.Dialog.NoActionBar"
+            android:windowSoftInputMode="adjustResize"
+            android:label="确认发送邮件" />
+
+        <!-- 通知触发。exported 是 NotificationListenerService 的硬性要求，
+             但有 BIND_NOTIFICATION_LISTENER_SERVICE 权限（只有系统能绑定）。用户要在「通知使用权」里手动打开。
+             只读事件任务白名单 App 的通知，内容按污染数据处理（不进日志、只作隔离块里的数据）。 -->
+        <service
+            android:name="com.onesay.assistant.v2.events.EventNotificationListener"
+            android:exported="true"
+            android:label="OneSay 事件任务（通知触发）"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- phongent 兼容执行端（多设备主控连本机）。exported=false：只由本 App 起停（总开关开着才起），
+             配对 / 看屏的「允许 / 拒绝」通知按钮也是发给它的显式 PendingIntent，不注册任何广播接收器。 -->
+        <service
+            android:name="com.onesay.assistant.v2.phongent.PhongentService"
+            android:exported="false" />
+
+        <!-- 底部 Sheet 悬浮抽屉服务（置顶但保持被控应用可见）
+             exported=false。启动方只有本 App（WakeService / MainActivity / BootReceiver /
+             TestRunReceiver），同 uid 不受影响；旧版导出且接收 ACTION_SHOW + query 直接执行，任何 App 都能塞指令。 -->
+        <service
+            android:name="com.onesay.assistant.v2.ui.FloatingSheetService"
+            android:exported="false" />
+
+        <!-- 常驻离线语音与 Bixby 物理按键唤醒服务
+             exported=false（同上；旧版任何 App 都能把它拉起来开麦）。
+             root 守护若直接 am startservice 本服务，uid 0 不受 exported 限制 —— 需真机确认。 -->
+        <service
+            android:name="com.onesay.assistant.v2.wake.WakeService"
+            android:exported="false" />
+
+        <!-- Bixby 按键守护进程 (hijack_daemon.sh) 兜底/冷启动透明中继入口
+             保留 exported（守护从本 App 之外拉起它），但加签名级权限：
+             root 守护（uid 0）不受组件权限检查影响，第三方 App 被拒。需真机验证 Bixby 键冷启动。 -->
+        <activity
+            android:name="com.onesay.assistant.WebViewUiActivity"
+            android:exported="true"
+            android:permission="com.onesay.assistant.permission.CONTROL"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true" />
+
+        <!-- ★ r2/sysux P2-1：默认数字助理三件套（混合式：系统入口 + 屏幕上下文；界面仍是悬浮面板）。
+             VIS 与 session 服务只允许系统绑定（BIND_VOICE_INTERACTION）；RecognitionService 是助理必需的最小实现。 -->
+        <service
+            android:name="com.onesay.assistant.v2.assist.OneSayVoiceInteractionService"
+            android:exported="true"
+            android:label="OneSay 助理"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/onesay_voice_interaction" />
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+        </service>
+        <service
+            android:name="com.onesay.assistant.v2.assist.OneSaySessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+        <service
+            android:name="com.onesay.assistant.v2.assist.OneSayRecognitionService"
+            android:exported="true"
+            android:label="OneSay 语音识别">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech"
+                android:resource="@xml/onesay_recognition_service" />
+        </service>
+
+        <!-- ★ r2/screenoff-wake：锁屏托底（不透明黑底 + show-when-locked，让悬浮面板浮在锁屏上方语音回答）。只由 WakeService 拉起，不导出。
+             单独 task（taskAffinity），不把控制台带到前台；隐私 / 写操作在锁着时由 ExecutionGate 拒绝。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.KeyguardHostActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:taskAffinity="com.onesay.assistant.keyguardhost"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+
+        <!-- ★ 11-04 相机对话（Gemini Live 式：Camera2 实时取景 + 自动语音对话）。只由面板相机钮拉起，不导出；
+             独立 task、不进最近任务，切走即挂断。CAMERA / RECORD_AUDIO 权限此前已声明，运行时首次进入时申请。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.live.CameraLiveActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.onesay.assistant.cameralive"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
+        <!-- ★ ui-K1 对话窗「+」→ 拍照 / 从相册选图 的透明跳板页（悬浮窗服务拿不到 onActivityResult）。不导出，独立 task、不进最近任务。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.chat.ChatImagePickActivity"
+            android:exported="false"
+            android:taskAffinity="com.onesay.assistant.chatpick"
+            android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- ★ lane C3 浏览器跑腿「请你接手」页（登录 / 验证码 / 结算页交给用户付款）：只由 App 内部拉起，不导出 -->
+        <activity
+            android:name="com.onesay.assistant.v2.errand.ErrandBrowserActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:taskAffinity="com.onesay.assistant.errand"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:excludeFromRecents="false" />
+
+        <!-- 开机与包替换自愈广播接收器
+             （审阅 2026-10-07：保持导出 —— BOOT_COMPLETED / MY_PACKAGE_REPLACED 必须由系统投递；
+               第三方显式发来的广播最多只能让本 App 自启服务，无数据/命令输入面，风险可接受） -->
+        <receiver
+            android:name="com.onesay.assistant.v2.ui.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <!-- [s3] 改时间 / 改时区后重排定时任务（Android 8 隐式广播豁免名单内） -->
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- [brief] 外部晨间播报 App 的 BRIEF_STATE → 灵动岛（只显示，无命令输入面）。
+             开源版：跨 App 广播受 signature 级权限 CONTROL 保护，只有与 OneSay 同一证书签名的发送方能投递；
+             BriefStateReceiver 内的来源对账作为第二道校验保留。开关 bixby_brief.enabled / brief.off。 -->
+        <receiver
+            android:name="com.onesay.assistant.v2.brief.BriefStateReceiver"
+            android:exported="true"
+            android:permission="com.onesay.assistant.permission.CONTROL">
+            <intent-filter>
+                <action android:name="com.onesay.clock.BRIEF_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- [soul] r2/soul-memory：每日记忆整理（JobScheduler，充电 + 空闲 + 有网，每天最多一次；纯规则不调模型）。
+             BIND_JOB_SERVICE 只有系统能绑定，不导出。 -->
+        <service
+            android:name="com.onesay.assistant.v2.soul.SoulJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- DEBUG-ONLY-BEGIN（build_linux.sh / build.sh 在非 DEBUG 构建中删除本段，勿改此标记）-->
+        <!-- 自动化回归与测试驱动广播接收器
+             · 只打进 debug 包（DEBUG=1）；release 包里没有这个类，也没有这个组件；
+               · debug 包里加签名级权限：adb 需用 root 发送 —— adb shell su -c "am broadcast -n com.onesay.assistant/.v2.test.TestRunReceiver ..."
+                 （uid 0 不受组件权限限制）。若设备上 su 不可用，可 DEBUG=1 TEST_RECEIVER_OPEN=1 构建临时去掉权限。 -->
+        <receiver
+            android:name="com.onesay.assistant.v2.test.TestRunReceiver"
+            android:exported="true"
+            android:permission="com.onesay.assistant.permission.CONTROL"><!-- TEST-RECEIVER-PERMISSION -->
+            <intent-filter>
+                <action android:name="com.onesay.assistant.action.RUN_TEST" />
+            </intent-filter>
+        </receiver>
+        <!-- ★ mika-plug（mika.a11y，B2 可选后端，默认不启用）：无障碍服务只进 debug 包；不自动开启、不写系统设置，
+             用户在「设置 › 无障碍」里手动打开才绑定。空壳类名固定（照 Mika MikaAccessibilityService 的做法）。 -->
+        <service
+            android:name="com.onesay.assistant.v2.a11y.OneSayA11yService"
+            android:exported="true"
+            android:label="OneSay Debug 读屏（B2）"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/onesay_a11y_service" />
+        </service>
+        <!-- DEBUG-ONLY-END -->
+
+    </application>
+</manifest>

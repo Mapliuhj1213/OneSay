@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DEBUG 变体资源覆盖层（只在 DEBUG=1 时以 aapt2 -R overlay 链接；release 的 resources.arsc 不含这里任何东西） -->
+<resources>
+    <!-- release 是 #14121F 暗紫黑；debug 换成醒目的琥珀橙，桌面上一眼能分开 -->
+    <color name="icbg">#E8590C</color>
+</resources>

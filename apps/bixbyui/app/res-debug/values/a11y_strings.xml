@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ★ mika-plug（mika.a11y，B2 可选后端）：只在 debug 包里。服务默认不开；要用时在「设置 › 无障碍 › 已安装的服务」手动打开，
+     并在调试广播的 plug 参数打开 mika.a11y 插件。 -->
+<resources>
+    <string name="bixby_a11y_desc">OneSay Debug 的读屏后端（可选，B2）：替 OneSay 读取控件树、点按和返回。默认不用；只在你手动打开并且打开了 mika.a11y 插件时才工作。部分移植自 Mika（Apache-2.0）。</string>
+</resources>

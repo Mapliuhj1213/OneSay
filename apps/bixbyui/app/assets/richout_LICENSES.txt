@@ -1,0 +1,13 @@
+OneSay 富内容输出插件（richout）随附的离线库（只在沙箱 WebView 里加载，禁网络、无 JS 接口、禁文件访问）：
+
+richout_mermaid.min.js  = mermaid 9.1.7  dist/mermaid.min.js（1,084,456 字节，ES2015）
+  https://github.com/mermaid-js/mermaid  MIT License  Copyright (c) 2014 - 2022 Knut Sveidqvist
+richout_chart.umd.js    = Chart.js 3.9.1 dist/chart.min.js（199,560 字节，ES2018）
+  https://github.com/chartjs/Chart.js     MIT License  Copyright (c) 2014-2022 Chart.js Contributors
+
+MIT License: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including without
+limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of
+the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.

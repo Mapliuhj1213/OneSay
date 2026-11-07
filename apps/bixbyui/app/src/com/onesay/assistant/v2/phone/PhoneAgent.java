@@ -1,0 +1,548 @@
+package com.onesay.assistant.v2.phone;
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * ★ r2/fast-screen：操作第三方 App 的代理主循环（纯 Java：读屏 / 动作 / 模型 / 界面宿主都经接口注入，JVM 可测）。
+ *
+ * <pre>
+ *   observe → 循环 {
+ *     宿主要求暂停（用户点岛「接手」/ 按了返回键 / 主页键）？→ 等用户「继续」→ 重新读屏
+ *     预算：模型调用 / 总时长到了 → 问用户要不要继续；无进展 / 重复动作 → 判卡住求助
+ *     问模型（附精简控件树、上一批的结果和界面差异）→
+ *       steps：BatchRunner 逐步执行，每步自带等待条件，代码等页面稳定，不为「还在加载」问模型；
+ *              敏感步骤（付款 / 登录 / 验证 / 发送 / 删除）执行前暂停，等用户在岛上确认
+ *       collect：逐屏下滑收集长列表（去重）
+ *       done / ask
+ *   }
+ * </pre>
+ * 部分移植自 Mika（Apache-2.0，Copyright 2026 wangzan101）：元素表 + 批量动作 + 代码侧等待 + 动作后带回界面变化；
+ * mika-plug 插件（{@link MikaExec}）打开时，动作效果判定、守卫阶梯、风险 / 节奏、Mika 步骤写法用的是照 Mika 翻译的 Java 版
+ * （com.onesay.assistant.plug.*.core，文件头有 Apache-2.0 改动声明）；插件全关时是这里原来的实现。
+ */
+public final class PhoneAgent {
+
+    // ------------------------------------------------------------------ 注入接口
+
+    /** 读屏 / 动作（Android 侧：FastScreen 常驻助手 + 防误触护罩）。所有方法阻塞、在后台线程调用。 */
+    public interface Driver {
+        UiTree observe(UiTree.Ids ids);
+
+        /** 点元素（先无障碍点击，退回注入点按）。 */
+        boolean tap(UiTree.El e);
+
+        boolean longPress(UiTree.El e, int ms);
+
+        /** 写文字（中文可）；返回读回的内容（null = 失败）。e 为 null = 当前输入焦点。 */
+        String type(UiTree.El e, String text);
+
+        /** @return 是否滚动了（false = 到头）。e 为 null = 屏幕中部。 */
+        boolean scroll(UiTree.El e, int dir);
+
+        boolean swipe(int x1, int y1, int x2, int y2, int ms);
+
+        /** back / home / enter / search / delete。 */
+        boolean key(String key);
+
+        boolean launch(String pkg);
+
+        /** 等界面安静 idleMs（事件驱动），最多 timeoutMs。 */
+        void waitIdle(int idleMs, int timeoutMs);
+
+        /** 树不够用时的视觉描述（没有返回 null）。 */
+        String describeScreen();
+
+        long now();
+
+        void sleep(long ms);
+    }
+
+    /** ★ mika-plug：读屏后端额外提供的能力（FastScreenDriver 实现；JVM 假驱动可以不实现）。 */
+    public interface MikaDriver extends Driver {
+        /** 0–999 坐标点按（手势 → 注入）。 */
+        boolean tapXY(int x999, int y999);
+
+        /** mika.changewait：动作后等界面稳定再判变没变（事件安静 400 ms 且树变了，最多 2.5 s），返回最后读到的界面。 */
+        UiTree awaitChange(UiTree before, UiTree.Ids ids);
+    }
+
+    public interface Planner {
+        /** 返回模型原文（JSON）；null = 模型不可用。 */
+        String next(String system, String user);
+    }
+
+    /** 界面宿主（Android 侧：灵动岛 + 护罩 + 返回键观察）。 */
+    public interface Host {
+        void onStep(String shortWord, int stepNo);
+
+        /** 敏感步骤 / 模型提问：阻塞等用户（true = 允许 / 已处理，false = 拒绝 / 停止）。answerOut[0] 收用户补充的话。 */
+        boolean confirm(String title, String detail, String[] answerOut);
+
+        /** 用户是否要求接手（点岛「接手」、按返回 / 主页键）；取后清零。 */
+        String takeoverRequested();
+
+        /** 暂停等用户「继续」：返回 RESUME / STOP，补充的话放进 supplementOut[0]。 */
+        Resume awaitResume(String why, String[] supplementOut);
+
+        boolean stopRequested();
+    }
+
+    public enum Resume { RESUME, STOP }
+
+    public enum Status { DONE, STOPPED, FAILED }
+
+    public static final class Result {
+        public Status status;
+        public String answer = "";
+        public String reason = "";
+        public int modelCalls;
+        public int actions;
+        public long ms;
+        public int batches;
+        public final List<String> trace = new ArrayList<String>();
+    }
+
+    // ------------------------------------------------------------------ 配置
+
+    /** 旧行为对照（改前）：模型每次只给一步、无代码侧等待、按动作步数上限 —— 只用于改前改后的对比测试。 */
+    public boolean legacyOneStep;
+    public int legacyMaxSteps = 8;
+    /** ★ fast-screen-v3：无人值守（定时任务等）= 8 次调用 / 3 分钟，到上限不问、直接收尾并注明「未完成」。 */
+    public boolean unattended;
+    public int maxElementLines = 120;
+    /** ★ mika-plug：Mika 执行层插件（null 或全关 = 原行为）。 */
+    public MikaExec mika;
+
+    private final Driver mD;
+    private final Planner mP;
+    private final Host mH;
+    private final UiTree.Ids mIds = new UiTree.Ids();
+
+    public PhoneAgent(Driver d, Planner p, Host h) {
+        mD = d;
+        mP = p;
+        mH = h;
+    }
+
+    public Result run(String goal, String startPkg) {
+        Result res = new Result();
+        long t0 = mD.now();
+        TaskBudget budget = TaskBudget.forTask(unattended, t0);
+        List<String> history = new ArrayList<String>();
+        if (startPkg != null && startPkg.length() > 0) {
+            mH.onStep("打开应用", 0);
+            mD.launch(startPkg);
+            mD.waitIdle(400, 4000);
+        }
+        UiTree screen = mD.observe(mIds);
+        String lastBatchReport = "";
+        boolean wantShot = false;
+        int stepNo = 0;
+        while (true) {
+            if (mH.stopRequested()) return finish(res, Status.STOPPED, "", "已停止", budget, t0);
+            // ① 用户接手（批内 / 收集时先取走的接手请求在这里补上）
+            String tk = drainReinjectedTakeover();
+            if (tk == null) tk = mH.takeoverRequested();
+            if (tk != null) {
+                long w0 = mD.now();
+                String[] sup = new String[1];
+                Resume r = mH.awaitResume(tk, sup);
+                budget.pausedMs += mD.now() - w0;
+                if (r == Resume.STOP) return finish(res, Status.STOPPED, "", "用户停止", budget, t0);
+                history.add("用户接手（" + tk + "）后点了继续" + (sup[0] != null && sup[0].length() > 0 ? "，补充：" + sup[0] : ""));
+                budget.resetProgress();
+                screen = mD.observe(mIds);
+                lastBatchReport = "（用户刚接手过，界面已重新读取）";
+                continue;
+            }
+            // ② 预算
+            TaskBudget.Verdict v = legacyOneStep ? legacyCheck(budget) : budget.check(mD.now());
+            if (v != TaskBudget.Verdict.OK) {
+                res.trace.add("budget " + v + " " + budget.reason);
+                if (v == TaskBudget.Verdict.HARD_STOP || legacyOneStep) {
+                    return finish(res, Status.FAILED, "", budget.reason, budget, t0);
+                }
+                if (budget.unattended) {   // 无人值守：没人能回答「还要继续吗」→ 收尾
+                    return finish(res, Status.FAILED, "", budget.unfinishedReason(), budget, t0);
+                }
+                long w0 = mD.now();
+                String[] sup = new String[1];
+                String title = v == TaskBudget.Verdict.STUCK ? "好像卡住了：" + budget.reason : budget.reason + "，还要继续吗？";
+                Resume r = mH.awaitResume(title, sup);
+                budget.pausedMs += mD.now() - w0;
+                if (r == Resume.STOP) return finish(res, Status.STOPPED, "", budget.reason, budget, t0);
+                if (v == TaskBudget.Verdict.LIMIT) budget.extend();
+                budget.resetProgress();
+                history.add("（" + budget.reason + "，用户让继续" + (sup[0] != null && sup[0].length() > 0 ? "，补充：" + sup[0] : "") + "）");
+                screen = mD.observe(mIds);
+                continue;
+            }
+            // ③ 问模型
+            String desc = null;
+            if (screen != null && (wantShot || !UiTree.Q_OK.equals(screen.quality()))) desc = mD.describeScreen();
+            wantShot = false;
+            String user = PhonePrompt.user(goal, screen, desc, history, lastBatchReport, budget.info(mD.now()), maxElementLines);
+            budget.onModelCall();
+            mH.onStep("思考", stepNo);
+            String sys = legacyOneStep ? PhonePrompt.systemLegacy() : PhonePrompt.system();
+            if (mika != null) sys = sys + mika.promptAddendum();
+            String out = mP.next(sys, user);
+            if (out == null) return finish(res, Status.FAILED, "", "模型没有返回", budget, t0);
+            PhonePlan plan = PhonePlan.parse(out, mika != null && mika.f.dosteps);
+            budget.onTurn(screen == null ? "" : screen.signature());
+            res.trace.add("model#" + budget.calls + " " + plan.kind + (plan.error.length() > 0 ? " err=" + plan.error : "") + " " + clip(out, 300));
+            switch (plan.kind) {
+                case DONE:
+                    return finish(res, Status.DONE, plan.answer, "", budget, t0);
+                case NOT_DONE:   // ★ mika-plug（mika.dosteps）：模型如实放弃
+                    return finish(res, Status.FAILED, "", plan.answer.length() > 0 ? plan.answer : "没有完成", budget, t0);
+                case ASK: {
+                    long w0 = mD.now();
+                    String[] ans = new String[1];
+                    boolean ok = mH.confirm("需要你决定", plan.answer, ans);
+                    budget.pausedMs += mD.now() - w0;
+                    if (!ok) return finish(res, Status.STOPPED, "", "用户没有同意：" + plan.answer, budget, t0);
+                    history.add("问用户「" + clip(plan.answer, 40) + "」→ " + (ans[0] != null && ans[0].length() > 0 ? ans[0] : "同意"));
+                    budget.resetProgress();
+                    screen = mD.observe(mIds);
+                    lastBatchReport = "";
+                    continue;
+                }
+                case SHOT:
+                    wantShot = true;
+                    lastBatchReport = "（下一轮附屏幕的视觉描述）";
+                    continue;
+                case COLLECT: {
+                    mH.onStep("收集列表", ++stepNo);
+                    String got = collect(screen, plan.collectUntil, plan.collectPages, budget);
+                    UiTree after = mD.observe(mIds);
+                    lastBatchReport = "收集结果（逐屏下滑，已去重）：\n" + got + "\n" + UiTree.diff(screen, after, 8);
+                    history.add("collect until=" + plan.collectUntil);
+                    screen = after;
+                    continue;
+                }
+                case INVALID:
+                    lastBatchReport = "上一条输出无效：" + plan.error + "。请按格式输出 JSON。";
+                    history.add("无效输出：" + plan.error);
+                    continue;
+                default:
+                    break;
+            }
+            if (legacyOneStep && plan.steps.size() > 1) {   // 旧行为：只执行第一步
+                PhonePlan.Step first = plan.steps.get(0);
+                plan.steps.clear();
+                plan.steps.add(first);
+            }
+            // ④ 执行这一批
+            BatchResult br = runBatch(plan, screen, budget, stepNo, res);
+            stepNo = br.stepNo;
+            res.batches++;
+            if (br.stopAll) return finish(res, Status.STOPPED, "", br.report, budget, t0);
+            if (mika != null && mika.stopReason != null) {   // ★ mika-plug：守卫阶梯叫停（StopRules）
+                res.trace.add("guard stop " + mika.stopReason);
+                return finish(res, Status.FAILED, "", mika.stopReason, budget, t0);
+            }
+            history.add("第 " + res.batches + " 批：" + br.summary);
+            if (history.size() > 12) history.remove(0);
+            lastBatchReport = br.report + "\n界面变化：" + UiTree.diff(screen, br.after, 10);
+            screen = br.after;
+        }
+    }
+
+    private TaskBudget.Verdict legacyCheck(TaskBudget b) {
+        if (b.calls >= legacyMaxSteps) {
+            b.reason = "已走满 " + legacyMaxSteps + " 步";
+            return TaskBudget.Verdict.LIMIT;
+        }
+        return TaskBudget.Verdict.OK;
+    }
+
+    static final class BatchResult {
+        UiTree after;
+        String report = "";
+        String summary = "";
+        int stepNo;
+        boolean stopAll;
+    }
+
+    /** 逐步执行；条件不满足 / 界面意外变化（弹窗、换了 App）/ 用户接手 → 提前停，剩下的步交回模型。 */
+    BatchResult runBatch(PhonePlan plan, UiTree screen, TaskBudget budget, int stepNo, Result res) {
+        BatchResult br = new BatchResult();
+        StringBuilder rep = new StringBuilder();
+        StringBuilder sum = new StringBuilder();
+        UiTree cur = screen;
+        int done = 0;
+        for (int i = 0; i < plan.steps.size(); i++) {
+            PhonePlan.Step s = plan.steps.get(i);
+            if (mH.stopRequested()) {
+                br.stopAll = true;
+                br.report = "已停止";
+                break;
+            }
+            String tk = mH.takeoverRequested();
+            if (tk != null) {
+                rep.append("第 ").append(i + 1).append(" 步前用户接手（").append(tk).append("），剩下的步没做。\n");
+                pendingTakeover = tk;
+                break;
+            }
+            String bad = PhonePlan.validate(s, cur);
+            if (bad != null) {
+                rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(bad).append("\n");
+                break;
+            }
+            String sens = SensitiveGuard.check(s, cur);
+            if (mika != null) {   // ★ mika-plug（mika.actgate）：RiskGate 补 SensitiveGuard 没拦的发送 / 提交 / 付款 / 删除，屏上有金额按付款问
+                String extra = mika.consent(s, cur, sens);
+                if (extra != null) sens = extra;
+            }
+            if (sens != null) {
+                long w0 = mD.now();
+                String[] ans = new String[1];
+                boolean ok = mH.confirm("这一步要你确认", sens, ans);
+                budget.pausedMs += mD.now() - w0;
+                res.trace.add("sensitive " + sens + " → " + (ok ? "允许" : "拒绝"));
+                if (!ok) {
+                    rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 被用户拒绝（").append(sens).append("），别再尝试这一步。\n");
+                    break;
+                }
+                cur = mD.observe(mIds);   // 用户可能动过
+                if (PhonePlan.validate(s, cur) != null) {
+                    rep.append("用户确认期间界面变了，第 ").append(i + 1).append(" 步没执行。\n");
+                    break;
+                }
+            }
+            String paceSite = mika != null ? mika.paceSite(s, cur) : null;
+            if (paceSite != null) {   // ★ mika-plug（mika.pacing）：同一 App 里连着对外动作，像人一样隔一会
+                long w = mika.paceWait(paceSite, mD.now());
+                if (w > 0) {
+                    mH.onStep("稍等", stepNo);
+                    long until = mD.now() + w;
+                    while (mD.now() < until && !mH.stopRequested()) mD.sleep(Math.min(500, until - mD.now()));
+                    res.trace.add("pacing " + w + "ms @" + paceSite);
+                }
+            }
+            mH.onStep(word(s, cur), ++stepNo);
+            long a0 = mD.now();
+            String effect = exec(s, cur);
+            if (paceSite != null) mika.paceDone(paceSite, mD.now());
+            UiTree after;
+            String wait;
+            if (s.hasCondition() || s.waitStable || s.op.equals("wait")) {
+                Object[] w = waitFor(s, cur);
+                after = (UiTree) w[0];
+                wait = (String) w[1];
+            } else if (mika != null && mika.f.changewait && mD instanceof MikaDriver) {   // ★ mika-plug：ChangeWait（树版）
+                after = ((MikaDriver) mD).awaitChange(cur, mIds);
+                wait = "";
+            } else {
+                mD.waitIdle(250, 1500);
+                after = mD.observe(mIds);
+                wait = "";
+            }
+            boolean changed = after != null && cur != null && !after.signature().equals(cur.signature());
+            budget.onAction(s.sig(), changed);
+            done++;
+            String mk = mika != null ? mika.afterStep(s, cur, after, effect) : "";   // ★ mika-plug：effect + 守卫阶梯 + 卡住建议
+            String line = "第 " + (i + 1) + " 步 " + s + " → " + effect + (wait.length() > 0 ? "，" + wait : "") + "（" + (mD.now() - a0) + "ms）" + mk;
+            rep.append(line).append('\n');
+            res.trace.add(line);
+            if (sum.length() > 0) sum.append("；");
+            sum.append(s).append(" ").append(effect);
+            UiTree prev = cur;
+            cur = after;
+            if (mika != null && mika.stopReason != null) break;   // ★ mika-plug：守卫叫停
+            if (wait.startsWith("没等到")) break;   // 条件没满足：交回模型
+            boolean last = i == plan.steps.size() - 1;
+            if (!last && after != null && prev != null) {
+                String why = unexpected(prev, after, s, plan.steps.get(i + 1));
+                if (why != null) {
+                    rep.append("界面意外变化（").append(why).append("），剩下 ").append(plan.steps.size() - i - 1).append(" 步交回给你重新安排。\n");
+                    break;
+                }
+            }
+        }
+        if (pendingTakeover != null) {
+            // 下一轮主循环会处理（Host.takeoverRequested 已经取走，这里放回去）
+            reinjectTakeover = pendingTakeover;
+            pendingTakeover = null;
+        }
+        br.after = cur != null ? cur : mD.observe(mIds);
+        br.report = "执行了 " + done + "/" + plan.steps.size() + " 步：\n" + rep;
+        br.summary = sum.length() > 0 ? clip(sum.toString(), 160) : "没有执行";
+        br.stepNo = stepNo;
+        return br;
+    }
+
+    private String pendingTakeover, reinjectTakeover;
+
+    /** 给 Android 宿主包装用：批内取走的接手请求要在主循环再生效一次。 */
+    public String drainReinjectedTakeover() {
+        String t = reinjectTakeover;
+        reinjectTakeover = null;
+        return t;
+    }
+
+    String exec(PhonePlan.Step s, UiTree cur) {
+        UiTree.El e = s.id >= 0 && cur != null ? cur.find(s.id) : null;
+        if (s.op.equals("tap") && e == null && s.x >= 0 && s.y >= 0 && mD instanceof MikaDriver)   // ★ mika-plug：0–999 坐标点
+            return ((MikaDriver) mD).tapXY(s.x, s.y) ? "已点击坐标" : "点击失败";
+        if (s.op.equals("tap")) return mD.tap(e) ? "已点击" : "点击失败";
+        if (s.op.equals("long")) return mD.longPress(e, s.holdMs) ? "已长按" : "长按失败";
+        if (s.op.equals("type")) {
+            String got = mD.type(e, s.text);
+            String r = got == null ? "输入失败" : got.contains(s.text) ? "已输入" : "输入后读回「" + clip(got, 20) + "」";
+            if (got != null && s.enter) r += mD.key("enter") ? "，已回车" : "，回车失败";
+            return r;
+        }
+        if (s.op.equals("scroll")) return mD.scroll(e, s.dir) ? "已滚动" : "滚到头了";
+        if (s.op.equals("back")) return mD.key("back") ? "已返回" : "返回失败";
+        if (s.op.equals("home")) return mD.key("home") ? "已回桌面" : "失败";
+        if (s.op.equals("key")) return mD.key(s.key) ? "已按 " + s.key : "按键失败";
+        if (s.op.equals("launch")) return mD.launch(s.app) ? "已打开 " + s.app : "打不开 " + s.app;
+        if (s.op.equals("swipe")) {
+            int w = cur == null ? 1080 : cur.screenW, h = cur == null ? 2220 : cur.screenH;
+            boolean ok = s.dir > 0 ? mD.swipe(w / 2, h * 70 / 100, w / 2, h * 30 / 100, 300) : mD.swipe(w / 2, h * 30 / 100, w / 2, h * 70 / 100, 300);
+            return ok ? "已滑动" : "滑动失败";
+        }
+        if (s.op.equals("wait")) return "等待";
+        return "不支持";
+    }
+
+    /** 代码侧等待：每次界面安静后读一次屏，看条件成立没有；不是固定 sleep。返回 {after, 说明}。 */
+    Object[] waitFor(PhonePlan.Step s, UiTree before) {
+        long end = mD.now() + s.timeoutMs;
+        long w0 = mD.now();
+        UiTree t = null;
+        String lastSig = null;
+        int stable = 0;
+        // ★ fast-screen-v2（真机：设置首页的「连接」摘要里本来就有「蓝牙」，点完 223 ms 就判「条件已满足」，
+        //   紧接着的返回键在新页面打开前按下去被吞掉）：条件在动作之前就已成立时，还要求界面确实变过一次
+        boolean preMet = before != null && !s.op.equals("wait")
+                && ((s.expect.length() > 0 && before.hasText(s.expect)) || (s.expectApp.length() > 0 && s.expectApp.equals(before.pkg)));
+        String beforeSig = before == null ? null : before.signature();
+        boolean changedOnce = false;
+        while (true) {
+            mD.waitIdle(s.waitStable ? 500 : 250, 1500);
+            t = mD.observe(mIds);
+            boolean ok = t != null;
+            if (t != null && beforeSig != null && !t.signature().equals(beforeSig)) changedOnce = true;
+            if (ok && preMet && !changedOnce) ok = false;
+            // 条件文字本来就在屏上：要求它出现在一个「新」元素里（「连接 · Wi-Fi， 蓝牙」不算，新页面的「蓝牙」开关才算）
+            if (ok && s.expect.length() > 0) ok = preMet ? t.hasNewText(s.expect, before) : t.hasText(s.expect);
+            if (ok && s.expectGone.length() > 0) ok = !t.hasText(s.expectGone);
+            if (ok && s.expectApp.length() > 0) ok = s.expectApp.equals(t.pkg);
+            if (ok && s.waitStable) {
+                String sig = t.signature();
+                stable = sig.equals(lastSig) ? stable + 1 : 0;
+                lastSig = sig;
+                ok = stable >= 1;
+            }
+            if (ok) return new Object[]{t, (s.hasCondition() ? "条件已满足" : "页面已稳定") + "（等了 " + (mD.now() - w0) + "ms）"};
+            if (mD.now() >= end || mH.stopRequested()) break;
+            mD.sleep(120);
+        }
+        return new Object[]{t, "没等到" + cond(s) + "（等了 " + (mD.now() - w0) + "ms）"};
+    }
+
+    static String cond(PhonePlan.Step s) {
+        if (s.expect.length() > 0) return "「" + s.expect + "」出现";
+        if (s.expectGone.length() > 0) return "「" + s.expectGone + "」消失";
+        if (s.expectApp.length() > 0) return "切到 " + s.expectApp;
+        return "页面稳定";
+    }
+
+    /** 下一步之前界面意外变化：换了 App（这一步不是 launch/back/home、下一步也没写 expect_app）或冒出了对话框。 */
+    static String unexpected(UiTree prev, UiTree after, PhonePlan.Step s, PhonePlan.Step next) {
+        boolean nav = s.op.equals("launch") || s.op.equals("back") || s.op.equals("home") || s.expectApp.length() > 0;
+        if (!nav && !prev.pkg.equals(after.pkg) && after.pkg.length() > 0) return "前台换成了 " + after.pkg;
+        if (next.id >= 0 && after.find(next.id) == null && !next.op.equals("type")) return "下一步要点的 [" + next.id + "] 不见了";
+        for (UiTree.El e : after.els) {
+            if (prev.findText(e.label) != null || e.label.length() == 0) continue;
+            String l = e.label;
+            if (l.equals("允许") || l.equals("拒绝") || l.equals("始终允许") || l.equals("仅在使用中允许") || l.equals("取消") && after.els.size() < 12)
+                return "弹出了「" + l + "」对话框";
+        }
+        return null;
+    }
+
+    /** 长列表：逐屏下滑收集新出现的文字（去重），直到看到 until、到底，或页数用完。 */
+    String collect(UiTree start, String until, int pages, TaskBudget budget) {
+        Set<String> seen = new LinkedHashSet<String>();
+        UiTree t = start;
+        int p = 0;
+        boolean hit = false;
+        String why = "页数用完";
+        while (t != null) {
+            for (UiTree.El e : t.els) if (e.label.length() > 0) seen.add(e.label);
+            if (until.length() > 0 && t.hasText(until)) {
+                hit = true;
+                why = "看到了「" + until + "」";
+                break;
+            }
+            if (p >= pages || mH.stopRequested()) break;
+            String tk = mH.takeoverRequested();
+            if (tk != null) {
+                reinjectTakeover = tk;
+                why = "用户接手";
+                break;
+            }
+            String before = t.signature();
+            UiTree.El list = null;
+            for (UiTree.El e : t.els) if (e.scroll && (list == null || area(e) > area(list))) list = e;
+            boolean moved = mD.scroll(list, 1);
+            budget.onAction("collect:scroll", true);
+            mD.waitIdle(300, 1500);
+            t = mD.observe(mIds);
+            p++;
+            if (!moved || t == null || t.signature().equals(before)) {
+                why = "到底了";
+                break;
+            }
+        }
+        StringBuilder b = new StringBuilder();
+        b.append("（翻了 ").append(p).append(" 屏，").append(why).append("，共 ").append(seen.size()).append(" 条）\n");
+        int k = 0;
+        for (String s : seen) {
+            if (k++ >= 200) {
+                b.append("…\n");
+                break;
+            }
+            b.append("- ").append(clip(s, 50)).append('\n');
+        }
+        return b.toString();
+    }
+
+    static int area(UiTree.El e) {
+        return (e.r - e.l) * (e.b - e.t);
+    }
+
+    static String word(PhonePlan.Step s, UiTree cur) {
+        UiTree.El e = s.id >= 0 && cur != null ? cur.find(s.id) : null;
+        String n = e == null ? "" : clip(e.label, 6);
+        if (s.op.equals("tap")) return n.length() > 0 ? "点" + n : "点击";
+        if (s.op.equals("type")) return "输入";
+        if (s.op.equals("scroll")) return "滚动";
+        if (s.op.equals("back")) return "返回";
+        if (s.op.equals("launch")) return "打开应用";
+        if (s.op.equals("wait")) return "等待";
+        return s.op;
+    }
+
+    private Result finish(Result r, Status st, String answer, String reason, TaskBudget b, long t0) {
+        r.status = st;
+        r.answer = answer == null ? "" : answer;
+        r.reason = reason == null ? "" : reason;
+        r.modelCalls = b.calls;
+        r.actions = b.actions;
+        r.ms = mD.now() - t0;
+        return r;
+    }
+
+    static String clip(String s, int n) {
+        if (s == null) return "";
+        return s.length() > n ? s.substring(0, n) + "…" : s;
+    }
+}
