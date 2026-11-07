@@ -143,7 +143,7 @@ public final class SettingsNav {
 
     /**
      * 从搜索结果文字里抽出设置路径：取含分隔符（{@code > › → /}）最多、且最后一段与目标名之一相关的那一串；
-     * 去掉开头的「设置」、引号书名号；每段 ≤ 16 字，最多 6 段。抽不出返回空列表。
+     * 去掉开头的「设置」、引号书名号；每段 ≤ 24 字（「Always On Display」17 字符），最多 6 段。抽不出返回空列表。
      */
     public static List<String> parsePath(String text, String label) {
         List<String> best = new ArrayList<String>();
@@ -164,7 +164,7 @@ public final class SettingsNav {
                 }
                 if (t.length() == 0) continue;
                 if (segs.isEmpty() && ROOT.matcher(t).matches()) continue;
-                if (t.length() > 16) { segs.clear(); break; }
+                if (t.length() > 24) { segs.clear(); break; }
                 segs.add(t);
             }
             if (segs.size() < 1 || segs.size() > 6) continue;
