@@ -39,6 +39,7 @@ public class PcDesktopInteropTest {
     static Process proc;
     static Path dir;
     static int port;
+    static com.sun.net.httpserver.HttpServer uiStub;
     static final byte[] KEY = new byte[32];
     static final String PC = "pc-interop";
     static final String ME = "phone-test1";
@@ -77,25 +78,45 @@ public class PcDesktopInteropTest {
         String props = "lan_port=" + port + "\n" + "device_id=" + PC + "\n" + "kind=pc\n" + "ptt=off\n"
                 + "pair_key=" + PcB64.encodeUrl(KEY) + "\n";
         Files.write(cfg, props.getBytes(StandardCharsets.UTF_8));
+        // 回归：机器上已经有一个 OneSay 在 127.0.0.1:47830 答 /ping 时也要能起来（以前整类因此报「进程提前退出」）。
+        // 端口空着就自己占上一个假的，让这种情形每次都被测到；被别人占着就是现成的同一情形。
+        try {
+            uiStub = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 47830), 4);
+            uiStub.createContext("/ping", ex -> {
+                byte[] b = "onesay".getBytes(StandardCharsets.UTF_8);
+                ex.sendResponseHeaders(200, b.length);
+                ex.getResponseBody().write(b);
+                ex.close();
+            });
+            uiStub.start();
+        } catch (java.io.IOException busy) {
+            uiStub = null;
+        }
         String java = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
-        ProcessBuilder pb = new ProcessBuilder(java, "-Djava.awt.headless=true", "-jar", jar.getAbsolutePath(), "--config", cfg.toString(), "app", "--tray");
+        // 不用 -jar … app --tray：App.launch 发现 127.0.0.1:47830 上已有 OneSay 实例就直接退出（见 PcDesktopLauncher）
+        String testClasses = new File(PcDesktopLauncher.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getAbsolutePath();
+        ProcessBuilder pb = new ProcessBuilder(java, "-Djava.awt.headless=true", "-cp", jar.getAbsolutePath() + File.pathSeparator + testClasses,
+                PcDesktopLauncher.class.getName(), cfg.toString());
         pb.environment().put("ONESAY_TEST_ACTIONS", "1");
         pb.environment().remove("APPDATA");
         pb.redirectErrorStream(true).redirectOutput(dir.resolve("desktop.out").toFile());
         proc = pb.start();
         long end = System.currentTimeMillis() + 20000;
-        while (System.currentTimeMillis() < end) {
+        boolean up = false;
+        while (!up && System.currentTimeMillis() < end) {
             if (!proc.isAlive()) fail("电脑端进程提前退出：" + new String(Files.readAllBytes(dir.resolve("desktop.out")), StandardCharsets.UTF_8));
             try (Socket s = new Socket()) {
                 s.connect(new InetSocketAddress("127.0.0.1", port), 300);
-                break;
+                up = true;
             } catch (Exception e) {
                 Thread.sleep(150);
             }
         }
+        if (!up) fail("电脑端 20 s 内没在局域网端口 " + port + " 上监听：" + new String(Files.readAllBytes(dir.resolve("desktop.out")), StandardCharsets.UTF_8));
     }
 
     @AfterClass public static void stopDesktop() throws Exception {
+        if (uiStub != null) uiStub.stop(0);
         if (proc != null) {
             proc.destroy();
             if (!proc.waitFor(5, TimeUnit.SECONDS)) proc.destroyForcibly();
@@ -262,5 +283,79 @@ public class PcDesktopInteropTest {
         assertFalse(r.ok);
         assertEquals("offline", r.fail);
         assertTrue(System.currentTimeMillis() - t0 < 5000);
+    }
+
+    /**
+     * 二维码这条路：用电脑端 jar 里自带的 qr.js（设置页画二维码的同一份，ECC M）把电脑端自己生成的配对串编成二维码，
+     * 按扫码页 PcScanActivity 的解码方式（ZXing MultiFormatReader，只认 QR，UTF-8，PlanarYUVLuminanceSource + HybridBinarizer）解回来，
+     * 必须一字不差、被认作配对码并能解析。机器上没有 node 时跳过（Assume）。
+     */
+    @Test public void qrPayloadFromDesktopScansAndPairs() throws Exception {
+        String node = null;
+        for (String n : new String[]{"node", "nodejs"}) {
+            try {
+                Process v = new ProcessBuilder(n, "--version").redirectErrorStream(true).start();
+                if (v.waitFor(10, TimeUnit.SECONDS) && v.exitValue() == 0) { node = n; break; }
+            } catch (java.io.IOException ignored) {
+            }
+        }
+        Assume.assumeTrue("没有 node，跑不了电脑端的 qr.js", node != null);
+        java.io.InputStream in = cl.getResourceAsStream("onesay/ui/qr.js");
+        assertNotNull("电脑端 jar 里有 onesay/ui/qr.js", in);
+        Path qrjs = dir.resolve("qr.js");
+        Files.copy(in, qrjs, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        in.close();
+
+        Class<?> cfgC = cl.loadClass("com.onesay.desktop.Config");
+        Object pc = cfgC.getConstructor(Path.class).newInstance(dir.resolve("qr.properties"));
+        cfgC.getField("deviceId").set(pc, "pc-qr");
+        cfgC.getField("pairKey").set(pc, KEY);
+        cfgC.getField("lanPort").set(pc, 47820);
+        String gen = (String) cfgC.getMethod("pairingString").invoke(pc);
+
+        Path js = dir.resolve("qr-matrix.js");
+        Files.write(js, ("const fs=require('fs'),vm=require('vm');vm.runInThisContext(fs.readFileSync(process.argv[2],'utf8')+';globalThis.__qr=qrcode;');"
+                + "const q=__qr(0,'M');q.addData(fs.readFileSync(process.argv[3],'utf8'));q.make();const n=q.getModuleCount();let o='';"
+                + "for(let r=0;r<n;r++){for(let c=0;c<n;c++)o+=q.isDark(r,c)?'1':'0';o+='\\n'}process.stdout.write(o);").getBytes(StandardCharsets.UTF_8));
+        Path payload = dir.resolve("payload.txt");
+        Files.write(payload, gen.getBytes(StandardCharsets.UTF_8));
+        Process p = new ProcessBuilder(node, js.toString(), qrjs.toString(), payload.toString()).redirectErrorStream(true).start();
+        String out = new String(readAll(p.getInputStream()), StandardCharsets.UTF_8);
+        assertTrue(p.waitFor(30, TimeUnit.SECONDS));
+        assertEquals(out, 0, p.exitValue());
+        String[] rows = out.trim().split("\n");
+        int n = rows.length, scale = 6, quiet = 4, w = (n + 2 * quiet) * scale;
+        byte[] lum = new byte[w * w];
+        java.util.Arrays.fill(lum, (byte) 0xFF);
+        for (int r = 0; r < n; r++) {
+            assertEquals(n, rows[r].length());
+            for (int c = 0; c < n; c++) {
+                if (rows[r].charAt(c) != '1') continue;
+                for (int dy = 0; dy < scale; dy++) for (int dx = 0; dx < scale; dx++) lum[((r + quiet) * scale + dy) * w + (c + quiet) * scale + dx] = 0;
+            }
+        }
+        com.google.zxing.MultiFormatReader reader = new com.google.zxing.MultiFormatReader();
+        Map<com.google.zxing.DecodeHintType, Object> hints = new java.util.EnumMap<com.google.zxing.DecodeHintType, Object>(com.google.zxing.DecodeHintType.class);
+        hints.put(com.google.zxing.DecodeHintType.POSSIBLE_FORMATS, java.util.Collections.singletonList(com.google.zxing.BarcodeFormat.QR_CODE));
+        hints.put(com.google.zxing.DecodeHintType.CHARACTER_SET, "UTF-8");
+        reader.setHints(hints);
+        com.google.zxing.PlanarYUVLuminanceSource src = new com.google.zxing.PlanarYUVLuminanceSource(lum, w, w, 0, 0, w, w, false);
+        String text = reader.decodeWithState(new com.google.zxing.BinaryBitmap(new com.google.zxing.common.HybridBinarizer(src))).getText();
+        assertEquals(gen, text);
+        assertTrue(PcPairing.looksLike(text));
+        PcPairing got = PcPairing.parse(text);
+        assertEquals("pc-qr", got.peer);
+        assertEquals(47820, got.lanPort);
+        assertArrayEquals(KEY, got.key);
+        // 电脑端自己也认这串（同一个串两边都收）
+        Object back = cfgC.getConstructor(Path.class).newInstance(dir.resolve("qr2.properties"));
+        assertEquals("pc-qr", cfgC.getMethod("importPairing", String.class).invoke(back, text));
+    }
+
+    static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        for (int k; (k = in.read(buf)) > 0; ) b.write(buf, 0, k);
+        return b.toByteArray();
     }
 }
