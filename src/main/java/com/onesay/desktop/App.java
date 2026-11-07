@@ -2,6 +2,7 @@ package com.onesay.desktop;
 
 import java.awt.Desktop;
 import java.awt.GraphicsEnvironment;
+import java.awt.Image;
 import java.awt.MenuItem;
 import java.awt.PopupMenu;
 import java.awt.SystemTray;
@@ -21,6 +22,7 @@ import java.time.Duration;
 import java.time.LocalTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
@@ -117,7 +119,35 @@ public final class App {
         log.accept("界面 " + ui.url());
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();
+        new Thread(App::ensureShortcuts, "onesay-shortcuts").start();
     }
+
+    // ---------- 开始菜单与桌面快捷方式（用 exe 启动时） ----------
+    /** 开始菜单的每次都核对（exe 搬了位置会跟着改）；桌面的只建一次，用户删了不再建。 */
+    static void ensureShortcuts() {
+        String exe = System.getProperty("onesay.exe", "");
+        if (!isWindows() || exe.isEmpty() || !new File(exe).isFile()) return;
+        String appdata = System.getenv("APPDATA");
+        if (appdata == null) return;
+        Path start = Paths.get(appdata, "Microsoft", "Windows", "Start Menu", "Programs", "OneSay.lnk");
+        Path marker = Config.defaultDir().resolve("desktop-shortcut.done");
+        StringBuilder ps = new StringBuilder("$w=New-Object -ComObject WScript.Shell;");
+        ps.append("function mk($p){$s=$w.CreateShortcut($p);$s.TargetPath=").append(psq(exe))
+          .append(";$s.WorkingDirectory=").append(psq(new File(exe).getParent()))
+          .append(";$s.IconLocation=").append(psq(exe + ",0")).append(";$s.Description='OneSay';$s.Save()};");
+        ps.append("mk ").append(psq(start.toString())).append(";");
+        boolean desk = !Files.exists(marker);
+        if (desk) ps.append("mk (Join-Path ([Environment]::GetFolderPath('Desktop')) 'OneSay.lnk');");
+        try {
+            String enc = Base64.getEncoder().encodeToString(ps.toString().getBytes(java.nio.charset.StandardCharsets.UTF_16LE));
+            Process p = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc)
+                    .redirectErrorStream(true).start();
+            p.getInputStream().readAllBytes();
+            if (p.waitFor() == 0 && desk) Files.writeString(marker, "1");
+        } catch (Exception ignored) { }
+    }
+
+    static String psq(String s) { return "'" + s.replace("'", "''") + "'"; }
 
     static String str(Map<String, Object> a, String k, String def) {
         Object v = a.get(k);
@@ -354,6 +384,23 @@ public final class App {
         } catch (Exception ignored) { }
     }
 
+    /** 托盘图标用「说」字图标，手机离线时变灰。 */
+    static Image trayImage(boolean online) {
+        try (var in = App.class.getClassLoader().getResourceAsStream("onesay/ui/icon64.png")) {
+            java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(in);
+            if (online) return img;
+            java.awt.image.BufferedImage g = new java.awt.image.BufferedImage(img.getWidth(), img.getHeight(), java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            for (int y = 0; y < img.getHeight(); y++) for (int x = 0; x < img.getWidth(); x++) {
+                int c = img.getRGB(x, y), a = c >>> 24, r = (c >> 16) & 255, gg = (c >> 8) & 255, b = c & 255;
+                int l = (r * 30 + gg * 59 + b * 11) / 100;
+                g.setRGB(x, y, (a << 24) | (l << 16) | (l << 8) | l);
+            }
+            return g;
+        } catch (Exception e) {
+            return Main.dot(online);
+        }
+    }
+
     void tray() throws Exception {
         PopupMenu menu = new PopupMenu();
         MenuItem open = new MenuItem("打开 OneSay");
@@ -366,7 +413,7 @@ public final class App {
         menu.add(st);
         menu.addSeparator();
         menu.add(quit);
-        TrayIcon icon = new TrayIcon(Main.dot(true), "OneSay " + cfg.deviceId, menu);
+        TrayIcon icon = new TrayIcon(trayImage(true), "OneSay " + cfg.deviceId, menu);
         icon.setImageAutoSize(true);
         icon.addActionListener(e -> openWindow(ui.url()));
         SystemTray.getSystemTray().add(icon);
@@ -376,7 +423,7 @@ public final class App {
             while (true) {
                 boolean on = !agent.peers().isEmpty();
                 st.setLabel(on ? "手机在线" : "手机离线");
-                if (on != last) { icon.setImage(Main.dot(on)); last = on; }
+                if (on != last) { icon.setImage(trayImage(on)); last = on; }
                 try { Thread.sleep(2000); } catch (InterruptedException e) { return; }
             }
         }, "onesay-tray").start();
