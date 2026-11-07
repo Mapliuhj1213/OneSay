@@ -384,7 +384,7 @@ public final class App {
         } catch (Exception ignored) { }
     }
 
-    /** 托盘图标用「说」字图标，手机离线时变灰。 */
+    /** 托盘图标用 One 图标，手机离线时变灰。 */
     static Image trayImage(boolean online) {
         try (var in = App.class.getClassLoader().getResourceAsStream("onesay/ui/icon64.png")) {
             java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(in);

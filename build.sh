@@ -7,7 +7,7 @@ OUT=${BUILD_DIR:-build}
 rm -rf "$OUT/classes" && mkdir -p "$OUT/classes"
 javac --release 17 -encoding UTF-8 -d "$OUT/classes" $(find src/main/java -name '*.java')
 cp -r src/main/resources/. "$OUT/classes/"
-printf 'Main-Class: com.onesay.desktop.Main\nImplementation-Version: 0.4.0\n' > "$OUT/MANIFEST.MF"
+printf 'Main-Class: com.onesay.desktop.Main\nImplementation-Version: 0.4.2\n' > "$OUT/MANIFEST.MF"
 jar --create --file "$OUT/onesay-desktop.jar" --manifest "$OUT/MANIFEST.MF" -C "$OUT/classes" .
 echo "built $OUT/onesay-desktop.jar"
 if [ "$1" = test ]; then

@@ -22,7 +22,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 /* ---------- 侧栏 ---------- */
 .side{width:232px;flex:none;padding:22px 14px 16px;display:flex;flex-direction:column;gap:4px;border-right:1px solid var(--line);background:var(--bg)}
 .brand{display:flex;align-items:center;gap:10px;padding:0 10px 14px}
-.logo{width:30px;height:30px;border-radius:10px;background:linear-gradient(135deg,#0381FE,#00A3B4);display:grid;place-items:center;color:#fff;font-weight:700;font-size:15px}
+.logo{width:30px;height:30px;border-radius:10px;background:#0A5BFF;display:grid;place-items:center;color:#fff;font-weight:700;font-size:11px;letter-spacing:-.3px}
 .brand b{font-size:18px;font-weight:600;letter-spacing:.2px}
 .devchip{margin:0 6px 14px;padding:10px 12px;border-radius:var(--r-s);background:var(--card);display:flex;align-items:center;gap:10px;font-size:13px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(31,164,99,.15);flex:none}
@@ -188,7 +188,7 @@ input.field::placeholder{color:var(--text3)}
 <body>
 <div class="app">
   <aside class="side">
-    <div class="brand"><div class="logo">说</div><b>OneSay</b></div>
+    <div class="brand"><div class="logo">One</div><b>OneSay</b></div>
     <div class="devchip"><i class="dot" id="pdot"></i><div class="t"><span style="color:var(--text);font-size:13px" id="pline">手机离线</span><span id="pline2">等待手机连接</span></div></div>
 
     <button class="nav" data-p="chat"><span class="ic" style="background:linear-gradient(135deg,#0381FE,#00A3B4)">话</span>对话</button>
@@ -264,7 +264,7 @@ let S=null, page='today', pending=false;
 
 // ---------- 演示数据（直接用浏览器打开文件时） ----------
 const now=Date.now(), H=3600e3, D=24*H, t0=new Date(new Date().toDateString()).getTime();
-const DEMO={version:'0.4.0',device:'pc-desktop',voice:'长按空格说话',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
+const DEMO={version:'0.4.2',device:'pc-desktop',voice:'长按空格说话',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
  caps:['ping','screenshot','open_url','open_app','clipboard_get','clipboard_set','lock','volume','media','sleep','shutdown','shutdown_abort'],
  shortcuts:['下班模式','备份照片'],
  log:['00:21:03 执行 screenshot（来自 my-phone，经局域网）','00:18:40 听到：打开B站','00:12:11 执行 volume（来自 my-phone，经局域网）','00:05:02 拒绝来自 unknown 的指令：BAD_SIG','23:59:30 局域网 在线'],

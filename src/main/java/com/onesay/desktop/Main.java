@@ -23,7 +23,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 public final class Main {
-    static final String VERSION = "0.4.1";
+    static final String VERSION = "0.4.2";
 
     public static void main(String[] argv) throws Exception {
         List<String> a = new ArrayList<>(List.of(argv));
