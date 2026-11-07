@@ -112,4 +112,15 @@ public class PcLinkWiringTest {
         assertTrue("挂监听后立即检查已 attach", chk > add);
         assertTrue("重复启动有防护", body.contains("if (alive[0]) return;"));
     }
+
+    /** 相机权限弹窗会让扫码页 onPause/onResume：onResume 里只许请求一次，拒绝后不能无限弹窗（oss-device-1108 真机发现）。 */
+    @Test public void cameraPermissionRequestedOnlyOnce() throws Exception {
+        String s = src(P + "pclink/PcScanActivity.java");
+        int r = s.indexOf("protected void onResume()");
+        assertTrue(r > 0);
+        String body = s.substring(r, s.indexOf("onRequestPermissionsResult", r));
+        int g = body.indexOf("if (!mAskedCam)");
+        assertTrue("有只问一次的防护", g > 0);
+        assertTrue("防护包住 requestPermissions", body.indexOf("requestPermissions(") > g);
+    }
 }

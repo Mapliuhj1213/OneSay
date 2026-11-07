@@ -137,13 +137,19 @@ public final class PcScanActivity extends Activity implements SurfaceHolder.Call
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
 
+    private boolean mAskedCam;
+
     @Override protected void onResume() {
         super.onResume();
         mDecodeThread = new HandlerThread("pclink-scan");
         mDecodeThread.start();
         mDecode = new Handler(mDecodeThread.getLooper());
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_CAM);
+            // 权限弹窗本身会让本页 onPause/onResume：只问一次，拒绝后停在提示上，不然会无限弹窗（oss-device-1108 真机发现）
+            if (!mAskedCam) {
+                mAskedCam = true;
+                requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_CAM);
+            }
             return;
         }
         if (mHasSurface) openCamera(mSurface.getHolder());
