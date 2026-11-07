@@ -28,8 +28,6 @@ public final class MusicApps {
         m.put("com.spotify.music", "Spotify");
         m.put("com.apple.android.music", "Apple Music");
         m.put("com.google.android.apps.youtube.music", "YouTube Music");
-        m.put("com.samsung.android.app.music.chn", "三星音乐");
-        m.put("com.sec.android.app.music", "三星音乐");
         m.put("com.ximalaya.ting.android", "喜马拉雅");
         m.put("com.luna.music", "汽水音乐");
         KNOWN = Collections.unmodifiableMap(m);

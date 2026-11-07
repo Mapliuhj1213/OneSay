@@ -1,6 +1,5 @@
 package com.onesay.assistant.v2.errand;
 
-import com.onesay.assistant.vendor.samsung.SamsungBrowser;
 
 import android.content.Context;
 import android.os.Handler;
@@ -502,23 +501,15 @@ public final class ErrandHooks {
         }
     }
 
-    /** ★ C3-4 三星浏览器兜底：只用 Intent 打开链接（桌面模式参数见 {@link SamsungBrowser}），不做 GUI 点击。 */
+    /** ★ C3-4 浏览器兜底：用默认浏览器（系统解析）只打开链接，不做 GUI 点击。 */
     static ResearchLadder.External external(final Context ctx) {
         return new ResearchLadder.External() {
-            private volatile boolean mDesktop;
-
             @Override public boolean available() {
-                return ErrandSettings.SAMSUNG.on(ctx) && SamsungBrowser.installed(ctx) != null;
+                return ErrandSettings.BROWSER.on(ctx) && DefaultBrowser.available(ctx);
             }
 
             @Override public boolean open(String url) {
-                SamsungBrowser.Spec s = SamsungBrowser.launch(ctx, url);
-                mDesktop = s != null && s.desktop;
-                return s != null;
-            }
-
-            @Override public boolean openedDesktop() {
-                return mDesktop;
+                return DefaultBrowser.open(ctx, url);
             }
         };
     }

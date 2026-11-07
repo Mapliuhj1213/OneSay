@@ -43,7 +43,7 @@ import java.io.OutputStream;
 import java.util.Calendar;
 
 /**
- * 全屏响铃页 —— 复刻三星时钟 10.1.20.13 的 Bixby 简报闹钟（AlarmAlertActivity + alarm_alert.xml），以参考视频为准：
+ * 全屏响铃页 —— 智能播报闹钟的全屏响铃页，以参考视频为准：
  *   背景：RadialGradientView 三层径向光晕（中心/剖面/呼吸按原版；只有光团颜色与蓝层范围参考视频调，见 RingViews.Bg）+ 入场/4 s 呼吸，底色黑；
  *   控件颜色一律取原版 res/values 原值（对照表见 <内部路径>），不再凭视频取色；
  *   顶部：FullAlertTopIcon —— 45dip 高、左边距 36dip、14sp #8CFFFFFF、小时钟图标 + 4dip、「闹钟」；

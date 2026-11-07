@@ -1474,7 +1474,6 @@ public class WakeService extends Service {
         if (!sRunning) {
             sRunning = true;
             mAbort = false;
-            startTriggerWatcher();
             // 预先拉起 FloatingSheetService，确保其随进程常驻（getInstance 不返回 null）
             try {
                 Intent fsIntent = new Intent(this, FloatingSheetService.class);
@@ -1554,70 +1553,6 @@ public class WakeService extends Service {
                 }
             }
         });
-    }
-
-    /** 1. 物理 Bixby 按键文件观察器 (内核级毫秒响应) */
-    private void startTriggerWatcher() {
-        // 厂商入口插件 vendor.samsung.bixby_key（默认关）：没打开 / 这台设备做不到 → 不监听 bixby.trigger
-        if (!com.onesay.assistant.v2.entry.Entries.canFire(this, com.onesay.assistant.vendor.samsung.BixbyKeyEntry.ID)) {
-            Log.i(TAG, "[KEY] 三星 Bixby 键入口未开启或不可用，不启动按键文件观察器");
-            return;
-        }
-        final File triggerFile = new File(getFilesDir(), "bixby.trigger");
-        try {
-            if (triggerFile.getParentFile() != null) triggerFile.getParentFile().mkdirs();
-            if (!triggerFile.exists()) triggerFile.createNewFile();
-        } catch (Throwable ignore) {}
-
-        mTriggerObserver = new FileObserver(triggerFile.getAbsolutePath(), FileObserver.CLOSE_WRITE) {
-            @Override
-            public void onEvent(int event, String path) {
-                if ((event & FileObserver.CLOSE_WRITE) == 0) return;
-                if (!com.onesay.plugin.api.entry.EntryRegistry.canFire(com.onesay.assistant.vendor.samsung.BixbyKeyEntry.ID)) return;
-                long now = SystemClock.elapsedRealtime();
-                // 读内容区分手势（旧守护写秒数 = 按下；v7 写 press/long，见 KeyTrigger）
-                KeyTrigger kt = KeyTrigger.parse(readSmall(triggerFile));
-                mKeySeq = kt.seq;   // ★ BUG-A1：这次按键的序号（旧守护 = 0），简报闸门据此认「同一次按键」
-                if (kt.kind == KeyTrigger.Kind.DOWN) {
-                    // ★ R10 守护 v8：按下只做静默预热（不出声、不弹面板、不读屏、不录音），等松手（press）或满 800 ms（long）
-                    mDownSeq = kt.seq;
-                    mDownAt = now;
-                    sV8Seen = true;
-                    Log.i(TAG, "[KEY] 按下 " + kt + "（守护 v8：静默预热，松手才唤醒）");
-                    mTKeyDown = now;
-                    mKwsPauseUntil = Math.max(mKwsPauseUntil, now + CaptureSessionPolicy.KWS_PAUSE_ON_DOWN_MS);   // ★ R14.1：按下起暂停 KWS（让出 CPU 给入场动画）
-                    prewarmRecognition("按下");   // ★ R14：按下就建流式连接（握手藏在按键 + 应答音里）
-                    return;
-                }
-                if (kt.kind == KeyTrigger.Kind.UP) {
-                    // ★ R10 D6：长按后一直按住 ≥ 2 s 再松手 = 随口记（插件开着时；它会自己开一个收音窗把下一句记下来）
-                    boolean hold = kt.ms >= HOLD_SUIKOUJI_MS && kt.seq == mDownSeq;
-                    Log.i(TAG, "[KEY] 长按后松手 " + kt + (hold ? " → 按住 ≥ " + HOLD_SUIKOUJI_MS + "ms：交给记一记（R11：同一次长按已在记屏幕就吸收，锁屏才随口记）" : "（只记日志）"));
-                    if (hold) dispatchKeyGesture(getApplicationContext(), "hold", kt.seq);
-                    return;
-                }
-                if (kt.kind == KeyTrigger.Kind.LONG) {
-                    boolean silent = kt.seq > 0 && kt.seq == mDownSeq;
-                    sLastLongSilent = silent;
-                    Log.i(TAG, "[KEY] Bixby 长按手势 " + kt + (silent ? "（守护 v8：本次没出声、没弹面板）" : "（守护 v7：掐断已在播的唤醒音）")
-                            + " -> 撤销本次唤醒窗，交给插件（记一记）");
-                    onLongGesture(silent, kt.seq);
-                    return;
-                }
-                if (kt.seq > 0 && kt.seq == mDownSeq && mDownAt > 0) {
-                    // 短按延迟（守护 v8）：App 收到「按下」到收到「松手 press」之间 = 比 v7 多等的时间
-                    Log.i(TAG, "[KEY-LATENCY] seq=" + kt.seq + " 按下→松手 press " + (now - mDownAt) + "ms（守护报按住 " + kt.ms + "ms）");
-                }
-                if (KeyTrigger.debounced(kt.kind, now, mLastTriggerAt)) return; // 800ms 防抖
-                mLastTriggerAt = now;
-
-                Log.i(TAG, "[KEY] Bixby 物理按键触发 (CLOSE_WRITE) -> 请求统一唤醒入口");
-                requestWakeInternal(SRC_KEY_FILE, false);
-            }
-        };
-        mTriggerObserver.startWatching();
-        Log.i(TAG, "Bixby 按键文件观察器已启动: " + triggerFile.getAbsolutePath());
-        syncGestureFlag(this);
     }
 
     /**

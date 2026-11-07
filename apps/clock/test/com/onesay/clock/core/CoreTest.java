@@ -66,7 +66,7 @@ public class CoreTest {
     }
 
     static void vibe() {
-        eq("vibe 三星 Basic call = [0, 1500, 2000]", "[0, 1500, 2000]", java.util.Arrays.toString(VibePattern.SAMSUNG_BASIC_CALL));
+        eq("vibe Basic call = [0, 1500, 2000]", "[0, 1500, 2000]", java.util.Arrays.toString(VibePattern.BASIC_CALL));
         eq("vibe 从头整段重复", 0, VibePattern.REPEAT);
         eq("vibe 50035 → config_vibeCommonK", "config_vibeCommonK", VibePattern.resName(50035));
         eq("vibe 50025 → A", "config_vibeCommonA", VibePattern.resName(50025));
@@ -74,7 +74,7 @@ public class CoreTest {
         eq("vibe 系统读不到 → Basic call", "[0, 1500, 2000]", java.util.Arrays.toString(VibePattern.choose(null)));
         eq("vibe 系统读到 → 跟随", "[0, 250, 250, 250]", java.util.Arrays.toString(VibePattern.choose(new long[]{0, 250, 250, 250})));
         ok("vibe 坏数组 → Basic call", VibePattern.choose(new long[]{0, -1}).length == 3 && VibePattern.choose(new long[]{0, 0}).length == 3);
-        ok("vibe 不是旧的 600/600", VibePattern.SAMSUNG_BASIC_CALL[1] != 600L);
+        ok("vibe 不是旧的 600/600", VibePattern.BASIC_CALL[1] != 600L);
     }
 
     static void flags() {
@@ -544,12 +544,6 @@ public class CoreTest {
         String[] keys = {"yujiaxue","leizhenyu","baoyu","dayu","zhongyu","zhenyu","xiaoyu","xiayu","daxue","xiaoxue","xiaxue","wumai","youwu","shachen","duoyun","yin","qinglang","dafeng"};
         boolean allIcon = true; for (String k : keys) if (WeatherCode.icon(k, 12) == null) allIcon = false;
         ok("icon 18 个天气键都有图标", allIcon);
-        eq("samsung 局部多云/30", "duoyun", WeatherCode.fromSamsung("局部多云", 30));
-        eq("samsung 大部多云/28", "duoyun", WeatherCode.fromSamsung("大部多云", 28));
-        eq("samsung 描述认不出看图标 32", "qinglang", WeatherCode.fromSamsung("Sunny", 32));
-        eq("samsung 描述认不出看图标 12", "zhongyu", WeatherCode.fromSamsung("", 12));
-        eq("samsung 雷阵雨 4", "leizhenyu", WeatherCode.fromSamsung("雷阵雨", 4));
-        ok("samsung 都认不出 → null", WeatherCode.fromSamsung("??", 44) == null);
         eq("twc 26 阴", "yin", WeatherCode.fromTwc(26)); eq("twc 20 雾", "youwu", WeatherCode.fromTwc(20));
         ok("celsius 摄氏原样", WeatherCode.celsius(28.0, 1) == 28.0);
         ok("celsius 华氏换算", WeatherCode.celsius(82.0, 0) == 28.0);

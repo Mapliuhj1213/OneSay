@@ -11,7 +11,7 @@ import static com.onesay.assistant.v2.errand.ResearchLadderTest.*;
 import static org.junit.Assert.*;
 
 /**
- * ★ lane C3-1 补检：Tavily（search → extract）不够用时，确实依次升级到内置 WebView、再到三星浏览器；
+ * ★ lane C3-1 补检：Tavily（search → extract）不够用时，确实依次升级到内置 WebView、再到默认浏览器；
  * 并守住 ErrandHooks 里真把后两档接进了升级链（C3-1 提交时只接了前两档，C3-2 / C3-4 补上）。
  */
 public class ResearchLadderEscalationTest {
@@ -49,7 +49,7 @@ public class ResearchLadderEscalationTest {
         assertEquals(1, s.calls);
         assertEquals(1, e.calls);
         assertEquals(1, b.calls);
-        assertNull("WebView 完成就不再开三星浏览器", x.opened);
+        assertNull("WebView 完成就不再开默认浏览器", x.opened);
         assertEquals(ResearchLadder.Tier.WEBVIEW, o.tier);
         assertEquals(Arrays.asList(ResearchLadder.Tier.SEARCH, ResearchLadder.Tier.EXTRACT, ResearchLadder.Tier.WEBVIEW), o.tried);
         assertTrue(o.ok);
@@ -67,39 +67,37 @@ public class ResearchLadderEscalationTest {
     }
 
     @Test
-    public void webview_failed_falls_back_to_samsung() {
+    public void webview_failed_falls_back_to_browser() {
         FakeSearch s = new FakeSearch(new SearchResult("A", "https://a.com/x", "短"));
         FakeExtract e = new FakeExtract(new TavilyExtractProvider.Page("https://a.com/x", "太短", null));
         FakeBrowser b = new FakeBrowser(BrowseResult.failed("模型不可用"));
         FakeExternal x = new FakeExternal();
         ResearchLadder.Outcome o = new ResearchLadder(s, e, b, x, ECHO).run(ErrandIntent.parse("去网上查一下 X"), null);
         assertNotNull(x.opened);
-        assertEquals(ResearchLadder.Tier.SAMSUNG, o.tier);
-        assertEquals(Arrays.asList(ResearchLadder.Tier.SEARCH, ResearchLadder.Tier.EXTRACT, ResearchLadder.Tier.WEBVIEW, ResearchLadder.Tier.SAMSUNG), o.tried);
+        assertEquals(ResearchLadder.Tier.BROWSER, o.tier);
+        assertEquals(Arrays.asList(ResearchLadder.Tier.SEARCH, ResearchLadder.Tier.EXTRACT, ResearchLadder.Tier.WEBVIEW, ResearchLadder.Tier.BROWSER), o.tried);
         assertEquals(x.opened, o.handoffUrl);
         assertFalse(o.ok);
     }
 
     @Test
-    public void webview_unavailable_skips_straight_to_samsung() {
+    public void webview_unavailable_skips_straight_to_browser() {
         FakeSearch s = new FakeSearch(new SearchResult("A", "https://a.com/x", "短"));
         FakeExternal x = new FakeExternal();
         OffBrowser off = new OffBrowser();
         ResearchLadder.Outcome o = new ResearchLadder(s, null, off, x, ECHO).run(ErrandIntent.parse("去网上查一下 X"), null);
         assertEquals(0, off.calls);
         assertNotNull(x.opened);
-        assertEquals(Arrays.asList(ResearchLadder.Tier.SEARCH, ResearchLadder.Tier.SAMSUNG), o.tried);
+        assertEquals(Arrays.asList(ResearchLadder.Tier.SEARCH, ResearchLadder.Tier.BROWSER), o.tried);
     }
 
-    /** 接线守卫：真机的升级链四档都接上了（WebView 由开关 + 模型可用决定，三星由开关 + 已安装决定）。 */
+    /** 接线守卫：真机的升级链四档都接上了（WebView 由开关 + 模型可用决定，默认浏览器由开关决定）。 */
     @Test
     public void hooks_wire_all_four_tiers() throws Exception {
         String h = src("com/onesay/assistant/v2/errand/ErrandHooks.java");
         assertTrue(h.contains("new ResearchLadder(s, e, browser(ctx, id, ch, onIsland, cancel), external(ctx), summarizer(ctx))"));
         assertTrue(h.contains("ErrandSettings.WEBVIEW.on(ctx) && planner.ready()"));
-        assertTrue(h.contains("ErrandSettings.SAMSUNG.on(ctx) && SamsungBrowser.installed(ctx) != null"));
-        // ★ LC-4：拉起后按实际发出的 Intent 记下是不是桌面版（文案据此决定）
-        assertTrue(h.contains("SamsungBrowser.Spec s = SamsungBrowser.launch(ctx, url);"));
-        assertTrue(h.contains("mDesktop = s != null && s.desktop;"));
+        assertTrue(h.contains("ErrandSettings.BROWSER.on(ctx) && DefaultBrowser.available(ctx)"));
+        assertTrue("不指定浏览器包名，交给系统解析默认浏览器", h.contains("return DefaultBrowser.open(ctx, url);"));
     }
 }

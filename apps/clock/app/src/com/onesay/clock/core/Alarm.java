@@ -13,7 +13,7 @@ public final class Alarm {
     public int days = 0;
     public boolean on = true;
     public String label = "";
-    /** Bixby 简报（播报）闹钟。 */
+    /** 智能播报闹钟。 */
     public boolean brief = true;
     public boolean snoozeOn = true;
     public int snoozeMin = 5;

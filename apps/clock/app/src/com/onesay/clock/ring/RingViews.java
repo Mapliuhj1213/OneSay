@@ -22,7 +22,7 @@ import android.view.View;
 import android.view.accessibility.AccessibilityManager;
 
 /**
- * 响铃页（三星时钟 10.1.20.13 Bixby 简报闹钟样式）的自绘控件：
+ * 响铃页的自绘控件：
  *   Bg      —— sec.color.gradient.view.RadialGradientView：三层径向光晕（radial_gradient.gm 剖面 33 档），入场 + 4 s 呼吸；
  *   Stop    —— AlertSlidingTab + AlertSlidingTabHandle：105dp 黑底细描边圆环 + 175dp 呼吸光晕，按住后 274dp 按压圈、
  *              在圆内按下、拖到 0.95×直径 解除；TalkBack 等「点按模式」下按下即停；

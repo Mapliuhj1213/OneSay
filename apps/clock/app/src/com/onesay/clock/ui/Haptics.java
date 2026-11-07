@@ -14,16 +14,13 @@ import com.onesay.clock.core.HapticMap;
 import java.lang.reflect.Method;
 
 /**
- * UI 触感执行器（映射见 core.HapticMap，默认 = 本机三星时钟 7.0.92.4 的做法）。
+ * UI 触感执行器（映射见 core.HapticMap，默认 = 系统通用触感）。
  * 不碰响铃振动：响铃波形 Basic call [0,1500,2000] 由 RingService 自己的 Vibrator 播放；滑动解除按住时的 semVibrate 若打断了它，
  * 松手时 RingService 会重新起波形（REVIB）。
  */
 public final class Haptics {
     private Haptics() { }
 
-    private static Method semVibrate;            // Vibrator.semVibrate(int,int,AudioAttributes,Vibrator$SemMagnitudeTypes)
-    private static Object typeMax;
-    private static boolean looked;
 
     /** 触发一个 UI 事件的触感；返回是否真的发出了（日志/测试用）。 */
     public static boolean fire(View v, HapticMap.Ev e) {
@@ -36,13 +33,12 @@ public final class Haptics {
             switch (a.kind) {
                 case SOUND_EFFECT: {
                     AudioManager am = (AudioManager) c.getSystemService(Context.AUDIO_SERVICE);
-                    if (am != null) am.playSoundEffect(a.code);   // 非三星机上 105 超出范围，框架直接忽略
+                    if (am != null) am.playSoundEffect(a.code);   // 超出范围的音效框架直接忽略
                     return am != null;
                 }
                 case SEM_VIBRATE: {
                     Vibrator vib = (Vibrator) c.getSystemService(Context.VIBRATOR_SERVICE);
                     if (vib == null || !vib.hasVibrator()) return false;
-                    if (samsung(vib)) { semVibrate.invoke(vib, a.code, -1, null, typeMax); return true; }
                     if (a.fallback >= 0 && v.performHapticFeedback(a.fallback)) return true;
                     // 都不行：20 ms 短振（Android 8 起有 VibrationEffect）
                     if (Build.VERSION.SDK_INT >= 26) vib.vibrate(VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE));
@@ -57,18 +53,5 @@ public final class Haptics {
         }
     }
 
-    private static synchronized boolean samsung(Vibrator vib) {
-        if (!looked) {
-            looked = true;
-            try {
-                Class<?> mt = Class.forName("android.os.Vibrator$SemMagnitudeTypes");
-                Method m = Vibrator.class.getMethod("semVibrate", int.class, int.class, android.media.AudioAttributes.class, mt);
-                Object max = mt.getField("TYPE_MAX").get(null);
-                Method sup = Vibrator.class.getMethod("semIsHapticSupported");
-                semVibrate = m; typeMax = max;
-                if (!(Boolean) sup.invoke(vib)) semVibrate = null;   // 三星 isVibetonzSupported 同样要求
-            } catch (Throwable ignored) { semVibrate = null; }
-        }
-        return semVibrate != null;
-    }
+
 }

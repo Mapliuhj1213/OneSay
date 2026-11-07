@@ -122,7 +122,7 @@ public final class StatusProbe {
                 });
                 // ★ refactor/oss：状态卡先出，再把 root 通道 / 按键守护状态交给设备能力探测（只读，异常吞掉，不影响状态卡）
                 try {
-                    com.onesay.assistant.v2.platform.DeviceCapabilityProbe.onStatus(app, c.rootOk, (Boolean) ConsoleStatus.parseDaemon(c.daemonProbe)[0]);
+                    com.onesay.assistant.v2.platform.DeviceCapabilityProbe.onStatus(app, c.rootOk);
                 } catch (Throwable ignored) {
                 }
             }

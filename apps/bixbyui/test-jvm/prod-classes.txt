@@ -291,7 +291,6 @@ com/onesay/assistant/v2/errand/web/PlannerPrompt.java
 com/onesay/assistant/v2/errand/web/LlmPlanner.java
 com/onesay/assistant/v2/errand/web/WebViewDriver.java
 com/onesay/assistant/v2/errand/web/CheckoutGuard.java
-com/onesay/assistant/vendor/samsung/SamsungBrowser.java
 com/onesay/assistant/v2/vision/screenref/NumberedRefs.java
 # ---- lane-a 第 7 项：P1 事件触发 + root 省电白名单（纯 Java 部分）
 com/onesay/assistant/v2/events/EventTask.java
@@ -610,7 +609,6 @@ com/onesay/assistant/v2/platform/FeatureAvailability.java
 com/onesay/assistant/v2/platform/FeatureRegistry.java
 com/onesay/assistant/v2/platform/WakeEntry.java
 com/onesay/assistant/v2/platform/RootOps.java
-com/onesay/assistant/v2/platform/VendorServices.java
 com/onesay/assistant/v2/platform/DeviceCapabilityProbe.java
 com/onesay/assistant/v2/vision/screenref/ScreenRefSettings.java
 com/onesay/assistant/v2/errand/ErrandSettings.java
@@ -632,6 +630,4 @@ com/onesay/assistant/v2/rain/RainService.java
 com/onesay/assistant/v2/ui/KeysActivity.java
 com/onesay/assistant/v2/net/LlmEndpoints.java
 com/onesay/assistant/v2/entry/BuiltinEntries.java
-com/onesay/assistant/vendor/samsung/BixbyKeyEntry.java
 com/onesay/assistant/v2/net/UserEndpoint.java
-com/onesay/assistant/vendor/samsung/SamsungWakeCue.java

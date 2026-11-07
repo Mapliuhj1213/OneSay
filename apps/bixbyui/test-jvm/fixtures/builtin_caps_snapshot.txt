@@ -108,8 +108,8 @@ settings.page.battery | 44d6c71ca2be4fc3
 settings.page.notification | a2cb833abf160b70
 settings.page.apps | 5d07b9760c2bb21e
 settings.page.accessibility | 2db8079dd5ad3a5f
-store.search.samsung | 19d46ab6733f6d55
-store.detail.samsung | d15d40fb3728cb74
+store.search.market | 19d46ab6733f6d55
+store.detail.market | d15d40fb3728cb74
 store.search.play | 5e176ee96c41807b
 store.status.check | f68e6b70dbc3013b
 vision.screen.understand | f1eed01d49904d79

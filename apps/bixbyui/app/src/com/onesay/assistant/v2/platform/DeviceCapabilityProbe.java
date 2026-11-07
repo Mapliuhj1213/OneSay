@@ -30,13 +30,8 @@ public final class DeviceCapabilityProbe {
     private static final String TAG = "[PLATFORM]";
     public static final String PREFS = "bixby_device_caps";
     static final String K_PROFILE = "profile";
-    static final String K_ROOT = "root_ok", K_KEY_DAEMON = "key_daemon";
+    static final String K_ROOT = "root_ok";
 
-    static final String PKG_SAMSUNG_BROWSER = "com.sec.android.app.sbrowser";
-    static final String PKG_SAMSUNG_CLOCK = "com.sec.android.app.clockpackage";
-    static final String PKG_GALAXY_STORE = "com.sec.android.app.samsungapps";
-    static final String PKG_BIXBY_AGENT = "com.samsung.android.bixby.agent";
-    static final String PKG_BIXBY_WAKEUP = "com.samsung.android.bixby.wakeup";
     static final String PKG_SHIZUKU = "moe.shizuku.privileged.api";
     /**
      * 仅作「看得到 su」的弱信号。高版本上 Magisk（/debug_ramdisk）、KernelSU / APatch（不放 su 到 PATH，App 侧通常看不到）
@@ -63,16 +58,15 @@ public final class DeviceCapabilityProbe {
     }
 
     /**
-     * 控制台状态探测结束时回填 root 通道 / 按键守护的状态（null = 没探到，保留上次的值），并重新探测一遍。
+     * 控制台状态探测结束时回填 root 通道的状态（null = 没探到，保留上次的值），并重新探测一遍。
      * 在后台线程调用（StatusProbe 的工作线程）；任何异常都吞掉，不影响状态探测本身。
      */
-    public static void onStatus(Context ctx, Boolean rootOk, Boolean keyDaemonAlive) {
+    public static void onStatus(Context ctx, Boolean rootOk) {
         if (ctx == null) return;
         try {
             Context app = ctx.getApplicationContext();
             SharedPreferences.Editor e = sp(app).edit();
             if (rootOk != null) e.putString(K_ROOT, Tri.of(rootOk).name());
-            if (keyDaemonAlive != null) e.putString(K_KEY_DAEMON, Tri.of(keyDaemonAlive).name());
             e.apply();
             probe(app);
         } catch (Throwable t) {
@@ -102,14 +96,6 @@ public final class DeviceCapabilityProbe {
         Tri root = rootFrom(daemon, anySuBinary());
         b.set(DeviceCap.ROOT, root);
 
-        Tri keyDaemon = tri(sp.getString(K_KEY_DAEMON, null));
-        if (root == Tri.NO) keyDaemon = Tri.NO;
-        b.set(DeviceCap.KEY_DAEMON, keyDaemon);
-
-        boolean samsung = "samsung".equalsIgnoreCase(trim(Build.MANUFACTURER)) || "samsung".equalsIgnoreCase(trim(Build.BRAND));
-        // Bixby 键：守护在跑 = 有；不是三星 = 没有；三星但守护没探到 = 不确定（有的三星机型没有 Bixby 键）
-        b.set(DeviceCap.BIXBY_KEY, keyDaemon == Tri.YES ? Tri.YES : (samsung ? Tri.UNKNOWN : Tri.NO));
-
         // 包可见性（Android 11+ 且本 App targetSdk ≥ 30）：没在 <queries> 声明的包查不到 ≠ 没装 → 记「未确认」，不置灰
         int sdk = Build.VERSION.SDK_INT;
         int target = 0;
@@ -118,12 +104,6 @@ public final class DeviceCapabilityProbe {
         } catch (Throwable ignored) {
         }
         boolean queryAll = granted(app, PERM_QUERY_ALL_PACKAGES) == Tri.YES;
-        b.set(DeviceCap.SAMSUNG_BROWSER, installed(pm, PKG_SAMSUNG_BROWSER, sdk, target, queryAll));
-        b.set(DeviceCap.SAMSUNG_CLOCK, installed(pm, PKG_SAMSUNG_CLOCK, sdk, target, queryAll));
-        b.set(DeviceCap.GALAXY_STORE, installed(pm, PKG_GALAXY_STORE, sdk, target, queryAll));
-        Tri agent = installed(pm, PKG_BIXBY_AGENT, sdk, target, queryAll), wakeup = installed(pm, PKG_BIXBY_WAKEUP, sdk, target, queryAll);
-        b.set(DeviceCap.BIXBY_SYSTEM, agent == Tri.YES || wakeup == Tri.YES ? Tri.YES
-                : (agent == Tri.NO && wakeup == Tri.NO ? Tri.NO : Tri.UNKNOWN));
         b.set(DeviceCap.SHIZUKU, installed(pm, PKG_SHIZUKU, sdk, target, queryAll));
 
         b.set(DeviceCap.MIC, granted(app, Manifest.permission.RECORD_AUDIO));

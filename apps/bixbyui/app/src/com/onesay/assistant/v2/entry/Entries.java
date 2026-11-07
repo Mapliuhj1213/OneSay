@@ -15,7 +15,6 @@ import com.onesay.assistant.v2.platform.Tri;
 import com.onesay.assistant.v2.ui.FloatingSheetService;
 import com.onesay.assistant.v2.wake.WakeService;
 import com.onesay.assistant.v2.wake.WakeWordSettings;
-import com.onesay.assistant.vendor.samsung.BixbyKeyEntry;
 import com.onesay.plugin.api.entry.EntryEnv;
 import com.onesay.plugin.api.entry.EntryRegistry;
 import com.onesay.plugin.api.entry.EntryTrigger;
@@ -61,8 +60,6 @@ public final class Entries {
                 BuiltinEntries.registerAll(new BuiltinEntries.ComponentSwitch() {
                     @Override public void setComponentEnabled(String id, boolean on) { switchComponent(app, id, on); }
                 });
-                // 厂商入口插件（默认关）
-                EntryRegistry.register(new BixbyKeyEntry());
                 sInit = true;
                 EntryRegistry.apply();
             } catch (Throwable t) {

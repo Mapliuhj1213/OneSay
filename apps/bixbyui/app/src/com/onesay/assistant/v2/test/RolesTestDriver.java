@@ -104,7 +104,7 @@ final class RolesTestDriver {
             }
             Log.i(TAG, "[ROLES-TEST] net connectivity=" + env.connectivityOk() + " vpnActive=" + vpn
                     + " vpnApp=" + env.isInstalled(InstallLinkPlanner.vpnPackage())
-                    + " galaxy=" + env.isInstalled(InstallLinkPlanner.GALAXY_PKG) + " play=" + env.isInstalled(InstallLinkPlanner.PLAY_PKG));
+                    + " play=" + env.isInstalled(InstallLinkPlanner.PLAY_PKG));
         } else if ("open".equals(cmd)) {
             // 真跳转（同点击安装提示，但不上屏）：国外 App 不通且没有 VPN 时会自动启动代理 App！
             final String pkg = text == null ? "" : text.trim();

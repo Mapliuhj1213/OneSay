@@ -49,9 +49,9 @@ final class DeviceCapsToggles {
             com.onesay.assistant.v2.kernel.plugins.NoticePlugin.refresh(act);
             return true;
         }
-        if ("errand.samsung".equals(id)) {
-            // 同 ErrandPlugin.toggle(ErrandSettings.SAMSUNG)
-            com.onesay.assistant.v2.errand.ErrandSettings.SAMSUNG.set(act, on);
+        if ("errand.browser".equals(id)) {
+            // 同 ErrandPlugin.toggle(ErrandSettings.BROWSER)
+            com.onesay.assistant.v2.errand.ErrandSettings.BROWSER.set(act, on);
             return true;
         }
         act.getApplicationContext().getSharedPreferences(f.prefs, android.content.Context.MODE_PRIVATE)

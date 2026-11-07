@@ -1,6 +1,5 @@
 package com.onesay.assistant.v2.errand;
 
-import com.onesay.assistant.vendor.samsung.SamsungBrowser;
 
 import com.onesay.assistant.v2.search.SearchResult;
 import com.onesay.assistant.v2.search.TavilyExtractProvider;
@@ -17,7 +16,7 @@ import java.util.regex.Pattern;
  *   <li>{@link Tier#SEARCH} Tavily search：摘要够了就直接回调，不开浏览器；</li>
  *   <li>{@link Tier#EXTRACT} Tavily extract：把前几条结果（或用户给的链接）的正文抽出来，够了就回调；</li>
  *   <li>{@link Tier#WEBVIEW} 内置 WebView 浏览代理（默认 PC UA）：点击 / 输入 / 翻页，遇登录验证码请用户接手；</li>
- *   <li>{@link Tier#SAMSUNG} 三星浏览器桌面模式兜底：<b>只</b>用 Intent 打开链接交给用户，不做 GUI 点击。</li>
+ *   <li>{@link Tier#BROWSER} 默认浏览器兜底：<b>只</b>用 Intent 打开链接交给用户，不做 GUI 点击。</li>
  * </ol>
  * 购物（{@link ErrandIntent.Kind#SHOP}）要加购物车，搜索 API 做不到 → 直接从 WebView 开始。
  * 三星浏览器只在 WebView <b>打不开页面</b>（{@link BrowseResult.Status#BLOCKED}）时用；登录 / 验证码是 TAKEOVER，
@@ -27,7 +26,7 @@ public final class ResearchLadder {
 
     /** RENDER = ★ 11-03 14:37 离屏 WebView 只读取价（{@link com.onesay.assistant.v2.errand.web.BrowserReader}，渲染后的价格节点）。 */
     /** COMPARE = ★ 11-03 15:53 比价网静态取价（{@link com.onesay.assistant.v2.errand.compare.CompareSites}：粉象比价 + 慢慢买爆料）。 */
-    public enum Tier { SEARCH, EXTRACT, WEBVIEW, SAMSUNG, RENDER, COMPARE }
+    public enum Tier { SEARCH, EXTRACT, WEBVIEW, BROWSER, RENDER, COMPARE }
 
     public interface Searcher {
         List<SearchResult> search(String query);
@@ -64,8 +63,6 @@ public final class ResearchLadder {
 
         boolean open(String url);
 
-        /** ★ LC-4：上一次 {@link #open} 发出的 Intent 是否真的带了桌面模式参数（决定文案说不说「桌面版」）。 */
-        boolean openedDesktop();
     }
 
     /** 把资料整理成回答（LLM）；拿不到返回 null，由本类用资料原文兜底。 */
@@ -342,15 +339,15 @@ public final class ResearchLadder {
             }
         }
 
-        // ④ 三星浏览器桌面模式兜底：只开链接，交给用户
+        // ④ 默认浏览器兜底：只开链接，交给用户
         if (mExternal != null && mExternal.available() && start != null) {
-            tried.add(Tier.SAMSUNG);
+            tried.add(Tier.BROWSER);
             boolean ok = mExternal.open(start);
             if (ok) {
                 // 已经拿到的部分资料仍然整理给用户
                 String partial = sources.isEmpty() ? "" : material(sources);
-                return new Outcome(false, Tier.SAMSUNG, tried, sources, partial, start, null,
-                        SamsungBrowser.handoffNote(mExternal.openedDesktop()));
+                return new Outcome(false, Tier.BROWSER, tried, sources, partial, start, null,
+                        DefaultBrowser.NOTE);
             }
         }
 

@@ -175,65 +175,6 @@ public final class HomeCityPolicy {
         }
     }
 
-    // ------------------------------------------------------------------ root 复制命令
-
-    /** 三星天气（WeatherClock）库的源路径。 */
-    public static final String SYS_DB = "/data/data/com.sec.android.daemonapp/databases/WeatherClock";
-
-    /**
-     * 经 root 守护把系统天气库复制到本 App 目录的命令（纯函数，有单测）。
-     *
-     * <p>要点（都来自晨间播报 SysWeather 的实测教训）：
-     * <ul>
-     *   <li>主库 + {@code -wal} 都要（数据几乎都在 WAL 里）；<b>不复制 {@code -shm}</b>（mmap 越界 SIGBUS）；</li>
-     *   <li>目标文件由 App <b>先建好</b>，root 只用 {@code cat >} 往已有文件里写 —— 文件的 SELinux 标签（含 MCS 类别）
-     *       保持 App 自己的，不会出现 root 新建文件 App 打不开（SQLITE_CANTOPEN_EACCES）的问题；</li>
-     *   <li>WAL 不存在时不算失败（库可能刚 checkpoint 过）；最后回显两份的字节数，App 据此判断复制是否完整。</li>
-     * </ul>
-     */
-    @Deprecated   // 2026-10-25：v4 守护拒「>」重定向与 &&；执行改用 copySteps，这里只留作说明与旧单测
-    public static String copyCommand(String dstDir) {
-        String d = dstDir.endsWith("/") ? dstDir.substring(0, dstDir.length() - 1) : dstDir;
-        String main = q(d + "/WeatherClock");
-        String wal = q(d + "/WeatherClock-wal");
-        return "cat " + q(SYS_DB) + " > " + main
-                + " && { [ -f " + q(SYS_DB + "-wal") + " ] && cat " + q(SYS_DB + "-wal") + " > " + wal + " || : ; }"
-                + " && echo \"SZ $(wc -c < " + main + ") $(wc -c < " + wal + ")\"";
-    }
-
-    /**
-     * 2026-10-25 exec 守护 v4（fix-root.md §3「城市库拷贝」）：拆成两条白名单内的单命令。
-     * <ul>
-     *   <li>{@code cp 源 目标}：目标文件仍由 App 先建好，cp 对已存在的目标是<b>原地截断重写</b>（不换 inode），
-     *       属主与 SELinux 标签（含 MCS 类别）仍是 App 自己的——与原来 {@code cat >} 的考虑一致；</li>
-     *   <li>主库必须成功（相当于 {@code &&}）；WAL 不存在时 cp 失败不算失败。App 在发命令<b>之前</b>先把自己的
-     *       WAL 副本清空，避免源 WAL 不存在时残留上一次的旧 WAL（原脚本 {@code || :} 的遗留问题）；</li>
-     *   <li>不再回显字节数：App 直接读两份文件的长度（{@code File.length()}）。</li>
-     * </ul>
-     */
-    public static java.util.List<com.onesay.assistant.v2.executor.ShellScript.Step> copySteps(String dstDir) {
-        String d = dstDir.endsWith("/") ? dstDir.substring(0, dstDir.length() - 1) : dstDir;
-        return java.util.Arrays.asList(
-                com.onesay.assistant.v2.executor.ShellScript.must("cp " + q(SYS_DB) + " " + q(d + "/WeatherClock")),
-                com.onesay.assistant.v2.executor.ShellScript.run("cp " + q(SYS_DB + "-wal") + " " + q(d + "/WeatherClock-wal")));
-    }
-
-    /** 解析 copyCommand 的回显「SZ 主库字节 WAL字节」→ {main, wal}；解析不出 → null。 */
-    public static long[] parseCopyEcho(String out) {
-        if (out == null) return null;
-        int k = out.lastIndexOf("SZ ");
-        if (k < 0) return null;
-        String[] p = out.substring(k + 3).trim().split("\\s+");
-        if (p.length < 2) return null;
-        try {
-            return new long[] {Long.parseLong(p[0].trim()), Long.parseLong(p[1].trim())};
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    /** 主库 + WAL 加起来的合理下界（低于这个说明复制没成，同 SysWeather.MIN_BYTES）。 */
-    public static final long MIN_DB_BYTES = 8L * 1024L;
 
     private static String q(String s) {
         return "'" + s.replace("'", "'\\''") + "'";

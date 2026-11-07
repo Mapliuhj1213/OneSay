@@ -132,17 +132,14 @@ public final class AppCaps {
         // 「打开浏览器」的正解 —— 读默认浏览器 + 用它的接口打开界面。
         //
         //   旧行为（错的）：`打开浏览器` 被 app.launch 用「品类别名」拦走，
-        //   别名表里写死的是 `com.android.chrome`（本机根本没装），
-        //   真正在用的三星浏览器只是靠"候选里恰好有 sbrowser"兜着 —— 一旦别名表过时，
-        //   就会回"没找到应用"。而且它走的是 ACTION_MAIN/LAUNCHER（**等于用户点图标**），
+        //   别名表里写死的候选包一旦与用户实际用的浏览器对不上，就会回"没找到应用"。而且它走的是 ACTION_MAIN/LAUNCHER（**等于用户点图标**），
         //   不是"浏览器打开某页"的正规接口。
         //
         //   正解分两步，与电脑 agent「先探明环境、再选接口」的做法一致：
         //     ① 运行时读系统：`cmd package resolve-activity --brief
         //        -a android.intent.action.VIEW -d http://` → 输出形如
-        //        `com.sec.android.app.sbrowser/.SBrowserLauncherActivity`（默认浏览器组件）
+        //        `<包名>/<启动 Activity>`（用户的默认浏览器组件）
         //     ② 用拿到的组件 `am start -n <component>` 打开界面
-        //   本机实测：默认浏览器 = 三星浏览器 com.sec.android.app.sbrowser ✓
         //
         //   ★ 为什么用 `-n <component>` 而不是 `-a VIEW -d http://`：
         //     `-a VIEW -d http://example.com` 会**顺带打开 example.com 这个页面**，
@@ -166,18 +163,10 @@ public final class AppCaps {
         // 「打开浏览器，把引擎换成 X」的一次到位实现。
         //
         //   排查过程（记录在此，避免后来人重复踩）：
-        //   ① 先挖到三星浏览器的私有接口 `com.samsung.intent.action.
-        //      CSC_BROWSER_SET_SEARCH_ENGINE`（接收者 .settings.SearchEngineSettingReceiver），
-        //      且爆破出 extra key = `searchEngine`，值形如 "bing"/"google"。
-        //   ② root 下广播**能被接收**（日志有 `onReceive ... value is received :google`、
-        //      `onBrowserPreferenceChanged key: current_search_engine_name`），
-        //      但 prefs **写盘失败/被回滚**（实测切完仍是 bing）。
-        //      结论：该接口是**开机时 CSC 运营商配置一次性写入**用的，不是运行时切换入口。
-        //      —— 这是一条"挖到接口但不可用"的负面结论，已确认，勿再试。
-        //   ③ 正解改用 **URL 直达**：`am start -a VIEW -d <引擎首页>`。
+        //   ① 浏览器厂商的私有「换搜索引擎」接口不通用，也不保证运行时生效，不用。
+        //   ② 正解改用 **URL 直达**：`am start -a VIEW -d <引擎首页>`。
         //      语义上完全满足用户意图（"让浏览器用必应"——打开必应就是），
         //      且不依赖任何浏览器私有接口，跨浏览器通用。
-        //      实测：打开后前台 App = com.sec.android.app.sbrowser/.SBrowserMainActivity ✓
         //
         //   注意与既有能力的边界（避免重叠）：
         //     browser.open.bing / .google …  → 只开某引擎首页（不带"换引擎"语义）
@@ -241,22 +230,9 @@ public final class AppCaps {
                 .reply("已打开默认应用设置界面")
                 .build());
 
-        // 笔记记录
-        //   //     原来用的是 `am start -a SEND -t text/plain --es TEXT '...'` **不带 -n**，
-        //     实测会弹出系统**分享面板**（"完成动作的方式：三星浏览器/添加至新笔记/信息/QQ…"），
-        //     要用户自己再点一次 —— 任务没完成，且选择项里还混着浏览器、QQ 等无关目标。
-        //
-        //     正解 = **显式指定 Samsung Notes 的新建编辑器组件**：
-        //       com.samsung.android.app.notes/.nativecomposer.NativeComposerActionNewActivity
-        //     实测：`su -c am start -a SEND -t text/plain -n <该组件> --es android.intent.extra.TEXT '...'`
-        //     直达 `ComposerActivity`（笔记编辑器），正文已预填（截图确认）。
-        //     ★ 该 Activity **未导出**（不带 -n 时普通 uid 起不来；带 -n 需 root），
-        //       正好本工程的 intent 执行器走 root 守护，天然可用。
-        //
-        //     另注：三星笔记自带 `android.intent.action.CREATE_NOTE` 是**不注册**的
-        //       （`cmd package resolve-activity -a CREATE_NOTE` → No activity found），
-        //       别去试标准 API，本机只有上面这条 SEND+组件 的路通。
-        reg.register(new Capability.Builder("notes.new", "新建一条三星笔记")
+        // 笔记记录：ACTION_SEND text/plain，不指定包名——由用户的笔记 App 接收（第一次系统会让用户选，可设为「始终」）。
+        //   不绑定任何厂商笔记 App 的私有组件。
+        reg.register(new Capability.Builder("notes.new", "新建一条笔记（交给用户的笔记 App）")
                 .domain("settings")
                 .verbs("设置", "打开")
                 .entities("setting")
@@ -271,13 +247,12 @@ public final class AppCaps {
                 .risk(0, false)
                 .executor("intent")
                 .cmd("am start -a android.intent.action.SEND -t text/plain "
-                        + "-n com.samsung.android.app.notes/.nativecomposer.NativeComposerActionNewActivity "
                         + "--es android.intent.extra.TEXT '{content}'")
                 .say("新建笔记", "写个便签", "新建便签", "记事", "打开笔记")
-                .reply("已打开三星笔记新建窗口：{content}")
+                .reply("已交给笔记 App 新建：{content}")
                 .build());
 
-        reg.register(new Capability.Builder("notes.new.text", "随手记下指定内容到三星笔记")
+        reg.register(new Capability.Builder("notes.new.text", "随手记下指定内容（交给用户的笔记 App）")
                 .domain("settings")
                 .verbs("设置", "打开")
                 .entities("setting")
@@ -287,13 +262,12 @@ public final class AppCaps {
                 .schema(new ParamsSchema().addString("content", true, ""))
                 .risk(0, false)
                 .executor("intent")
-                // 同 notes.new：必须带 -n 指定编辑器组件，否则弹分享面板。
+                // 同 notes.new：不指定包名，由用户的笔记 App 接收。
                 .cmd("am start -a android.intent.action.SEND -t text/plain "
-                        + "-n com.samsung.android.app.notes/.nativecomposer.NativeComposerActionNewActivity "
                         + "--es android.intent.extra.TEXT '{content}'")
                 .say("记一下{n}", "随手记{n}", "记录{n}", "记笔记{n}",
                         "新建笔记记录{n}", "新建笔记写{n}", "新建笔记输入{n}")
-                .reply("已为您记录到三星笔记：{content}")
+                .reply("已交给笔记 App 记下：{content}")
                 .build());
 
         // 卸载应用（高危操作，必带确认卡）

@@ -92,9 +92,8 @@ public final class ErrandPlugin extends FeaturePlugin {
         android.widget.LinearLayout g = host.group(root, "升级链");
         sub[0] = host.switchRow(g, "搜索不够时开内置浏览器", "电脑版网页；遇到登录 / 验证码会在灵动岛上请你接手",
                 ErrandSettings.WEBVIEW.on(act), toggle(act, ErrandSettings.WEBVIEW));
-        sub[1] = host.switchRow(g, "最后用三星浏览器打开",
-                com.onesay.assistant.vendor.samsung.SamsungBrowser.toggleNote(com.onesay.assistant.vendor.samsung.SamsungBrowser.desktopConfigured(act)),   // ★ LC-4 规则
-                ErrandSettings.SAMSUNG.on(act), toggle(act, ErrandSettings.SAMSUNG));
+        sub[1] = host.switchRow(g, "最后用默认浏览器打开", com.onesay.assistant.v2.errand.DefaultBrowser.TOGGLE_NOTE,
+                ErrandSettings.BROWSER.on(act), toggle(act, ErrandSettings.BROWSER));
         sub[2] = host.switchRow(g, "购物", "搜索、比价、加购物车、进结算页；付款永远由你自己完成",
                 ErrandSettings.SHOP.on(act), toggle(act, ErrandSettings.SHOP));
         for (ConsoleHost.Row x : sub) x.setEnabled(main.isOn() && !killed);

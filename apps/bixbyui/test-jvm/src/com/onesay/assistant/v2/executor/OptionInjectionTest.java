@@ -34,7 +34,7 @@ import static org.junit.Assert.*;
  *       所以不能加 {@code --}，改为<b>拒绝</b>以 {@code -} 开头的值；</li>
  *   <li><b>选项参数</b>（am 的 -a/-d/-n/-p/--es/--ei/--el/--ez，media volume 的 --set）：目标命令用 getNextArgRequired()
  *       原样取下一个参数，值以 {@code -} 开头也不会被当成选项 → 不改；</li>
- *   <li><b>嵌在单词里</b>（https://…?q=、tel:、smsto:、package:、samsungapps://、market://、geo:、amapuri://、content://）：
+ *   <li><b>嵌在单词里</b>（https://…?q=、tel:、smsto:、package:、market://、geo:、amapuri://、content://）：
  *       值前面有固定前缀，到不了参数开头 → 不改。</li>
  * </ul>
  * am / pm / cmd 这类基于 ShellCommand 的工具支持 {@code --}（getNextOption 遇到 "--" 结束选项），但表里没有它们的位置参数槽位。
@@ -94,8 +94,8 @@ public class OptionInjectionTest {
         EXPECTED.put("phone.call#number", E);                   // -d tel:{number}
         EXPECTED.put("sms.send#number", E);                     // -d smsto:{number}
         EXPECTED.put("sms.send#text", O);                       // --es sms_body '{text}'
-        EXPECTED.put("store.search.samsung#keyword", E);        // -d 'samsungapps://SearchResult/{keyword}'
-        EXPECTED.put("store.detail.samsung#pkg", E);
+        EXPECTED.put("store.search.market#keyword", E);        // -d 'market://…'
+        EXPECTED.put("store.detail.market#pkg", E);
         EXPECTED.put("store.search.play#keyword", E);
         EXPECTED.put("s1.taxi.to#address", E);                  // amapuri://…&dname={address}
         EXPECTED.put("s2.nav.app#address", E);                  // geo:0,0?q={address}

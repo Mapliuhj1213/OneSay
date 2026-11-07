@@ -37,7 +37,7 @@ public final class ErrandReport {
             case SEARCH: return "搜索摘要";
             case EXTRACT: return "网页正文";
             case WEBVIEW: return "内置浏览器";
-            case SAMSUNG: return "三星浏览器";
+            case BROWSER: return "浏览器";
             case RENDER: return "浏览器取价";
             default: return t.name();
         }

@@ -13,7 +13,7 @@ public final class VibePattern {
     public static final int ID_BASE = 50025, ID_MIN = 50025, ID_MAX = 50045;
     public static final int BASIC_CALL = 50035;
     /** 三星「Basic call」（config_vibeCommonK）。 */
-    public static final long[] SAMSUNG_BASIC_CALL = {0L, 1500L, 2000L};
+    public static final long[] BASIC_CALL = {0L, 1500L, 2000L};
     /** 重复起点：整段循环。 */
     public static final int REPEAT = 0;
 
@@ -33,6 +33,6 @@ public final class VibePattern {
 
     /** 最终波形：系统读到的有效就用它，否则三星 Basic call。返回副本。 */
     public static long[] choose(long[] fromSystem) {
-        return (valid(fromSystem) ? fromSystem : SAMSUNG_BASIC_CALL).clone();
+        return (valid(fromSystem) ? fromSystem : BASIC_CALL).clone();
     }
 }

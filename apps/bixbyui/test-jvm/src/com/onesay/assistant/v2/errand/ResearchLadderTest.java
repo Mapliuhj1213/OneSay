@@ -12,7 +12,7 @@ import java.util.List;
 
 import static org.junit.Assert.*;
 
-/** ★ lane C3：升级链 Tavily search → extract → WebView → 三星浏览器。 */
+/** ★ lane C3：升级链 Tavily search → extract → WebView → 默认浏览器。 */
 public class ResearchLadderTest {
 
     static String words(int n) {
@@ -77,7 +77,6 @@ public class ResearchLadderTest {
 
     static final class FakeExternal implements ResearchLadder.External {
         String opened;
-        boolean desktop;
 
         @Override public boolean available() {
             return true;
@@ -86,10 +85,6 @@ public class ResearchLadderTest {
         @Override public boolean open(String url) {
             opened = url;
             return true;
-        }
-
-        @Override public boolean openedDesktop() {
-            return desktop;
         }
     }
 
@@ -177,7 +172,7 @@ public class ResearchLadderTest {
     }
 
     @Test
-    public void takeover_is_not_sent_to_samsung() {
+    public void takeover_is_not_sent_to_browser() {
         FakeExternal x = new FakeExternal();
         FakeBrowser b = new FakeBrowser(new BrowseResult(BrowseResult.Status.TAKEOVER, null, "https://passport.jd.com/login", "需要登录", null, 2));
         ResearchLadder.Outcome o = new ResearchLadder(null, null, b, x, ECHO).run(ErrandIntent.parse("在京东上买 牙刷"), null);
@@ -187,36 +182,28 @@ public class ResearchLadderTest {
     }
 
     @Test
-    public void blocked_webview_falls_back_to_samsung_last() {
+    public void blocked_webview_falls_back_to_browser_last() {
         FakeExternal x = new FakeExternal();
         FakeBrowser b = new FakeBrowser(BrowseResult.blocked("https://m.example.com/p", "站点拒绝 WebView"));
         ErrandIntent in = ErrandIntent.parse("读一下 example.com/p");
         ResearchLadder.Outcome o = new ResearchLadder(new FakeSearch(), new FakeExtract(), b, x, ECHO).run(in, null);
         assertEquals("https://m.example.com/p", x.opened);
-        assertEquals(ResearchLadder.Tier.SAMSUNG, o.tier);
-        assertEquals(Arrays.asList(ResearchLadder.Tier.EXTRACT, ResearchLadder.Tier.WEBVIEW, ResearchLadder.Tier.SAMSUNG), o.tried);
+        assertEquals(ResearchLadder.Tier.BROWSER, o.tier);
+        assertEquals(Arrays.asList(ResearchLadder.Tier.EXTRACT, ResearchLadder.Tier.WEBVIEW, ResearchLadder.Tier.BROWSER), o.tried);
         assertEquals("https://m.example.com/p", o.handoffUrl);
     }
 
-    /** ★ LC-4：Intent 没带桌面参数（默认配置）→ 文案不能说「桌面版」。 */
+    /** 默认浏览器兜底：交接文案不提任何厂商。 */
     @Test
-    public void samsung_note_plain_without_desktop_extras() {
+    public void browser_note_is_generic() {
         FakeExternal x = new FakeExternal();
         FakeBrowser b = new FakeBrowser(BrowseResult.blocked("https://m.example.com/p", "站点拒绝 WebView"));
         ResearchLadder.Outcome o = new ResearchLadder(new FakeSearch(), new FakeExtract(), b, x, ECHO).run(ErrandIntent.parse("读一下 example.com/p"), null);
-        assertEquals(ResearchLadder.Tier.SAMSUNG, o.tier);
-        assertEquals("已在三星浏览器打开，请你接着看", o.note);
-        assertFalse(o.note.contains("桌面版"));
-    }
-
-    /** ★ LC-4：Intent 确实带了桌面参数 → 才说「桌面版」。 */
-    @Test
-    public void samsung_note_desktop_only_when_intent_carries_it() {
-        FakeExternal x = new FakeExternal();
-        x.desktop = true;
-        FakeBrowser b = new FakeBrowser(BrowseResult.blocked("https://m.example.com/p", "站点拒绝 WebView"));
-        ResearchLadder.Outcome o = new ResearchLadder(new FakeSearch(), new FakeExtract(), b, x, ECHO).run(ErrandIntent.parse("读一下 example.com/p"), null);
-        assertEquals("已在三星浏览器（桌面版）打开，请你接着看", o.note);
+        assertEquals(ResearchLadder.Tier.BROWSER, o.tier);
+        assertEquals("已在浏览器打开，请你接着看", o.note);
+        assertEquals("https://a.b/c", DefaultBrowser.checkUrl(" https://a.b/c "));
+        assertNull(DefaultBrowser.checkUrl("intent://x#Intent;end"));
+        assertNull(DefaultBrowser.checkUrl("javascript:alert(1)"));
     }
 
     @Test

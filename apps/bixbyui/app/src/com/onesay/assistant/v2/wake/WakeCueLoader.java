@@ -50,6 +50,7 @@ public final class WakeCueLoader {
     }
 
     static void load(final Context ctx) {
+        if (WakeCue.VENDOR_CANDIDATES.length == 0) return;   // 开源版：只用 App 自带提示音
         final File dir = new File(ctx.getFilesDir(), "wakecue");
         final File pcmF = new File(dir, "vendor.pcm"), srcF = new File(dir, "vendor.src");
         // 缓存：同一出处的文件 / 包还在就直接用
@@ -72,7 +73,7 @@ public final class WakeCueLoader {
             }
         });
         if (used == null) {
-            Log.i(TAG, "[WAKE-CUE] 手机上没找到三星唤醒原声（候选 " + java.util.Arrays.toString(WakeCue.VENDOR_CANDIDATES) + "），退回方案 A");
+            Log.i(TAG, "[WAKE-CUE] 没找到厂商唤醒原声（候选 " + java.util.Arrays.toString(WakeCue.VENDOR_CANDIDATES) + "），退回方案 A");
             return;
         }
         try {

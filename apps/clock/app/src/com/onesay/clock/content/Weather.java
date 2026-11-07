@@ -20,7 +20,7 @@ import java.io.FileOutputStream;
 
 /**
  * 天气：默认不需要 root。坐标 = 系统最近一次定位（粗略定位权限）→ 设置里选的城市 → 都没有就不念天气。
- * 数据 = 先读手机自带的三星天气（root 读库，8 秒超时；「使用手机天气」默认开），读不到或过期再用 open-meteo（免 key）。
+ * 数据 = open-meteo（免 key），坐标来自系统定位或用户设置的城市。
  * 每次成功写 files/wx.json（响铃时成品失效、现拼开场就用它，3 小时内有效）。
  */
 public final class Weather {
@@ -32,9 +32,9 @@ public final class Weather {
         public int rain = -1;
         public String key, desc = "", city = "", src = "none";
         public long at;
-        /** 源数据距上次更新（分钟；三星天气才有）。 */
+        /** 源数据距上次更新（分钟；有的数据源才有）。 */
         public long ageMin = -1;
-        /** 天气所在城市的经纬度（0.1.6，给和风降水用；三星天气所选城市 / 定位 / 备用城市；没有 = NaN）。 */
+        /** 天气所在城市的经纬度（0.1.6，给和风降水用；定位 / 备用城市；没有 = NaN）。 */
         public double lat = Double.NaN, lon = Double.NaN;
 
         public Template.Wx toWx() {
@@ -75,11 +75,6 @@ public final class Weather {
     public static Facts get(Context c) {
         Prefs p = new Prefs(c);
         Facts f = null;
-        if (p.flag(Flags.X_ROOT_WEATHER)) {
-            f = com.onesay.clock.vendor.samsung.SamsungWeather.read(c);
-            if (f != null) L.i(c, "WX " + f.src + " ok city=" + f.city + " temp=" + f.temp + " min=" + f.tmin + " max=" + f.tmax + " desc=" + f.desc + " key=" + f.key + " ageMin=" + f.ageMin);
-            else L.i(c, "WX 三星天气失败 → 回落 open-meteo");
-        }
         if (f == null) {
             double[] ll = coords(c, p);
             if (ll != null) f = openMeteo(ll[0], ll[1]);
@@ -92,7 +87,7 @@ public final class Weather {
     }
 
     /**
-     * 和风降水用的坐标 {lat, lon}（0.1.6）：① 这次天气自带的（三星天气所选城市，与播报的城市一致；或 open-meteo 用的那个坐标）
+     * 和风降水用的坐标 {lat, lon}（0.1.6）：① 这次天气自带的（open-meteo 用的那个坐标）
      * → ② 系统最近定位 / 设置里的备用城市（同 open-meteo）→ 都没有 = null（降雨句不说）。
      */
     public static double[] rainCoords(Context c, Facts f) {

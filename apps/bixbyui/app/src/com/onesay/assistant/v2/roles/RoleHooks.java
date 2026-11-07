@@ -599,7 +599,7 @@ public final class RoleHooks {
         if (v == null) return;
         List<String> chips = new ArrayList<String>();
         chips.add(InstallLinkPlanner.VPN_CHIP);
-        chips.add(d.link.kind == InstallLinkPlanner.Kind.GALAXY ? InstallLinkPlanner.GALAXY_CHIP : "改用系统应用商店");
+        chips.add("改用系统应用商店");
         v.setListener(new ActionChipsView.Listener() {
             @Override
             public void onChipClicked(int index) {

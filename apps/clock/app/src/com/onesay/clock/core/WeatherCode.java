@@ -72,13 +72,7 @@ public final class WeatherCode {
         }
     }
 
-    /** 三星天气库一行 → 天气键：先看中文描述（与天气 App 显示的字一致），认不出再看图标号。 */
-    public static String fromSamsung(String desc, int iconNum) {
-        String k = fromDesc(desc);
-        return k != null ? k : fromTwc(iconNum);
-    }
-
-    /** 三星库温度合理性：摄氏 -60..60 原样；超出视为华氏换算（设置成 °F 的机器）；NaN 原样。 */
+    /** 温度合理性：摄氏 -60..60 原样；超出视为华氏换算（设置成 °F 的机器）；NaN 原样。 */
     public static double celsius(double t, int tempScale) {
         if (Double.isNaN(t)) return t;
         if (tempScale == 0 && t > 60) return Math.round((t - 32) * 5 / 9.0);

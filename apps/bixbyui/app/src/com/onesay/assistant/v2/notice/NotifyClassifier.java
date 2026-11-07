@@ -44,9 +44,9 @@ public final class NotifyClassifier {
     public enum Type { OTP, ERRAND, VOIP, ALARM, TIMER, NAV, MUSIC, WHITELIST }
 
     /** 系统拨号盘 / 通话服务：来电与未接由电话状态（{@link CallNotices}）负责，通知这边不重复。 */
-    static final Set<String> DIALERS = set("com.samsung.android.dialer", "com.android.dialer", "com.google.android.dialer",
-            "com.android.server.telecom", "com.android.incallui", "com.samsung.android.incallui", "com.android.phone");
-    static final Set<String> CLOCKS = set("com.sec.android.app.clockpackage", "com.android.deskclock", "com.google.android.deskclock");
+    static final Set<String> DIALERS = set("com.android.dialer", "com.google.android.dialer",
+            "com.android.server.telecom", "com.android.incallui", "com.android.phone");
+    static final Set<String> CLOCKS = set("com.android.deskclock", "com.google.android.deskclock");
     static final Set<String> MAPS = set("com.autonavi.minimap", "com.baidu.BaiduMap", "com.tencent.map", "com.google.android.apps.maps",
             "com.sogou.map.android.maps");
 

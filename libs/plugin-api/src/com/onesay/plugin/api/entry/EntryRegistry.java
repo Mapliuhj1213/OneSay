@@ -52,7 +52,7 @@ public final class EntryRegistry {
         return id != null && id.matches("[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+") && id.length() <= 64;
     }
 
-    /** 注册（同 id 覆盖）。id 必须形如 {@code entry.xxx} / {@code vendor.samsung.xxx}。 */
+    /** 注册（同 id 覆盖）。id 必须形如 {@code entry.xxx} / {@code vendor.<厂商>.xxx}。 */
     public static synchronized void register(EntryTrigger t) {
         if (t == null || !validId(t.id())) throw new IllegalArgumentException("entry id: " + (t == null ? null : t.id()));
         REG.put(t.id(), t);

@@ -5,14 +5,7 @@ package com.onesay.assistant.v2.wake;
  *
  * <h3>来源（pref {@code wake_tuning/wake_cue}；debug 广播 {@code --es wakecue vendor|a|legacy}）</h3>
  * <ul>
- *   <li>{@link Source#VENDOR}（可选厂商适配，默认不用；OneSay 默认 {@link Source#A}）：<b>运行时</b>读手机上已装的三星原声（不打包进 APK，版权归厂商）。按 {@link #VENDOR_CANDIDATES} 顺序找，
- *       第一个能解码、时长合理（{@link #MIN_MS}–{@link #MAX_MS}）的胜出：
- *       <ol>
- *         <li>{@code /system/media/audio/ui/Bixby_BOS.ogg}（系统 UI 音「Bixby 开始说话」，所有应用可读、不需要 root；Note 8 实测 0.300 s）；</li>
- *         <li>{@code com.samsung.android.bixby.agent} 的 {@code res/raw/toneplay_bos}、{@code voice_bos}（createPackageContext 读资源，0.300 s）；</li>
- *         <li>{@code com.samsung.android.bixby.wakeup} 的 {@code res/raw/voice_bos}。</li>
- *       </ol>
- *       都找不到（非三星机 / 包被卸载）→ 自动退回方案 A，日志 {@code [WAKE-CUE]} 写明。</li>
+ *   <li>{@link Source#VENDOR}：保留的可选来源，开源版没有任何厂商候选（{@link #VENDOR_CANDIDATES} 为空），选了也退回方案 A；</li>
  *   <li>{@link Source#A}：device-1102 方案 A（C6→E6 240 ms 渐弱，{@link Earcon#chimeA}）；</li>
  *   <li>{@link Source#LEGACY}：更早的 160 ms 880→1320 Hz（{@link Earcon#legacyChime}）。</li>
  * </ul>
@@ -50,8 +43,8 @@ public final class WakeCue {
         }
     }
 
-    /** 厂商原声候选（目前只有三星，定义在 vendor.samsung 适配层；默认不用）。 */
-    public static final Candidate[] VENDOR_CANDIDATES = com.onesay.assistant.vendor.samsung.SamsungWakeCue.candidates();
+    /** 厂商原声候选：开源版不读任何厂商系统音，只用 App 自带提示音（选 VENDOR 也会退回方案 A）。 */
+    public static final Candidate[] VENDOR_CANDIDATES = new Candidate[0];
 
     /** 解码器（Android 实现在 WakeCueLoader；单测注入假实现）。返回单声道 16-bit PCM + 采样率；拿不到返回 null。 */
     public interface Decoder {

@@ -127,7 +127,7 @@ public class CapabilityRetriever {   // 审计 R-1：原名 TriageEngine —— 
         // //
         //   BUG：`cap.sign.split("\\\\.")` —— 源码里的 "\\\\." 经 Java 转义后是 `\\.`，
         //   在正则里表示"一个反斜杠 + 任意字符"，**根本不按点切分**。
-        //   于是 parts 永远是整串 ["store.search.samsung"]，q.contains(整串) 恒 false，
+        //   于是 parts 永远是整串 ["store.search.market"]，q.contains(整串) 恒 false，
         //   **sign 这一路打分从未生效过**。改成 split("\\.") 后才真正按点切。
         //
         //   泛化：光修 split 还不够 —— 用户说「把微信装上」时，

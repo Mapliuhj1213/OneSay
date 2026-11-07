@@ -29,7 +29,7 @@ public interface EntryTrigger {
     /** 唤起方式：语音（开麦聆听）或文字（只打开面板）。 */
     enum Mode { VOICE, TEXT }
 
-    /** 稳定 id，如 {@code entry.qs_tile}、{@code vendor.samsung.bixby_key}。 */
+    /** 稳定 id，如 {@code entry.qs_tile}。 */
     String id();
 
     /** 设置页显示的名字。 */

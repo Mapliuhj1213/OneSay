@@ -35,7 +35,7 @@ public class ToolTiersTest {
         assertEquals(ToolTier.INFO, ToolTiers.ofSign("vision.screen.understand"));
         assertEquals(ToolTier.DEEPLINK, ToolTiers.ofSign("app.launch"));
         assertEquals(ToolTier.DEEPLINK, ToolTiers.ofSign("settings.page.wifi"));
-        assertEquals(ToolTier.DEEPLINK, ToolTiers.ofSign("store.search.samsung"));
+        assertEquals(ToolTier.DEEPLINK, ToolTiers.ofSign("store.search.market"));
         assertEquals(ToolTier.API, ToolTiers.ofSign("connectivity.wifi.on"));
         assertEquals(ToolTier.API, ToolTiers.ofSign("probe.apps"));
         assertEquals(ToolTier.API, ToolTiers.ofSign(null));

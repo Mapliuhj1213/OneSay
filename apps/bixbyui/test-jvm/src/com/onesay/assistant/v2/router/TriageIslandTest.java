@@ -22,7 +22,7 @@ public class TriageIslandTest {
     }
 
     @Test public void singleStepIsLazyButStillUsesLoop() {
-        TriageDecider.Signals l0 = new TriageDecider.Signals("store.search.samsung", false, false);
+        TriageDecider.Signals l0 = new TriageDecider.Signals("store.search.market", false, false);
         TriageDecider.Decision dl = TriageDecider.decide("下载微信", l0);
         assertTrue("达成型单步照旧进循环", dl.useAgentLoop);
         assertFalse("但不一开始就上岛", TriageDecider.islandUpFront(dl));

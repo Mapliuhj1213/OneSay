@@ -422,12 +422,12 @@ public class V2SelfTest {
                 ifdbAllPass = false;
             }
             com.onesay.assistant.v2.capability.Capability storeCap =
-                    reg.describe("store.search.samsung");
+                    reg.describe("store.search.market");
             if (storeCap != null && com.onesay.assistant.v2.capability.InterfaceKind.of(storeCap)
                     == com.onesay.assistant.v2.capability.InterfaceKind.Kind.UI) {
-                log(cb, "  ✓ 分类抽查: store.search.samsung -> UI（调用界面）");
+                log(cb, "  ✓ 分类抽查: store.search.market -> UI（调用界面）");
             } else {
-                log(cb, "  ✕ 分类抽查失败: store.search.samsung 未落 UI（实际="
+                log(cb, "  ✕ 分类抽查失败: store.search.market 未落 UI（实际="
                         + (storeCap != null ? com.onesay.assistant.v2.capability.InterfaceKind.of(storeCap) : "null") + "）");
                 ifdbAllPass = false;
             }
@@ -576,7 +576,7 @@ public class V2SelfTest {
                 // ② INSTALL（下载 X）：必须含两个商店 + 可用性探测
                 String[] installFam = com.onesay.assistant.v2.router.AgentLoop.goalFamilySigns(
                         com.onesay.assistant.v2.router.ActionLexicon.Intent.INSTALL);
-                familyOk &= containsSign(installFam, "store.search.samsung");
+                familyOk &= containsSign(installFam, "store.search.market");
                 familyOk &= containsSign(installFam, "store.search.play");
                 familyOk &= containsSign(installFam, "store.status.check");
                 familiesChecked++;
@@ -780,7 +780,7 @@ public class V2SelfTest {
 
         // 6c-2. 专项：笔记 / 应用商店任务（新增）
         //     ① 新建笔记带内容 → notes.new.text 且 content 非空（含"三点"等汉字数字不能被吞）
-        //     ② 下载 app → store.search.samsung（LLM 会选可用商店）
+        //     ② 下载 app → store.search.market（LLM 会选可用商店）
         //     ③ 这两个任务在分诊上必须是 DO_ACTION（不是 ASK_INFO）
         log(cb, "\n[专项] 笔记 / 应用商店任务（内容捕获 + 商店选择 + 分诊形态）...");
         Object[][] miscCases = {
@@ -788,8 +788,8 @@ public class V2SelfTest {
                 { "新建笔记记录明天下午三点开会", "notes.new.text", "明天下午三点开会" },
                 { "记一下明天下午三点开会",       "notes.new.text", "明天下午三点开会" },
                 { "记一下买牛奶",                 "notes.new.text", "买牛奶" },
-                { "下载微信",                     "store.search.samsung", "微信" },
-                { "在应用商店下载微信",           "store.search.samsung", "微信" },
+                { "下载微信",                     "store.search.market", "微信" },
+                { "在应用商店下载微信",           "store.search.market", "微信" },
         };
         boolean miscAllPass = true;
         for (Object[] mc : miscCases) {
@@ -1878,16 +1878,16 @@ public class V2SelfTest {
         log(cb, "\n[界面动作互斥] 校验 AgentLoop 的界面独占判据与去重键（离线，无副作用）...");
         boolean uiDedupAllPass = true;
         {
-            Capability cSamsung = reg.describe("store.search.samsung");
+            Capability cMarket = reg.describe("store.search.market");
             Capability cPlay = reg.describe("store.search.play");
             Capability cLaunch = reg.describe("app.launch");
             Capability cProbeApps = reg.describe("probe.apps");
             Capability cBright = reg.describe("settings.brightness.set");
 
             // 15.1 界面动作判据：商店/拉起类必须被识别，只读类必须放行
-            boolean uiJudged = cSamsung != null && cPlay != null && cLaunch != null
+            boolean uiJudged = cMarket != null && cPlay != null && cLaunch != null
                     && cProbeApps != null && cBright != null
-                    && AgentLoop.isUiFrontAction(cSamsung)
+                    && AgentLoop.isUiFrontAction(cMarket)
                     && AgentLoop.isUiFrontAction(cPlay)
                     && AgentLoop.isUiFrontAction(cLaunch)
                     && !AgentLoop.isUiFrontAction(cProbeApps)
@@ -1895,7 +1895,7 @@ public class V2SelfTest {
             if (uiJudged) {
                 log(cb, "  ✓ 15.1 界面动作判据正确（商店/拉起=界面动作；探针/调亮度=非界面动作）");
             } else {
-                log(cb, "  ✕ 15.1 界面动作判据异常: samsung=" + (cSamsung != null)
+                log(cb, "  ✕ 15.1 界面动作判据异常: samsung=" + (cMarket != null)
                         + " play=" + (cPlay != null) + " launch=" + (cLaunch != null));
                 uiDedupAllPass = false;
             }
@@ -1910,8 +1910,8 @@ public class V2SelfTest {
                 app1.put("app", "QQ");
                 JSONObject app2 = new JSONObject();
                 app2.put("app", "微信");
-                boolean sameStore = cSamsung != null && cPlay != null
-                        && AgentLoop.uiDedupKey(cSamsung, kw1).equals(AgentLoop.uiDedupKey(cPlay, kw2));
+                boolean sameStore = cMarket != null && cPlay != null
+                        && AgentLoop.uiDedupKey(cMarket, kw1).equals(AgentLoop.uiDedupKey(cPlay, kw2));
                 boolean diffApps = cLaunch != null
                         && !AgentLoop.uiDedupKey(cLaunch, app1).equals(AgentLoop.uiDedupKey(cLaunch, app2));
                 if (sameStore && diffApps) {

@@ -324,7 +324,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
                     || cap.paramsSchema.getRules().containsKey("number");
             // **文本槽位清洗**。
             //
-            //   实测踩过：「帮我下载个抖音」→ store.search.samsung，keyword="个抖音"。
+            //   实测踩过：「帮我下载个抖音」→ store.search.market，keyword="个抖音"。
             //   根因：`{n}` 贪婪捕获了"个抖音"，量词"个"没被剥掉就进了槽位。
             //   旧的绕法是往"剥离变体"里加一条"个"的剥离规则（单例修补，治标）；
             //   现在改用**语法定位**：从动作语素右边界取宾语（{@link ActionLexicon#objectOf}），
