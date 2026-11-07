@@ -98,4 +98,18 @@ public class PcLinkWiringTest {
         assertNull(PcVoice.normalizeUrl("a b"));
         assertNull(PcVoice.normalizeUrl(""));
     }
+
+    /** 行已在屏上时（配对成功后 refresh 重建行）attach 回调不会再触发：startPolling 必须当场检查 isAttachedToWindow 并立即开始轮询。 */
+    @Test public void pollingStartsImmediatelyWhenRowAlreadyAttached() throws Exception {
+        String s = src(P + "pclink/PcLinkUi.java");
+        int sp = s.indexOf("static void startPolling(");
+        assertTrue(sp > 0);
+        int end = s.indexOf("static void pollLoop(", sp);
+        String body = s.substring(sp, end);
+        int add = body.indexOf("v.addOnAttachStateChangeListener(l);");
+        int chk = body.indexOf("if (v.isAttachedToWindow()) l.onViewAttachedToWindow(v);");
+        assertTrue("先挂监听", add > 0);
+        assertTrue("挂监听后立即检查已 attach", chk > add);
+        assertTrue("重复启动有防护", body.contains("if (alive[0]) return;"));
+    }
 }

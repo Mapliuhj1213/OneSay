@@ -191,7 +191,7 @@ public final class PcLinkUi {
     static void startPolling(final ConsoleHost host, final ConsoleHost.Row row, final Activity act) {
         final View v = row.view();
         final boolean[] alive = {false};
-        v.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+        final View.OnAttachStateChangeListener l = new View.OnAttachStateChangeListener() {
             @Override public void onViewAttachedToWindow(View view) {
                 if (alive[0]) return;
                 alive[0] = true;
@@ -203,7 +203,11 @@ public final class PcLinkUi {
             @Override public void onViewDetachedFromWindow(View view) {
                 alive[0] = false;
             }
-        });
+        };
+        v.addOnAttachStateChangeListener(l);
+        // 配对成功后 refresh 会在页面已显示时重建这一行：此时行已挂在窗口上，attach 回调不会再来，
+        // 必须立刻开始轮询，否则一直停在「查找中…」（oss-device-1108 真机发现）
+        if (v.isAttachedToWindow()) l.onViewAttachedToWindow(v);
     }
 
     static void pollLoop(final ConsoleHost host, final ConsoleHost.Row row, Activity act, View v, boolean[] alive) {
