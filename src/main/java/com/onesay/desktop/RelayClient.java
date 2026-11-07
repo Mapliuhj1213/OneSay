@@ -12,14 +12,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /** 连中转的 WebSocket 客户端：自动重连（指数退避）、25 秒文本心跳、拼接分片帧、串行发送。 */
-public final class RelayClient {
-    public interface Listener {
-        void onFrame(Map<String, Object> frame);
-        default void onState(boolean connected, String why) {}
-    }
+public final class RelayClient implements Link {
+    /** 兼容旧名。 */
+    public interface Listener extends Link.Listener {}
 
     private final Config cfg;
-    private final Listener listener;
+    private final Link.Listener listener;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
     private final ScheduledExecutorService sched = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "onesay-relay");
@@ -32,12 +30,14 @@ public final class RelayClient {
     private long backoffMs = 1000;
     private CompletableFuture<?> sendChain = CompletableFuture.completedFuture(null);
 
-    public RelayClient(Config cfg, Listener listener) {
+    public RelayClient(Config cfg, Link.Listener listener) {
         this.cfg = cfg;
         this.listener = listener;
     }
 
-    public boolean isConnected() { return connected; }
+    @Override public String name() { return "中转"; }
+
+    @Override public boolean isConnected() { return connected; }
 
     public void start() {
         sched.execute(this::connect);

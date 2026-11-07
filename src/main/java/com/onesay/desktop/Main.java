@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 public final class Main {
-    static final String VERSION = "0.1.0";
+    static final String VERSION = "0.2.0";
 
     public static void main(String[] argv) throws Exception {
         List<String> a = new ArrayList<>(List.of(argv));
@@ -46,7 +46,7 @@ public final class Main {
     static void usage() {
         System.out.println(String.join("\n",
                 "OneSay Desktop " + VERSION,
-                "  setup                    首次设置：中转地址、令牌、本机名，生成配对密钥",
+                "  setup                    首次设置：本机名、局域网端口、可选中转，生成配对密钥",
                 "  pair                     显示配对串（给手机或另一台电脑导入；整串等于钥匙）",
                 "  join <配对串> [--id 名字]  在下令端导入配对串",
                 "  run [--console]          常驻（有图形界面时进系统托盘）",
@@ -70,25 +70,34 @@ public final class Main {
     }
 
     static void setup(Config cfg) throws Exception {
-        cfg.relayUrl = ask("中转地址（如 https://onesay.example.com）", cfg.relayUrl);
-        Console con = System.console();
-        String tok;
-        if (con != null) tok = new String(con.readPassword("中转令牌（输入不显示，回车保留原值）："));
-        else tok = ask("中转令牌", "");
-        if (!tok.isBlank()) cfg.relayToken = tok.trim();
-        if (cfg.relayToken.length() < 24) throw new IllegalArgumentException("令牌太短（至少 24 位）");
         cfg.deviceId = ask("本机名（只用字母数字.-_）", cfg.deviceId.isEmpty() ? defaultId("pc-") : cfg.deviceId);
         if (!cfg.deviceId.matches("[A-Za-z0-9._-]{1,64}")) throw new IllegalArgumentException("本机名不合法");
+        String port = ask("局域网端口（0 = 不用局域网）", String.valueOf(cfg.lanPort));
+        cfg.lanPort = Integer.parseInt(port.trim());
+        if (cfg.lanPort != 0 && (cfg.lanPort < 1024 || cfg.lanPort > 65534)) throw new IllegalArgumentException("端口要在 1024–65534");
+        System.out.println("中转是可选插件：不在同一个 Wi-Fi 也要能控制时才需要。留空 = 只用局域网。");
+        String url = ask("中转地址（如 https://onesay.example.com，输 - 清除）", cfg.relayUrl);
+        if (url.equals("-")) { cfg.relayUrl = ""; cfg.relayToken = ""; }
+        else if (!url.isEmpty()) {
+            cfg.relayUrl = url;
+            Console con = System.console();
+            String tok = con != null ? new String(con.readPassword("中转令牌（输入不显示，回车保留原值）：")) : ask("中转令牌", "");
+            if (!tok.isBlank()) cfg.relayToken = tok.trim();
+            if (cfg.relayToken.length() < 24) throw new IllegalArgumentException("令牌太短（至少 24 位）");
+        }
+        if (!cfg.lanEnabled() && !cfg.relayEnabled()) throw new IllegalArgumentException("局域网和中转至少开一个");
         if (cfg.pairKey.length < 32) cfg.pairKey = Protocol.newKey();
         cfg.kind = "pc";
         cfg.filesDir = ask("允许取文件的文件夹（留空=不开）", cfg.filesDir);
         cfg.scriptsDir = ask("快捷指令脚本文件夹（留空=不开）", cfg.scriptsDir);
         cfg.save();
-        System.out.println("已保存到 " + cfg.file + "\n下一步：运行 pair 拿配对串，在下令端 join；然后 run。");
+        System.out.println("已保存到 " + cfg.file + "\n下一步：run 常驻；pair 拿配对串，在下令端 join。"
+                + (cfg.lanEnabled() ? "\n首次 run 时 Windows 防火墙会问是否允许 Java 联网：勾「专用网络」。" : ""));
     }
 
     static void pair(Config cfg) {
         if (!cfg.ready()) { System.out.println("还没设置，先运行 setup"); return; }
+        if (cfg.lanEnabled() && LanClient.localAddresses().isEmpty()) System.out.println("注意：没找到局域网地址，配对串里只带端口，下令端靠广播找。");
         System.out.println("配对串（整串等于钥匙，只在自己的设备之间传，不要发到群里或网上）：\n" + cfg.pairingString());
     }
 

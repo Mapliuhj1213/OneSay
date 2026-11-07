@@ -4,66 +4,114 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-/** 命令行下令：java -jar onesay-desktop.jar send <目标设备> <指令> [键=值 ...] */
+/**
+ * 命令行下令：send <目标设备> <指令> [键=值 ...]
+ * 先走局域网（约 1.5 秒找不到就放弃），再走中转（若配置了）。两条都不通 = 离线，不排队。
+ */
 public final class Cli {
     private Cli() {}
+
+    /** 一次连接尝试的结果。 */
+    static final class Session {
+        final Link link;
+        final CompletableFuture<Boolean> ready = new CompletableFuture<>();
+        final CompletableFuture<Map<String, Object>> result = new CompletableFuture<>();
+        String why = "";
+        Session(java.util.function.Function<Link.Listener, Link> make, Config cfg, String to, String[] idHolder) {
+            Protocol.ReplayGuard guard = new Protocol.ReplayGuard();
+            link = make.apply(new Link.Listener() {
+                @Override
+                @SuppressWarnings("unchecked")
+                public void onFrame(Map<String, Object> f) {
+                    String type = String.valueOf(f.get("type"));
+                    String id = idHolder[0];
+                    if (type.equals("devices")) {
+                        boolean online = false;
+                        for (Object o : (List<Object>) f.get("list")) if (to.equals(((Map<String, Object>) o).get("device"))) online = true;
+                        ready.complete(online);
+                    } else if (type.equals("error") && id != null && id.equals(f.get("id"))) {
+                        result.complete(fail("offline".equals(f.get("code")) ? to + " 离线" : "通道报错：" + f.get("code")));
+                    } else if (type.equals("error") && "auth".equals(f.get("code"))) {
+                        why = "配对密钥不对，被 " + to + " 拒绝";
+                        ready.complete(false);
+                    } else if (type.equals("msg") && to.equals(f.get("from")) && f.get("body") instanceof Map) {
+                        Map<String, Object> b = (Map<String, Object>) f.get("body");
+                        if (id == null || !id.equals(b.get("re"))) return;
+                        Protocol.Check c = Protocol.verify(cfg.pairKey, String.valueOf(f.get("id")), to, cfg.deviceId, b, System.currentTimeMillis(), guard);
+                        result.complete(c == Protocol.Check.OK ? b : fail("结果验签失败（" + c + "）：" + b.get("text")));
+                    }
+                }
+
+                @Override
+                public void onState(boolean connected, String w) {
+                    if (!connected) {
+                        if (why.isEmpty()) why = w;
+                        if (!ready.isDone()) ready.complete(false);
+                        if (!result.isDone()) result.complete(fail("连接断开：" + w));
+                    }
+                }
+            });
+        }
+    }
+
+    static Map<String, Object> fail(String text) {
+        Map<String, Object> m = new TreeMap<>();
+        m.put("ok", false);
+        m.put("text", text);
+        return m;
+    }
 
     @SuppressWarnings("unchecked")
     public static int send(Config cfg, String to, String cmd, Map<String, Object> args, Path outDir, long timeoutSec) throws Exception {
         String id = Protocol.newId();
-        CompletableFuture<Map<String, Object>> result = new CompletableFuture<>();
-        CompletableFuture<Boolean> ready = new CompletableFuture<>();
-        Protocol.ReplayGuard guard = new Protocol.ReplayGuard();
-        RelayClient[] holder = new RelayClient[1];
-        holder[0] = new RelayClient(cfg, new RelayClient.Listener() {
-            @Override
-            public void onFrame(Map<String, Object> f) {
-                String type = String.valueOf(f.get("type"));
-                if (type.equals("devices")) {
-                    boolean online = false;
-                    for (Object o : (java.util.List<Object>) f.get("list")) if (to.equals(((Map<String, Object>) o).get("device"))) online = true;
-                    ready.complete(online);
-                } else if (type.equals("error") && id.equals(f.get("id"))) {
-                    Map<String, Object> m = new TreeMap<>();
-                    m.put("ok", false);
-                    m.put("text", "offline".equals(f.get("code")) ? to + " 离线" : "中转报错：" + f.get("code"));
-                    result.complete(m);
-                } else if (type.equals("msg") && to.equals(f.get("from")) && f.get("body") instanceof Map) {
-                    Map<String, Object> b = (Map<String, Object>) f.get("body");
-                    if (!id.equals(b.get("re"))) return;
-                    Protocol.Check c = Protocol.verify(cfg.pairKey, String.valueOf(f.get("id")), to, cfg.deviceId, b, System.currentTimeMillis(), guard);
-                    if (c != Protocol.Check.OK) {
-                        Map<String, Object> m = new TreeMap<>();
-                        m.put("ok", false);
-                        m.put("text", "结果验签失败（" + c + "）：" + b.get("text"));
-                        result.complete(m);
-                    } else result.complete(b);
-                }
-            }
+        String[] idHolder = new String[1];
+        Session s = null;
+        StringBuilder reasons = new StringBuilder();
+        boolean relayDown = false;
 
-            @Override
-            public void onState(boolean connected, String why) {
-                if (!connected && !ready.isDone()) ready.completeExceptionally(new IllegalStateException(why));
+        if (cfg.lanEnabled()) {
+            LanClient[] lc = new LanClient[1];
+            Session t = new Session(l -> lc[0] = new LanClient(cfg, to, l, 1500), cfg, to, idHolder);
+            t.link.start();
+            boolean on = waitReady(t, 8);
+            if (on) {
+                s = t;
+                if (lc[0].found != null) {
+                    String last = lc[0].found.getAddress().getHostAddress() + ":" + lc[0].found.getPort();
+                    if (!last.equals(cfg.lanLast) && cfg.file != null) { cfg.lanLast = last; try { cfg.save(); } catch (Exception ignored) { } }
+                }
+            } else {
+                t.link.stop();
+                reasons.append(strip(t.why));
             }
-        });
-        RelayClient rc = holder[0];
-        rc.start();
+        }
+        if (s == null && cfg.relayEnabled()) {
+            Session t = new Session(l -> new RelayClient(cfg, l), cfg, to, idHolder);
+            t.link.start();
+            boolean on = waitReady(t, 25);
+            if (on) s = t;
+            else {
+                t.link.stop();
+                if (!t.why.isEmpty()) { relayDown = true; reasons.append(reasons.length() == 0 ? "" : "；").append("中转连不上：").append(t.why); }
+                else reasons.append(reasons.length() == 0 ? "" : "；").append("中转上也不在线");
+            }
+        }
+        if (s == null) {
+            System.out.println(to + " 离线" + (reasons.length() == 0 ? "" : "（" + reasons + "）"));
+            return relayDown && !cfg.lanEnabled() ? 3 : 2;
+        }
         try {
-            boolean online;
-            try { online = ready.get(25, TimeUnit.SECONDS); } catch (Exception e) {
-                System.out.println("连不上中转：" + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
-                return 3;
-            }
-            if (!online) { System.out.println(to + " 离线"); return 2; }
+            idHolder[0] = id;
             Map<String, Object> body = Protocol.command(cfg.pairKey, id, cfg.deviceId, to, cmd, args, System.currentTimeMillis());
-            rc.send(Protocol.envelope(to, id, body));
+            s.link.send(Protocol.envelope(to, id, body));
             Map<String, Object> r;
-            try { r = result.get(timeoutSec, TimeUnit.SECONDS); } catch (Exception e) { System.out.println("等待结果超时"); return 4; }
+            try { r = s.result.get(timeoutSec, TimeUnit.SECONDS); } catch (Exception e) { System.out.println("等待结果超时"); return 4; }
             boolean ok = Boolean.TRUE.equals(r.get("ok"));
             System.out.println((ok ? "成功：" : "失败：") + r.get("text"));
             Object data = r.get("data");
@@ -82,7 +130,13 @@ public final class Cli {
             }
             return ok ? 0 : 1;
         } finally {
-            rc.stop();
+            s.link.stop();
         }
     }
+
+    static boolean waitReady(Session s, long sec) {
+        try { return s.ready.get(sec, TimeUnit.SECONDS); } catch (Exception e) { if (s.why.isEmpty()) s.why = "超时"; return false; }
+    }
+
+    static String strip(String w) { return w.startsWith(LanClient.OFFLINE) ? w.substring(LanClient.OFFLINE.length()) : w; }
 }

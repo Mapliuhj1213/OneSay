@@ -1,16 +1,21 @@
 package com.onesay.desktop;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
-/** 电脑端常驻：连中转、验签、执行、回签名结果。 */
-public final class Agent implements RelayClient.Listener {
+/** 电脑端常驻：局域网（默认）+ 中转（可选插件）收指令，验签、执行，从原通道回签名结果。 */
+public final class Agent {
     private final Config cfg;
     private final Actions actions;
-    private final RelayClient relay;
+    private final List<Link> links = new ArrayList<>();
+    private final Map<Link, String> state = new ConcurrentHashMap<>();
+    private final Map<Link, Boolean> up = new ConcurrentHashMap<>();
     private final Protocol.ReplayGuard replay = new Protocol.ReplayGuard();
     private final ExecutorService exec = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "onesay-exec");
@@ -24,31 +29,45 @@ public final class Agent implements RelayClient.Listener {
         this.cfg = cfg;
         this.actions = actions;
         this.log = log;
-        this.relay = new RelayClient(cfg, this);
+        if (cfg.lanEnabled()) add(l -> new LanServer(cfg, l));
+        if (cfg.relayEnabled()) add(l -> new RelayClient(cfg, l));
     }
 
-    public void start() { relay.start(); }
-
-    public void stop() { relay.stop(); exec.shutdownNow(); }
-
-    public boolean connected() { return relay.isConnected(); }
-
-    @Override
-    public void onState(boolean connected, String why) {
-        status = connected ? "在线" : "离线（" + why + "）";
-        log.accept(status);
+    private void add(java.util.function.Function<Link.Listener, Link> make) {
+        Link[] self = new Link[1];
+        self[0] = make.apply(new Link.Listener() {
+            @Override public void onFrame(Map<String, Object> f) { handle(f, self[0]); }
+            @Override public void onState(boolean c, String why) { changed(self[0], c, why); }
+        });
+        links.add(self[0]);
     }
 
-    @Override
+    public void start() { for (Link l : links) l.start(); }
+
+    public void stop() { for (Link l : links) l.stop(); exec.shutdownNow(); }
+
+    public boolean connected() { return up.containsValue(Boolean.TRUE); }
+
+    public List<Link> links() { return links; }
+
+    private void changed(Link l, boolean c, String why) {
+        up.put(l, c);
+        state.put(l, (c ? "在线" : "离线") + "（" + why + "）");
+        StringBuilder s = new StringBuilder(connected() ? "在线" : "离线");
+        for (Link x : links) s.append(" · ").append(x.name()).append(Boolean.TRUE.equals(up.get(x)) ? "✓" : "✗");
+        status = s.toString();
+        log.accept(l.name() + " " + state.get(l));
+    }
+
     @SuppressWarnings("unchecked")
-    public void onFrame(Map<String, Object> f) {
+    void handle(Map<String, Object> f, Link via) {
         String type = String.valueOf(f.get("type"));
         if (type.equals("presence")) {
-            log.accept("设备 " + f.get("device") + (Boolean.TRUE.equals(f.get("online")) ? " 上线" : " 离线"));
+            log.accept("设备 " + f.get("device") + (Boolean.TRUE.equals(f.get("online")) ? " 上线" : " 离线") + "（" + via.name() + "）");
             return;
         }
         if (type.equals("devices") || type.equals("error")) {
-            if (type.equals("error")) log.accept("中转报错 " + f.get("code"));
+            if (type.equals("error")) log.accept(via.name() + "报错 " + f.get("code"));
             return;
         }
         if (!type.equals("msg") || !(f.get("body") instanceof Map)) return;
@@ -60,18 +79,17 @@ public final class Agent implements RelayClient.Listener {
         Protocol.Check c = Protocol.verify(cfg.pairKey, id, from, cfg.deviceId, body, System.currentTimeMillis(), replay);
         if (c != Protocol.Check.OK) {
             log.accept("拒绝来自 " + from + " 的指令：" + c);
-            // 验签失败不回签名结果（对方可能不是自己人）；只回一条无签名的拒绝便于排错
-            reply(from, id, false, "拒绝：" + c, null, c == Protocol.Check.BAD_SIG || c == Protocol.Check.NO_SIG);
+            reply(via, from, id, false, "拒绝：" + c, null, c == Protocol.Check.BAD_SIG || c == Protocol.Check.NO_SIG);
             return;
         }
         if (!cfg.peerAllowed(from)) {
             log.accept("拒绝未授权设备 " + from);
-            reply(from, id, false, "此设备未被允许下令", null, false);
+            reply(via, from, id, false, "此设备未被允许下令", null, false);
             return;
         }
         String cmd = String.valueOf(body.get("cmd"));
         Map<String, Object> args = body.get("args") instanceof Map ? (Map<String, Object>) body.get("args") : Map.of();
-        log.accept("执行 " + cmd + "（来自 " + from + "）");
+        log.accept("执行 " + cmd + "（来自 " + from + "，经" + via.name() + "）");
         exec.execute(() -> {
             Actions.Result r;
             try {
@@ -79,15 +97,15 @@ public final class Agent implements RelayClient.Listener {
             } catch (Throwable t) {
                 r = Actions.Result.fail(cmd + " 出错：" + t.getClass().getSimpleName());
             }
-            reply(from, id, r.ok, r.text, r.data, false);
+            reply(via, from, id, r.ok, r.text, r.data, false);
         });
     }
 
-    private void reply(String to, String re, boolean ok, String text, Map<String, Object> data, boolean unsigned) {
+    private void reply(Link via, String to, String re, boolean ok, String text, Map<String, Object> data, boolean unsigned) {
         String rid = Protocol.newId();
         Map<String, Object> body;
         if (unsigned) {
-            body = new java.util.TreeMap<>();
+            body = new TreeMap<>();
             body.put("kind", "result");
             body.put("re", re);
             body.put("ok", false);
@@ -95,6 +113,6 @@ public final class Agent implements RelayClient.Listener {
         } else {
             body = Protocol.result(cfg.pairKey, rid, cfg.deviceId, to, re, ok, text, data, System.currentTimeMillis());
         }
-        relay.send(Protocol.envelope(to, rid, body));
+        via.send(Protocol.envelope(to, rid, body));
     }
 }

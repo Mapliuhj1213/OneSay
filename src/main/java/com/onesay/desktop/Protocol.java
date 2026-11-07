@@ -42,6 +42,21 @@ public final class Protocol {
         return "m" + Long.toString(System.currentTimeMillis(), 36) + nonce().substring(0, 6);
     }
 
+    /** 局域网发现、握手用的短标签：base64url(HMAC-SHA256(key, "onesay.lan\n" + text))。 */
+    public static String tag(byte[] key, String text) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(key, "HmacSHA256"));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(("onesay.lan\n" + text).getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    public static boolean tagOk(byte[] key, String text, Object got) {
+        return got instanceof String && MessageDigest.isEqual(tag(key, text).getBytes(StandardCharsets.US_ASCII), ((String) got).getBytes(StandardCharsets.US_ASCII));
+    }
+
     static String sign(byte[] key, String id, String from, String to, Map<String, Object> bodyWithoutSig) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");

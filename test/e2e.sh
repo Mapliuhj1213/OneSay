@@ -23,6 +23,7 @@ relay_url=http\://127.0.0.1\:8787
 relay_token=$TOKEN
 device_id=pc-test
 kind=pc
+lan_port=0
 pair_key=$KEY
 EOF
 PAIR=$(java -jar "$JAR" --config "$W/pc.properties" pair | tail -1)
@@ -30,8 +31,12 @@ java -jar "$JAR" --config "$W/cli.properties" join "$PAIR" --id cli-test > /dev/
 ok $? "命令行导入配对串"
 
 # 电脑没开：应报离线
-java -jar "$JAR" --config "$W/cli.properties" send pc-test ping > "$W/o0" 2>/dev/null
-[ $? = 2 ] && grep -q "离线" "$W/o0"; ok $? "电脑未开时提示离线"
+# 本地 workerd 刚起时偶发重启，连不上中转（退出码 3）最多重试 3 次；只重试「中转不通」，不重试结果本身
+for i in 1 2 3; do
+  java -jar "$JAR" --config "$W/cli.properties" send pc-test ping > "$W/o0" 2>/dev/null; rc=$?
+  [ $rc != 3 ] && break; echo "     （中转未就绪，重试 $i：$(cat "$W/o0")）"; sleep 3
+done
+[ $rc = 2 ] && grep -q "离线" "$W/o0"; ok $? "电脑未开时提示离线"
 
 ONESAY_TEST_ACTIONS=1 java -Djava.awt.headless=true -jar "$JAR" --config "$W/pc.properties" run --console > "$W/pc.log" 2>&1 &
 PP=$!
@@ -88,6 +93,28 @@ ok $? "Python 独立实现的签名被接受（协议可跨语言），原样重
 kill $PP; sleep 2
 java -jar "$JAR" --config "$W/cli.properties" send pc-test ping > "$W/o6" 2>/dev/null
 [ $? = 2 ]; ok $? "电脑退出后提示离线"
+
+# ---- 局域网直连（开源版默认，无中转）----
+LP=$(python3 -c "import socket;s=socket.socket();s.bind(('',0));print(s.getsockname()[1])")
+cat > "$W/lanpc.properties" <<EOF
+device_id=pc-lan
+kind=pc
+lan_port=$LP
+pair_key=$KEY
+EOF
+LPAIR=$(java -jar "$JAR" --config "$W/lanpc.properties" pair | tail -1)
+echo "$LPAIR" | grep -q "lan=" && ! echo "$LPAIR" | grep -q "relay="; ok $? "局域网配对串不含中转"
+java -jar "$JAR" --config "$W/lancli.properties" join "$LPAIR" --id cli-lan > /dev/null
+java -jar "$JAR" --config "$W/lancli.properties" send pc-lan ping > "$W/l0" 2>/dev/null
+[ $? = 2 ] && grep -q "离线" "$W/l0"; ok $? "局域网：电脑未开时提示离线"
+ONESAY_TEST_ACTIONS=1 java -Djava.awt.headless=true -jar "$JAR" --config "$W/lanpc.properties" run --console > "$W/lanpc.log" 2>&1 &
+LPP=$!
+for i in $(seq 1 20); do grep -q "局域网 在线" "$W/lanpc.log" && break; sleep 1; done
+java -jar "$JAR" --config "$W/lancli.properties" send pc-lan screenshot --out "$W/lshots" > "$W/l1" 2>/dev/null
+[ $? = 0 ] && ls "$W"/lshots/*.jpg >/dev/null 2>&1 && grep -q "经局域网" "$W/lanpc.log"; ok $? "局域网：截图回传"
+kill $LPP; sleep 1
+java -jar "$JAR" --config "$W/lancli.properties" send pc-lan ping > "$W/l2" 2>/dev/null
+[ $? = 2 ]; ok $? "局域网：电脑退出后提示离线"
 
 kill $RP 2>/dev/null; for p in $(pgrep workerd); do kill $p 2>/dev/null; done
 echo "通过 $pass，失败 $fail"

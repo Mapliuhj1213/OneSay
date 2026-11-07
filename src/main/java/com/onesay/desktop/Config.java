@@ -21,7 +21,10 @@ import java.util.Properties;
  * 令牌和配对密钥只存这里，不进日志。
  */
 public final class Config {
-    public String relayUrl = "";      // https://onesay.example.com
+    public int lanPort = LanServer.DEFAULT_PORT; // 局域网直连端口（UDP 发现用 +1）；0 = 关闭局域网
+    public String lanHosts = "";      // 对方的局域网地址提示 ip:port,...（配对串带来）
+    public String lanLast = "";       // 上次连上的地址
+    public String relayUrl = "";      // 可选插件：https://onesay.example.com
     public String relayToken = "";
     public String deviceId = "";      // 本机 id
     public String kind = "pc";
@@ -46,6 +49,9 @@ public final class Config {
         if (!Files.exists(file)) return c;
         Properties p = new Properties();
         try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) { p.load(r); }
+        try { c.lanPort = Integer.parseInt(p.getProperty("lan_port", String.valueOf(LanServer.DEFAULT_PORT)).trim()); } catch (NumberFormatException e) { c.lanPort = LanServer.DEFAULT_PORT; }
+        c.lanHosts = p.getProperty("lan_hosts", "").trim();
+        c.lanLast = p.getProperty("lan_last", "").trim();
         c.relayUrl = p.getProperty("relay_url", "").trim();
         c.relayToken = p.getProperty("relay_token", "").trim();
         c.deviceId = p.getProperty("device_id", "").trim();
@@ -62,6 +68,9 @@ public final class Config {
     public void save() throws IOException {
         Files.createDirectories(file.getParent());
         Properties p = new Properties();
+        p.setProperty("lan_port", String.valueOf(lanPort));
+        p.setProperty("lan_hosts", lanHosts);
+        p.setProperty("lan_last", lanLast);
         p.setProperty("relay_url", relayUrl);
         p.setProperty("relay_token", relayToken);
         p.setProperty("device_id", deviceId);
@@ -76,8 +85,13 @@ public final class Config {
     }
 
     public boolean ready() {
-        return !relayUrl.isEmpty() && relayToken.length() >= 24 && !deviceId.isEmpty() && pairKey.length >= 32;
+        return !deviceId.isEmpty() && pairKey.length >= 32 && (lanEnabled() || relayEnabled());
     }
+
+    public boolean lanEnabled() { return lanPort > 0 && lanPort < 65535; }
+
+    /** 中转是可选插件：地址和令牌都有才启用。 */
+    public boolean relayEnabled() { return !relayUrl.isEmpty() && relayToken.length() >= 24; }
 
     public URI wsUri() {
         String base = relayUrl.replaceAll("/+$", "");
@@ -101,10 +115,21 @@ public final class Config {
         return false;
     }
 
-    /** 配对串：onesay://pair?relay=..&token=..&key=..&peer=<本机 id>。整串等于钥匙，只在自己设备间传。 */
+    /**
+     * 配对串：onesay://pair?key=..&peer=<本机 id>&lan=ip:port,..[&relay=..&token=..]
+     * 整串等于钥匙，只在自己设备间传。中转部分可选。
+     */
     public String pairingString() {
-        return "onesay://pair?relay=" + enc(relayUrl) + "&token=" + enc(relayToken)
-                + "&key=" + Base64.getUrlEncoder().withoutPadding().encodeToString(pairKey) + "&peer=" + enc(deviceId);
+        StringBuilder b = new StringBuilder("onesay://pair?key=").append(Base64.getUrlEncoder().withoutPadding().encodeToString(pairKey))
+                .append("&peer=").append(enc(deviceId));
+        if (lanEnabled()) {
+            StringBuilder l = new StringBuilder();
+            for (String ip : LanClient.localAddresses()) l.append(l.length() == 0 ? "" : ",").append(ip).append(':').append(lanPort);
+            if (l.length() == 0) l.append("0.0.0.0:").append(lanPort); // 没有局域网地址也要带端口
+            b.append("&lan=").append(enc(l.toString()));
+        }
+        if (relayEnabled()) b.append("&relay=").append(enc(relayUrl)).append("&token=").append(enc(relayToken));
+        return b.toString();
     }
 
     /** 从配对串导入：返回对方设备 id。本机 id 由调用方设置。 */
@@ -116,9 +141,24 @@ public final class Config {
             if (eq > 0) q.put(kv.substring(0, eq), URLDecoder.decode(kv.substring(eq + 1), StandardCharsets.UTF_8));
         }
         String relay = q.getOrDefault("relay", ""), token = q.getOrDefault("token", ""), key = q.getOrDefault("key", ""), peer = q.getOrDefault("peer", "");
-        if (relay.isEmpty() || token.length() < 24 || key.isEmpty() || peer.isEmpty()) throw new IllegalArgumentException("配对串不完整");
+        String lan = q.getOrDefault("lan", "");
+        if (key.isEmpty() || peer.isEmpty() || !peer.matches("[A-Za-z0-9._-]{1,64}")) throw new IllegalArgumentException("配对串不完整");
+        if (!relay.isEmpty() && token.length() < 24) throw new IllegalArgumentException("配对串里的中转令牌不完整");
+        if (relay.isEmpty() && lan.isEmpty()) throw new IllegalArgumentException("配对串既没有局域网也没有中转");
         byte[] k = Base64.getUrlDecoder().decode(key);
         if (k.length < 32) throw new IllegalArgumentException("配对密钥太短");
+        StringBuilder hosts = new StringBuilder();
+        int port = 0;
+        for (String part : lan.split(",")) {
+            part = part.trim();
+            int c = part.lastIndexOf(':');
+            if (c <= 0) continue;
+            try { port = Integer.parseInt(part.substring(c + 1)); } catch (NumberFormatException e) { continue; }
+            if (!part.startsWith("0.0.0.0:")) hosts.append(hosts.length() == 0 ? "" : ",").append(part);
+        }
+        lanPort = lan.isEmpty() ? 0 : (port > 0 ? port : LanServer.DEFAULT_PORT);
+        lanHosts = hosts.toString();
+        lanLast = "";
         relayUrl = relay;
         relayToken = token;
         pairKey = k;
