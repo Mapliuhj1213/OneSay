@@ -41,6 +41,8 @@ public final class Voice {
     private Pill pill;
     private volatile boolean recording;
     public volatile String status = "未开启";
+    /** 认不出指令时交给「对话」（大模型），返回回复文字；null = 不转。 */
+    public volatile java.util.function.Function<String, String> fallback;
 
     public Voice(Config cfg, Actions actions, Consumer<String> log) {
         this.cfg = cfg;
@@ -129,7 +131,17 @@ public final class Voice {
         }
         log.accept("听到：" + text);
         Intent it = Intent.parse(text, cfg.appMap(), shortcutNames());
-        if (it.cmd == null) { show("「" + text + "」 " + it.say, false); return; }
+        if (it.cmd == null) {
+            java.util.function.Function<String, String> fb = fallback;
+            if (fb != null && (it.say.startsWith("没听懂") || it.say.startsWith("没听清") || it.say.startsWith("让手机"))) {
+                show("「" + text + "」 交给对话…", true);
+                String ans = fb.apply(text);
+                show(ans == null ? "「" + text + "」 " + it.say : Notify.clip(ans.replace('\n', ' '), 60), false);
+                return;
+            }
+            show("「" + text + "」 " + it.say, false);
+            return;
+        }
         show("「" + text + "」 " + it.say, true);
         try {
             Actions.Result r = actions.run(it.cmd, it.args);
@@ -155,7 +167,7 @@ public final class Voice {
     }
 
     /** 本机语音截图：存到 图片\OneSay，并放进剪贴板。 */
-    private Actions.Result saveShot(Map<String, Object> d) throws Exception {
+    static Actions.Result saveShot(Map<String, Object> d) throws Exception {
         byte[] jpg = Base64.getDecoder().decode((String) d.get("b64"));
         Path dir = Paths.get(System.getProperty("user.home"), "Pictures", "OneSay");
         Files.createDirectories(dir);

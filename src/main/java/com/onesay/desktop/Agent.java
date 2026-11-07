@@ -24,6 +24,9 @@ public final class Agent {
     });
     private final Consumer<String> log;
     public volatile String status = "启动中";
+    /** 程序内部处理的指令（通知、记忆同步等），优先于 Actions。 */
+    public final Map<String, java.util.function.Function<Map<String, Object>, Actions.Result>> local = new ConcurrentHashMap<>();
+    private final java.util.Set<String> relayPeers = ConcurrentHashMap.newKeySet();
 
     public Agent(Config cfg, Actions actions, Consumer<String> log) {
         this.cfg = cfg;
@@ -50,6 +53,14 @@ public final class Agent {
 
     public List<Link> links() { return links; }
 
+    /** 当前连着的配对设备：设备 id → 通道名。 */
+    public Map<String, String> peers() {
+        Map<String, String> m = new TreeMap<>();
+        for (String p : relayPeers) m.put(p, "中转");
+        for (Link l : links) if (l instanceof LanServer) for (String c : ((LanServer) l).clients()) m.put(c, "局域网");
+        return m;
+    }
+
     private void changed(Link l, boolean c, String why) {
         up.put(l, c);
         state.put(l, (c ? "在线" : "离线") + "（" + why + "）");
@@ -63,7 +74,9 @@ public final class Agent {
     void handle(Map<String, Object> f, Link via) {
         String type = String.valueOf(f.get("type"));
         if (type.equals("presence")) {
-            log.accept("设备 " + f.get("device") + (Boolean.TRUE.equals(f.get("online")) ? " 上线" : " 离线") + "（" + via.name() + "）");
+            boolean on = Boolean.TRUE.equals(f.get("online"));
+            if (on) relayPeers.add(String.valueOf(f.get("device"))); else relayPeers.remove(String.valueOf(f.get("device")));
+            log.accept("设备 " + f.get("device") + (on ? " 上线" : " 离线") + "（" + via.name() + "）");
             return;
         }
         if (type.equals("devices") || type.equals("error")) {
@@ -93,7 +106,15 @@ public final class Agent {
         exec.execute(() -> {
             Actions.Result r;
             try {
-                r = cmd.equals("caps") ? Actions.Result.ok("能力清单", DesktopActions.map("caps", (List<Object>) (List<?>) actions.capabilities())) : actions.run(cmd, args);
+                if (cmd.equals("caps")) {
+                    List<Object> caps = new ArrayList<>(actions.capabilities());
+                    caps.addAll(new java.util.TreeSet<>(local.keySet()));
+                    r = Actions.Result.ok("能力清单", DesktopActions.map("caps", caps));
+                } else if (local.containsKey(cmd)) {
+                    Map<String, Object> a2 = new TreeMap<>(args);
+                    a2.put("_from", from);
+                    r = local.get(cmd).apply(a2);
+                } else r = actions.run(cmd, args);
             } catch (Throwable t) {
                 r = Actions.Result.fail(cmd + " 出错：" + t.getClass().getSimpleName());
             }

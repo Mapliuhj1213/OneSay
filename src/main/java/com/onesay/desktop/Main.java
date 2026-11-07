@@ -23,7 +23,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 public final class Main {
-    static final String VERSION = "0.3.0";
+    static final String VERSION = "0.4.0";
 
     public static void main(String[] argv) throws Exception {
         List<String> a = new ArrayList<>(List.of(argv));
@@ -37,6 +37,7 @@ public final class Main {
             case "pair": pair(cfg); break;
             case "join": join(cfg, a); break;
             case "run": run(cfg, a.contains("--console")); break;
+            case "app": App.launch(cfg, !a.contains("--tray")); break;
             case "send": System.exit(send(cfg, a)); break;
             case "autostart": autostart(a.isEmpty() ? "" : a.get(0)); break;
             case "version": System.out.println("OneSay Desktop " + VERSION); break;
@@ -50,6 +51,7 @@ public final class Main {
                 "  setup                    首次设置：本机名、局域网端口、可选中转，生成配对密钥",
                 "  pair                     显示配对串（给手机或另一台电脑导入；整串等于钥匙）",
                 "  join <配对串> [--id 名字]  在下令端导入配对串",
+                "  app [--tray]             图形界面：托盘 + 窗口（双击 OneSay.exe 就是这个）",
                 "  run [--console]          常驻（有图形界面时进系统托盘）",
                 "  send <设备> <指令> [键=值 ...] [--out 文件夹]",
                 "  autostart on|off         开机自启（Windows）",

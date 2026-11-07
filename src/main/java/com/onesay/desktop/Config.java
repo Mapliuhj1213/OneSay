@@ -37,6 +37,11 @@ public final class Config {
     public String filesDir = "";      // 允许取文件的文件夹
     public String scriptsDir = "";    // 电脑端快捷指令文件夹
     public String apps = "";          // 允许按名字打开的程序：名字=路径;名字=路径
+    public String asrMode = "cloud";  // 识别方式：local 本机离线 / phone 让手机识别 / cloud 云端（自带 Key）
+    public String llmProvider = "deepseek"; // deepseek / bailian / custom（OpenAI 兼容）
+    public String llmKey = "";        // 大模型 API Key（自带，只存本机）
+    public String llmModel = "";      // 空 = 服务商默认
+    public String llmBase = "";       // custom 时的接口地址，如 https://example.com/v1
 
     public final Path file;
 
@@ -70,6 +75,11 @@ public final class Config {
         c.filesDir = p.getProperty("files_dir", "").trim();
         c.scriptsDir = p.getProperty("scripts_dir", "").trim();
         c.apps = p.getProperty("apps", "").trim();
+        c.asrMode = p.getProperty("asr_mode", "cloud").trim();
+        c.llmProvider = p.getProperty("llm_provider", "deepseek").trim();
+        c.llmKey = p.getProperty("llm_key", "").trim();
+        c.llmModel = p.getProperty("llm_model", "").trim();
+        c.llmBase = p.getProperty("llm_base", "").trim();
         return c;
     }
 
@@ -92,6 +102,11 @@ public final class Config {
         p.setProperty("files_dir", filesDir);
         p.setProperty("scripts_dir", scriptsDir);
         p.setProperty("apps", apps);
+        p.setProperty("asr_mode", asrMode);
+        p.setProperty("llm_provider", llmProvider);
+        p.setProperty("llm_key", llmKey);
+        p.setProperty("llm_model", llmModel);
+        p.setProperty("llm_base", llmBase);
         try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) { p.store(w, "OneSay desktop - contains secrets, do not share"); }
         try { Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------")); } catch (UnsupportedOperationException | IOException ignored) { }
     }

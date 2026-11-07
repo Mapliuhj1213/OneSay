@@ -137,22 +137,68 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .days span{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:13px;background:var(--bg);color:var(--text2)}
 .days span.on{background:var(--accent);color:#fff}
 .sheet .foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+</style><style>
+/* ---------- 对话（单一对话，类 Codex） ---------- */
+#chat.on{display:flex}
+#chat{flex-direction:column;height:calc(100vh - 30px);margin-top:-30px;max-width:none;padding-bottom:0}
+.main.chatmode{padding-bottom:0;overflow:hidden}
+.chatbar{display:flex;align-items:center;gap:10px;padding:18px 0 12px;max-width:820px;width:100%;margin:0 auto}
+.chatbar h1{font-size:22px;font-weight:600}
+.chip{font-size:12px;color:var(--text2);background:var(--card);border-radius:12px;padding:5px 10px;cursor:pointer}
+.chip:hover{color:var(--accent)}
+.msgs{flex:1;overflow:auto;padding:8px 0 24px}
+.msgs .in{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.m{line-height:1.75;font-size:15px;white-space:pre-wrap;word-break:break-word}
+.m.u{align-self:flex-end;background:var(--card);border-radius:18px 18px 4px 18px;padding:10px 16px;max-width:78%}
+.m.a{align-self:flex-start;max-width:100%;padding:0 4px}
+.m.a.cmd{color:var(--text2);font-size:13.5px;display:flex;gap:8px;align-items:center}
+.m.a.cmd:before{content:"⚡";color:var(--auto)}
+.m.a.error{color:var(--red);font-size:13.5px}
+.m .via{display:block;font-size:11px;color:var(--text3);margin-top:2px}
+.m.typing{color:var(--text3)}
+.compose{max-width:820px;width:100%;margin:0 auto 22px;background:var(--card);border-radius:20px;padding:12px 12px 10px 18px;box-shadow:0 2px 12px rgba(0,0,0,.06);display:flex;gap:10px;align-items:flex-end}
+.compose textarea{flex:1;border:0;outline:0;resize:none;font:inherit;font-size:15px;line-height:1.6;max-height:180px;background:transparent;color:var(--text);padding:4px 0}
+.compose .send{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;font-size:16px;flex:none}
+.compose .send:disabled{background:#C9CCD1}
+.hintline{max-width:820px;margin:-14px auto 14px;font-size:11.5px;color:var(--text3);text-align:center}
+.welcome{margin:12vh auto 0;text-align:center;color:var(--text2)}
+.welcome h2{font-size:26px;font-weight:600;color:var(--text);margin-bottom:10px}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:380px;background:var(--card);box-shadow:-8px 0 30px rgba(0,0,0,.1);padding:24px;display:none;flex-direction:column;gap:12px;z-index:5}
+.drawer.on{display:flex}
+.drawer textarea{flex:1;border:0;background:var(--bg);border-radius:14px;padding:14px;font:inherit;font-size:13.5px;line-height:1.7;resize:none;outline:0}
+/* ---------- 通知 ---------- */
+.nk{font-size:11.5px;padding:3px 8px;border-radius:10px;flex:none;font-weight:600}
+.nk.reminder{background:rgba(255,149,0,.12);color:#C66F00}.nk.auto{background:rgba(0,163,180,.12);color:var(--auto)}
+.nk.rain{background:rgba(62,123,250,.12);color:var(--event)}.nk.app{background:rgba(0,0,0,.06);color:var(--text2)}.nk.pc{background:rgba(3,129,254,.1);color:var(--accent)}
+.item.unread .tt{font-weight:600}
+.badge{margin-left:auto;background:var(--red);color:#fff;font-size:11px;border-radius:9px;padding:0 6px;line-height:18px;font-weight:600}
+/* ---------- 表单 ---------- */
+input.field{border:0;outline:0;font:inherit;font-size:13px;color:var(--text)}
+input.field::placeholder{color:var(--text3)}
+.snack{position:fixed;left:50%;top:18px;transform:translateX(-50%) translateY(-60px);background:#1F2228;color:#fff;border-radius:14px;padding:10px 18px;font-size:13.5px;transition:.2s;z-index:9}
+.snack.on{transform:translateX(-50%) translateY(0)}
+.pairbox{font-family:Consolas,monospace;font-size:11.5px;word-break:break-all;background:var(--bg);border-radius:10px;padding:10px;color:var(--text2);margin-top:8px}
+.addrow{display:flex;gap:10px;padding:12px 20px}
+.addrow input{flex:1}
+.demo-only{display:none}
+.is-demo .demo-only{display:block}
 </style>
 </head>
 <body>
 <div class="app">
   <aside class="side">
     <div class="brand"><div class="logo">说</div><b>OneSay</b></div>
-    <div class="devchip"><i class="dot"></i><div class="t">我的手机在线<span>局域网 · 刚刚同步</span></div></div>
+    <div class="devchip"><i class="dot" id="pdot"></i><div class="t"><span style="color:var(--text);font-size:13px" id="pline">手机离线</span><span id="pline2">等待手机连接</span></div></div>
+
+    <button class="nav" data-p="chat"><span class="ic" style="background:linear-gradient(135deg,#0381FE,#00A3B4)">话</span>对话</button>
+    <button class="nav on" data-p="today"><span class="ic" style="background:var(--accent)">今</span>今天</button>
+    <button class="nav" data-p="notes"><span class="ic" style="background:var(--red)">铃</span>通知<span class="badge" id="nbadge" style="display:none"></span></button>
 
     <div class="grp">计划</div>
-    <button class="nav on" data-p="today"><span class="ic" style="background:var(--accent)">今</span>今天</button>
-    <button class="nav" data-p="events"><span class="ic" style="background:var(--event)">日</span>日程<span class="n">4</span></button>
-    <button class="nav" data-p="todos"><span class="ic" style="background:var(--todo)">✓</span>待办<span class="n">3</span></button>
-    <button class="nav" data-p="tickets"><span class="ic" style="background:var(--ticket)">票</span>票夹<span class="n">2</span></button>
-    <button class="nav" data-p="pickups"><span class="ic" style="background:var(--pickup)">件</span>取件<span class="n">1</span></button>
-
-    <div class="grp">自动</div>
+    <button class="nav" data-p="events"><span class="ic" style="background:var(--event)">日</span>日程<span class="n" id="c-events"></span></button>
+    <button class="nav" data-p="todos"><span class="ic" style="background:var(--todo)">✓</span>待办<span class="n" id="c-todos"></span></button>
+    <button class="nav" data-p="tickets"><span class="ic" style="background:var(--ticket)">票</span>票夹<span class="n" id="c-tickets"></span></button>
+    <button class="nav" data-p="pickups"><span class="ic" style="background:var(--pickup)">件</span>取件<span class="n" id="c-pickups"></span></button>
     <button class="nav" data-p="autos"><span class="ic" style="background:var(--auto)">⟳</span>自动任务</button>
     <button class="nav" data-p="shortcuts"><span class="ic" style="background:var(--auto)">⚡</span>快捷指令</button>
 
@@ -162,257 +208,257 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 
     <div class="grow"></div>
     <button class="nav" data-p="settings"><span class="ic" style="background:#8A8F98">⚙</span>设置</button>
-    <div class="ptt">按住 <span class="key">空格</span> 说话<br>松手执行，Esc 取消</div>
+    <div class="ptt" id="pttbox">按住 <span class="key">空格</span> 说话<br><span id="vstat">松手执行，Esc 取消</span></div>
   </aside>
 
-  <main class="main">
-    <!-- 今天 -->
-    <section class="page on" id="today">
-      <div class="head"><div><h1>今天</h1><p>11月8日 周日 · 2 个日程 · 3 件待办 · 1 个待取件</p></div><div class="sp"></div><button class="btn">＋ 新建</button></div>
-      <div class="cols">
-        <div>
-          <div class="sec"><i style="background:var(--event)"></i>日程 <span>2 个</span></div>
-          <div class="card">
-            <div class="item past"><div class="bar" style="background:var(--event)"></div><div class="time">09:30<small>1 小时</small></div><div class="tx"><div class="tt">周会</div><div class="st">线上 · 每周日</div></div><span class="tag">已过</span></div>
-            <div class="item"><div class="bar" style="background:var(--event)"></div><div class="time">15:00<small>2 小时</small></div><div class="tx"><div class="tt">牙医复诊</div><div class="st">提前 30 分钟提醒</div></div></div>
-          </div>
-          <div class="sec"><i style="background:var(--todo)"></i>待办 <span>3 件</span></div>
-          <div class="card">
-            <div class="item"><span class="chk"></span><div class="tx"><div class="tt">交电费</div><div class="st">今天 18:00 前</div></div><span class="tag red">今天到期</span></div>
-            <div class="item"><span class="chk"></span><div class="tx"><div class="tt">给开源仓库补 NOTICE</div><div class="st">无期限</div></div></div>
-            <div class="item"><span class="chk"></span><div class="tx"><div class="tt">买猫粮</div><div class="st">明天</div></div></div>
-            <div class="item done"><span class="chk on"></span><div class="tx"><div class="tt">回复房东</div><div class="st">已完成</div></div></div>
-          </div>
-        </div>
-        <div>
-          <div class="sec"><i style="background:var(--pickup)"></i>待取件 <span>1 个</span></div>
-          <div class="card">
-            <div class="item"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="code">6-2-3015</div><div class="st">菜鸟驿站 · 东门 · 今天 20:00 前</div></div><button class="pill" style="background:rgba(31,164,99,.1);color:var(--pickup)">已取</button></div>
-          </div>
-          <div class="sec"><i style="background:var(--ticket)"></i>临近的票 <span>1 张</span></div>
-          <div class="card">
-            <div class="item"><div class="bar" style="background:var(--ticket)"></div><div class="tx"><div class="tt">G1234 上海虹桥 → 北京南</div><div class="st">明天 08:00 · 05 车 12F</div></div><button class="pill" style="background:rgba(142,92,247,.1);color:var(--ticket)">出示</button></div>
-          </div>
-          <div class="sec"><i style="background:var(--auto)"></i>今天会跑的自动任务 <span>2 个</span></div>
-          <div class="card">
-            <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">晚上 11 点手机勿扰</div><div class="st">23:00 · 手机</div></div></div>
-            <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">下班模式</div><div class="st">18:30 · 这台电脑 · 快捷指令</div></div></div>
-          </div>
-        </div>
-      </div>
+  <main class="main" id="main">
+    <section class="page" id="chat">
+      <div class="chatbar"><h1>对话</h1><div class="sp" style="flex:1"></div><span class="chip" id="memchip" onclick="memOpen()">记忆</span><span class="chip" onclick="chatClear()">清空对话</span></div>
+      <div class="msgs" id="msgs"><div class="in" id="msgin"></div></div>
+      <div class="compose"><textarea id="ta" rows="1" placeholder="说点什么，或者直接下指令：锁屏、截图、打开B站…"></textarea><button class="send" id="sendbtn" onclick="chatSend()">↑</button></div>
+      <div class="hintline" id="chathint">Enter 发送，Shift+Enter 换行 · 只有一个对话，旧内容自动截断，记忆自动更新、和手机共用</div>
     </section>
-
-    <!-- 日程 -->
-    <section class="page" id="events">
-      <div class="head"><div><h1>日程</h1><p>接下来 30 天 · 共 4 条日程</p></div><div class="sp"></div><button class="btn">＋ 新日程</button></div>
-      <div class="sec"><i style="background:var(--event)"></i>今天 · 周日</div>
-      <div class="card">
-        <div class="item past"><div class="bar" style="background:var(--event)"></div><div class="time">09:30</div><div class="tx"><div class="tt">周会</div><div class="st">09:30–10:30 · 每周日</div></div><span class="tag">已过</span></div>
-        <div class="item"><div class="bar" style="background:var(--event)"></div><div class="time">15:00</div><div class="tx"><div class="tt">牙医复诊</div><div class="st">15:00–17:00</div></div></div>
-      </div>
-      <div class="sec"><i style="background:var(--event)"></i>明天 · 周一</div>
-      <div class="card">
-        <div class="item"><div class="bar" style="background:var(--event)"></div><div class="time">08:00</div><div class="tx"><div class="tt">出发去北京</div><div class="st">G1234 · 来自票夹</div></div></div>
-      </div>
-      <div class="sec"><i style="background:var(--event)"></i>11月14日 · 周六</div>
-      <div class="card">
-        <div class="item"><div class="bar" style="background:var(--event)"></div><div class="time">19:00</div><div class="tx"><div class="tt">朋友生日聚餐</div><div class="st">19:00–21:00</div></div></div>
-      </div>
-    </section>
-
-    <!-- 待办 -->
-    <section class="page" id="todos">
-      <div class="head"><div><h1>待办</h1><p>还有 3 件没做</p></div><div class="sp"></div><button class="btn">＋ 记一条</button></div>
-      <div class="card">
-        <div class="item"><span class="chk"></span><div class="tx"><div class="tt">交电费</div><div class="st">今天 18:00 前</div></div><span class="tag red">今天到期</span></div>
-        <div class="item"><span class="chk"></span><div class="tx"><div class="tt">买猫粮</div><div class="st">明天</div></div></div>
-        <div class="item"><span class="chk"></span><div class="tx"><div class="tt">给开源仓库补 NOTICE</div><div class="st">无期限</div></div></div>
-      </div>
-      <div class="sec"><i style="background:var(--text3)"></i>已完成 <span>1 件</span></div>
-      <div class="card"><div class="item done"><span class="chk on"></span><div class="tx"><div class="tt">回复房东</div><div class="st">今天 10:12 完成</div></div></div></div>
-    </section>
-
-    <!-- 票夹 -->
-    <section class="page" id="tickets">
-      <div class="head"><div><h1>票夹</h1><p>2 张待用</p></div></div>
-      <div class="ticket"><div class="stn"><b>08:00</b>上海虹桥</div><div class="mid">G1234 · 明天<hr>5 小时 28 分</div><div class="stn"><b>13:28</b>北京南</div><div style="border-left:1px dashed rgba(0,0,0,.15);padding-left:18px"><div style="font-size:12px;color:var(--text3)">座位</div><div style="font-size:18px;font-weight:600">05 车 12F</div></div><span class="tag red">快出发</span></div>
-      <div class="ticket"><div class="stn"><b>19:30</b>大剧院</div><div class="mid">话剧 · 11月21日<hr>检票口 B</div><div class="stn"><b>2 楼</b>3 排 8 座</div><div style="border-left:1px dashed rgba(0,0,0,.15);padding-left:18px"><div style="font-size:12px;color:var(--text3)">取票码</div><div style="font-size:18px;font-weight:600">483 920</div></div><span class="tag">2 周后</span></div>
-      <p class="note">票从手机通知和短信里自动收进来，电脑这边同步显示。点「出示」在电脑上放大二维码。</p>
-    </section>
-
-    <!-- 取件 -->
-    <section class="page" id="pickups">
-      <div class="head"><div><h1>取件</h1><p>1 个待取</p></div></div>
-      <div class="card">
-        <div class="item"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="code">6-2-3015</div><div class="st">菜鸟驿站 · 东门 · 今天 20:00 前 · 来自短信</div></div><button class="pill" style="background:rgba(31,164,99,.1);color:var(--pickup)">已取</button></div>
-      </div>
-      <div class="sec"><i style="background:var(--text3)"></i>最近取过 <span>2 个</span></div>
-      <div class="card">
-        <div class="item past"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="tt">丰巢 · 取件码 902117</div><div class="st">11月6日 取走</div></div></div>
-        <div class="item past"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="tt">菜鸟驿站 · 3-1-0822</div><div class="st">11月3日 取走</div></div></div>
-      </div>
-    </section>
-
-    <!-- 自动任务 -->
-    <section class="page" id="autos">
-      <div class="head"><div><h1>自动任务</h1><p>4 个 · 3 个开着</p></div><div class="sp"></div><button class="btn">＋ 新建</button></div>
-      <div class="sec"><i style="background:var(--auto)"></i>定时任务</div>
-      <div class="card">
-        <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">晚上 11 点手机勿扰</div><div class="st">每天 23:00 · 在手机上执行</div></div><span class="tag">手机</span><span class="sw on"></span></div>
-        <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">下班模式</div><div class="st">工作日 18:30 · 运行快捷指令「下班模式」</div></div><span class="tag blue">电脑</span><span class="sw on"></span></div>
-      </div>
-      <div class="sec"><i style="background:var(--auto)"></i>自动任务（条件触发）</div>
-      <div class="card">
-        <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">手机连上家里 Wi-Fi → 电脑亮屏</div><div class="st">触发：手机 · 动作：电脑</div></div><span class="tag">跨设备</span><span class="sw on"></span></div>
-        <div class="item past"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">电脑锁屏 → 手机静音</div><div class="st">已关闭</div></div><span class="tag">跨设备</span><span class="sw"></span></div>
-      </div>
-      <p class="note">每条任务标明在哪台设备上执行。对方离线时不排队，到点直接记一笔「没执行：手机离线」。</p>
-    </section>
-
-    <!-- 快捷指令 -->
-    <section class="page" id="shortcuts">
-      <div class="head"><div><h1>快捷指令</h1><p>说名字就执行，只回一句「正在执行快捷指令」</p></div><div class="sp"></div><button class="btn ghost">打开文件夹</button></div>
-      <div class="grid3">
-        <div class="tile"><span class="tag blue" style="align-self:flex-start">电脑</span><div class="tt">下班模式</div><div class="st">关掉工作软件、静音、锁屏</div><div class="row"><button class="btn sm">运行</button></div></div>
-        <div class="tile"><span class="tag blue" style="align-self:flex-start">电脑</span><div class="tt">备份照片</div><div class="st">把图片文件夹同步到移动硬盘</div><div class="row"><button class="btn sm">运行</button></div></div>
-        <div class="tile"><span class="tag" style="align-self:flex-start">手机</span><div class="tt">回家</div><div class="st">开 Wi-Fi、关数据、媒体音量 50%</div><div class="row"><button class="btn sm">在手机上运行</button></div></div>
-      </div>
-      <p class="note">电脑的快捷指令是快捷指令文件夹里的 .ps1 / .bat 脚本，60 秒超时；手机的来自手机计划 App。成败由你判断，不做「点屏幕重放」。</p>
-    </section>
-
-    <!-- 手机 -->
-    <section class="page" id="phone">
-      <div class="head"><div><h1>手机</h1><p>在线 · 局域网 192.168.1.23 · 刚刚同步</p></div></div>
-      <div class="hero"><div class="big" style="background:var(--device)">▯</div><div style="flex:1"><h2>我的手机</h2><p>计划、自动任务双向同步 · 关机或断网时这里显示离线</p></div><span class="tag green">在线</span></div>
-      <div class="acts">
-        <button class="act" onclick="alarm(true)"><span class="ic" style="background:var(--todo)">⏰</span>设闹钟<span>在手机上响</span></button>
-        <button class="act"><span class="ic" style="background:var(--event)">⎙</span>截手机屏<span>传到电脑</span></button>
-        <button class="act"><span class="ic" style="background:var(--auto)">⇄</span>互传剪贴板<span>文字和图片</span></button>
-        <button class="act"><span class="ic" style="background:var(--red)">♪</span>找手机<span>静音也响</span></button>
-      </div>
-      <div class="sec"><i style="background:var(--todo)"></i>手机上的闹钟 <span>来自 OneSay 时钟</span></div>
-      <div class="card">
-        <div class="item"><div class="time" style="width:64px;font-size:22px;font-weight:300">07:00</div><div class="tx"><div class="tt">起床</div><div class="st">工作日 · 播报天气和新闻</div></div><span class="sw on"></span></div>
-        <div class="item"><div class="time" style="width:64px;font-size:22px;font-weight:300">06:20</div><div class="tx"><div class="tt">赶高铁</div><div class="st">仅明天 · 电脑上设的</div></div><span class="sw on"></span></div>
-        <div class="item past"><div class="time" style="width:64px;font-size:22px;font-weight:300">13:30</div><div class="tx"><div class="tt">午休</div><div class="st">每天</div></div><span class="sw"></span></div>
-      </div>
-      <p class="note">电脑上没有闹钟 App：在这里设的闹钟会发到手机，由手机响。手机离线时直接提示「手机离线，没设上」，不偷偷排队。</p>
-    </section>
-
-    <!-- 这台电脑 -->
-    <section class="page" id="pc">
-      <div class="head"><div><h1>这台电脑</h1><p>pc-desktop · 局域网端口 47820 · 中转未启用</p></div></div>
-      <div class="cols">
-        <div>
-          <div class="sec"><i style="background:var(--device)"></i>手机能让它做的事</div>
-          <div class="card">
-            <div class="kv"><div class="k"><div>截图、打开网址、剪贴板</div><p>默认开启</p></div><span class="tag green">开</span></div>
-            <div class="kv"><div class="k"><div>锁屏、音量、播放控制</div><p>Windows</p></div><span class="tag green">开</span></div>
-            <div class="kv"><div class="k"><div>打开程序</div><p>只开设置里列出的 2 个</p></div><span class="tag green">开</span></div>
-            <div class="kv"><div class="k"><div>取文件</div><p>只限「共享给手机」文件夹，单个 ≤ 5 MB</p></div><span class="tag">关</span></div>
-            <div class="kv"><div class="k"><div>睡眠、关机</div><p>必须明确说「确认关机」，60 秒内可取消</p></div><span class="tag green">开</span></div>
-          </div>
-        </div>
-        <div>
-          <div class="sec"><i style="background:var(--device)"></i>最近</div>
-          <div class="card log">
-            <div><b>00:21</b> 手机 → 截图 · 成功</div>
-            <div><b>00:18</b> 语音「打开B站」· 成功</div>
-            <div><b>00:12</b> 手机 → 音量调小 · 成功</div>
-            <div><b>00:05</b> 拒绝 未配对设备 的连接</div>
-            <div><b>23:59</b> 手机 上线（局域网）</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 设置 -->
-    <section class="page" id="settings">
-      <div class="head"><div><h1>设置</h1><p>OneSay 电脑端 0.4</p></div></div>
-      <div class="cols">
-        <div>
-          <div class="sec"><i style="background:var(--accent)"></i>连接</div>
-          <div class="card">
-            <div class="kv"><div class="k"><div>局域网直连</div><p>同一个路由器下即可，不需要账号和服务器</p></div><span class="sw on"></span></div>
-            <div class="kv"><div class="k"><div>端口</div><p>发现用下一个端口（47821）</p></div><div class="field" style="min-width:90px">47820</div></div>
-            <div class="kv"><div class="k"><div>中转（插件）</div><p>不在同一个 Wi-Fi 也要控制时再开，需自建</p></div><span class="sw"></span></div>
-          </div>
-          <div class="sec"><i style="background:var(--accent)"></i>说话</div>
-          <div class="card">
-            <div class="kv"><div class="k"><div>按住空格说话</div><p>按住 0.35 秒开始听，短按照常打空格</p></div><span class="sw on"></span></div>
-            <div class="kv"><div class="k"><div>识别方式</div><p>选中的不可用时自动换下一种，浮条上会写明</p></div><div class="seg"><span class="on">本机离线</span><span>让手机识别</span><span>云端</span></div></div>
-            <div class="kv"><div class="k"><div>这些程序里不拦空格</div><p>全屏和管理员窗口本来就不拦</p></div><div class="field">mstsc.exe</div></div>
-          </div>
-          <div class="sec"><i style="background:var(--accent)"></i>大模型 <span>听懂任意说法</span></div>
-          <div class="card">
-            <div class="kv"><div class="k"><div>服务商</div><p>也支持任何 OpenAI 兼容接口</p></div><div class="seg"><span class="on">DeepSeek</span><span>百炼</span><span>自定义</span></div></div>
-            <div class="kv"><div class="k"><div>API Key</div><p>只存在这台电脑，不同步到手机</p></div><div class="field">sk-••••••••••••</div></div>
-            <div class="kv"><div class="k"><div>模型</div><p>默认 deepseek-chat</p></div><div class="field">deepseek-chat</div></div>
-            <div class="kv"><div class="k"><div>连接测试</div><p>不填 Key 时只认固定说法，如「锁屏」「打开B站」</p></div><button class="btn ghost sm">测试</button></div>
-          </div>
-          <div class="sec"><i style="background:var(--accent)"></i>电脑能力</div>
-          <div class="card">
-            <div class="kv"><div class="k"><div>可打开的程序</div><p>微信、VS Code</p></div><button class="btn ghost sm">管理</button></div>
-            <div class="kv"><div class="k"><div>共享给手机的文件夹</div><p>未设置</p></div><button class="btn ghost sm">选择</button></div>
-            <div class="kv"><div class="k"><div>快捷指令文件夹</div><p>文档\OneSay\快捷指令</p></div><button class="btn ghost sm">更改</button></div>
-            <div class="kv"><div class="k"><div>开机自动启动</div><p>启动后只在托盘</p></div><span class="sw on"></span></div>
-          </div>
-        </div>
-        <div>
-          <div class="sec"><i style="background:var(--accent)"></i>配对手机</div>
-          <div class="card" style="padding:20px;display:flex;gap:18px;align-items:center">
-            <svg class="qr" viewBox="0 0 21 21" shape-rendering="crispEdges"><g fill="#111" id="qr"></g></svg>
-            <div style="font-size:13px;color:var(--text2);line-height:1.7">用手机 OneSay 扫码配对。<br>这个码就是钥匙，<br>别截图发给别人。<br><button class="btn ghost sm" style="margin-top:10px;padding:0">换一把钥匙</button></div>
-          </div>
-          <div class="sec"><i style="background:var(--accent)"></i>已配对</div>
-          <div class="card">
-            <div class="kv"><div class="k"><div>我的手机</div><p>局域网 · 在线</p></div><button class="btn ghost sm" style="color:var(--red)">移除</button></div>
-          </div>
-          <p class="note">配对后两边的计划、自动任务自动同步；每条指令都用这把钥匙签名，中转和局域网里的其他人都伪造不了。</p>
-        </div>
-      </div>
-    </section>
+    <section class="page on" id="today"></section>
+    <section class="page" id="notes"></section>
+    <section class="page" id="events"></section>
+    <section class="page" id="todos"></section>
+    <section class="page" id="tickets"></section>
+    <section class="page" id="pickups"></section>
+    <section class="page" id="autos"></section>
+    <section class="page" id="shortcuts"></section>
+    <section class="page" id="phone"></section>
+    <section class="page" id="pc"></section>
+    <section class="page" id="settings"></section>
   </main>
 </div>
 
+<div class="drawer" id="drawer">
+  <div style="display:flex;align-items:center"><h3 style="font-size:18px;font-weight:600;flex:1">记忆</h3><button class="btn ghost sm" onclick="memClose()">关闭</button></div>
+  <div style="font-size:12.5px;color:var(--text2);line-height:1.6">对话时自动更新，和手机上的 OneSay 共用（新的覆盖旧的）。可以直接改。</div>
+  <textarea id="memta" placeholder="还没有记忆。多聊几句，它会自己记下以后用得上的事。"></textarea>
+  <div style="display:flex;gap:10px;justify-content:flex-end"><span id="memat" style="flex:1;font-size:12px;color:var(--text3);align-self:center"></span><button class="btn" onclick="memSave()">保存</button></div>
+</div>
+
 <div class="voice" id="voice"></div>
-<button class="demo" onclick="cycle()">演示：说话浮条 ▸</button>
+<button class="demo demo-only" onclick="cycle()">演示：说话浮条 ▸</button>
+<div class="snack" id="snack"></div>
 
 <div class="mask" id="alarm" onclick="if(event.target===this)alarm(false)">
   <div class="sheet">
-    <h3>设闹钟</h3><div class="sub">会设在「我的手机」上，由手机响</div>
-    <div class="clock">06:20</div>
-    <div class="days"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
-    <div class="kv" style="padding:12px 0"><div class="k"><div>名字</div></div><div class="field" style="min-width:200px">赶高铁</div></div>
-    <div class="kv" style="padding:12px 0"><div class="k"><div>响铃时播报天气</div></div><span class="sw on"></span></div>
-    <div class="foot"><button class="btn ghost" onclick="alarm(false)">取消</button><button class="btn" onclick="alarm(false)">设到手机</button></div>
+    <h3>设闹钟</h3><div class="sub">会设在手机上，由手机响</div>
+    <div style="display:flex;justify-content:center;margin:20px 0 10px"><input class="clock" id="al-time" type="time" value="07:00" style="border:0;outline:0;font:inherit;font-size:56px;font-weight:300;text-align:center;background:transparent;color:var(--text)"></div>
+    <div class="days" id="al-days"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+    <div class="kv" style="padding:12px 0"><div class="k"><div>名字</div></div><input class="field" id="al-name" placeholder="闹钟" style="min-width:200px"></div>
+    <div class="foot"><button class="btn ghost" onclick="alarm(false)">取消</button><button class="btn" onclick="alarmSet()">设到手机</button></div>
   </div>
 </div>
-
+<script src="qr.js"></script>
 <script>
-// 只做切页和演示，不接任何功能
-document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('on',x===b));
-  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('on',p.id===b.dataset.p));
-});
-document.querySelectorAll('.seg').forEach(g=>g.querySelectorAll('span').forEach(x=>x.onclick=()=>g.querySelectorAll('span').forEach(y=>y.classList.toggle('on',y===x))));
-function alarm(on){document.getElementById('alarm').classList.toggle('on',on)}
-const V=document.getElementById('voice');
-const S=[
-  '',
-  '<i class="rec"></i>正在听<span class="wave"><i></i><i></i><i></i><i></i><i></i></span><span class="hint">松手执行 · Esc 取消</span>',
-  '识别中…',
-  '「打开B站」<span class="ok">✓ 打开B站</span>',
-  '「确认关机」<span class="ok">✓ 60 秒后关机</span><span class="hint">说「取消关机」可撤回</span>',
-  '「关机」<span class="hint">关机要说「确认关机」</span>',
-  '没听到声音'
-];
-let k=0;function cycle(){k=(k+1)%S.length;V.innerHTML=S[k];V.classList.toggle('show',k>0)}
-// 示意二维码（不是真码）
-(function(){const g=document.getElementById('qr');let s=7;function r(){s=(s*9301+49297)%233280;return s/233280}
- function box(x,y){for(let i=0;i<7;i++)for(let j=0;j<7;j++){const e=i==0||j==0||i==6||j==6||(i>1&&i<5&&j>1&&j<5);if(e)g.insertAdjacentHTML('beforeend',`<rect x="${x+i}" y="${y+j}" width="1" height="1"/>`)}}
- box(0,0);box(14,0);box(0,14);
- for(let x=0;x<21;x++)for(let y=0;y<21;y++){if((x<8&&y<8)||(x>12&&y<8)||(x<8&&y>12))continue;if(r()>.55)g.insertAdjacentHTML('beforeend',`<rect x="${x}" y="${y}" width="1" height="1"/>`)}})();
+const TOKEN='__ONESAY_TOKEN__';
+const LIVE=location.protocol.startsWith('http') && !TOKEN.startsWith('__');
+if(!LIVE) document.body.classList.add('is-demo');
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let S=null, page='today', pending=false;
+
+// ---------- 演示数据（直接用浏览器打开文件时） ----------
+const now=Date.now(), H=3600e3, D=24*H, t0=new Date(new Date().toDateString()).getTime();
+const DEMO={version:'0.4.0',device:'pc-desktop',voice:'长按空格说话',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
+ caps:['ping','screenshot','open_url','open_app','clipboard_get','clipboard_set','lock','volume','media','sleep','shutdown','shutdown_abort'],
+ shortcuts:['下班模式','备份照片'],
+ log:['00:21:03 执行 screenshot（来自 my-phone，经局域网）','00:18:40 听到：打开B站','00:12:11 执行 volume（来自 my-phone，经局域网）','00:05:02 拒绝来自 unknown 的指令：BAD_SIG','23:59:30 局域网 在线'],
+ settings:{device_id:'pc-desktop',lan_port:47820,relay:false,ptt:true,ptt_skip:'mstsc.exe',asr_mode:'cloud',asr_key_set:true,llm_provider:'deepseek',llm_key_set:true,llm_model:'',llm_model_default:'deepseek-chat',llm_base:'',files_dir:'',scripts_dir:'C:\\Users\\me\\Documents\\OneSay\\快捷指令',apps:'微信=C:\\Program Files\\Tencent\\WeChat\\WeChat.exe;VS Code=C:\\Users\\me\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',autostart:true},
+ memory:{text:'- 用户叫刘泓江，用 Windows 电脑和 Note 8 手机\n- 偏好简短回答，先给结论\n- 在做开源项目 OneSay',updated_at:now-2*H},
+ chat:[{id:'1',role:'user',text:'明天去北京要带什么',at:now-30*60e3},{id:'2',role:'assistant',text:'北京这两天最低 2°C，带厚外套和围巾。高铁票在票夹里，08:00 虹桥发车，建议 07:20 前到站。',at:now-30*60e3},{id:'3',role:'user',text:'锁屏',at:now-10*60e3},{id:'4',role:'assistant',text:'锁屏',via:'cmd',at:now-10*60e3}],
+ notes:[{id:'n1',kind:'rain',title:'30 分钟后有小雨',text:'出门记得带伞',from:'my-phone',at:now-12*60e3,read:false},
+  {id:'n2',kind:'auto',title:'自动任务「晚上 11 点手机勿扰」',text:'已执行',from:'my-phone',at:now-50*60e3,read:false},
+  {id:'n3',kind:'reminder',title:'牙医复诊',text:'15:00 开始，还有 30 分钟',from:'my-phone',at:now-3*H,read:true},
+  {id:'n4',kind:'app',title:'微信 · 妈妈',text:'周末回来吃饭吗',from:'my-phone',at:now-4*H,read:true}],
+ events:[{id:'e1',title:'周会',start:t0+9.5*H,end:t0+10.5*H,note:'线上'},{id:'e2',title:'牙医复诊',start:t0+15*H,end:t0+17*H,note:'提前 30 分钟提醒'},{id:'e3',title:'出发去北京',start:t0+D+8*H,end:t0+D+13.5*H,note:'G1234'}],
+ todos:[{id:'t1',title:'交电费',due:'今天 18:00 前',done:false},{id:'t2',title:'买猫粮',due:'明天',done:false},{id:'t3',title:'回复房东',due:'',done:true}],
+ tickets:[{id:'k1',title:'G1234 上海虹桥 → 北京南',at:t0+D+8*H,seat:'05 车 12F',code:''}],
+ pickups:[{id:'p1',code:'6-2-3015',place:'菜鸟驿站 · 东门',deadline:'今天 20:00 前',done:false}],
+ autos:[{id:'a1',title:'晚上 11 点手机勿扰',desc:'每天 23:00',device:'手机',enabled:true},{id:'a2',title:'下班模式',desc:'工作日 18:30 · 快捷指令',device:'电脑',enabled:true}]};
+
+async function api(p,b){
+  if(!LIVE){snack('演示模式：不执行');return {ok:false,text:'演示模式'}}
+  const r=await fetch('/api/'+p,{method:b?'POST':'GET',headers:{'X-OneSay-Token':TOKEN,'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});
+  return r.json();
+}
+let snT;function snack(t){const s=$('snack');s.textContent=t;s.classList.add('on');clearTimeout(snT);snT=setTimeout(()=>s.classList.remove('on'),2600)}
+async function refresh(){ if(LIVE){try{S=await api('state')}catch(e){return}} else S=S||DEMO; render() }
+
+// ---------- 格式 ----------
+const pad=n=>String(n).padStart(2,'0');
+const hm=ms=>{const d=new Date(ms);return pad(d.getHours())+':'+pad(d.getMinutes())};
+const dayKey=ms=>new Date(new Date(ms).toDateString()).getTime();
+const WK='日一二三四五六';
+function dayName(ms){const k=dayKey(ms),t=dayKey(Date.now());const d=new Date(ms);
+  if(k===t)return '今天 · 周'+WK[d.getDay()]; if(k===t+D)return '明天 · 周'+WK[d.getDay()];
+  return (d.getMonth()+1)+'月'+d.getDate()+'日 · 周'+WK[d.getDay()]}
+function ago(ms){const s=(Date.now()-ms)/1000;if(s<60)return '刚刚';if(s<3600)return Math.floor(s/60)+' 分钟前';if(s<86400&&dayKey(ms)===dayKey(Date.now()))return hm(ms);return (new Date(ms).getMonth()+1)+'月'+new Date(ms).getDate()+'日 '+hm(ms)}
+const KIND={reminder:'提醒',auto:'自动任务',rain:'降水',app:'手机通知',pc:'本机'};
+const sec=(c,t,n)=>`<div class="sec"><i style="background:${c}"></i>${t}${n!=null?` <span>${n}</span>`:''}</div>`;
+const empty=t=>`<div class="card"><div class="empty">${t}</div></div>`;
+const head=(t,p,btn)=>`<div class="head"><div><h1>${t}</h1><p>${p}</p></div><div class="sp"></div>${btn||''}</div>`;
+const SYNC='手机装上「电脑联动」插件后，手机计划里的内容会同步到这里';
+
+function evItem(e){const past=(e.end||e.start)<Date.now();return `<div class="item ${past?'past':''}"><div class="bar" style="background:var(--event)"></div><div class="time">${hm(e.start)}${e.end?`<small>${Math.round((e.end-e.start)/6e4/6)/10} 小时</small>`:''}</div><div class="tx"><div class="tt">${esc(e.title)}</div><div class="st">${esc(e.note||'')}</div></div>${past?'<span class="tag">已过</span>':''}</div>`}
+function todoItem(t){return `<div class="item ${t.done?'done':''}"><span class="chk ${t.done?'on':''}" style="cursor:pointer" onclick="todo('toggle','${esc(t.id)}')"></span><div class="tx"><div class="tt">${esc(t.title)}</div><div class="st">${esc(t.done?'已完成':(t.due||'无期限'))}</div></div>${/今天/.test(t.due||'')&&!t.done?'<span class="tag red">今天到期</span>':''}<button class="tag" onclick="todo('del','${esc(t.id)}')">删除</button></div>`}
+function pkItem(p){return `<div class="item ${p.done?'past':''}"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="code">${esc(p.code)}</div><div class="st">${esc([p.place,p.deadline].filter(Boolean).join(' · '))}</div></div>${p.done?'<span class="tag">已取</span>':''}</div>`}
+function tkItem(k){return `<div class="item"><div class="bar" style="background:var(--ticket)"></div><div class="tx"><div class="tt">${esc(k.title)}</div><div class="st">${k.at?dayName(k.at).split(' ')[0]+' '+hm(k.at):''}${k.seat?' · '+esc(k.seat):''}${k.code?' · 取票码 '+esc(k.code):''}</div></div></div>`}
+function autoItem(a){return `<div class="item ${a.enabled?'':'past'}"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">${esc(a.title)}</div><div class="st">${esc(a.desc||'')}</div></div><span class="tag ${a.device==='电脑'?'blue':''}">${esc(a.device||'手机')}</span><span class="sw ${a.enabled?'on':''}"></span></div>`}
+function noteItem(n){return `<div class="item ${n.read?'':'unread'}"><span class="nk ${esc(n.kind)}">${KIND[n.kind]||'通知'}</span><div class="tx"><div class="tt">${esc(n.title)}</div><div class="st">${esc(n.text)}</div></div><span class="tag">${ago(n.at)}</span></div>`}
+const card=a=>`<div class="card">${a.join('')}</div>`;
+
+// ---------- 各页 ----------
+const P={};
+P.today=()=>{
+  const k=dayKey(Date.now()), ev=S.events.filter(e=>dayKey(e.start)===k).sort((a,b)=>a.start-b.start);
+  const td=S.todos.filter(t=>!t.done), pk=S.pickups.filter(p=>!p.done), tk=S.tickets.filter(t=>!t.at||t.at>Date.now()-2*H).sort((a,b)=>(a.at||0)-(b.at||0)).slice(0,2);
+  const nt=S.notes.slice().reverse().slice(0,3), au=S.autos.filter(a=>a.enabled);
+  const d=new Date();
+  return head('今天',`${d.getMonth()+1}月${d.getDate()}日 周${WK[d.getDay()]} · ${ev.length} 个日程 · ${td.length} 件待办 · ${pk.length} 个待取件`,`<button class="btn" onclick="go('chat')">问 OneSay</button>`)+
+  `<div class="cols"><div>${sec('var(--event)','日程',ev.length+' 个')}${ev.length?card(ev.map(evItem)):empty('今天没有日程')}
+  ${sec('var(--todo)','待办',td.length+' 件')}${card([...td.map(todoItem),addRow()])}</div>
+  <div>${nt.length?sec('var(--red)','最新通知')+card(nt.map(noteItem)):''}
+  ${pk.length?sec('var(--pickup)','待取件',pk.length+' 个')+card(pk.map(pkItem)):''}
+  ${tk.length?sec('var(--ticket)','临近的票')+card(tk.map(tkItem)):''}
+  ${au.length?sec('var(--auto)','开着的自动任务',au.length+' 个')+card(au.map(autoItem)):''}
+  ${!nt.length&&!pk.length&&!tk.length&&!au.length?sec('var(--text3)','手机')+empty(SYNC):''}</div></div>`};
+const addRow=()=>`<div class="addrow"><input class="field newtodo" placeholder="记一条待办，回车保存" onkeydown="if(event.key==='Enter')todoAdd(this)"></div>`;
+P.notes=()=>{const n=S.notes.slice().reverse();
+  return head('通知',`提醒、自动任务、降水和手机 App 通知都弹在电脑右下角，这里留底`,`<button class="btn ghost" onclick="notes('test')">发一条测试</button> <button class="btn ghost" onclick="notes('read')">全部已读</button> <button class="btn ghost" onclick="notes('clear')">清空</button>`)+
+  (n.length?card(n.map(noteItem)):empty('还没有通知。手机装上「电脑联动」插件后，手机的提醒会转到这里'))};
+P.events=()=>{const e=S.events.slice().sort((a,b)=>a.start-b.start).filter(x=>(x.end||x.start)>dayKey(Date.now()));
+  if(!e.length)return head('日程','接下来没有日程')+empty(SYNC);
+  const g={};e.forEach(x=>(g[dayKey(x.start)]=g[dayKey(x.start)]||[]).push(x));
+  return head('日程',`共 ${e.length} 条`)+Object.keys(g).map(k=>sec('var(--event)',dayName(+k))+card(g[k].map(evItem))).join('')};
+P.todos=()=>{const a=S.todos.filter(t=>!t.done),b=S.todos.filter(t=>t.done);
+  return head('待办',a.length?`还有 ${a.length} 件没做`:'都做完了')+card([...a.map(todoItem),addRow()])+(b.length?sec('var(--text3)','已完成',b.length+' 件')+card(b.map(todoItem)):'')};
+P.tickets=()=>head('票夹',S.tickets.length+' 张')+(S.tickets.length?card(S.tickets.map(tkItem)):empty(SYNC));
+P.pickups=()=>{const a=S.pickups.filter(p=>!p.done),b=S.pickups.filter(p=>p.done);
+  return head('取件',a.length+' 个待取')+(a.length?card(a.map(pkItem)):empty(SYNC))+(b.length?sec('var(--text3)','取过的')+card(b.map(pkItem)):'')};
+P.autos=()=>head('自动任务','触发后的结果会通过通知弹到电脑上')+(S.autos.length?card(S.autos.map(autoItem)):empty(SYNC))+`<p class="note">每条标明在哪台设备上执行。对方离线时不排队。</p>`;
+P.shortcuts=()=>{const s=S.shortcuts;
+  return head('快捷指令','说名字就执行，只回一句「正在执行快捷指令」')+
+  (S.settings.scripts_dir?(s.length?`<div class="grid3">${s.map(n=>`<div class="tile"><span class="tag blue" style="align-self:flex-start">电脑</span><div class="tt">${esc(n)}</div><div class="st">说「${esc(n)}」或「执行${esc(n)}」</div><div class="row"><button class="btn sm" onclick="runSc('${esc(n)}')">运行</button></div></div>`).join('')}</div>`:empty('文件夹里还没有 .ps1 / .bat / .cmd 脚本')):empty('还没设快捷指令文件夹，去设置里填'))+
+  `<p class="note">快捷指令文件夹：${esc(S.settings.scripts_dir||'未设置')} · 每个脚本最多跑 60 秒 · 成败由你判断。</p>`};
+P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0;
+  return head('手机',on?`在线 · ${esc(S.peers[ids[0]])} · ${esc(ids[0])}`:'离线')+
+  `<div class="hero"><div class="big" style="background:var(--device)">▯</div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'计划、记忆和通知通过它同步':'手机装上 OneSay 的「电脑联动」插件，到设置里扫码配对'}</p></div><span class="tag ${on?'green':''}">${on?'在线':'离线'}</span></div>
+  <div class="acts">
+  <button class="act" onclick="alarm(true)"><span class="ic" style="background:var(--todo)">⏰</span>设闹钟<span>在手机上响</span></button>
+  <button class="act" onclick="phone('screenshot')"><span class="ic" style="background:var(--event)">⎙</span>截手机屏<span>传到电脑</span></button>
+  <button class="act" onclick="phone('clipboard')"><span class="ic" style="background:var(--auto)">⇄</span>互传剪贴板<span>文字</span></button>
+  <button class="act" onclick="phone('ring')"><span class="ic" style="background:var(--red)">♪</span>找手机<span>静音也响</span></button></div>
+  <p class="note">电脑上没有闹钟 App：这里设的闹钟发到手机，由手机响；手机离线时直接提示没设上，不偷偷排队。这几项要等手机插件更新后才能用。</p>`};
+P.pc=()=>{const s=S.settings;
+  return head('这台电脑',`${esc(S.device)} · 局域网 ${esc((S.lan_ips||[]).join(', ')||'无地址')}:${s.lan_port} · 中转${s.relay?'已开':'未开'}`)+
+  `<div class="cols"><div>${sec('var(--device)','手机能让它做的事')}<div class="card">
+  ${kv('截图、打开网址、剪贴板','默认开启',tag(true))}${kv('锁屏、音量、播放控制','Windows',tag(S.caps.includes('lock')))}
+  ${kv('打开程序',s.apps?'只开设置里列出的程序':'设置里还没加程序',tag(!!s.apps))}${kv('取文件',s.files_dir?'只限：'+esc(s.files_dir)+'，单个 ≤ 5 MB':'没设共享文件夹',tag(!!s.files_dir))}
+  ${kv('睡眠、关机','必须说「确认关机」，60 秒内可取消',tag(S.caps.includes('shutdown')))}</div></div>
+  <div>${sec('var(--device)','最近')}<div class="card log">${(S.log||[]).slice().reverse().slice(0,14).map(l=>`<div>${esc(l)}</div>`).join('')||'<div>暂无</div>'}</div></div></div>`};
+const kv=(k,p,v)=>`<div class="kv"><div class="k"><div>${k}</div><p>${p}</p></div>${v}</div>`;
+const tag=on=>`<span class="tag ${on?'green':''}">${on?'开':'关'}</span>`;
+const sw=(key,on)=>`<span class="sw ${on?'on':''}" style="cursor:pointer" onclick="setv('${key}',${!on})"></span>`;
+const seg=(key,val,opts)=>`<div class="seg">${opts.map(([v,l])=>`<span class="${v===val?'on':''}" onclick="setv('${key}','${v}')">${l}</span>`).join('')}</div>`;
+const inp=(key,val,ph,w)=>`<input class="field" style="min-width:${w||220}px" value="${esc(val)}" placeholder="${esc(ph||'')}" onchange="setv('${key}',this.value)">`;
+const secret=(key,set)=>`<input class="field" type="password" placeholder="${set?'已填（不显示），输新的会覆盖':'粘贴 Key'}" onchange="setv('${key}',this.value);this.value=''">`;
+let pairShown=false,lastPair='';
+P.settings=()=>{const s=S.settings;
+  return head('设置',`OneSay 电脑端 ${esc(S.version)}`)+`<div class="cols"><div>
+  ${sec('var(--accent)','大模型','对话和听懂任意说法')}<div class="card">
+  ${kv('服务商','也支持任何 OpenAI 兼容接口',seg('llm_provider',s.llm_provider,[['deepseek','DeepSeek'],['bailian','百炼'],['custom','自定义']]))}
+  ${s.llm_provider==='custom'?kv('接口地址','到 /v1 为止，例如 https://example.com/v1',inp('llm_base',s.llm_base,'https://…/v1')):''}
+  ${kv('API Key','只存在这台电脑，不同步到手机',secret('llm_key',s.llm_key_set))}
+  ${kv('模型',s.llm_model_default?'留空用 '+esc(s.llm_model_default):'自定义接口要填模型名',inp('llm_model',s.llm_model,s.llm_model_default||'模型名'))}
+  ${kv('连接测试','不填 Key 时只认固定说法，如「锁屏」「打开B站」',`<button class="btn ghost sm" onclick="testLlm()">测试</button>`)}</div>
+  ${sec('var(--accent)','说话')}<div class="card">
+  ${kv('按住空格说话','按住 0.35 秒开始听，短按照常打空格',sw('ptt',s.ptt))}
+  ${kv('识别方式','目前只有云端可用，本机离线和让手机识别在做',seg('asr_mode',s.asr_mode,[['cloud','云端'],['local','本机离线'],['phone','让手机识别']]))}
+  ${kv('识别 Key','百炼 DashScope，自己申请',secret('asr_key',s.asr_key_set))}
+  ${kv('这些程序里不拦空格','逗号分隔；全屏和管理员窗口本来就不拦',inp('ptt_skip',s.ptt_skip,'mstsc.exe'))}</div>
+  ${sec('var(--accent)','电脑能力')}<div class="card">
+  ${kv('可打开的程序','名字=路径，多个用 ; 隔开',inp('apps',s.apps,'微信=C:\\…\\WeChat.exe',260))}
+  ${kv('共享给手机的文件夹','留空 = 不开',inp('files_dir',s.files_dir,'D:\\共享'))}
+  ${kv('快捷指令文件夹','放 .ps1 / .bat / .cmd',inp('scripts_dir',s.scripts_dir,'D:\\OneSay\\快捷指令'))}
+  ${kv('开机自动启动','启动后只在托盘',sw('autostart',s.autostart))}</div></div>
+  <div>${sec('var(--accent)','配对手机')}<div class="card" style="padding:20px">
+  <div style="display:flex;gap:18px;align-items:center"><div class="qr" id="qrbox" style="display:grid;place-items:center;color:var(--text3);font-size:12px;text-align:center">${pairShown?'':'点「显示」<br>生成二维码'}</div>
+  <div style="font-size:13px;color:var(--text2);line-height:1.7">用手机 OneSay 的「电脑联动」插件扫码配对。<br>这个码就是钥匙，别截图发给别人。<br><button class="btn ghost sm" style="margin-top:8px" onclick="showPair()">${pairShown?'隐藏':'显示'}</button> <button class="btn ghost sm" style="color:var(--red)" onclick="rekey()">换一把钥匙</button></div></div>
+  <div id="pairtxt"></div></div>
+  ${sec('var(--accent)','已连接')}<div class="card">${Object.keys(S.peers).map(id=>kv(esc(id),esc(S.peers[id])+' · 在线','')).join('')||'<div class="empty">没有设备连着</div>'}</div>
+  ${sec('var(--accent)','连接')}<div class="card">${kv('局域网直连','同一个路由器下，端口 '+s.lan_port+'（发现用 '+(s.lan_port+1)+'）',tag(s.lan_port>0))}${kv('中转（插件）',s.relay?esc(s.relay_url):'不在同一个 Wi-Fi 也要控制时再开，需自建',tag(s.relay))}</div>
+  <p class="note">首次运行时 Windows 防火墙会问是否允许联网：勾「专用网络」。</p></div></div>`};
+
+// ---------- 对话 ----------
+let lastChatLen=-1;
+function renderChat(){const c=S.chat, box=$('msgin');
+  const m=S.memory||{}, lines=(m.text||'').split('\n').filter(x=>x.trim()).length;
+  $('memchip').textContent='记忆 · '+(lines?lines+' 条':'空')+(m.updated_at?' · '+ago(m.updated_at):'');
+  if(c.length===lastChatLen&&!pending)return; lastChatLen=c.length;
+  box.innerHTML=(c.length?c.map(x=>`<div class="m ${x.role==='user'?'u':'a'} ${x.via==='cmd'?'cmd':''} ${x.via==='error'?'error':''}">${esc(x.text)}${x.via==='voice'&&x.role==='user'?'<span class="via">语音</span>':''}</div>`).join(''):
+   `<div class="welcome"><h2>想让电脑做什么？</h2><div>直接说指令（锁屏、截图、打开B站），或者随便聊。<br>${S.settings.llm_key_set?'':'设置里填上大模型 Key 才能聊天，指令不需要 Key。'}</div></div>`)+(pending?'<div class="m a typing">思考中…</div>':'');
+  $('msgs').scrollTop=1e9}
+async function chatSend(){const ta=$('ta'),t=ta.value.trim();if(!t||pending)return;ta.value='';fit();
+  if(!LIVE){S.chat.push({id:Math.random()+'',role:'user',text:t,at:Date.now()},{id:Math.random()+'',role:'assistant',text:'（演示模式，不会真的回答）',at:Date.now()});renderChat();return}
+  S.chat.push({role:'user',text:t,at:Date.now()});pending=true;renderChat();
+  try{await api('chat',{text:t})}catch(e){snack('发送失败')}pending=false;lastChatLen=-1;await refresh()}
+async function chatClear(){if(!confirm('清空对话？记忆会保留。'))return;await api('chat_clear',{});lastChatLen=-1;refresh()}
+function fit(){const ta=$('ta');ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,180)+'px'}
+$('ta').addEventListener('input',fit);
+$('ta').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();chatSend()}});
+function memOpen(){$('memta').value=(S.memory||{}).text||'';$('memat').textContent=S.memory&&S.memory.updated_at?'更新于 '+ago(S.memory.updated_at):'';$('drawer').classList.add('on')}
+function memClose(){$('drawer').classList.remove('on')}
+async function memSave(){const r=await api('memory',{text:$('memta').value});snack(r.text);memClose();refresh()}
+
+// ---------- 动作 ----------
+async function todo(op,id){if(!LIVE){const t=S.todos.find(x=>x.id===id);if(op==='toggle'&&t)t.done=!t.done;if(op==='del')S.todos=S.todos.filter(x=>x.id!==id);render();return}
+  const r=await api('todo',{op,id});if(!r.ok)snack(r.text);refresh()}
+async function todoAdd(el){const v=el.value.trim();if(!v)return;
+  if(!LIVE){S.todos.push({id:Math.random()+'',title:v,due:'',done:false});render();return}
+  el.value='';el.blur();const r=await api('todo',{op:'add',title:v});if(!r.ok)snack(r.text);await refresh();const n=$(page).querySelector('.newtodo');n&&n.focus()}
+async function notes(op){const r=await api('notes',{op});if(op==='test'&&r.ok)snack('已发，看右下角');refresh()}
+async function runSc(n){const r=await api('run',{cmd:'shortcut_run',args:{name:n}});snack(r.text)}
+async function phone(cmd,args){const r=await api('phone',{cmd,args:args||{}});snack(r.text)}
+async function setv(k,v){if(!LIVE){S.settings[k]=v;if(k==='llm_key'||k==='asr_key')S.settings[k+'_set']=!!v;render();return}
+  const r=await api('settings',{[k]:v});snack(r.text);if(r.settings)S.settings=r.settings;render()}
+async function testLlm(){snack('测试中…');const r=await api('test_llm',{});snack(r.text)}
+async function showPair(){pairShown=!pairShown;if(!pairShown){lastPair='';render();return}
+  let s='onesay://pair?key=DEMO&peer=pc-desktop&lan=192.168.1.20:47820';if(LIVE){const r=await api('pairing',{});s=r.pairing}
+  render();drawQr(s)}
+function drawQr(s){lastPair=s;try{const q=qrcode(0,'M');q.addData(s);q.make();$('qrbox').innerHTML=q.createSvgTag({cellSize:4,margin:0,scalable:true});
+  $('pairtxt').innerHTML=`<div class="pairbox">${esc(s)}</div><button class="btn ghost sm" style="margin-top:6px" onclick="navigator.clipboard.writeText(${esc(JSON.stringify(s))});snack('已复制')">复制配对串</button>`}catch(e){$('qrbox').textContent='二维码生成失败'}}
+async function rekey(){if(!confirm('换钥匙后，已配对的手机要重新扫码。继续？'))return;const r=await api('pairing',{op:'rekey'});pairShown=true;render();if(r.pairing)drawQr(r.pairing);snack('已换新钥匙')}
+function alarm(on){$('alarm').classList.toggle('on',on)}
+$('al-days').querySelectorAll('span').forEach(x=>x.onclick=()=>x.classList.toggle('on'));
+async function alarmSet(){const days=[...$('al-days').children].map((x,i)=>x.classList.contains('on')?i+1:0).filter(Boolean);
+  alarm(false);phone('alarm_set',{time:$('al-time').value,days,label:$('al-name').value||'闹钟'})}
+
+// ---------- 渲染与切页 ----------
+function render(){if(!S)return;
+  const ids=Object.keys(S.peers),on=ids.length>0;
+  $('pdot').classList.toggle('off',!on);$('pline').textContent=on?'手机在线':'手机离线';$('pline2').textContent=on?S.peers[ids[0]]+' · '+ids[0]:'等待手机连接';
+  $('vstat').textContent=S.voice||'松手执行，Esc 取消';
+  for(const k of ['events','todos','tickets','pickups']){const n=k==='todos'?S.todos.filter(t=>!t.done).length:k==='pickups'?S.pickups.filter(p=>!p.done).length:S[k].length;$('c-'+k).textContent=n||''}
+  const un=S.notes.filter(n=>!n.read).length;$('nbadge').style.display=un?'':'none';$('nbadge').textContent=un;
+  if(page==='chat'){renderChat();return}
+  const ae=document.activeElement;if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')&&$(page).contains(ae))return; // 正在输入时不重绘
+  $(page).innerHTML=P[page]();if(page==='settings'&&pairShown&&lastPair)drawQr(lastPair)}
+function go(p){page=p;document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('on',x.dataset.p===p));
+  document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id===p));$('main').classList.toggle('chatmode',p==='chat');
+  if(p!=='settings')pairShown=false;
+  if(p==='notes'&&S&&S.notes.some(n=>!n.read))setTimeout(()=>notes('read'),1500);
+  lastChatLen=-1;render();if(p==='chat')$('ta').focus()}
+document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>go(b.dataset.p));
+
+// 说话浮条演示（实际浮条由程序在屏幕底部画，这里只是看样子）
+const V=$('voice');const VS=['','<i class="rec"></i>正在听<span class="wave"><i></i><i></i><i></i><i></i><i></i></span><span class="hint">松手执行 · Esc 取消</span>','识别中…','「打开B站」<span class="ok">✓ 打开B站</span>','「明天北京冷不冷」<span class="hint">交给对话…</span>','「关机」<span class="hint">关机要说「确认关机」</span>','没听到声音'];
+let vk=0;function cycle(){vk=(vk+1)%VS.length;V.innerHTML=VS[vk];V.classList.toggle('show',vk>0)}
+
+refresh();if(LIVE)setInterval(refresh,2500);
 </script>
 </body>
 </html>
