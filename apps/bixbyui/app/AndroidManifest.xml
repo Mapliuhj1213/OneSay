@@ -202,6 +202,15 @@
             android:windowSoftInputMode="adjustResize" />
 
         <!-- 邮箱（IMAP）设置页。只由本 App 打开（控制台按钮 / 面板「去填写邮箱授权码」），不导出。 -->
+        <!-- 电脑联动：扫电脑端配对二维码（相机权限在页内运行时申请）；不导出 -->
+        <activity
+            android:name="com.onesay.assistant.v2.pclink.PcScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:label="扫码配对电脑" />
+
         <activity
             android:name="com.onesay.assistant.v2.ui.MailSettingsActivity"
             android:exported="false"

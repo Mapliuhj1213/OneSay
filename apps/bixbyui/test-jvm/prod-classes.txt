@@ -638,3 +638,13 @@ com/onesay/assistant/v2/entry/keywake/DoubleTap.java
 com/onesay/assistant/v2/errand/DefaultBrowser.java
 com/onesay/assistant/v2/diag/SettingsNav.java
 com/onesay/assistant/v2/city/WeatherAppCity.java
+
+# 电脑联动协议（纯 Java，与电脑端 OneSay 逐字节兼容）
+com/onesay/assistant/v2/pclink/PcJson.java
+com/onesay/assistant/v2/pclink/PcB64.java
+com/onesay/assistant/v2/pclink/PcProtocol.java
+com/onesay/assistant/v2/pclink/PcPairing.java
+com/onesay/assistant/v2/pclink/PcWs.java
+com/onesay/assistant/v2/pclink/PcLanClient.java
+com/onesay/assistant/v2/pclink/PcForward.java
+com/onesay/assistant/v2/pclink/PcVoice.java

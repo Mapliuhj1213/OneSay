@@ -357,9 +357,35 @@ public final class NoticeHooks {
         return rows;
     }
 
+    // ================================================================== 新提醒的旁路监听（★ feat/pclink）
+
+    /** 新出现在提醒队列里的提醒（只是旁听：不改队列、不影响上岛）。监听方自己判开关；在调用 post / tick 的线程上回调，别做耗时事。 */
+    public interface SurfaceListener {
+        void onSurfaced(Context app, List<IslandNotice> surfaced);
+    }
+
+    private static final java.util.concurrent.CopyOnWriteArrayList<SurfaceListener> SURFACE = new java.util.concurrent.CopyOnWriteArrayList<SurfaceListener>();
+
+    public static void addSurfaceListener(SurfaceListener l) {
+        if (l != null) SURFACE.addIfAbsent(l);
+    }
+
+    static void fireSurfaced(Context app, NoticeCenter.Tick t) {
+        if (t == null || t.surfaced.isEmpty() || SURFACE.isEmpty()) return;
+        List<IslandNotice> copy = new ArrayList<IslandNotice>(t.surfaced);
+        for (SurfaceListener l : SURFACE) {
+            try {
+                l.onSurfaced(app, copy);
+            } catch (Throwable e) {
+                Log.w(TAG, "[NOTICE] 旁路监听异常（不影响上岛）: " + e.getClass().getSimpleName());
+            }
+        }
+    }
+
     /** 把中心的队列交给岛（t = 本次的变化；null = 只刷新、不展开）。 */
     static void present(Context ctx, NoticeCenter.Tick t) {
         Context app = ctx.getApplicationContext();
+        fireSurfaced(app, t);
         NoticeCenter c = center(app);
         List<IslandNotice> act = c.active();
         IslandHost.Channel ch = island();

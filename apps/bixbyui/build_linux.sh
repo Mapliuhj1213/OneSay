@@ -87,6 +87,8 @@ KEY_PASS_SRC="$(resolve_pass KEY_PASS KEY_PASS_FILE "")" || KEY_PASS_SRC="$KS_PA
 fi
 MAIL1="$ROOT/vendor/mail/android-mail-1.6.5.jar"
 MAIL2="$ROOT/vendor/mail/android-activation-1.6.5.jar"
+# 扫码配对用 ZXing core（Apache-2.0，libs/，见 THIRD_PARTY_NOTICES.md）
+ZXING="$ROOT/libs/zxing-core-3.5.3.jar"
 
 if [ -z "${VENDOR:-}" ]; then
   if [ -d "$ROOT/vendor/sherpa/java" ]; then VENDOR="$ROOT/vendor"
@@ -106,7 +108,7 @@ SHERPA_SRC="$VENDOR/sherpa/java"
 SHERPA_JAR="$VENDOR/sherpa/sherpa-onnx-classes.jar"
 
 for f in "$AAPT2" "$ZIPALIGN" "$JDK/javac" "$JDK/jar" "$JDK/java" "$PLATFORM" "$BT/lib/d8.jar" "$BT/lib/apksigner.jar" \
-         "$MAIL1" "$MAIL2" \
+         "$MAIL1" "$MAIL2" "$ZXING" \
          "$VENDOR/sherpa/jniLibs/arm64-v8a/libsherpa-onnx-jni.so" "$VENDOR/sherpa/jniLibs/arm64-v8a/libonnxruntime.so"; do
   [ -e "$f" ] || { echo "MISSING DEP: $f" >&2; exit 1; }
 done
@@ -212,7 +214,7 @@ SRC_DIRS=("$ROOT/app/src" "$OUT/gen")
 # OneSay monorepo：共享插件接口与插件（libs/plugin-api、libs/plugins/*）编进 App。ONESAY_LIBS 可覆盖位置。
 ONESAY_LIBS="${ONESAY_LIBS:-$ROOT/../../libs}"
 for d in "$ONESAY_LIBS"/plugin-api/src "$ONESAY_LIBS"/plugins/*/src; do [ -d "$d" ] && SRC_DIRS+=("$d"); done
-CP="$PLATFORM:$MAIL1:$MAIL2"
+CP="$PLATFORM:$MAIL1:$MAIL2:$ZXING"
 SHERPA_DEX_INPUT=()
 if [ -d "$SHERPA_SRC" ]; then
   SRC_DIRS+=("$SHERPA_SRC")
@@ -279,7 +281,7 @@ echo "[4/8] d8           (bytecode -> dex, min-api 24)"
 ( cd "$OUT/classes" && "$JDK/jar" cf "$OUT/classes.jar" . )
 "$JDK/java" -cp "$BT/lib/d8.jar" com.android.tools.r8.D8 \
   --min-api 24 --lib "$PLATFORM" --output "$OUT/dex" "$OUT/classes.jar" \
-  ${SHERPA_DEX_INPUT[@]+"${SHERPA_DEX_INPUT[@]}"} "$MAIL1" "$MAIL2"
+  ${SHERPA_DEX_INPUT[@]+"${SHERPA_DEX_INPUT[@]}"} "$MAIL1" "$MAIL2" "$ZXING"
 
 if grep -qa 'Lcom/onesay/assistant/v2/BuildVariant;' "$OUT/dex/classes.dex"; then
   echo "classes.dex 在运行期引用了 BuildVariant（app/variant/*/BuildVariant 只允许放编译期常量）" >&2; exit 1
