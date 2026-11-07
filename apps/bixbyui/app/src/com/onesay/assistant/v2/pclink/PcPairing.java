@@ -39,7 +39,7 @@ public final class PcPairing {
 
     /** 不合法抛 IllegalArgumentException（消息给人看，不含串内容）。 */
     public static PcPairing parse(String raw) {
-        String s = raw == null ? "" : raw.trim();
+        String s = normalize(raw);
         if (!s.startsWith(PREFIX)) throw new IllegalArgumentException("不是电脑端的配对码");
         Map<String, String> q = new LinkedHashMap<String, String>();
         for (String kv : s.substring(PREFIX.length()).split("&")) {
@@ -75,6 +75,25 @@ public final class PcPairing {
             throw new IllegalArgumentException("这个配对码只有中转、没有局域网；手机端暂时只支持同一个 Wi-Fi 下直连，请在电脑端打开局域网");
         }
         return new PcPairing(peer, k, hosts.toString(), lanPort, relay.length() > 0);
+    }
+
+    /** 手打 / 输入法转写容错：全角 ：？＆＝ 转半角，去掉空白，scheme 部分不分大小写（oss-device-1108：真机经输入法输入被拒「不是电脑端的配对码」）。 */
+    static String normalize(String raw) {
+        if (raw == null) return "";
+        StringBuilder b = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char ch = raw.charAt(i);
+            if (ch == '\uFF1A') ch = ':';
+            else if (ch == '\uFF1F') ch = '?';
+            else if (ch == '\uFF06') ch = '&';
+            else if (ch == '\uFF1D') ch = '=';
+            else if (ch == '\uFF0F') ch = '/';
+            if (Character.isWhitespace(ch)) continue;
+            b.append(ch);
+        }
+        String s = b.toString();
+        if (s.length() >= PREFIX.length() && s.substring(0, PREFIX.length()).equalsIgnoreCase(PREFIX)) s = PREFIX + s.substring(PREFIX.length());
+        return s;
     }
 
     public static boolean validId(String id) {

@@ -239,4 +239,16 @@ public class PcProtocolTest {
             assertEquals(s, PcVoice.Kind.NONE, PcVoice.of(s));
         }
     }
+
+    /** 输入法转写（全角标点、首字母大写、夹空格）后的配对码也要能认（oss-device-1108 真机）。 */
+    @Test public void pairingCodeToleratesImeTransliteration() {
+        String k = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g";
+        PcPairing p = PcPairing.parse("Onesay：//pair？peer＝fake-test-pc＆lan=192.0.2.1:47801 &key=" + k);
+        org.junit.Assert.assertEquals("fake-test-pc", p.peer);
+        try {
+            PcPairing.parse("http://example.com/?key=" + k);
+            org.junit.Assert.fail("非配对码要拒绝");
+        } catch (IllegalArgumentException expected) {
+        }
+    }
 }
