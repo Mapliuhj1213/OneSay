@@ -152,7 +152,7 @@ public final class ConsoleStatus {
     public static Hero hero(Snapshot s) {
         if (s.paused) return new Hero("已暂停", "唤醒已暂停", Level.OFF);
         int n = allProblems(s).size();
-        boolean critical = wake(s).level == Level.BAD || root(s).level == Level.BAD || daemon(s).level == Level.BAD;
+        boolean critical = wake(s).level == Level.BAD || root(s).level == Level.BAD;   // 按键守护胶囊已随 exec_daemon v4 移除
         if (critical) return new Hero("需要处理", "有 " + n + " 项要处理", Level.BAD);
         // r2/p0 P0-2：语音用不了时不能说「随时待命」—— 缺哪个就写哪个
         String voice = voiceBlockers(s);

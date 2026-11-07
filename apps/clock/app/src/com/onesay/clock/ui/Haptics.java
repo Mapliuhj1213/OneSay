@@ -40,8 +40,8 @@ public final class Haptics {
                     if (vib == null || !vib.hasVibrator()) {
                         return a.fallback >= 0 && v.performHapticFeedback(a.fallback);
                     }
-                    if (Build.VERSION.SDK_INT >= 29) {
-                        vib.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK));
+                    if (Build.VERSION.SDK_INT >= 29 && predefinedClick(vib)) {
+                        // API 29+: 系统预置点击效果（反射调用，编译基线 android-28）
                     } else if (Build.VERSION.SDK_INT >= 26) {
                         int amp = vib.hasAmplitudeControl() ? HapticMap.amplitude(a.code) : VibrationEffect.DEFAULT_AMPLITUDE;
                         vib.vibrate(VibrationEffect.createOneShot(HapticMap.oneShotMs(a.code), amp));
@@ -59,4 +59,13 @@ public final class Haptics {
     }
 
 
+
+    /** VibrationEffect.createPredefined(EFFECT_CLICK=0)：android-28 编译基线没有这个 API，用反射；失败返回 false 走 oneShot。 */
+    private static boolean predefinedClick(Vibrator vib) {
+        try {
+            java.lang.reflect.Method m = VibrationEffect.class.getMethod("createPredefined", int.class);
+            vib.vibrate((VibrationEffect) m.invoke(null, 0));
+            return true;
+        } catch (Throwable t) { return false; }
+    }
 }

@@ -11,7 +11,7 @@ public final class VibePattern {
     private VibePattern() { }
 
     public static final int ID_BASE = 50025, ID_MIN = 50025, ID_MAX = 50045;
-    public static final int BASIC_CALL = 50035;
+    public static final int BASIC_CALL_ID = 50035;
     /** 三星「Basic call」（config_vibeCommonK）。 */
     public static final long[] BASIC_CALL = {0L, 1500L, 2000L};
     /** 重复起点：整段循环。 */
