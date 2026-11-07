@@ -15,6 +15,7 @@ OneSay 自身以 Apache License 2.0 发布（见 `LICENSE`、`NOTICE`）。下�
 | phongent（部分代码移植） | `apps/bixbyui/app/src/com/onesay/assistant/plug/phongent/core/Pg*.java` 等 | https://github.com/mylea1/phongent @0b57e35 | Apache-2.0 | `NOTICE`、`licenses/Apache-2.0.txt` |
 | mermaid | `apps/bixbyui/app/assets/richout_mermaid.min.js` | 9.1.7，Copyright (c) 2014-2022 Knut Sveidqvist | MIT | `apps/bixbyui/app/assets/richout_LICENSES.txt` |
 | Chart.js | `apps/bixbyui/app/assets/richout_chart.umd.js` | 3.9.1，Copyright (c) 2014-2022 Chart.js Contributors | MIT | 同上 |
+| Poppins Bold（仅图标字形） | `apps/*/app/res/mipmap-*/ic_launcher*.png`、`apps/*/app/res/drawable-*/ic_launcher_fg*.png`（「One」桌面图标，字形渲染为位图；仓库与 APK 都不含字体文件） | Indian Type Foundry / Jonny Pinhorn | SIL OFL 1.1（不限制用其渲染出的图像） | https://openfontlicense.org |
 
 ## 只在测试时使用
 
