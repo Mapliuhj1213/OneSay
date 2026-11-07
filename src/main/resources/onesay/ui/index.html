@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OneSay</title>
+<style>
+/* 与手机计划 App 同一套：浅灰底、白色大圆角卡片、大标题、蓝色强调、文字 87% / 55% / 38%，每类一个颜色 */
+:root{
+  --bg:#F4F4F6; --card:#FFFFFF; --text:rgba(0,0,0,.87); --text2:rgba(0,0,0,.55); --text3:rgba(0,0,0,.38);
+  --line:rgba(0,0,0,.08); --accent:#0381FE; --red:#E5484D; --green:#1FA463;
+  --event:#3E7BFA; --todo:#FF9500; --ticket:#8E5CF7; --pickup:#1FA463; --auto:#00A3B4; --device:#5B6472;
+  --r:22px; --r-s:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:"Microsoft YaHei UI","PingFang SC","Noto Sans CJK SC","Noto Sans SC",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
+.app{display:flex;height:100vh}
+
+/* ---------- 侧栏 ---------- */
+.side{width:232px;flex:none;padding:22px 14px 16px;display:flex;flex-direction:column;gap:4px;border-right:1px solid var(--line);background:var(--bg)}
+.brand{display:flex;align-items:center;gap:10px;padding:0 10px 14px}
+.logo{width:30px;height:30px;border-radius:10px;background:linear-gradient(135deg,#0381FE,#00A3B4);display:grid;place-items:center;color:#fff;font-weight:700;font-size:15px}
+.brand b{font-size:18px;font-weight:600;letter-spacing:.2px}
+.devchip{margin:0 6px 14px;padding:10px 12px;border-radius:var(--r-s);background:var(--card);display:flex;align-items:center;gap:10px;font-size:13px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(31,164,99,.15);flex:none}
+.dot.off{background:#B5B8BE;box-shadow:none}
+.devchip .t{display:flex;flex-direction:column;line-height:1.35}
+.devchip .t span{color:var(--text3);font-size:12px}
+.grp{font-size:12px;color:var(--text3);padding:12px 12px 4px}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;color:var(--text);font-size:14px;width:100%;text-align:left}
+.nav:hover{background:rgba(0,0,0,.04)}
+.nav.on{background:var(--card);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.ic{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;color:#fff;font-size:12px;flex:none}
+.nav .n{margin-left:auto;color:var(--text3);font-size:12px;font-weight:400}
+.side .grow{flex:1}
+.ptt{margin:6px;padding:12px;border-radius:var(--r-s);background:var(--card);font-size:12px;color:var(--text2);line-height:1.6}
+.key{display:inline-block;min-width:44px;padding:1px 8px;border:1px solid rgba(0,0,0,.15);border-bottom-width:2px;border-radius:6px;font-size:11px;color:var(--text);background:#fafafa;text-align:center}
+
+/* ---------- 主区 ---------- */
+.main{flex:1;overflow:auto;padding:30px 40px 120px}
+.page{display:none;max-width:1000px;margin:0 auto}
+.page.on{display:block}
+.head{display:flex;align-items:flex-end;gap:16px;margin-bottom:22px}
+.head h1{font-size:34px;font-weight:600;letter-spacing:.5px;line-height:1.1}
+.head p{color:var(--text2);margin-top:8px;font-size:14px}
+.head .sp{flex:1}
+.btn{height:36px;padding:0 16px;border-radius:18px;background:var(--accent);color:#fff;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px}
+.btn.ghost{background:var(--card);color:var(--accent)}
+.btn.sm{height:30px;padding:0 12px;font-size:12px}
+.cols{display:grid;grid-template-columns:1.25fr 1fr;gap:20px;align-items:start}
+.sec{display:flex;align-items:center;gap:8px;margin:18px 6px 8px;font-size:13px;font-weight:600;color:var(--text2)}
+.sec:first-child{margin-top:0}
+.sec i{width:4px;height:14px;border-radius:2px}
+.sec span{font-weight:400;color:var(--text3)}
+.card{background:var(--card);border-radius:var(--r);padding:6px 0;overflow:hidden}
+.item{display:flex;align-items:center;gap:14px;padding:12px 20px;position:relative;min-height:58px}
+.item+.item:before{content:"";position:absolute;left:20px;right:20px;top:0;height:1px;background:var(--line)}
+.bar{width:4px;align-self:stretch;border-radius:2px;flex:none}
+.item .tx{flex:1;min-width:0}
+.item .tt{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .st{font-size:12.5px;color:var(--text2);margin-top:3px}
+.item.past .tt,.item.past .st{color:var(--text3)}
+.item.done .tt{color:var(--text3);text-decoration:line-through}
+.time{width:52px;flex:none;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600}
+.time small{display:block;font-weight:400;color:var(--text3);font-size:12px}
+.tag{font-size:11.5px;padding:3px 8px;border-radius:10px;background:rgba(0,0,0,.05);color:var(--text2);flex:none}
+.tag.red{background:rgba(229,72,77,.1);color:var(--red)}
+.tag.green{background:rgba(31,164,99,.1);color:var(--green)}
+.tag.blue{background:rgba(3,129,254,.1);color:var(--accent)}
+.pill{font-size:12px;font-weight:600;padding:5px 12px;border-radius:14px;flex:none}
+.chk{width:20px;height:20px;border-radius:50%;border:2px solid var(--todo);flex:none}
+.chk.on{background:var(--todo);position:relative}
+.chk.on:after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.code{font-size:22px;font-weight:600;letter-spacing:1px;font-variant-numeric:tabular-nums}
+.empty{padding:26px 20px;text-align:center;color:var(--text3);font-size:13px}
+.sw{width:42px;height:24px;border-radius:12px;background:#D4D6DA;position:relative;flex:none}
+.sw:after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.sw.on{background:var(--accent)}
+.sw.on:after{left:21px}
+.ticket{border-radius:var(--r);background:var(--card);padding:18px 22px;display:flex;gap:18px;align-items:center;margin-bottom:12px}
+.ticket .stn{text-align:center;min-width:90px}
+.ticket .stn b{font-size:24px;font-weight:600;display:block}
+.ticket .mid{flex:1;text-align:center;color:var(--text3);font-size:12px}
+.ticket .mid hr{border:0;border-top:1px dashed rgba(0,0,0,.2);margin:6px 0}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.tile{background:var(--card);border-radius:var(--r);padding:18px;display:flex;flex-direction:column;gap:10px;min-height:120px}
+.tile .tt{font-size:15px;font-weight:600}
+.tile .st{font-size:12.5px;color:var(--text2);line-height:1.5}
+.tile .row{display:flex;gap:6px;margin-top:auto}
+.kv{display:flex;align-items:center;gap:14px;padding:14px 20px;position:relative}
+.kv+.kv:before{content:"";position:absolute;left:20px;right:20px;top:0;height:1px;background:var(--line)}
+.kv .k{flex:1}
+.kv .k div{font-size:15px}
+.kv .k p{font-size:12.5px;color:var(--text2);margin-top:3px}
+.kv .v{color:var(--text2);font-size:13px}
+.field{height:32px;border-radius:10px;background:var(--bg);padding:0 12px;display:flex;align-items:center;min-width:220px;color:var(--text2);font-size:13px}
+.hero{background:var(--card);border-radius:var(--r);padding:22px 24px;display:flex;align-items:center;gap:18px;margin-bottom:6px}
+.hero .big{width:56px;height:56px;border-radius:18px;display:grid;place-items:center;color:#fff;font-size:24px;flex:none}
+.hero h2{font-size:20px;font-weight:600}
+.hero p{color:var(--text2);font-size:13px;margin-top:4px}
+.acts{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0 6px}
+.act{background:var(--card);border-radius:var(--r-s);padding:16px;display:flex;flex-direction:column;gap:8px;font-size:14px;font-weight:600;text-align:left}
+.act span{font-size:12px;color:var(--text3);font-weight:400}
+.act .ic{width:30px;height:30px;border-radius:10px;font-size:14px}
+.qr{width:150px;height:150px;border-radius:14px;background:#fff;border:1px solid var(--line);padding:10px}
+.log{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;color:var(--text2);line-height:1.9;padding:14px 20px}
+.log b{color:var(--text);font-weight:400}
+.note{font-size:12px;color:var(--text3);margin:10px 6px 0;line-height:1.6}
+
+/* ---------- 说话浮条（实际在屏幕底部居中，任何程序之上） ---------- */
+.voice{position:fixed;left:50%;bottom:34px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;transition:.18s;
+  background:#1F2228;color:#fff;border-radius:28px;padding:12px 24px;display:flex;align-items:center;gap:12px;font-size:15px;box-shadow:0 8px 30px rgba(0,0,0,.25);white-space:nowrap}
+.voice.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.voice .rec{width:10px;height:10px;border-radius:50%;background:#FF453A;animation:pulse 1s infinite}
+.wave{display:flex;gap:3px;align-items:center;height:18px}
+.wave i{width:3px;border-radius:2px;background:#fff;opacity:.85;animation:w .9s infinite ease-in-out}
+.wave i:nth-child(2){animation-delay:.15s}.wave i:nth-child(3){animation-delay:.3s}.wave i:nth-child(4){animation-delay:.45s}.wave i:nth-child(5){animation-delay:.6s}
+.voice .hint{color:rgba(255,255,255,.5);font-size:12px}
+.voice .ok{color:#30D158}
+@keyframes pulse{50%{opacity:.35}}
+@keyframes w{0%,100%{height:4px}50%{height:18px}}
+.demo{position:fixed;right:18px;bottom:18px;font-size:12px;color:var(--text3);background:var(--card);border-radius:12px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+/* ---------- 弹窗：设闹钟（设在手机上） ---------- */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.25);display:none;align-items:center;justify-content:center}
+.mask.on{display:flex}
+.sheet{width:420px;background:var(--card);border-radius:26px;padding:24px}
+.sheet h3{font-size:18px;font-weight:600}
+.sheet .sub{font-size:12.5px;color:var(--text2);margin-top:4px}
+.clock{font-size:56px;font-weight:300;text-align:center;margin:22px 0 10px;font-variant-numeric:tabular-nums;letter-spacing:2px}
+.days{display:flex;justify-content:center;gap:8px;margin-bottom:18px}
+.days span{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:13px;background:var(--bg);color:var(--text2)}
+.days span.on{background:var(--accent);color:#fff}
+.sheet .foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="logo">说</div><b>OneSay</b></div>
+    <div class="devchip"><i class="dot"></i><div class="t">我的手机在线<span>局域网 · 刚刚同步</span></div></div>
+
+    <div class="grp">计划</div>
+    <button class="nav on" data-p="today"><span class="ic" style="background:var(--accent)">今</span>今天</button>
+    <button class="nav" data-p="events"><span class="ic" style="background:var(--event)">日</span>日程<span class="n">4</span></button>
+    <button class="nav" data-p="todos"><span class="ic" style="background:var(--todo)">✓</span>待办<span class="n">3</span></button>
+    <button class="nav" data-p="tickets"><span class="ic" style="background:var(--ticket)">票</span>票夹<span class="n">2</span></button>
+    <button class="nav" data-p="pickups"><span class="ic" style="background:var(--pickup)">件</span>取件<span class="n">1</span></button>
+
+    <div class="grp">自动</div>
+    <button class="nav" data-p="autos"><span class="ic" style="background:var(--auto)">⟳</span>自动任务</button>
+    <button class="nav" data-p="shortcuts"><span class="ic" style="background:var(--auto)">⚡</span>快捷指令</button>
+
+    <div class="grp">设备</div>
+    <button class="nav" data-p="phone"><span class="ic" style="background:var(--device)">▯</span>手机</button>
+    <button class="nav" data-p="pc"><span class="ic" style="background:var(--device)">▭</span>这台电脑</button>
+
+    <div class="grow"></div>
+    <button class="nav" data-p="settings"><span class="ic" style="background:#8A8F98">⚙</span>设置</button>
+    <div class="ptt">按住 <span class="key">空格</span> 说话<br>松手执行，Esc 取消</div>
+  </aside>
+
+  <main class="main">
+    <!-- 今天 -->
+    <section class="page on" id="today">
+      <div class="head"><div><h1>今天</h1><p>11月8日 周日 · 2 个日程 · 3 件待办 · 1 个待取件</p></div><div class="sp"></div><button class="btn">＋ 新建</button></div>
+      <div class="cols">
+        <div>
+          <div class="sec"><i style="background:var(--event)"></i>日程 <span>2 个</span></div>
+          <div class="card">
+            <div class="item past"><div class="bar" style="background:var(--event)"></div><div class="time">09:30<small>1 小时</small></div><div class="tx"><div class="tt">周会</div><div class="st">线上 · 每周日</div></div><span class="tag">已过</span></div>
+            <div class="item"><div class="bar" style="background:var(--event)"></div><div class="time">15:00<small>2 小时</small></div><div class="tx"><div class="tt">牙医复诊</div><div class="st">提前 30 分钟提醒</div></div></div>
+          </div>
+          <div class="sec"><i style="background:var(--todo)"></i>待办 <span>3 件</span></div>
+          <div class="card">
+            <div class="item"><span class="chk"></span><div class="tx"><div class="tt">交电费</div><div class="st">今天 18:00 前</div></div><span class="tag red">今天到期</span></div>
+            <div class="item"><span class="chk"></span><div class="tx"><div class="tt">给开源仓库补 NOTICE</div><div class="st">无期限</div></div></div>
+            <div class="item"><span class="chk"></span><div class="tx"><div class="tt">买猫粮</div><div class="st">明天</div></div></div>
+            <div class="item done"><span class="chk on"></span><div class="tx"><div class="tt">回复房东</div><div class="st">已完成</div></div></div>
+          </div>
+        </div>
+        <div>
+          <div class="sec"><i style="background:var(--pickup)"></i>待取件 <span>1 个</span></div>
+          <div class="card">
+            <div class="item"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="code">6-2-3015</div><div class="st">菜鸟驿站 · 东门 · 今天 20:00 前</div></div><button class="pill" style="background:rgba(31,164,99,.1);color:var(--pickup)">已取</button></div>
+          </div>
+          <div class="sec"><i style="background:var(--ticket)"></i>临近的票 <span>1 张</span></div>
+          <div class="card">
+            <div class="item"><div class="bar" style="background:var(--ticket)"></div><div class="tx"><div class="tt">G1234 上海虹桥 → 北京南</div><div class="st">明天 08:00 · 05 车 12F</div></div><button class="pill" style="background:rgba(142,92,247,.1);color:var(--ticket)">出示</button></div>
+          </div>
+          <div class="sec"><i style="background:var(--auto)"></i>今天会跑的自动任务 <span>2 个</span></div>
+          <div class="card">
+            <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">晚上 11 点手机勿扰</div><div class="st">23:00 · 手机</div></div></div>
+            <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">下班模式</div><div class="st">18:30 · 这台电脑 · 快捷指令</div></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 日程 -->
+    <section class="page" id="events">
+      <div class="head"><div><h1>日程</h1><p>接下来 30 天 · 共 4 条日程</p></div><div class="sp"></div><button class="btn">＋ 新日程</button></div>
+      <div class="sec"><i style="background:var(--event)"></i>今天 · 周日</div>
+      <div class="card">
+        <div class="item past"><div class="bar" style="background:var(--event)"></div><div class="time">09:30</div><div class="tx"><div class="tt">周会</div><div class="st">09:30–10:30 · 每周日</div></div><span class="tag">已过</span></div>
+        <div class="item"><div class="bar" style="background:var(--event)"></div><div class="time">15:00</div><div class="tx"><div class="tt">牙医复诊</div><div class="st">15:00–17:00</div></div></div>
+      </div>
+      <div class="sec"><i style="background:var(--event)"></i>明天 · 周一</div>
+      <div class="card">
+        <div class="item"><div class="bar" style="background:var(--event)"></div><div class="time">08:00</div><div class="tx"><div class="tt">出发去北京</div><div class="st">G1234 · 来自票夹</div></div></div>
+      </div>
+      <div class="sec"><i style="background:var(--event)"></i>11月14日 · 周六</div>
+      <div class="card">
+        <div class="item"><div class="bar" style="background:var(--event)"></div><div class="time">19:00</div><div class="tx"><div class="tt">朋友生日聚餐</div><div class="st">19:00–21:00</div></div></div>
+      </div>
+    </section>
+
+    <!-- 待办 -->
+    <section class="page" id="todos">
+      <div class="head"><div><h1>待办</h1><p>还有 3 件没做</p></div><div class="sp"></div><button class="btn">＋ 记一条</button></div>
+      <div class="card">
+        <div class="item"><span class="chk"></span><div class="tx"><div class="tt">交电费</div><div class="st">今天 18:00 前</div></div><span class="tag red">今天到期</span></div>
+        <div class="item"><span class="chk"></span><div class="tx"><div class="tt">买猫粮</div><div class="st">明天</div></div></div>
+        <div class="item"><span class="chk"></span><div class="tx"><div class="tt">给开源仓库补 NOTICE</div><div class="st">无期限</div></div></div>
+      </div>
+      <div class="sec"><i style="background:var(--text3)"></i>已完成 <span>1 件</span></div>
+      <div class="card"><div class="item done"><span class="chk on"></span><div class="tx"><div class="tt">回复房东</div><div class="st">今天 10:12 完成</div></div></div></div>
+    </section>
+
+    <!-- 票夹 -->
+    <section class="page" id="tickets">
+      <div class="head"><div><h1>票夹</h1><p>2 张待用</p></div></div>
+      <div class="ticket"><div class="stn"><b>08:00</b>上海虹桥</div><div class="mid">G1234 · 明天<hr>5 小时 28 分</div><div class="stn"><b>13:28</b>北京南</div><div style="border-left:1px dashed rgba(0,0,0,.15);padding-left:18px"><div style="font-size:12px;color:var(--text3)">座位</div><div style="font-size:18px;font-weight:600">05 车 12F</div></div><span class="tag red">快出发</span></div>
+      <div class="ticket"><div class="stn"><b>19:30</b>大剧院</div><div class="mid">话剧 · 11月21日<hr>检票口 B</div><div class="stn"><b>2 楼</b>3 排 8 座</div><div style="border-left:1px dashed rgba(0,0,0,.15);padding-left:18px"><div style="font-size:12px;color:var(--text3)">取票码</div><div style="font-size:18px;font-weight:600">483 920</div></div><span class="tag">2 周后</span></div>
+      <p class="note">票从手机通知和短信里自动收进来，电脑这边同步显示。点「出示」在电脑上放大二维码。</p>
+    </section>
+
+    <!-- 取件 -->
+    <section class="page" id="pickups">
+      <div class="head"><div><h1>取件</h1><p>1 个待取</p></div></div>
+      <div class="card">
+        <div class="item"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="code">6-2-3015</div><div class="st">菜鸟驿站 · 东门 · 今天 20:00 前 · 来自短信</div></div><button class="pill" style="background:rgba(31,164,99,.1);color:var(--pickup)">已取</button></div>
+      </div>
+      <div class="sec"><i style="background:var(--text3)"></i>最近取过 <span>2 个</span></div>
+      <div class="card">
+        <div class="item past"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="tt">丰巢 · 取件码 902117</div><div class="st">11月6日 取走</div></div></div>
+        <div class="item past"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="tt">菜鸟驿站 · 3-1-0822</div><div class="st">11月3日 取走</div></div></div>
+      </div>
+    </section>
+
+    <!-- 自动任务 -->
+    <section class="page" id="autos">
+      <div class="head"><div><h1>自动任务</h1><p>4 个 · 3 个开着</p></div><div class="sp"></div><button class="btn">＋ 新建</button></div>
+      <div class="sec"><i style="background:var(--auto)"></i>定时任务</div>
+      <div class="card">
+        <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">晚上 11 点手机勿扰</div><div class="st">每天 23:00 · 在手机上执行</div></div><span class="tag">手机</span><span class="sw on"></span></div>
+        <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">下班模式</div><div class="st">工作日 18:30 · 运行快捷指令「下班模式」</div></div><span class="tag blue">电脑</span><span class="sw on"></span></div>
+      </div>
+      <div class="sec"><i style="background:var(--auto)"></i>自动任务（条件触发）</div>
+      <div class="card">
+        <div class="item"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">手机连上家里 Wi-Fi → 电脑亮屏</div><div class="st">触发：手机 · 动作：电脑</div></div><span class="tag">跨设备</span><span class="sw on"></span></div>
+        <div class="item past"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">电脑锁屏 → 手机静音</div><div class="st">已关闭</div></div><span class="tag">跨设备</span><span class="sw"></span></div>
+      </div>
+      <p class="note">每条任务标明在哪台设备上执行。对方离线时不排队，到点直接记一笔「没执行：手机离线」。</p>
+    </section>
+
+    <!-- 快捷指令 -->
+    <section class="page" id="shortcuts">
+      <div class="head"><div><h1>快捷指令</h1><p>说名字就执行，只回一句「正在执行快捷指令」</p></div><div class="sp"></div><button class="btn ghost">打开文件夹</button></div>
+      <div class="grid3">
+        <div class="tile"><span class="tag blue" style="align-self:flex-start">电脑</span><div class="tt">下班模式</div><div class="st">关掉工作软件、静音、锁屏</div><div class="row"><button class="btn sm">运行</button></div></div>
+        <div class="tile"><span class="tag blue" style="align-self:flex-start">电脑</span><div class="tt">备份照片</div><div class="st">把图片文件夹同步到移动硬盘</div><div class="row"><button class="btn sm">运行</button></div></div>
+        <div class="tile"><span class="tag" style="align-self:flex-start">手机</span><div class="tt">回家</div><div class="st">开 Wi-Fi、关数据、媒体音量 50%</div><div class="row"><button class="btn sm">在手机上运行</button></div></div>
+      </div>
+      <p class="note">电脑的快捷指令是快捷指令文件夹里的 .ps1 / .bat 脚本，60 秒超时；手机的来自手机计划 App。成败由你判断，不做「点屏幕重放」。</p>
+    </section>
+
+    <!-- 手机 -->
+    <section class="page" id="phone">
+      <div class="head"><div><h1>手机</h1><p>在线 · 局域网 192.168.1.23 · 刚刚同步</p></div></div>
+      <div class="hero"><div class="big" style="background:var(--device)">▯</div><div style="flex:1"><h2>我的手机</h2><p>计划、自动任务双向同步 · 关机或断网时这里显示离线</p></div><span class="tag green">在线</span></div>
+      <div class="acts">
+        <button class="act" onclick="alarm(true)"><span class="ic" style="background:var(--todo)">⏰</span>设闹钟<span>在手机上响</span></button>
+        <button class="act"><span class="ic" style="background:var(--event)">⎙</span>截手机屏<span>传到电脑</span></button>
+        <button class="act"><span class="ic" style="background:var(--auto)">⇄</span>互传剪贴板<span>文字和图片</span></button>
+        <button class="act"><span class="ic" style="background:var(--red)">♪</span>找手机<span>静音也响</span></button>
+      </div>
+      <div class="sec"><i style="background:var(--todo)"></i>手机上的闹钟 <span>来自 OneSay 时钟</span></div>
+      <div class="card">
+        <div class="item"><div class="time" style="width:64px;font-size:22px;font-weight:300">07:00</div><div class="tx"><div class="tt">起床</div><div class="st">工作日 · 播报天气和新闻</div></div><span class="sw on"></span></div>
+        <div class="item"><div class="time" style="width:64px;font-size:22px;font-weight:300">06:20</div><div class="tx"><div class="tt">赶高铁</div><div class="st">仅明天 · 电脑上设的</div></div><span class="sw on"></span></div>
+        <div class="item past"><div class="time" style="width:64px;font-size:22px;font-weight:300">13:30</div><div class="tx"><div class="tt">午休</div><div class="st">每天</div></div><span class="sw"></span></div>
+      </div>
+      <p class="note">电脑上没有闹钟 App：在这里设的闹钟会发到手机，由手机响。手机离线时直接提示「手机离线，没设上」，不偷偷排队。</p>
+    </section>
+
+    <!-- 这台电脑 -->
+    <section class="page" id="pc">
+      <div class="head"><div><h1>这台电脑</h1><p>pc-desktop · 局域网端口 47820 · 中转未启用</p></div></div>
+      <div class="cols">
+        <div>
+          <div class="sec"><i style="background:var(--device)"></i>手机能让它做的事</div>
+          <div class="card">
+            <div class="kv"><div class="k"><div>截图、打开网址、剪贴板</div><p>默认开启</p></div><span class="tag green">开</span></div>
+            <div class="kv"><div class="k"><div>锁屏、音量、播放控制</div><p>Windows</p></div><span class="tag green">开</span></div>
+            <div class="kv"><div class="k"><div>打开程序</div><p>只开设置里列出的 2 个</p></div><span class="tag green">开</span></div>
+            <div class="kv"><div class="k"><div>取文件</div><p>只限「共享给手机」文件夹，单个 ≤ 5 MB</p></div><span class="tag">关</span></div>
+            <div class="kv"><div class="k"><div>睡眠、关机</div><p>必须明确说「确认关机」，60 秒内可取消</p></div><span class="tag green">开</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="sec"><i style="background:var(--device)"></i>最近</div>
+          <div class="card log">
+            <div><b>00:21</b> 手机 → 截图 · 成功</div>
+            <div><b>00:18</b> 语音「打开B站」· 成功</div>
+            <div><b>00:12</b> 手机 → 音量调小 · 成功</div>
+            <div><b>00:05</b> 拒绝 未配对设备 的连接</div>
+            <div><b>23:59</b> 手机 上线（局域网）</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 设置 -->
+    <section class="page" id="settings">
+      <div class="head"><div><h1>设置</h1><p>OneSay 电脑端 0.4</p></div></div>
+      <div class="cols">
+        <div>
+          <div class="sec"><i style="background:var(--accent)"></i>连接</div>
+          <div class="card">
+            <div class="kv"><div class="k"><div>局域网直连</div><p>同一个路由器下即可，不需要账号和服务器</p></div><span class="sw on"></span></div>
+            <div class="kv"><div class="k"><div>端口</div><p>发现用下一个端口（47821）</p></div><div class="field" style="min-width:90px">47820</div></div>
+            <div class="kv"><div class="k"><div>中转（插件）</div><p>不在同一个 Wi-Fi 也要控制时再开，需自建</p></div><span class="sw"></span></div>
+          </div>
+          <div class="sec"><i style="background:var(--accent)"></i>说话</div>
+          <div class="card">
+            <div class="kv"><div class="k"><div>按住空格说话</div><p>按住 0.35 秒开始听，短按照常打空格</p></div><span class="sw on"></span></div>
+            <div class="kv"><div class="k"><div>识别 Key</div><p>百炼 DashScope，自己申请</p></div><div class="field">sk-••••••••••••</div></div>
+            <div class="kv"><div class="k"><div>这些程序里不拦空格</div><p>全屏和管理员窗口本来就不拦</p></div><div class="field">mstsc.exe</div></div>
+          </div>
+          <div class="sec"><i style="background:var(--accent)"></i>电脑能力</div>
+          <div class="card">
+            <div class="kv"><div class="k"><div>可打开的程序</div><p>微信、VS Code</p></div><button class="btn ghost sm">管理</button></div>
+            <div class="kv"><div class="k"><div>共享给手机的文件夹</div><p>未设置</p></div><button class="btn ghost sm">选择</button></div>
+            <div class="kv"><div class="k"><div>快捷指令文件夹</div><p>文档\OneSay\快捷指令</p></div><button class="btn ghost sm">更改</button></div>
+            <div class="kv"><div class="k"><div>开机自动启动</div><p>启动后只在托盘</p></div><span class="sw on"></span></div>
+          </div>
+        </div>
+        <div>
+          <div class="sec"><i style="background:var(--accent)"></i>配对手机</div>
+          <div class="card" style="padding:20px;display:flex;gap:18px;align-items:center">
+            <svg class="qr" viewBox="0 0 21 21" shape-rendering="crispEdges"><g fill="#111" id="qr"></g></svg>
+            <div style="font-size:13px;color:var(--text2);line-height:1.7">用手机 OneSay 扫码配对。<br>这个码就是钥匙，<br>别截图发给别人。<br><button class="btn ghost sm" style="margin-top:10px;padding:0">换一把钥匙</button></div>
+          </div>
+          <div class="sec"><i style="background:var(--accent)"></i>已配对</div>
+          <div class="card">
+            <div class="kv"><div class="k"><div>我的手机</div><p>局域网 · 在线</p></div><button class="btn ghost sm" style="color:var(--red)">移除</button></div>
+          </div>
+          <p class="note">配对后两边的计划、自动任务自动同步；每条指令都用这把钥匙签名，中转和局域网里的其他人都伪造不了。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="voice" id="voice"></div>
+<button class="demo" onclick="cycle()">演示：说话浮条 ▸</button>
+
+<div class="mask" id="alarm" onclick="if(event.target===this)alarm(false)">
+  <div class="sheet">
+    <h3>设闹钟</h3><div class="sub">会设在「我的手机」上，由手机响</div>
+    <div class="clock">06:20</div>
+    <div class="days"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+    <div class="kv" style="padding:12px 0"><div class="k"><div>名字</div></div><div class="field" style="min-width:200px">赶高铁</div></div>
+    <div class="kv" style="padding:12px 0"><div class="k"><div>响铃时播报天气</div></div><span class="sw on"></span></div>
+    <div class="foot"><button class="btn ghost" onclick="alarm(false)">取消</button><button class="btn" onclick="alarm(false)">设到手机</button></div>
+  </div>
+</div>
+
+<script>
+// 只做切页和演示，不接任何功能
+document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('on',p.id===b.dataset.p));
+});
+function alarm(on){document.getElementById('alarm').classList.toggle('on',on)}
+const V=document.getElementById('voice');
+const S=[
+  '',
+  '<i class="rec"></i>正在听<span class="wave"><i></i><i></i><i></i><i></i><i></i></span><span class="hint">松手执行 · Esc 取消</span>',
+  '识别中…',
+  '「打开B站」<span class="ok">✓ 打开B站</span>',
+  '「确认关机」<span class="ok">✓ 60 秒后关机</span><span class="hint">说「取消关机」可撤回</span>',
+  '「关机」<span class="hint">关机要说「确认关机」</span>',
+  '没听到声音'
+];
+let k=0;function cycle(){k=(k+1)%S.length;V.innerHTML=S[k];V.classList.toggle('show',k>0)}
+// 示意二维码（不是真码）
+(function(){const g=document.getElementById('qr');let s=7;function r(){s=(s*9301+49297)%233280;return s/233280}
+ function box(x,y){for(let i=0;i<7;i++)for(let j=0;j<7;j++){const e=i==0||j==0||i==6||j==6||(i>1&&i<5&&j>1&&j<5);if(e)g.insertAdjacentHTML('beforeend',`<rect x="${x+i}" y="${y+j}" width="1" height="1"/>`)}}
+ box(0,0);box(14,0);box(0,14);
+ for(let x=0;x<21;x++)for(let y=0;y<21;y++){if((x<8&&y<8)||(x>12&&y<8)||(x<8&&y>12))continue;if(r()>.55)g.insertAdjacentHTML('beforeend',`<rect x="${x}" y="${y}" width="1" height="1"/>`)}})();
+</script>
+</body>
+</html>
