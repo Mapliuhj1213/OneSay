@@ -73,6 +73,10 @@ final class AndroidAlarmLink implements AlarmBridge.Link {
 
     @Override
     public AlarmBridge.ClockReply callClock(AlarmBridge.ClockCmd cmd) {
+        // [companion] 时钟伴侣连接通（同证书 + link.hello 版本 / 能力都对）→ 走 createAlarm / listAlarms / deleteAlarm / toggleAlarm；
+        //   结果格式与有序广播的 resultCode / resultData 一致。连接不通（旧时钟没有 link provider）→ 下面的有序广播照旧。
+        AlarmBridge.ClockReply viaLink = callClockViaLink(cmd);
+        if (viaLink != null) return viaLink;
         Intent i = new Intent(cmd.action).setPackage(AlarmBridge.CLOCK_PKG)
                 .addFlags(Intent.FLAG_RECEIVER_FOREGROUND | Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
         if (cmd.id > 0) i.putExtra("id", cmd.id);
@@ -100,6 +104,26 @@ final class AndroidAlarmLink implements AlarmBridge.Link {
             return null;
         }
         return new AlarmBridge.ClockReply(code[0], AlarmBridge.parseDumpJson(data[0]));
+    }
+
+    AlarmBridge.ClockReply callClockViaLink(AlarmBridge.ClockCmd cmd) {
+        try {
+            com.onesay.assistant.v2.companion.CompanionLink l = com.onesay.assistant.v2.companion.CompanionLink.get(ctx);
+            if (!l.state(com.onesay.assistant.v2.companion.CompanionLink.Peer.CLOCK).ready()) return null;
+            String fn = com.onesay.assistant.v2.companion.CompanionAlarm.function(cmd.action);
+            if (fn == null) return null;
+            android.os.Bundle x = new android.os.Bundle();
+            if (cmd.id > 0) x.putInt("id", cmd.id);
+            if (cmd.hour >= 0) x.putInt("hour", cmd.hour);
+            if (cmd.minute >= 0) x.putInt("minute", cmd.minute);
+            x.putInt("days", cmd.days);
+            x.putBoolean("on", cmd.on);
+            android.os.Bundle b = new com.onesay.assistant.v2.companion.CompanionClient(ctx).clock(fn, x);
+            return new AlarmBridge.ClockReply(b.getInt("code", AlarmBridge.RC_NONE), AlarmBridge.parseDumpJson(b.getString("data", null)));
+        } catch (Throwable t) {
+            Log.w(TAG, "伴侣连接调用时钟失败，改用有序广播: " + t.getClass().getSimpleName());
+            return null;
+        }
     }
 
     @Override

@@ -46,6 +46,11 @@ public final class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        // 伴侣连接：后台反查一次助手状态（只记日志 [LINK]，不阻塞界面；没装助手 = 什么都不做）
+        final android.content.Context appCtx = getApplicationContext();
+        new Thread(new Runnable() {
+            @Override public void run() { com.onesay.plan.platform.AssistantLink.query(appCtx, com.onesay.plan.core.LinkContract.F_GET_ASSISTANT_STATUS); }
+        }, "assistant-link").start();
         Window w = getWindow();
         w.setStatusBarColor(Ui.BG);
         w.setNavigationBarColor(Color.WHITE);

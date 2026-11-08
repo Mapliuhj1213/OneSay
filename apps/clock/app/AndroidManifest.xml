@@ -4,8 +4,10 @@
     android:versionCode="8"
     android:versionName="0.1.6">
 
-    <!-- 给 OneSay 发 BRIEF_STATE：OneSay 的接收器受 signature 级权限保护，只有同一证书签名时系统才授予 -->
-    <uses-permission android:name="com.onesay.assistant.permission.CONTROL" />
+    <!-- 给 OneSay 发 BRIEF_STATE / 反查助手（伴侣连接）：OneSay 的接收器受 signature 级权限保护，只有同一证书签名时系统才授予。
+         ${assistantAppId} 是构建占位符：build_linux.sh（debug）填 com.onesay.assistant.debug、build_release.sh 填 com.onesay.assistant，
+         ASSISTANT_APP_ID 可覆盖；与助手 debug 包的权限改名（…assistant.debug.permission.CONTROL）一一对应（11-08 真机：原先写死 release 名，debug 组合收不到）。 -->
+    <uses-permission android:name="${assistantAppId}.permission.CONTROL" />
 
     <!-- 对外闹钟接口（AlarmApiReceiver）的调用权限：signature 级，只授予与 Clock 同一证书签名的 App（OneSay 助手）。
          OneSay 助手清单里也声明了同名权限（同证书可重复声明），先装哪个都能授予。不内置任何证书指纹。 -->
@@ -77,6 +79,13 @@
                 <action android:name="com.onesay.clock.action.ALARM_QUERY" />
             </intent-filter>
         </receiver>
+        <!-- 伴侣连接（core/LinkContract）：只有 call()（link.hello / createAlarm / listAlarms / deleteAlarm / toggleAlarm / getBriefStatus）。
+             导出，受 signature 级 ALARM_CONTROL 保护，代码里再验同证书（provider 的 call() 系统不查权限，必须自己查）。 -->
+        <provider android:name=".api.LinkProvider" android:authorities="com.onesay.clock.link"
+            android:exported="true" android:grantUriPermissions="false"
+            android:permission="com.onesay.clock.permission.ALARM_CONTROL" />
+        <!-- 伴侣连接：配对的助手包名（构建占位符，见上） -->
+        <meta-data android:name="com.onesay.link.ASSISTANT" android:value="${assistantAppId}" />
         <!-- 调试入口：不导出，只有 root am broadcast -n 能到 -->
         <receiver android:name=".ControlReceiver" android:exported="false" />
     </application>

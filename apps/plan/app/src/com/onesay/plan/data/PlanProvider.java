@@ -225,6 +225,8 @@ public final class PlanProvider extends ContentProvider {
         Context c = getContext();
         Bundle out = new Bundle();
         try {
+            // 伴侣连接（link.hello + createTask / deleteTask …，见 core/LinkContract）：门卫已放行
+            if (com.onesay.plan.core.LinkContract.isLinkMethod(method)) return LinkCalls.call(c, method, extras, who.pkg);
             if (Contract.M_PING.equals(method)) {
                 out.putInt("schema", Contract.SCHEMA_VERSION);
                 out.putString("version", Settings.versionName(c));

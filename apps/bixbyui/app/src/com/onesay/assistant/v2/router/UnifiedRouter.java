@@ -258,6 +258,9 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         // ★ feat/shortcuts：说的是已存快捷指令（名字 / 存下时的原话）→ 交给 AgentLoop 入口，由 runAgentLoop 开头按快捷指令执行
         //   （排在密钥检查之前：快捷指令本身不需要模型；只有「问模型」这步和失败后的正常模式要）
         if (com.onesay.assistant.v2.shortcut.ShortcutHooks.matches(mContext, query)) return true;
+        // [companion] 自家计划 / 时钟 App 在场（装了且同证书）：待办 / 日程 / 闹钟句只走伴侣连接与规则层，永不进 AgentLoop
+        //   （排在诊断插件 wantsAgentLoop 与分诊之前；不在场 = 原回落不变）
+        if (mContext != null && com.onesay.assistant.v2.companion.CompanionHooks.claims(mContext, query)) return false;
         if (!mL2.hasApiKey()) return false;
         if (mL1.selfTestRoute(query) != null) return false;
         // ★ int/1102：triage-fast 快路径（整句模板 / 零 LLM 多意图计划）优先 —— 命中就永不进 AgentLoop，诊断判断排在它之后

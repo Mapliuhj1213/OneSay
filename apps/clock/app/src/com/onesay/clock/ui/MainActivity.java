@@ -37,6 +37,11 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        // 伴侣连接：后台反查一次助手状态（只记日志 [LINK]；没装助手 = 什么都不做）
+        final android.content.Context appCtx = getApplicationContext();
+        new Thread(new Runnable() {
+            @Override public void run() { com.onesay.clock.api.AssistantLink.query(appCtx, com.onesay.clock.core.LinkContract.F_GET_ASSISTANT_STATUS); }
+        }, "assistant-link").start();
         Ui.window(this);
         prefs = new Prefs(this);
         FrameLayout root = new FrameLayout(this);

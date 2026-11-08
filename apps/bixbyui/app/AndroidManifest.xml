@@ -378,6 +378,18 @@
             </intent-filter>
         </receiver>
 
+        <!-- [companion] 伴侣连接：计划 / 时钟反查助手（有序广播 com.onesay.link.action.QUERY → link.hello / getAssistantStatus，只读）。
+             signature 级 CONTROL 保护（debug 包随 build_linux.sh 改名为 .debug，计划 / 时钟清单里用占位符 ${assistantAppId} 生成 uses-permission）。
+             设计见 docs/COMPANION_LINK.md。 -->
+        <receiver
+            android:name="com.onesay.assistant.v2.companion.CompanionLinkReceiver"
+            android:exported="true"
+            android:permission="com.onesay.assistant.permission.CONTROL">
+            <intent-filter>
+                <action android:name="com.onesay.link.action.QUERY" />
+            </intent-filter>
+        </receiver>
+
         <!-- [soul] r2/soul-memory：每日记忆整理（JobScheduler，充电 + 空闲 + 有网，每天最多一次；纯规则不调模型）。
              BIND_JOB_SERVICE 只有系统能绑定，不导出。 -->
         <service

@@ -11,7 +11,10 @@ import java.io.FileOutputStream;
 import java.util.Map;
 
 /**
- * 播报状态 → files/state.json + BRIEF_STATE 广播（给自己和 OneSay：setPackage("com.onesay.assistant")，未安装无副作用）。
+ * 播报状态 → files/state.json + BRIEF_STATE 广播（给自己和配对的 OneSay 助手，未安装无副作用）。
+ * 伴侣连接：助手包名不再写死 com.onesay.assistant —— 取清单 meta-data（构建占位符 ${assistantAppId}，debug 构建 = …assistant.debug），
+ * 发送方权限（uses-permission ${assistantAppId}.permission.CONTROL）同源生成，所以 debug 组合下也能投递（11-08 真机：原先 debug 助手收不到）。
+ * 助手收到后经 api/LinkProvider 的 getBriefStatus 对账（不要 root）。
  * 格式见 docs/02-BRIEF_STATE接口.md。
  */
 public final class StateBus {
@@ -36,7 +39,8 @@ public final class StateBus {
         }
         try {
             c.sendBroadcast(new Intent(i).setPackage(c.getPackageName()));
-            c.sendBroadcast(new Intent(i).setPackage(BIXBYUI));
+            String to = com.onesay.clock.api.AssistantLink.assistantPkg(c);
+            c.sendBroadcast(new Intent(i).setPackage(to != null ? to : BIXBYUI));
         } catch (Throwable ignored) { }
     }
 }

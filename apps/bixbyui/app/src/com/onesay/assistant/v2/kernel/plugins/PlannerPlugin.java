@@ -35,9 +35,13 @@ public final class PlannerPlugin extends FeaturePlugin {
         }
     }
 
-    @Override public Invocation route(Context ctx, String query, L2LLMCompiler l2) { return PlannerHooks.route(ctx, query); }
+    /** [companion] 伴侣连接先判（删 / 改待办经连接执行；其余 CLAIM 返回 null 交回原规则层），再走计划 App 的取件码 / 票 / 今天。 */
+    @Override public Invocation route(Context ctx, String query, L2LLMCompiler l2) {
+        Invocation c = com.onesay.assistant.v2.companion.CompanionHooks.route(ctx, query);
+        return c != null ? c : PlannerHooks.route(ctx, query);
+    }
     @Override public String routeLog() { return "[ROUTE-PLANNER] 计划 App 接管: "; }
-    @Override public boolean claims(Context ctx, String query) { return PlannerHooks.claims(ctx, query); }
+    @Override public boolean claims(Context ctx, String query) { return com.onesay.assistant.v2.companion.CompanionHooks.claims(ctx, query) || PlannerHooks.claims(ctx, query); }
     @Override public String[] triageRules() { return new String[]{"6k-ticket-save"}; }
     /** 「帮我记下这张票」带「这张」、★ 11-06「A1-2345 这个取件码在哪取」带「这个」，不能让识屏 DEIXIS 先接走。 */
     @Override public boolean bypassScreenRef(Context ctx, String command) {
@@ -70,6 +74,6 @@ public final class PlannerPlugin extends FeaturePlugin {
                 });
     }
 
-    @Override public String debugStatus(Context ctx) { return PlannerHooks.debugStatus(ctx); }
+    @Override public String debugStatus(Context ctx) { return PlannerHooks.debugStatus(ctx) + "\n" + com.onesay.assistant.v2.companion.CompanionHooks.debugStatus(ctx); }
     @Override public String[] dependsOn() { return new String[]{"s3", "sched"}; }
 }
