@@ -24,7 +24,7 @@
 #   DEBUG     0（默认，release）/ 1（debug）
 #             独立 debug 变体：DEBUG=1 产出可与 release 同时安装的包 ——
 #               applicationId com.onesay.assistant.debug（aapt2 --rename-manifest-package；Java 包名不变）、
-#               应用名「OneSay Debug」+ 橙底「D」角标图标（app/res-debug 覆盖层）、签名级权限 / 测试广播 action 带 .debug、
+#               应用名「OneSay Debug」+ 带黄色「D」角标的图标（app/res-debug 覆盖层）、签名级权限 / 测试广播 action 带 .debug、
 #               用 debug.keystore 签名、输出 out-debug/bixbyui-debug.apk；代码里的变体差异只经 app/variant/<变体>/BuildVariant
 #               编译期常量注入（release 的 dex 因此与引入前逐字节一致）。DEBUG=0 的产物与之前逐项一致。
 #             release 不编译 app/src/com/onesay/assistant/v2/test/**（V2SelfTest、TestRunReceiver），
@@ -143,7 +143,7 @@ mkdir -p "$OUT/gen" "$OUT/classes" "$OUT/dex"
 echo "[1/8] aapt2 compile (resources -> flat zip)"
 "$AAPT2" compile --dir "$ROOT/app/res" -o "$OUT/res.zip"
 if [ "$DEBUG" = "1" ]; then
-  # debug 覆盖层：@color/icbg 换色、@mipmap/ic_launcher 换成带「D」角标的前景（release 不编译这一目录）
+  # debug 覆盖层：@mipmap/ic_launcher(_round) 换成带「D」角标的前景（release 不编译这一目录）
   "$AAPT2" compile --dir "$ROOT/app/res-debug" -o "$OUT/res-debug.zip"
 fi
 

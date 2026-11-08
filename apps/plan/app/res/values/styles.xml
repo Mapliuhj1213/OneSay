@@ -2,7 +2,7 @@
 <resources>
     <color name="bg">#FFF4F4F6</color>
     <color name="accent">#FF0381FE</color>
-    <color name="icbg">#FF0381FE</color>
+    <color name="icbg">#FFFFFFFF</color>
     <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:colorAccent">@color/accent</item>
