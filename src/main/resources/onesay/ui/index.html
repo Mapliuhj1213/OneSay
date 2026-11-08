@@ -265,13 +265,13 @@ let S=null, page='today', pending=false;
 
 // ---------- 演示数据（直接用浏览器打开文件时） ----------
 const now=Date.now(), H=3600e3, D=24*H, t0=new Date(new Date().toDateString()).getTime();
-const DEMO={version:'0.5.1',phone_level:'',phone_level_zh:'',pc_level:'auto',pc_sandbox:'workspace_write',pc_approval:'untrusted',plugin_enabled:true,workspace:'C:\\Users\\me\\OneSay\\workspace',confirms:[],tls_fp:'1A2B-3C4D',phone:'my-phone',device:'pc-desktop',voice:'长按空格说话',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
+const DEMO={version:'0.5.1',phone_level:'',phone_level_zh:'',pc_level:'auto',pc_sandbox:'workspace_write',pc_approval:'untrusted',plugin_enabled:true,workspace:'C:\\Users\\me\\OneSay\\workspace',confirms:[],tls_fp:'1A2B-3C4D',phone:'my-phone',device:'pc-desktop',voice:'长按空格说话',asr_pref:'auto',asr_engine:'cloud',asr_engine_zh:'云端',asr_why:'云端可用',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
  caps:['ping','screenshot','open_url','open_app','clipboard_get','clipboard_set','lock','volume','media','sleep','shutdown','shutdown_abort'],
  shortcuts:['下班模式','备份照片','改代理'],
  shortcut_policy:[{name:'下班模式.ps1',id:'下班模式.ps1',status:'approved',why:''},{name:'备份照片.bat',id:'备份照片.bat',status:'changed',why:''},{name:'改代理.ps1',id:'改代理.ps1',status:'blocked',why:'内容涉及注册表 / 网络配置 / 服务驱动（Set-ItemProperty）'}],
  shortcut_approvals:[{id:'下班模式.ps1',name:'下班模式.ps1',status:'approved',hash:'3f2a9c0d11ee'},{id:'备份照片.bat',name:'备份照片.bat',status:'changed',hash:'a81b77c2d004'}],
  log:['00:21:03 执行 screenshot（来自 my-phone，经局域网）','00:18:40 听到：打开B站','00:12:11 执行 volume（来自 my-phone，经局域网）','00:05:02 拒绝来自 unknown 的指令：BAD_SIG','23:59:30 局域网 在线'],
- settings:{device_id:'pc-desktop',lan_port:47820,relay:false,ptt:true,ptt_skip:'mstsc.exe',asr_mode:'cloud',asr_key_set:true,llm_provider:'deepseek',llm_key_set:true,llm_model:'',llm_model_default:'deepseek-chat',llm_base:'',files_dir:'',scripts_dir:'C:\\Users\\me\\Documents\\OneSay\\快捷指令',apps:'微信=C:\\Program Files\\Tencent\\WeChat\\WeChat.exe;VS Code=C:\\Users\\me\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',autostart:true},
+ settings:{device_id:'pc-desktop',lan_port:47820,relay:false,ptt:true,ptt_skip:'mstsc.exe',asr_mode:'cloud',asr_pref:'auto',asr_key_set:true,llm_provider:'deepseek',llm_key_set:true,llm_model:'',llm_model_default:'deepseek-chat',llm_base:'',files_dir:'',scripts_dir:'C:\\Users\\me\\Documents\\OneSay\\快捷指令',apps:'微信=C:\\Program Files\\Tencent\\WeChat\\WeChat.exe;VS Code=C:\\Users\\me\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',autostart:true},
  memory:{text:'- 用户叫刘泓江，用 Windows 电脑和 Note 8 手机\n- 偏好简短回答，先给结论\n- 在做开源项目 OneSay',updated_at:now-2*H},
  chat:[{id:'1',role:'user',text:'明天去北京要带什么',at:now-30*60e3},{id:'2',role:'assistant',text:'北京这两天最低 2°C，带厚外套和围巾。高铁票在票夹里，08:00 虹桥发车，建议 07:20 前到站。',at:now-30*60e3},{id:'3',role:'user',text:'锁屏',at:now-10*60e3},{id:'4',role:'assistant',text:'锁屏',via:'cmd',at:now-10*60e3}],
  notes:[{id:'n1',kind:'rain',title:'30 分钟后有小雨',text:'出门记得带伞',from:'my-phone',at:now-12*60e3,read:false},
@@ -371,8 +371,19 @@ P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
   <button class="act" onclick="phoneNote()"><span class="ic" style="background:var(--todo)">✉</span>发通知到手机<span>弹在手机上</span></button>
   <button class="act" onclick="phone('status')"><span class="ic" style="background:var(--device)">ϟ</span>电量和状态<span>电量、充电、铃声模式</span></button>
   <button class="act" onclick="alarm(true)"><span class="ic" style="background:var(--todo)">⏰</span>设闹钟<span>在手机上响（还没做）</span></button></div>
+  ${sec('var(--device)','更多（手机上每项单独开关）')}<div class="acts">
+  <button class="act" onclick="phone('flashlight',{on:true})"><span class="ic" style="background:var(--event)">☼</span>手电筒开<span>闪光灯常亮</span></button>
+  <button class="act" onclick="phone('flashlight',{on:false})"><span class="ic" style="background:var(--event)">☾</span>手电筒关<span></span></button>
+  <button class="act" onclick="phoneSet()"><span class="ic" style="background:var(--auto)">⚙</span>改手机设置<span>亮度、勿扰、Wi-Fi、蓝牙…</span></button>
+  <button class="act" onclick="phoneFile()"><span class="ic" style="background:var(--todo)">✎</span>写文件到手机<span>手机工作区里</span></button>
+  <button class="act" onclick="phone('file_list')"><span class="ic" style="background:var(--todo)">☰</span>看手机工作区<span>文件列表</span></button>
+  <button class="act" onclick="phoneUninstall()"><span class="ic" style="background:var(--red)">✕</span>卸载手机 App<span>手机上弹系统确认</span></button>
+  <button class="act" onclick="phone('script_list')"><span class="ic" style="background:var(--device)">▤</span>手机脚本列表<span>工作区 scripts/</span></button>
+  <button class="act" onclick="phoneScript()"><span class="ic" style="background:var(--device)">▶</span>运行手机脚本<span>.sh，走特权通道</span></button>
+  <button class="act" onclick="phoneExec()"><span class="ic" style="background:var(--red)">$</span>手机系统命令<span>走特权通道</span></button></div>
   <p class="note">也可以在「对话」里说：让手机响一下 / 手机别响了 / 手机亮屏 / 把手机音量调到 30 / 手机打开微信 / 把剪贴板发到手机 / 手机还有多少电。
-  手机离线时直接提示没发出去，不偷偷排队。每一项手机上都能单独关掉（手机 OneSay › 电脑联动）。</p>`};
+  手机离线时直接提示没发出去，不偷偷排队。每一项手机上都能单独关掉（手机 OneSay › 电脑联动）；「更多」里的几项在开源版手机上默认关着。
+  手机那边仍然不打开支付 / 银行 / 钱包类 App，网址和剪贴板内容过不了检查就不做。</p>`};
 P.pc=()=>{const s=S.settings;
   return head('这台电脑',`${esc(S.device)} · 局域网 ${esc((S.lan_ips||[]).join(', ')||'无地址')}:${s.lan_port} · 中转${s.relay?'已开':'未开'}`)+
   `<div class="cols"><div>${sec('var(--device)','手机能让它做的事')}<div class="card">
@@ -400,7 +411,8 @@ P.settings=()=>{const s=S.settings;
   ${kv('连接测试','不填 Key 时只认固定说法，如「锁屏」「打开B站」',`<button class="btn ghost sm" onclick="testLlm()">测试</button>`)}</div>
   ${sec('var(--accent)','说话')}<div class="card">
   ${kv('按住空格说话','按住 0.35 秒开始听，短按照常打空格',sw('ptt',s.ptt))}
-  ${kv('识别方式','目前只有云端可用，本机离线和让手机识别在做',seg('asr_mode',s.asr_mode,[['cloud','云端'],['local','本机离线'],['phone','让手机识别']]))}
+  ${kv('识别方式','默认先看云端：填了识别 Key 且连得上就用云端，否则自动改用本机离线识别（Windows 自带，不联网）。看云端只是连一下地址，不上传任何内容',seg('asr_pref',s.asr_pref||'auto',[['auto','先看云端'],['cloud','仅云端'],['local','仅本机']]))}
+  ${kv('现在用的是',esc(S.asr_why||''),`<span class="tag ${S.asr_engine==='none'?'':'green'}">${esc(S.asr_engine_zh||'还没识别过')}</span>`)}
   ${kv('识别 Key','百炼 DashScope，自己申请',secret('asr_key',s.asr_key_set))}
   ${kv('这些程序里不拦空格','逗号分隔；全屏和管理员窗口本来就不拦',inp('ptt_skip',s.ptt_skip,'mstsc.exe'))}</div>
   ${sec('var(--accent)','电脑能力')}<div class="card">
@@ -456,7 +468,14 @@ async function todoAdd(el){const v=el.value.trim();if(!v)return;
   el.value='';el.blur();const r=await api('todo',{op:'add',title:v});if(!r.ok)snack(r.text);await refresh();const n=$(page).querySelector('.newtodo');n&&n.focus()}
 async function notes(op){const r=await api('notes',{op});if(op==='test'&&r.ok)snack('已发，看右下角');refresh()}
 async function runSc(n){const r=await api('run',{cmd:'shortcut_run',args:{name:n}});snack(r.text)}
-async function phone(cmd,args){snack(['open_url','clipboard_set'].includes(cmd)?'正在发给手机…（手机上可能要点「允许一次」）':'正在发给手机…');const r=await api('phone',{cmd,args:args||{}});snack(r.text)}
+async function phone(cmd,args){snack('正在发给手机…');const r=await api('phone',{cmd,args:args||{}});
+  const d=r.data||{};let t=r.text;if(r.ok&&d.files)t+='：'+d.files.slice(0,8).join('、')+(d.files.length>8?'…':'');if(r.ok&&d.scripts)t+='：'+(d.scripts.join('、')||'没有');if(r.ok&&d.output)t+='：'+String(d.output).slice(0,120);snack(t)}
+function phoneSet(){const n=(prompt('改手机上的哪个设置？\nbrightness 亮度 / volume 音量 / screen_timeout 屏幕超时（秒）/ dnd 勿扰 / ringer 铃声模式 / wifi / bluetooth，以及 airplane、mobile_data、location 等（走特权通道）','brightness')||'').trim();if(!n)return;
+  const v=(prompt('改成什么？（数字，或 on / off）','50')||'').trim();if(!v)return;phone('setting_set',{name:n,value:v})}
+function phoneFile(){const p=(prompt('写到手机工作区里的哪个文件？（相对路径，如 inbox/a.txt）','inbox/note.txt')||'').trim();if(!p)return;const t=prompt('文件内容','');if(t===null)return;phone('file_write',{path:p,text:t})}
+function phoneUninstall(){const p=(prompt('卸载哪个 App？（包名，如 com.example.app；手机上还要你点确定）','')||'').trim();if(!p)return;phone('uninstall_app',{package:p})}
+function phoneScript(){const n=(prompt('运行手机工作区 scripts/ 里的哪个脚本？（文件名，.sh）','')||'').trim();if(!n)return;phone('script_run',{name:n})}
+function phoneExec(){const c=(prompt('在手机上执行的命令（走手机的特权通道，按你在手机上开着的开关）','')||'').trim();if(!c)return;if(!confirm('在手机上执行：\n'+c))return;phone('sys_exec',{command:c})}
 function phoneVol(){const v=prompt('手机媒体音量（0–100）','30');if(v===null)return;const n=parseInt(v,10);if(!(n>=0&&n<=100)){snack('要在 0–100');return}phone('volume_set',{percent:n})}
 function phoneUrl(){const u=(prompt('在手机上打开的网址','https://')||'').trim();if(!u||u==='https://')return;phone('open_url',{url:/^https?:\/\//.test(u)?u:'https://'+u})}
 function phoneApp(){const n=(prompt('打开手机上的哪个 App？（写桌面上的名字，或包名如 com.tencent.mm）','')||'').trim();if(!n)return;phone('open_app',/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i.test(n)?{package:n}:{name:n})}
@@ -500,7 +519,7 @@ function render(){if(!S)return;
   confirmBar();
   const ids=Object.keys(S.peers),on=ids.length>0;
   $('pdot').classList.toggle('off',!on);$('pline').textContent=on?'手机在线':'手机离线';$('pline2').textContent=on?S.peers[ids[0]]+' · '+ids[0]:'等待手机连接';
-  $('vstat').textContent=S.voice||'松手执行，Esc 取消';
+  $('vstat').textContent=(S.voice||'松手执行，Esc 取消')+(S.asr_engine&&S.asr_engine!=='none'?' · 识别：'+S.asr_engine_zh:'');
   for(const k of ['events','todos','tickets','pickups']){const n=k==='todos'?S.todos.filter(t=>!t.done).length:k==='pickups'?S.pickups.filter(p=>!p.done).length:S[k].length;$('c-'+k).textContent=n||''}
   const un=S.notes.filter(n=>!n.read).length;$('nbadge').style.display=un?'':'none';$('nbadge').textContent=un;
   if(page==='chat'){renderChat();return}

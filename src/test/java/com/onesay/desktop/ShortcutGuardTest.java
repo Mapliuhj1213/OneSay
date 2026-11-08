@@ -99,7 +99,8 @@ public class ShortcutGuardTest {
         assertEquals("快捷指令列表本身是查询", LinkPolicy.Cat.QUERY, LinkPolicy.pcCat("shortcut_list"));
         assertEquals("手机端没有快捷指令这一类指令", LinkPolicy.Cat.UNKNOWN, LinkPolicy.phoneCat("shortcut_run"));
         // 不改动已有类别的矩阵：RUN_WS_SCRIPT 仍是 只读拒 / 自动拒 / 完全访问每次确认
-        assertEquals(D, LinkPolicy.decide(LinkPolicy.Target.PC, LinkPolicy.Level.AUTO, LinkPolicy.Cat.RUN_WS_SCRIPT, null).verdict);
+        // [第二轮] 改：旧「自动」= 工作区可写·分类，跑工作区脚本从拒绝改成每次确认（用户决定 1）
+        assertEquals(C, LinkPolicy.decide(LinkPolicy.Target.PC, LinkPolicy.Level.AUTO, LinkPolicy.Cat.RUN_WS_SCRIPT, null).verdict);
         assertEquals(C, LinkPolicy.decide(LinkPolicy.Target.PC, LinkPolicy.Level.FULL, LinkPolicy.Cat.RUN_WS_SCRIPT, null).verdict);
     }
 

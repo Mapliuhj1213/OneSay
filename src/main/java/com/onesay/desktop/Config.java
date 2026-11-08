@@ -37,7 +37,8 @@ public final class Config {
     public String filesDir = "";      // 允许取文件的文件夹
     public String scriptsDir = "";    // 电脑端快捷指令文件夹
     public String apps = "";          // 允许按名字打开的程序：名字=路径;名字=路径
-    public String asrMode = "cloud";  // 识别方式：local 本机离线 / phone 让手机识别 / cloud 云端（自带 Key）
+    public String asrMode = "cloud";  // 旧版的识别方式（只为兼容旧配置 / 旧版本读）；现在以 asrPref 为准
+    public String asrPref = "auto";   // 识别：auto 先看云端（默认，云端不可用自动回落本机离线）/ cloud 仅云端 / local 仅本机（AsrRoute.Pref）
     public String llmProvider = "deepseek"; // deepseek / bailian / custom（OpenAI 兼容）
     public String llmKey = "";        // 大模型 API Key（自带，只存本机）
     public String llmModel = "";      // 空 = 服务商默认
@@ -94,6 +95,9 @@ public final class Config {
         c.scriptsDir = p.getProperty("scripts_dir", "").trim();
         c.apps = p.getProperty("apps", "").trim();
         c.asrMode = p.getProperty("asr_mode", "cloud").trim();
+        // 新键 asr_pref；旧配置只有 asr_mode 时：明确选过「本机离线」的保持仅本机，其余（云端 / 让手机识别，后者从没做出来）改成默认「先看云端」
+        String asrPrefRaw = p.getProperty("asr_pref");
+        c.asrPref = asrPrefRaw != null ? AsrRoute.Pref.of(asrPrefRaw).id : "local".equals(c.asrMode) ? AsrRoute.Pref.LOCAL.id : AsrRoute.Pref.AUTO.id;
         c.llmProvider = p.getProperty("llm_provider", "deepseek").trim();
         c.llmKey = p.getProperty("llm_key", "").trim();
         c.llmModel = p.getProperty("llm_model", "").trim();
@@ -139,7 +143,8 @@ public final class Config {
         p.setProperty("files_dir", filesDir);
         p.setProperty("scripts_dir", scriptsDir);
         p.setProperty("apps", apps);
-        p.setProperty("asr_mode", asrMode);
+        p.setProperty("asr_pref", AsrRoute.Pref.of(asrPref).id);
+        p.setProperty("asr_mode", AsrRoute.Pref.of(asrPref) == AsrRoute.Pref.LOCAL ? "local" : "cloud"); // 旧版本读这个
         p.setProperty("pc_level", mode().legacy().id); // 旧版本读这个
         p.setProperty("pc_sandbox", mode().sandbox.id);
         p.setProperty("pc_approval", mode().approval.id);

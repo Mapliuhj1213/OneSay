@@ -40,6 +40,7 @@ public final class App {
     final Consumer<String> log;
     Agent agent;
     Voice voice;
+    AsrRoute asr;
     Chat chat;
     Notify notify;
     Actions actions;
@@ -121,7 +122,9 @@ public final class App {
         agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
-        voice = new Voice(cfg, actions, log);
+        asr = new AsrRoute(cfg);
+        asr.warmUp(); // 启动时先看云端能不能用（后台，不阻塞）
+        voice = new Voice(cfg, actions, log, asr);
         voice.fallback = text -> String.valueOf(chat.send(text, "voice").get("text"));
         voice.start();
         ui = new UiServer();
@@ -212,6 +215,7 @@ public final class App {
         s.put("ptt", cfg.pttEnabled);
         s.put("ptt_skip", cfg.pttSkip);
         s.put("asr_mode", cfg.asrMode);
+        s.put("asr_pref", AsrRoute.Pref.of(cfg.asrPref).id);
         s.put("asr_key_set", !cfg.asrKey.isEmpty());
         s.put("llm_provider", cfg.llmProvider);
         s.put("llm_key_set", !cfg.llmKey.isEmpty());
@@ -239,6 +243,7 @@ public final class App {
             s.put("device", cfg.deviceId);
             s.put("status", agent.status);
             s.put("voice", voice.status);
+            s.putAll(asr.view()); // 识别：设置（先看云端 / 仅云端 / 仅本机）+ 当前用的是哪个 + 原因
             s.put("peers", new TreeMap<String, Object>(agent.peers()));
             s.put("settings", settingsView());
             s.put("caps", new ArrayList<Object>(actions.capabilities()));
@@ -394,8 +399,9 @@ public final class App {
                     case "llm_key": if (v.equals("-")) cfg.llmKey = ""; else if (!v.isEmpty()) cfg.llmKey = v; break;
                     case "llm_model": cfg.llmModel = v; break;
                     case "llm_base": if (v.isEmpty() || v.startsWith("https://") || v.startsWith("http://127.0.0.1") || v.startsWith("http://localhost")) cfg.llmBase = v; else return fail("接口地址要用 https"); break;
-                    case "asr_mode": if (List.of("local", "phone", "cloud").contains(v)) cfg.asrMode = v; break;
-                    case "asr_key": if (v.equals("-")) cfg.asrKey = ""; else if (!v.isEmpty()) cfg.asrKey = v; restartVoice = true; break;
+                    case "asr_mode": if (List.of("local", "phone", "cloud").contains(v)) cfg.asrMode = v; break; // 旧接口，只存不用
+                    case "asr_pref": if (List.of("auto", "cloud", "local").contains(v)) { cfg.asrPref = v; asr.invalidate(); restartVoice = true; log.accept("识别 → " + AsrRoute.Pref.of(v).zh); } break;
+                    case "asr_key": if (v.equals("-")) cfg.asrKey = ""; else if (!v.isEmpty()) cfg.asrKey = v; asr.invalidate(); restartVoice = true; break;
                     case "ptt": cfg.pttEnabled = v.equals("true"); restartVoice = true; break;
                     case "ptt_skip": cfg.pttSkip = v; restartVoice = true; break;
                     case "files_dir": cfg.filesDir = v; break;
@@ -421,10 +427,11 @@ public final class App {
             try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
             if (restartVoice) {
                 voice.stop();
-                Voice nv = new Voice(cfg, actions, log);
+                Voice nv = new Voice(cfg, actions, log, asr);
                 nv.fallback = voice.fallback;
                 voice = nv;
                 voice.start();
+                asr.warmUp();
             }
             Map<String, Object> m = ok("已保存");
             m.put("settings", settingsView());

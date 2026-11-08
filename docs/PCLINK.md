@@ -159,9 +159,9 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 | 打开网址（先过网址检查；信任域名直接开） | D | C / 提醒 / 提醒 | C / 提醒 / 提醒 |
 | 写剪贴板（先过剪贴板检查；敏感内容一律要人确认，「从不」= 拒） | D | C / A / A | C / A / A |
 | 操作第三方程序 | D | D / D / D | A / A / A |
-| 写工作区以外的文件 | D | S / S / S | A / A / A（按 Windows ACL） |
-| 运行工作区 scripts/ 里的脚本（内容也过插件） | D | D / D / D | C / C / A |
-| 任意命令 sys_exec | D | S / S / S | C / C / A |
+| 写工作区以外的文件（按 Windows ACL） | D | **C / C / D** | A / A / A |
+| 运行工作区 scripts/ 里的脚本（内容也过插件） | D | **C / C / D** | C / C / A |
+| 任意命令 sys_exec（按你自己的权限执行） | D | **C / C / D** | C / C / A |
 | 快捷指令（批准过 = A；没批准 / 改过 = C；内容碰插件规则 = D） | D | 同左 | 同左 |
 | 需要管理员（见下） | S | S | S |
 | 给自己授权（ACL / Defender 排除 / 本地管理员组） | S | S | S |
@@ -169,7 +169,7 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 | 系统程序、支付 / 银行 / 密码 / 钱包 / 商店 / 安装器类 | D | D | D |
 
 - **工作区**：`%USERPROFILE%\OneSay\workspace`（用户目录非 ASCII 时 `%ProgramData%\OneSay\workspace`）；工作区里的 `.git`、`.codex`、`.agents` 只读。
-- **工作区可写档为什么不执行命令**：Windows 上 Java 没法把子进程关在工作区里（没有系统级沙箱），所以命令 / 工作区外写入只生成脚本、跑脚本 / 操作程序拒绝；要执行请用完全访问档（仍不提权）。
+- **工作区可写档下的命令（第二轮，2026-11-08 用户决定）**：Windows 上 Java 没法把子进程关在工作区里（没有系统级沙箱），你知道这一点，所以命令、跑工作区脚本、工作区外写入改成「**电脑上确认后，按你自己的权限执行**」，不再只生成脚本。审批策略照常：分类 / 按需 → 先确认（30 秒不点 = 拒），从不 → 直接拒。安全插件规则全部在确认之前、照旧优先（永不提权、需要管理员只生成 .ps1、禁止自授权、默认断网、编码命令拦截）；OneSay 自己是管理员时确认了也拒。操作第三方程序仍只在完全访问档。
 - **默认断网**：只读 / 工作区可写档下，命令要联网（curl / wget / Invoke-WebRequest / WebClient / bitsadmin / certutil -urlcache / UNC `\\主机\共享`…）时，域名必须在白名单 `net_allow` 里（含子域），否则 `plugin_blocked`。完全访问档不断网。
 
 ### 安全插件（默认开，只收紧不放宽）
@@ -198,4 +198,36 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 | `needs_admin_script` | 这件事要管理员，已生成脚本，需你自己用管理员身份执行 |
 | `self_grant_blocked` | 远程不能改 OneSay 自己的设置 |
 
-`script_generated` 现在只用于「工作区可写档下的命令 / 工作区外写入」这种不需要管理员、只是关不进沙箱的情况。没有新增 exfil / credential / destructive 这类为普通用户行为加的码。
+第二轮起电脑作被控端不再回 `script_generated`（工作区可写档改成确认后执行；要管理员的回 `needs_admin_script`）；这个码只剩手机作被控端「给 App 授权的命令只生成脚本」时用。没有新增 exfil / credential / destructive 这类为普通用户行为加的码。
+
+## 第二轮（2026-11-08）
+
+### 1. 工作区可写档：确认后按你自己的权限执行
+见上面矩阵加粗的三格和「工作区可写档下的命令」一条。顺序不变：插件结论 → 红线 → 信任检查 → 两轴矩阵；插件拦下的（提权 / 要管理员 / 自授权 / 编码 / 断网 / 授权）从不走到确认框。同一秒里生成的多份脚本不再互相覆盖（文件名后加 -2、-3…）。
+
+### 2. 编码 / 隐藏命令拦截
+保留：默认开（`plugin_encoded`），设置页单独一个开关；关掉后编码本身不拦，`-enc` 解出来的内容照样过其他规则。
+
+### 3. 电脑 → 手机：加回来的 8 项
+不分档、手机上不确认（分档之前的语义），手机控制台每项一个开关、挂在「接受电脑指令」总开关下；手机 `caps` 回 `caps`（开着的）和 `known`（支持的全部）。
+
+| cmd | args | 手机端做什么 | 个人版默认 | 开源版默认 |
+|---|---|---|---|---|
+| `flashlight` | `on: true\|false` | 闪光灯开 / 关 | 开 | **关** |
+| `setting_set` | `name`, `value` | 亮度 / 音量 / 屏幕超时 / 勿扰 / 铃声 / Wi-Fi / 蓝牙直接改（缺系统权限时说清楚，不自动申请）；飞行模式、移动数据、定位等走手机特权通道 | 开 | **关** |
+| `file_write` | `path`, `text ≤ 256 KB` | 写 OneSay 工作区；工作区以外只写共享存储里的普通文件（不碰 Android/） | 开 | **关** |
+| `file_list` | — | 列工作区文件 | 开 | **关** |
+| `uninstall_app` | `package` | 弹系统卸载确认（最后由手机上的人点） | 开 | **关** |
+| `script_list` | — | 列工作区 scripts/ | 开 | **关** |
+| `script_run` | `name`（.sh） | 走特权通道运行；内容里有给 App 授权的命令就不运行 | 开 | **关** |
+| `sys_exec` | `command ≤ 4000` | 走特权通道执行 | 开 | **关** |
+
+手机侧仍保留的红线（`LinkPolicy.phoneLegacy` + `PcRx.handle`）：支付 / 银行 / 密码 / 钱包 / 商店 / 安装器类 App 和 OneSay 自己不打开 / 不卸载（`blocked_app`）；系统 App 不卸载、`pm uninstall/disable…` 也一样（`system_app`）；网址过不了检查不开（`untrusted_url`，含 IP / 内网 / 账号密码 / 仿冒域名）；剪贴板内容过不了检查不写（`clipboard_rejected`，像命令、坏链接、超过 10 KB），敏感内容不确认但标敏感、60 秒后清除；给 App 授权的命令只生成脚本（`script_generated`）；远程不能改 OneSay 设置。
+电脑端「手机」页多了「更多」一栏能发出这 8 项；`PhoneCmds` 先查一遍参数，`sys_exec` / `script_run` 等 20 秒，`uninstall_app` / `setting_set` 等 12 秒。
+
+### 4. 语音识别：默认先看云端
+- 设置 `asr_pref`：`auto` 先看云端（默认）/ `cloud` 仅云端 / `local` 仅本机。旧配置只有 `asr_mode` 时：选过 `local` 的保持仅本机，其余（`cloud`、从没做出来的 `phone`）改成先看云端；保存时仍写 `asr_mode` 给旧版本。
+- 先看云端：启动时（后台）和每次识别前看一次。云端可用 = 填了识别 Key **且**连得上：对识别地址发一个空的 `HEAD …/models`（**不带 Key、不带音频、不带任何内容**），1.5 秒内收到任何 HTTP 回应（401 也算）就算连得上；超时 / 出错 = 不可用。结果缓存：可用 60 秒、不可用 15 秒；换 Key / 地址 / 选择立即作废。
+- 可用走云端（百炼 qwen3-asr-flash，和以前一样）；不可用回落本机离线识别（Windows 自带 System.Speech 中文听写，`asr-local.ps1`，录音写成临时 WAV 识别完即删，不联网）。「自动」下云端识别出错也当场回落本机，并把云端记成不可用。
+- 仅云端：不探测、不回落，没填 Key 时不抢空格；仅本机：从不联网。
+- 界面：设置 › 说话 显示「识别方式」三选一和「现在用的是：云端 / 本机离线 / 没有可用的识别」+ 原因；按住说话的提示行和浮条（「识别中…（云端）」）也显示。`/api/state` 带 `asr_pref` / `asr_engine` / `asr_engine_zh` / `asr_why`。

@@ -68,9 +68,10 @@ public class PcPluginTest {
                 {LinkPolicy.Cat.POWER, D, D, D, C, C, D, C, C, A},
                 {LinkPolicy.Cat.UNINSTALL_APP, D, D, D, C, C, D, C, C, A},
                 {LinkPolicy.Cat.APP_OPERATE, D, D, D, D, D, D, A, A, A},
-                {LinkPolicy.Cat.OUTSIDE_WRITE, D, D, D, S, S, S, A, A, A},
-                {LinkPolicy.Cat.RUN_WS_SCRIPT, D, D, D, D, D, D, C, C, A},
-                {LinkPolicy.Cat.SHELL_EXEC, D, D, D, S, S, S, C, C, A},
+                // [第二轮] 改：工作区可写档这三行从「只生成脚本 / 拒绝」改成「确认后按你自己的权限执行」，审批照常（从不 = 拒）（用户决定 1）
+                {LinkPolicy.Cat.OUTSIDE_WRITE, D, D, D, C, C, D, A, A, A},
+                {LinkPolicy.Cat.RUN_WS_SCRIPT, D, D, D, C, C, D, C, C, A},
+                {LinkPolicy.Cat.SHELL_EXEC, D, D, D, C, C, D, C, C, A},
                 // 需要管理员 / 给自己授权：任何一格都只生成脚本（永不提权）
                 {LinkPolicy.Cat.SYSTEM_A, S, S, S, S, S, S, S, S, S},
                 {LinkPolicy.Cat.NET_SEC_SETTING, S, S, S, S, S, S, S, S, S},
@@ -406,12 +407,12 @@ public class PcPluginTest {
             assertEquals(sb.id, LinkPolicy.R_SELF_GRANT_BLOCKED, reason(g.check("phone", "sys_exec", m("command", "notepad %APPDATA%\\OneSay\\desktop.properties"))));
             assertEquals(sb.id, LinkPolicy.R_PLUGIN_BLOCKED, reason(g.check("phone", "sys_exec", m("command", "powershell -enc QUJDREVGR0hJSktMTU5PUFFS"))));
         }
-        // 工作区可写：默认断网，白名单外的域名插件直接拦；白名单内的照常（工作区可写下命令本身只生成脚本）
+        // 工作区可写：默认断网，白名单外的域名插件直接拦；白名单内的照常（[第二轮] 工作区可写下命令先确认：Stub 不点 = 超时）
         Config w = cfg(WS, OR);
         w.netAllow = "github.com";
         PcGuard gw = new PcGuard(w, new PcGuardTest.Stub());
         assertEquals(LinkPolicy.R_PLUGIN_BLOCKED, reason(gw.check("phone", "sys_exec", m("command", "curl https://evil.example/x"))));
-        assertEquals(LinkPolicy.R_SCRIPT_GENERATED, reason(gw.check("phone", "sys_exec", m("command", "curl https://github.com/x"))));
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(gw.check("phone", "sys_exec", m("command", "curl https://github.com/x")))); // [第二轮] 改：script_generated → 先确认
         // 完全访问（Codex 的 full access 有网络）：不断网，确认后执行
         Config c = cfg(FA, OR);
         PcGuardTest.Stub st = new PcGuardTest.Stub();

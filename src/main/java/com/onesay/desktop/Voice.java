@@ -30,7 +30,8 @@ import javax.swing.SwingUtilities;
 
 /**
  * 长按空格说话：钩子进程报 START/END → 录音 → 识别 → 规则识意图 → 本机执行 → 浮条显示结果。
- * 钩子只在 Windows 上有；没配识别 Key 时不启动（不抢空格）。
+ * 钩子只在 Windows 上有。识别用哪个由 {@link AsrRoute} 选（默认先看云端，不可用回落本机离线）；
+ * 设成「仅云端」又没填 Key 时不启动（不抢空格）。
  */
 public final class Voice {
     private final Config cfg;
@@ -44,16 +45,31 @@ public final class Voice {
     /** 认不出指令时交给「对话」（大模型），返回回复文字；null = 不转。 */
     public volatile java.util.function.Function<String, String> fallback;
 
+    /** 选识别（云端 / 本机离线）；App 里和界面共用一个。 */
+    public final AsrRoute asr;
+
     public Voice(Config cfg, Actions actions, Consumer<String> log) {
+        this(cfg, actions, log, new AsrRoute(cfg));
+    }
+
+    public Voice(Config cfg, Actions actions, Consumer<String> log, AsrRoute asr) {
         this.cfg = cfg;
         this.actions = actions;
         this.log = log;
+        this.asr = asr;
+    }
+
+    /** 能不能开钩子：仅云端要有 Key；自动 / 仅本机在 Windows 上总能试（本机识别能不能用到识别时再看）。 */
+    static String cannotStart(AsrRoute.Pref pref, boolean keySet) {
+        if (pref == AsrRoute.Pref.CLOUD && !keySet) return "识别设成「仅云端」但没填识别 Key（设置里填），不抢空格";
+        return null;
     }
 
     public void start() {
         if (!cfg.pttEnabled) { status = "已关闭"; return; }
         if (!System.getProperty("os.name", "").toLowerCase().contains("win")) { status = "仅 Windows 支持"; return; }
-        if (cfg.asrKey.isEmpty()) { status = "未配置识别 Key（setup 里填），不抢空格"; log.accept("按住说话：" + status); return; }
+        String no = cannotStart(asr.pref(), !cfg.asrKey.isEmpty());
+        if (no != null) { status = no; log.accept("按住说话：" + status); return; }
         try {
             Path dir = cfg.file.getParent().resolve("hotkey");
             Files.createDirectories(dir);
@@ -124,12 +140,16 @@ public final class Voice {
     private void handle(byte[] pcm) {
         String text;
         try {
-            text = new Asr(cfg.asrBase, cfg.asrKey).recognize(pcm, Recorder.RATE);
+            AsrRoute.Engine e = asr.choose(); // 每次识别前看云端（有缓存，最多等 1.5 秒）
+            show("识别中…（" + e.zh + "）", true);
+            AsrRoute.Result r = asr.recognize(pcm, Recorder.RATE, e);
+            text = r.text;
+            if (r.fellBack) log.accept("识别：" + asr.why);
         } catch (Exception e) {
             show(e.getMessage() == null ? "识别失败" : e.getMessage(), false);
             return;
         }
-        log.accept("听到：" + text);
+        log.accept("听到（" + asr.current.zh + "）：" + text);
         Intent it = Intent.parse(text, cfg.appMap(), shortcutNames());
         if (it.cmd == null) {
             java.util.function.Function<String, String> fb = fallback;

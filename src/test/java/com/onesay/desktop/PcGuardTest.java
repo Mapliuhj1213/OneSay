@@ -58,9 +58,10 @@ public class PcGuardTest {
                 {LinkPolicy.Cat.QUERY, A, A, A}, {LinkPolicy.Cat.READ_PRIVATE, D, A, A}, {LinkPolicy.Cat.HARMLESS, D, A, A},
                 {LinkPolicy.Cat.SIMPLE_SETTING, D, C, C}, {LinkPolicy.Cat.POWER, D, C, C}, {LinkPolicy.Cat.SYSTEM_A, S, S, S},
                 // [两轴] 改：只读档不再生成脚本（只读 = 什么都不写，B.4）→ D；完全访问档按当前用户权限放行（B.4）：命令先确认、工作区外写入直接写
-                {LinkPolicy.Cat.NET_SEC_SETTING, S, S, S}, {LinkPolicy.Cat.SHELL_EXEC, D, S, C}, {LinkPolicy.Cat.OUTSIDE_WRITE, D, S, A},
+                // [第二轮] 改：工作区可写档（旧「自动」）的命令、工作区外写入、跑工作区脚本从「只生成脚本 / 拒绝」改成「确认后按你自己的权限执行」（用户决定 1）
+                {LinkPolicy.Cat.NET_SEC_SETTING, S, S, S}, {LinkPolicy.Cat.SHELL_EXEC, D, C, C}, {LinkPolicy.Cat.OUTSIDE_WRITE, D, C, A},
                 {LinkPolicy.Cat.OPEN_APP, D, A, A}, {LinkPolicy.Cat.WORKSPACE_WRITE, D, A, A}, {LinkPolicy.Cat.UNINSTALL_APP, D, C, C},
-                {LinkPolicy.Cat.APP_OPERATE, D, D, A}, {LinkPolicy.Cat.RUN_WS_SCRIPT, D, D, C}, {LinkPolicy.Cat.SELF_GRANT, S, S, S},
+                {LinkPolicy.Cat.APP_OPERATE, D, D, A}, {LinkPolicy.Cat.RUN_WS_SCRIPT, D, C, C}, {LinkPolicy.Cat.SELF_GRANT, S, S, S},
                 {LinkPolicy.Cat.SYSTEM_APP_OP, D, D, D}, {LinkPolicy.Cat.UNKNOWN, D, D, D},
                 {LinkPolicy.Cat.SHORTCUT, D, D, D}}; // 没有事实 = 不在快捷指令列表里 → 一律拒
         for (Object[] r : rows) {
@@ -210,8 +211,9 @@ public class PcGuardTest {
         for (String bad : new String[]{"../evil.txt", "notes/../../evil.txt", "C:\\Windows\\win.ini", "C:evil.txt", "\\\\server\\share\\x.txt", "//server/share/x",
                 "\\\\?\\C:\\x", "/etc/passwd", "NUL", "a.txt:ads"}) {
             assertEquals(bad, LinkPolicy.Cat.OUTSIDE_WRITE, PcGuard.category("file_write", m("path", bad), new File(c.workspaceDir)));
-            // [插件] 改：UNC（\\\\server、//server）现在先被「沙箱默认断网」拦（plugin_blocked），其余照旧只生成脚本
-            String want = bad.startsWith("\\\\server") || bad.startsWith("//server") ? LinkPolicy.R_PLUGIN_BLOCKED : LinkPolicy.R_SCRIPT_GENERATED;
+            // [插件] 改：UNC（\\\\server、//server）现在先被「沙箱默认断网」拦（plugin_blocked）
+            // [第二轮] 改：其余从「只生成脚本」改成「先在电脑上确认」（Stub 不点 = 超时拒绝，没写进去）（用户决定 1）
+            String want = bad.startsWith("\\\\server") || bad.startsWith("//server") ? LinkPolicy.R_PLUGIN_BLOCKED : LinkPolicy.R_CONFIRM_TIMEOUT;
             assertEquals(bad, want, reason(g.check("phone", "file_write", m("path", bad, "text", "x"))));
             assertFalse(g.builtin("file_write", m("path", bad, "text", "x")).ok);
         }
@@ -279,7 +281,8 @@ public class PcGuardTest {
         try {
             Config cli = LanTest.client(pcCfg, "127.0.0.1:" + port);
             assertEquals(0, Cli.send(cli, "pc-lan", "echo", m("text", "hi"), out, 10));
-            assertEquals("系统命令只生成脚本 = 没执行", 1, Cli.send(cli, "pc-lan", "sys_exec", m("command", "reg add HKCU\\Software\\X /f"), out, 10));
+            // [第二轮] 改：工作区可写档下普通命令现在要先确认后执行；这里换成要管理员的命令，测「只生成脚本 = 没执行」这条路（needs_admin_script）
+            assertEquals("要管理员的命令只生成脚本 = 没执行", 1, Cli.send(cli, "pc-lan", "sys_exec", m("command", "reg add HKLM\\Software\\X /f"), out, 10));
             File[] sc = new File(pcCfg.workspaceDir, "scripts").listFiles();
             assertNotNull(sc);
             assertEquals(1, sc.length);
@@ -288,7 +291,7 @@ public class PcGuardTest {
             assertEquals(0, Cli.send(cli, "pc-lan", "file_write", m("path", "inbox/a.txt", "text", "来自手机"), out, 10));
             assertEquals("来自手机", Files.readString(Path.of(pcCfg.workspaceDir, "inbox", "a.txt")));
             String l = log.toString();
-            assertTrue(l, l.contains("没执行 sys_exec") && l.contains(LinkPolicy.R_SCRIPT_GENERATED));
+            assertTrue(l, l.contains("没执行 sys_exec") && l.contains(LinkPolicy.R_NEEDS_ADMIN_SCRIPT)); // [第二轮] 改：同上，原因码 script_generated → needs_admin_script
             assertTrue(l, l.contains("没执行 shortcut_run") && l.contains(LinkPolicy.R_UNKNOWN));
             assertTrue(l, l.contains(LinkPolicy.R_UNTRUSTED_URL));
         } finally {
@@ -311,7 +314,8 @@ public class PcGuardTest {
         // [恢复手机] 改：手机作为被控端恢复成分档之前（D）：不再在手机上确认，电脑不用多等 40 秒；手机端的 8 个新指令不再有
         assertEquals(8_000L, PhoneCmds.timeoutMs("open_url"));
         assertEquals(8_000L, PhoneCmds.timeoutMs("status"));
-        assertFalse(PhoneCmds.ALL.contains("flashlight") || PhoneCmds.ALL.contains("sys_exec"));
+        // [第二轮] 改：8 个手机指令按「每项一个开关、不分档」加回来了（用户决定 3），电脑又能发出它们
+        assertTrue(PhoneCmds.ALL.contains("flashlight") && PhoneCmds.ALL.contains("sys_exec"));
         for (String code : new String[]{"plugin_blocked", "needs_admin_script", "self_grant_blocked"}) assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
     }
 }
