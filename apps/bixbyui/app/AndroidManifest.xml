@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.onesay.assistant"
-    android:versionCode="21"
+    android:versionCode="22"
     android:versionName="2.5.0">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
@@ -60,6 +60,8 @@
     <!-- 连接开关：connectivity.* 能力族 -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- link-v2：电脑联动常连通道等电脑上线时收组播 announce（WifiManager.MulticastLock） -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.NFC" />
     <uses-permission android:name="android.permission.BLUETOOTH" />

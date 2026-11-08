@@ -40,6 +40,18 @@ This product includes sherpa-onnx (Java sources and prebuilt JNI)
   Copyright (c) Xiaomi Corporation and contributors
   Licensed under the Apache License, Version 2.0.
 
+Design references (no code copied) for the PC-link protocol v2 (link-v2):
+  LocalSend  https://github.com/localsend/localsend  (Apache License 2.0)
+    multicast discovery in 224.0.0.0/24, announce-then-respond, per-device
+    self-signed certificates identified by their SHA-256 fingerprint.
+    The separate protocol-docs repo (localsend/protocol) has no license:
+    read only, nothing copied.
+  Home Assistant Companion for Android  https://github.com/home-assistant/android
+    (Apache License 2.0): notification-command set (screen on, volume level,
+    launch app, open URL) and "ring at max alarm-stream volume" to find the phone.
+  KDE Connect / Sefirah (GPL): product-level ideas only; code neither read nor used.
+  Implementation is original: com.onesay.assistant.v2.pclink.{PcTls,PcRx,PcRxPolicy,PcRxAndroid}.
+
 Other third-party components (ONNX Runtime - MIT, Jakarta Mail/Activation -
 EPL-2.0 or GPL-2.0 with Classpath Exception, mermaid - MIT, Chart.js - MIT)
 are listed with their licenses in THIRD_PARTY_NOTICES.md.

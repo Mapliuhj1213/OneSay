@@ -28,13 +28,23 @@ public final class PcPairing {
     /** 电脑端局域网端口（UDP 发现用 +1）。 */
     public final int lanPort;
     public final boolean hasRelay;
+    /** v2：电脑证书指纹（base64url 43 字符）；v1 串为空串 = 走明文。 */
+    public final String fp;
+    /** 配对串版本：1（0.4.x 电脑）/ 2（0.5.0 起，带 fp）。 */
+    public final int version;
 
     PcPairing(String peer, byte[] key, String lanHosts, int lanPort, boolean hasRelay) {
+        this(peer, key, lanHosts, lanPort, hasRelay, "", 1);
+    }
+
+    PcPairing(String peer, byte[] key, String lanHosts, int lanPort, boolean hasRelay, String fp, int version) {
         this.peer = peer;
         this.key = key;
         this.lanHosts = lanHosts;
         this.lanPort = lanPort;
         this.hasRelay = hasRelay;
+        this.fp = fp == null ? "" : fp;
+        this.version = version;
     }
 
     /** 不合法抛 IllegalArgumentException（消息给人看，不含串内容）。 */
@@ -48,6 +58,18 @@ public final class PcPairing {
         }
         String relay = get(q, "relay"), token = get(q, "token"), key = get(q, "key"), peer = get(q, "peer"), lan = get(q, "lan");
         if (key.length() == 0 || peer.length() == 0 || !validId(peer)) throw new IllegalArgumentException("配对码不完整");
+        // v2（电脑端 0.5.0 起）：&fp=<证书指纹>&v=2；v1 串没有这两项，照旧接受（明文）
+        String fp = get(q, "fp"), ver = get(q, "v");
+        int version;
+        try {
+            version = ver.length() == 0 ? 1 : Integer.parseInt(ver.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("配对码版本不对");
+        }
+        if (version < 1) throw new IllegalArgumentException("配对码版本不对");
+        if (version > 2) throw new IllegalArgumentException("这个配对码来自更新版本的电脑端（v" + version + "），请先更新手机上的 App");
+        if (fp.length() > 0 && !PcTls.validFp(fp)) throw new IllegalArgumentException("配对码里的电脑证书指纹不对");
+        if (version >= 2 && fp.length() == 0 && lan.length() > 0) throw new IllegalArgumentException("配对码缺电脑证书指纹");
         if (relay.length() > 0 && token.length() < 24) throw new IllegalArgumentException("配对码里的中转令牌不完整");
         if (relay.length() == 0 && lan.length() == 0) throw new IllegalArgumentException("配对码既没有局域网也没有中转");
         byte[] k;
@@ -74,7 +96,7 @@ public final class PcPairing {
         if (lanPort <= 0 || lanPort >= 65535) {
             throw new IllegalArgumentException("这个配对码只有中转、没有局域网；手机端暂时只支持同一个 Wi-Fi 下直连，请在电脑端打开局域网");
         }
-        return new PcPairing(peer, k, hosts.toString(), lanPort, relay.length() > 0);
+        return new PcPairing(peer, k, hosts.toString(), lanPort, relay.length() > 0, fp, version);
     }
 
     /**
@@ -155,7 +177,7 @@ public final class PcPairing {
     /** 日志 / 状态用：不含密钥。 */
     public String redacted() {
         return "peer=" + peer + " keyLen=" + key.length + " lanPort=" + lanPort + " hosts=" + (lanHosts.length() == 0 ? 0 : lanHosts.split(",").length)
-                + (hasRelay ? " relay=ignored" : "");
+                + (hasRelay ? " relay=ignored" : "") + " v=" + version + (fp.length() > 0 ? " tls=pinned" : " tls=none");
     }
 
     @Override public String toString() {

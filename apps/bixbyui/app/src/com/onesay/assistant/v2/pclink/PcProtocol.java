@@ -90,8 +90,28 @@ public final class PcProtocol {
     }
 
     public static Map<String, Object> hello(byte[] key, String id, String from, String to, long nowMs) {
+        return hello(key, id, from, to, nowMs, null, false);
+    }
+
+    /**
+     * v2 hello：cfp = 本机证书指纹（TLS 时必带，电脑端核对它就是 TLS 上出示的那张证书并记住）；
+     * hold = true 表示常连通道（电脑可以从这条连接往手机下令）。两项都在签名里。
+     */
+    public static Map<String, Object> hello(byte[] key, String id, String from, String to, long nowMs, String cfp, boolean hold) {
         Map<String, Object> b = new TreeMap<String, Object>();
         b.put("kind", "hello");
+        if (cfp != null && cfp.length() > 0) b.put("cfp", cfp);
+        if (hold) b.put("hold", Boolean.TRUE);
+        return seal(key, id, from, to, b, nowMs);
+    }
+
+    public static Map<String, Object> result(byte[] key, String id, String from, String to, String re, boolean ok, String text, Map<String, Object> data, long nowMs) {
+        Map<String, Object> b = new LinkedHashMap<String, Object>();
+        b.put("kind", "result");
+        b.put("re", re);
+        b.put("ok", Boolean.valueOf(ok));
+        b.put("text", text == null ? "" : text);
+        b.put("data", data == null ? new TreeMap<String, Object>() : data);
         return seal(key, id, from, to, b, nowMs);
     }
 

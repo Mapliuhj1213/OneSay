@@ -45,6 +45,8 @@ public final class PcLink {
     public static final String KILL = "pclink.off";
     static final String K_ME = "me", K_PEER = "peer", K_KEY = "pair_key", K_HOSTS = "lan_hosts", K_PORT = "lan_port", K_LAST = "lan_last",
             K_NAME = "pc_name", K_PAIRED_AT = "paired_at", K_LAST_SHOT = "last_shot", K_LAST_SHOT_URI = "last_shot_uri";
+    /** v2：电脑证书指纹（配对串 fp，空 = v1 明文）；本机 TLS 私钥（SecretPrefs 加密）与证书。 */
+    static final String K_FP = "pc_fp", K_TLS_KEY = "tls_key", K_TLS_CERT = "tls_cert";
     public static final String K_FWD_REMINDER = "fwd_reminder", K_FWD_AUTO = "fwd_auto", K_FWD_RAIN = "fwd_rain";
 
     /** 总开关（插件默认开；没配对时本来就什么都不做）。 */
@@ -104,14 +106,40 @@ public final class PcLink {
         SharedPreferences.Editor e = sp(c).edit();
         SecretPrefs.put(e, K_KEY, PcB64.encodeUrl(p.key));
         e.putString(K_PEER, p.peer).putString(K_HOSTS, p.lanHosts).putInt(K_PORT, p.lanPort).putString(K_LAST, "").putString(K_NAME, "")
-                .putLong(K_PAIRED_AT, System.currentTimeMillis()).commit();
+                .putString(K_FP, p.fp).putLong(K_PAIRED_AT, System.currentTimeMillis()).commit();
+        if (p.fp.length() > 0) myTls(c); // 本机证书第一次要用时生成（之后不变）
         Log.i(TAG, "[PCLINK] 已配对 " + p.redacted());
+        PcRxAndroid.ensure(c);
         return p;
     }
 
     public static void unpair(Context c) {
-        sp(c).edit().remove(K_KEY).remove(K_PEER).remove(K_HOSTS).remove(K_PORT).remove(K_LAST).remove(K_NAME).remove(K_PAIRED_AT).commit();
+        sp(c).edit().remove(K_KEY).remove(K_PEER).remove(K_HOSTS).remove(K_PORT).remove(K_LAST).remove(K_NAME).remove(K_PAIRED_AT).remove(K_FP).commit();
+        PcRxAndroid.ensure(c); // 让常连循环看到「没配对」后自己停
         Log.i(TAG, "[PCLINK] 已解除配对");
+    }
+
+    /** 电脑证书指纹（v1 配对为空串）。 */
+    public static String pcFp(Context c) {
+        return sp(c).getString(K_FP, "");
+    }
+
+    private static PcTls sTls;
+
+    /** 本机 TLS 证书：没有就生成（私钥经 SecretPrefs 加密保存）。解不开（换机还原 / Keystore 清过）就重新生成——电脑会因指纹不同拒绝，界面会提示怎么办。 */
+    static synchronized PcTls myTls(Context c) {
+        if (sTls != null) return sTls;
+        SharedPreferences s = sp(c);
+        PcTls t = PcTls.load(SecretPrefs.get(s, K_TLS_KEY), s.getString(K_TLS_CERT, ""));
+        if (t == null) {
+            t = PcTls.generate("onesay-" + me(c));
+            SharedPreferences.Editor e = s.edit();
+            SecretPrefs.put(e, K_TLS_KEY, t.keyB64());
+            e.putString(K_TLS_CERT, t.certB64()).commit();
+            Log.i(TAG, "[PCLINK] 生成本机证书 " + PcTls.shortFp(t.fp));
+        }
+        sTls = t;
+        return t;
     }
 
     /** 下令用的身份；没配对 / 密钥解不开返回 null。 */
@@ -128,7 +156,9 @@ public final class PcLink {
             return null;
         }
         if (key.length < 32) return null;
-        return new PcLanClient.Peer(me(c), peer, key, s.getString(K_HOSTS, ""), s.getInt(K_PORT, PcPairing.DEFAULT_PORT), s.getString(K_LAST, ""));
+        String fp = s.getString(K_FP, "");
+        return new PcLanClient.Peer(me(c), peer, key, s.getString(K_HOSTS, ""), s.getInt(K_PORT, PcPairing.DEFAULT_PORT), s.getString(K_LAST, ""),
+                fp, fp.length() > 0 ? myTls(c) : null);
     }
 
     /** 配对了但密钥解不开（换机还原 / Keystore 被清）。 */
@@ -308,7 +338,8 @@ public final class PcLink {
     public static String status(Context c) {
         if (!SWITCH.on(c)) return "off";
         if (!paired(c)) return "unpaired";
-        return "paired peer=" + peerId(c) + " me=" + me(c) + (keyLost(c) ? " keyLost" : "") + " hosts=" + sp(c).getString(K_HOSTS, "").split(",").length
+        return "paired peer=" + peerId(c) + " me=" + me(c) + (keyLost(c) ? " keyLost" : "") + (pcFp(c).length() > 0 ? " tls=" + PcTls.shortFp(pcFp(c)) : " tls=none")
+                + " rx=" + PcRxAndroid.rxOn(c) + (PcRxAndroid.up() ? "/up" : "") + " hosts=" + sp(c).getString(K_HOSTS, "").split(",").length
                 + " fwd=" + fwdOn(c, PcForward.KIND_REMINDER) + "/" + fwdOn(c, PcForward.KIND_AUTO) + "/" + fwdOn(c, PcForward.KIND_RAIN);
     }
 }

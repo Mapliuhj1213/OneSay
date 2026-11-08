@@ -41,14 +41,29 @@ public final class PcLanClient {
         public final int lanPort;
         /** 上次连上的地址（ip:port），优先试。 */
         public final String lanLast;
+        /** v2：配对串里电脑证书指纹（空 = v1 配对，走明文）。 */
+        public final String fp;
+        /** v2：本机证书（fp 非空时必须有）。 */
+        final PcTls tls;
 
         public Peer(String me, String peer, byte[] key, String lanHosts, int lanPort, String lanLast) {
+            this(me, peer, key, lanHosts, lanPort, lanLast, "", null);
+        }
+
+        public Peer(String me, String peer, byte[] key, String lanHosts, int lanPort, String lanLast, String fp, PcTls tls) {
             this.me = me;
             this.peer = peer;
             this.key = key;
             this.lanHosts = lanHosts == null ? "" : lanHosts;
             this.lanPort = lanPort;
             this.lanLast = lanLast == null ? "" : lanLast;
+            this.fp = fp == null ? "" : fp;
+            this.tls = tls;
+        }
+
+        /** 配对串带指纹 → 一定走 TLS（不退回明文）。 */
+        public boolean secure() {
+            return fp.length() > 0;
         }
     }
 
@@ -57,7 +72,7 @@ public final class PcLanClient {
         public final boolean ok;
         public final String text;
         public final Map<String, Object> data;
-        /** 失败类别：""（电脑执行了、ok 看结果）/ offline / auth / timeout / badsig / error。 */
+        /** 失败类别：""（电脑执行了、ok 看结果）/ offline / auth / timeout / badsig / error / tls（证书指纹不对）/ pin（电脑记住的是本机旧证书或要求加密）。 */
         public final String fail;
 
         Result(boolean ok, String text, Map<String, Object> data, String fail) {
@@ -96,6 +111,10 @@ public final class PcLanClient {
             Set<InetSocketAddress> targets = new LinkedHashSet<InetSocketAddress>();
             for (InetSocketAddress h : hints) targets.add(new InetSocketAddress(h.getAddress(), h.getPort() + 1));
             int dport = p.lanPort + 1;
+            try {
+                targets.add(new InetSocketAddress(InetAddress.getByName(GROUP), dport)); // v2：组播（LocalSend 的 224.0.0.0/24 做法）
+            } catch (Exception ignored) {
+            }
             List<InetAddress> bc = broadcasts();
             if (extraBroadcasts != null) bc.addAll(extraBroadcasts);
             for (InetAddress b : bc) targets.add(new InetSocketAddress(b, dport));
@@ -132,17 +151,47 @@ public final class PcLanClient {
         } finally {
             if (ds != null) ds.close();
         }
-        for (InetSocketAddress h : hints) {
-            Socket s = new Socket();
-            try {
-                s.connect(h, 700);
-                return h;
-            } catch (Exception ignored) {
-            } finally {
-                try { s.close(); } catch (IOException ignored) { }
-            }
-        }
+        // UDP 被挡：直接探记下的地址。v2 用 GET /healthz（电脑端 v1 / v2 都回 ok），比只看 TCP 能连上更准
+        for (InetSocketAddress h : hints) if (healthz(h, 700)) return h;
         return null;
+    }
+
+    /** 发现用的组播组（与电脑端 LanServer.GROUP 相同，端口 = 局域网端口 + 1）。 */
+    public static final String GROUP = "224.0.0.167";
+
+    /** 明文 GET /healthz → 200 ok。 */
+    static boolean healthz(InetSocketAddress h, int ms) {
+        Socket s = new Socket();
+        try {
+            s.connect(h, ms);
+            s.setSoTimeout(ms);
+            s.getOutputStream().write(("GET /healthz HTTP/1.1\r\nHost: " + h.getAddress().getHostAddress() + "\r\nConnection: close\r\n\r\n").getBytes(PcProtocol.ASCII));
+            java.io.InputStream in = s.getInputStream();
+            byte[] buf = new byte[256];
+            int n = 0, r;
+            while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) n += r;
+            String resp = new String(buf, 0, n, "ISO-8859-1");
+            return resp.startsWith("HTTP/1.1 200") && resp.endsWith("ok");
+        } catch (Exception e) {
+            return false;
+        } finally {
+            try { s.close(); } catch (IOException ignored) { }
+        }
+    }
+
+    /** announce 验证：电脑在组播 / 广播里发的 {"t":"ann","port","n","tag"}，标签对得上返回端口，否则 -1。 */
+    public static int announcePort(Peer p, String text) {
+        try {
+            Map<String, Object> r = PcJson.obj(text);
+            Object port = r.get("port"), n = r.get("n");
+            if (!"ann".equals(r.get("t")) || !(port instanceof Number) || !(n instanceof String)) return -1;
+            int v = ((Number) port).intValue();
+            String ns = (String) n;
+            if (v <= 0 || v >= 65536 || ns.length() < 8 || ns.length() > 64) return -1;
+            return PcProtocol.tagOk(p.key, "ann\n" + p.peer + "\n" + v + "\n" + ns, r.get("tag")) ? v : -1;
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
     static String probe(Peer p, String n) {
@@ -213,7 +262,16 @@ public final class PcLanClient {
 
         /** 连上 + hello。密钥不对抛 {@link AuthException}；其他连不上抛 IOException。 */
         public static Session open(Peer p, InetSocketAddress a, int timeoutMs) throws IOException {
-            PcWs ws = PcWs.connect(a, p.me, Math.min(timeoutMs, 3000), timeoutMs);
+            return open(p, a, timeoutMs, false);
+        }
+
+        /**
+         * v2：配对带指纹 → TLS（钉电脑证书、出示本机证书，hello 里带本机证书指纹）；hold = 常连通道。
+         * 证书不对抛 {@link PcWs.TlsException}；电脑记住的是本机旧证书 / 要求加密抛 {@link PinException}。
+         */
+        public static Session open(Peer p, InetSocketAddress a, int timeoutMs, boolean hold) throws IOException {
+            if (p.secure() && p.tls == null) throw new PcWs.TlsException(new IllegalStateException("no local cert"));
+            PcWs ws = PcWs.connect(a, p.me, Math.min(timeoutMs, 3000), timeoutMs, p.secure() ? p.tls.clientContext(p.fp) : null);
             boolean ok = false;
             try {
                 String id = PcProtocol.newId();
@@ -221,13 +279,14 @@ public final class PcLanClient {
                 hello.put("type", "hello");
                 hello.put("from", p.me);
                 hello.put("id", id);
-                hello.put("body", PcProtocol.hello(p.key, id, p.me, p.peer, System.currentTimeMillis()));
+                hello.put("body", PcProtocol.hello(p.key, id, p.me, p.peer, System.currentTimeMillis(), p.secure() ? p.tls.fp : null, hold));
                 ws.sendText(PcJson.stringify(hello));
                 long end = System.currentTimeMillis() + timeoutMs;
                 while (System.currentTimeMillis() < end) {
                     String m = ws.readText();
                     if (m == null) {
                         if (ws.closeCode == 4001) throw new AuthException();
+                        if (ws.closeCode == 4002 || ws.closeCode == 4003) throw new PinException(ws.closeCode);
                         throw new IOException("closed " + ws.closeCode);
                     }
                     Map<String, Object> f;
@@ -242,6 +301,8 @@ public final class PcLanClient {
                         return new Session(p, ws, a);
                     }
                     if ("error".equals(type) && "auth".equals(f.get("code"))) throw new AuthException();
+                    if ("error".equals(type) && "pin".equals(f.get("code"))) throw new PinException(4003);
+                    if ("error".equals(type) && "tls_required".equals(f.get("code"))) throw new PinException(4002);
                 }
                 throw new SocketTimeoutException("hello");
             } finally {
@@ -302,12 +363,39 @@ public final class PcLanClient {
         public void close() {
             ws.close();
         }
+
+        PcWs ws() {
+            return ws;
+        }
+
+        Peer peer() {
+            return p;
+        }
+
+        public boolean tls() {
+            return ws.tls;
+        }
     }
 
     public static final class AuthException extends IOException {
         public AuthException() {
             super("配对密钥不对，被电脑拒绝");
         }
+    }
+
+    /** 4003：电脑记住的是本机另一张证书；4002：电脑要求加密（这台手机用 TLS 连过，或电脑关了明文兼容）。 */
+    public static final class PinException extends IOException {
+        public final int code;
+
+        public PinException(int code) {
+            super(code == 4002 ? "电脑要求加密连接" : "电脑记住的是这台手机旧的证书");
+            this.code = code;
+        }
+    }
+
+    static String pinText(int code) {
+        return code == 4002 ? "电脑要求加密连接：请用电脑端（0.5.0 起）的新二维码重新配对"
+                : "电脑记住的是这台手机旧的证书（重装或清过数据？）：在电脑端设置里点「忘掉手机证书」，或换钥匙后重新扫码";
     }
 
     // ================================================================== 一次性下令
@@ -323,6 +411,10 @@ public final class PcLanClient {
             s = Session.open(p, a, Math.min(timeoutMs, 5000));
         } catch (AuthException e) {
             return Result.failure("auth", "配对密钥不对，被电脑拒绝（电脑端可能换过钥匙，请重新扫码）");
+        } catch (PinException e) {
+            return Result.failure("pin", pinText(e.code));
+        } catch (PcWs.TlsException e) {
+            return Result.failure("tls", "加密握手没通过：电脑的证书和配对时的不一致（不是那台电脑，或电脑端重装过），请重新扫码");
         } catch (IOException e) {
             return Result.failure("offline", "找到了电脑但连不上：" + e.getClass().getSimpleName());
         }

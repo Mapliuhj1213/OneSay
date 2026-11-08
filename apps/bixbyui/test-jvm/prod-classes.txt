@@ -648,3 +648,7 @@ com/onesay/assistant/v2/pclink/PcWs.java
 com/onesay/assistant/v2/pclink/PcLanClient.java
 com/onesay/assistant/v2/pclink/PcForward.java
 com/onesay/assistant/v2/pclink/PcVoice.java
+# link-v2（2026-11-08）：TLS 证书 / 指纹、电脑 → 手机常连通道与指令开关（纯 Java）
+com/onesay/assistant/v2/pclink/PcTls.java
+com/onesay/assistant/v2/pclink/PcRx.java
+com/onesay/assistant/v2/pclink/PcRxPolicy.java

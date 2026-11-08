@@ -18,6 +18,14 @@ OneSay 自身以 Apache License 2.0 发布（见 `LICENSE`、`NOTICE`）。下�
 | Chart.js | `apps/bixbyui/app/assets/richout_chart.umd.js` | 3.9.1，Copyright (c) 2014-2022 Chart.js Contributors | MIT | 同上 |
 | Poppins Bold（仅图标字形） | `apps/*/app/res/mipmap-*/ic_launcher*.png`、`apps/*/app/res/drawable-*/ic_launcher_fg*.png`（「One」桌面图标，字形渲染为位图；仓库与 APK 都不含字体文件） | Indian Type Foundry / Jonny Pinhorn | SIL OFL 1.1（不限制用其渲染出的图像） | https://openfontlicense.org |
 
+## 设计参考（link-v2 电脑联动 v2，未拷贝代码）
+| 项目 | 许可 | 参考了什么 | 用在哪 |
+|---|---|---|---|
+| LocalSend（github.com/localsend/localsend） | Apache-2.0 | 组播发现（224.0.0.0/24）、announce 后立刻回应、自签证书 + SHA-256 指纹识别设备 | `pclink/PcTls`、`PcRx`、`PcLanClient` |
+| LocalSend 协议文档（github.com/localsend/protocol） | 无许可证 | 只阅读，未拷贝 | — |
+| Home Assistant Companion for Android（github.com/home-assistant/android） | Apache-2.0 | 电脑→手机指令集（亮屏 / 音量 / 打开 App / 打开网址）、闹钟流最大音量找手机 | `pclink/PcRxPolicy`、`PcRxAndroid` |
+| KDE Connect、Sefirah | GPL | 只参考产品形态，没有阅读或使用代码 | — |
+
 ## 只在测试时使用
 
 | 组件 | 位置 | 许可证 |

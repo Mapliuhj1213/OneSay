@@ -13,6 +13,10 @@ import java.net.URLEncoder;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLSocket;
+
 /**
  * [pclink] 最小 WebSocket 客户端（RFC 6455）：HTTP 升级、写掩码帧、读服务端帧（拼分片、应答 ping）。
  * 电脑端 {@code LanServer} 要求客户端帧必须带掩码、控制帧 ≤ 125 字节；服务端帧不带掩码。
@@ -28,6 +32,8 @@ public final class PcWs {
     private final Socket s;
     private final InputStream in;
     private final OutputStream out;
+    /** 这条连接走的是 TLS。 */
+    public volatile boolean tls;
     /** 收到对方 close 帧时的状态码（-1 = 没收到）。 */
     public volatile int closeCode = -1;
 
@@ -37,20 +43,47 @@ public final class PcWs {
         this.out = out;
     }
 
-    /** 连上并完成升级握手。connectMs = TCP 连接超时，readMs = 握手 / 之后每次读的超时。 */
+    /** 连上并完成升级握手（明文，协议 v1）。connectMs = TCP 连接超时，readMs = 握手 / 之后每次读的超时。 */
     public static PcWs connect(InetSocketAddress a, String device, int connectMs, int readMs) throws IOException {
-        Socket s = new Socket();
+        return connect(a, device, connectMs, readMs, null);
+    }
+
+    /** TLS 握手失败（证书指纹和配对时不一致 / 对方不是 v2 电脑端）。 */
+    public static final class TlsException extends IOException {
+        public TlsException(Throwable cause) {
+            super("tls: " + cause.getClass().getSimpleName(), cause);
+        }
+    }
+
+    /**
+     * v2：tls 非空时先在同一个端口上做 TLS（电脑端按首字节分流），用 {@link PcTls#clientContext} 钉死电脑证书指纹、出示本机证书；
+     * 握手不过抛 {@link TlsException}，绝不退回明文。
+     */
+    public static PcWs connect(InetSocketAddress a, String device, int connectMs, int readMs, SSLContext tls) throws IOException {
+        Socket raw = new Socket();
+        Socket s = raw;
         boolean ok = false;
         try {
-            s.setTcpNoDelay(true);
-            s.connect(a, connectMs);
-            s.setSoTimeout(readMs);
+            raw.setTcpNoDelay(true);
+            raw.connect(a, connectMs);
+            raw.setSoTimeout(readMs);
+            String host = a.getAddress().getHostAddress();
+            if (tls != null) {
+                SSLSocket ss = (SSLSocket) tls.getSocketFactory().createSocket(raw, host, a.getPort(), true);
+                s = ss;
+                ss.setUseClientMode(true);
+                ss.setEnabledProtocols(protocols(ss.getSupportedProtocols()));
+                try {
+                    ss.startHandshake();
+                } catch (SSLException e) {
+                    throw new TlsException(e);
+                }
+            }
             InputStream in = new BufferedInputStream(s.getInputStream());
             OutputStream out = new BufferedOutputStream(s.getOutputStream());
             byte[] nonce = new byte[16];
             RNG.nextBytes(nonce);
             String key = PcB64.encode(nonce);
-            String host = a.getAddress().getHostAddress();
             String req = "GET /v1/ws?device=" + URLEncoder.encode(device, "UTF-8") + " HTTP/1.1\r\n"
                     + "Host: " + host + ":" + a.getPort() + "\r\n"
                     + "Upgrade: websocket\r\nConnection: Upgrade\r\n"
@@ -67,12 +100,22 @@ public final class PcWs {
             }
             if (accept == null || !accept.equals(acceptKey(key))) throw new IOException("bad accept");
             ok = true;
-            return new PcWs(s, in, out);
+            PcWs ws = new PcWs(s, in, out);
+            ws.tls = tls != null;
+            return ws;
         } finally {
             if (!ok) {
                 try { s.close(); } catch (IOException ignored) { }
+                try { raw.close(); } catch (IOException ignored) { }
             }
         }
+    }
+
+    /** 只开 TLS 1.2 / 1.3（Android 8 只有 1.2）。 */
+    static String[] protocols(String[] supported) {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        for (String p : supported) if ("TLSv1.3".equals(p) || "TLSv1.2".equals(p)) out.add(p);
+        return out.toArray(new String[0]);
     }
 
     static String acceptKey(String key) {

@@ -106,7 +106,8 @@ public class IslandGeometryTest {
         // ★ fix/triage-fast：+1 条 ACCESS_NOTIFICATION_POLICY（普通权限，勿扰快路径 setInterruptionFilter 要用户在「勿扰权限」里允许）
         // ★ feat/planner-link：+1 条 com.onesay.plan.permission.ACCESS（计划 App 后门的 signature 权限）
         // ★ 开源版闹钟：+1 条 com.onesay.clock.permission.ALARM_CONTROL（OneSay 时钟闹钟接口的 signature 权限；SET_ALARM 改成正确的 com.android.alarm 名，条数不变）
-        assertEquals("uses-permission 不变（50 条，含 fix/triage-fast 的 ACCESS_NOTIFICATION_POLICY、planner-link 的 bixbyplan ACCESS、时钟 ALARM_CONTROL）", 50, perms);
+        // ★ link-v2：+1 条 CHANGE_WIFI_MULTICAST_STATE（普通权限，电脑联动常连等电脑上线时收组播 announce 要拿 MulticastLock）
+        assertEquals("uses-permission 不变（51 条，含 fix/triage-fast 的 ACCESS_NOTIFICATION_POLICY、planner-link 的 bixbyplan ACCESS、时钟 ALARM_CONTROL、link-v2 的 CHANGE_WIFI_MULTICAST_STATE）", 51, perms);
         String ctl = file("app/src/com/onesay/assistant/v2/s1/IslandController.java");
         assertFalse(ctl.contains("TYPE_ACCESSIBILITY_OVERLAY"));
         assertFalse("不用挖孔模式", ctl.contains("LAYOUT_IN_DISPLAY_CUTOUT_MODE"));

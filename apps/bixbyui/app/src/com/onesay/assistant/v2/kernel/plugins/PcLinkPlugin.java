@@ -12,6 +12,7 @@ import com.onesay.assistant.v2.notice.NoticeHooks;
 import com.onesay.assistant.v2.pclink.PcLanClient;
 import com.onesay.assistant.v2.pclink.PcLink;
 import com.onesay.assistant.v2.pclink.PcLinkUi;
+import com.onesay.assistant.v2.pclink.PcRxAndroid;
 import com.onesay.assistant.v2.pclink.PcVoice;
 import com.onesay.assistant.v2.router.Invocation;
 import com.onesay.assistant.v2.router.L2LLMCompiler;
@@ -27,7 +28,9 @@ import java.util.List;
  * <ul>
  *   <li>控制台：设置 › 功能 › 「电脑联动」页（配对、在线状态、锁屏 / 截图 / 剪贴板 / 打开网址 / 睡眠 / 关机、提醒同步开关）；</li>
  *   <li>提醒中枢新出现的日程 / 定时提醒 / 自动任务结果 / 降水 → 电脑在线时发 notify，离线丢弃；</li>
- *   <li>语音口令：「电脑锁屏」「让电脑截个图」「电脑在线吗」（关机 / 睡眠只引导去控制台确认）。</li>
+ *   <li>语音口令：「电脑锁屏」「让电脑截个图」「电脑在线吗」（关机 / 睡眠只引导去控制台确认）；</li>
+ *   <li>v2（link-v2）：配对串带电脑证书指纹 → TLS 钉指纹 + 双向证书；手机保持一条常连通道，电脑可让手机响铃找手机、打开网址 / App、
+ *       亮屏、调媒体音量、写剪贴板、弹通知、查电量（每项单独开关，见 {@code pclink/PcRxPolicy}）。</li>
  * </ul>
  * 默认开（上机版与开源构建一样）：没配对时什么都不做、不联网。总开关 / {@code pclink.off} 可停。设计：docs/PCLINK.md。
  */
@@ -51,6 +54,10 @@ public final class PcLinkPlugin extends FeaturePlugin {
         final Context app = ctx.getApplicationContext();
         NoticeHooks.addSurfaceListener(new NoticeHooks.SurfaceListener() {
             @Override public void onSurfaced(Context c, List<IslandNotice> surfaced) { PcLink.onNoticesSurfaced(app, surfaced); }
+        });
+        // v2：电脑 → 手机的常连通道（没配对 / 关着就不起线程）。读 prefs 放后台线程，不占主线程（Android 8 前台服务 5 s 窗口）。
+        com.onesay.assistant.v2.util.Threads.start("pclink-rx-init", new Runnable() {
+            @Override public void run() { PcRxAndroid.ensure(app); }
         });
     }
 

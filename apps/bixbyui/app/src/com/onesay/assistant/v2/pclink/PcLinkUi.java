@@ -29,7 +29,7 @@ import java.util.TreeMap;
 
 /**
  * [pclink] 控制台「电脑联动」页：没配对 = 扫码配对 / 粘贴配对码；配对后 = 在线状态（页面开着时 10 秒探一次）、
- * 让电脑做事（锁屏 / 截图 / 剪贴板 / 打开网址 / 睡眠 / 关机）、通知转发三个开关、解除配对。
+ * 让电脑做事（锁屏 / 截图 / 剪贴板 / 打开网址 / 睡眠 / 关机）、v2 加密状态与「电脑可以让手机做的事」开关、通知转发三个开关、解除配对。
  */
 public final class PcLinkUi {
 
@@ -141,6 +141,8 @@ public final class PcLinkUi {
             }
         });
 
+        buildRx(host, root, act);
+
         LinearLayout f = host.group(root, "提醒同步到电脑");
         fwdRow(host, f, act, "日程与定时提醒", "日程、定时任务提醒", PcLink.K_FWD_REMINDER);
         fwdRow(host, f, act, "自动任务结果", "定时 / 自动任务跑完的结果", PcLink.K_FWD_AUTO);
@@ -150,6 +152,43 @@ public final class PcLinkUi {
         addUnpairRow(host, u, act);
         host.footer(root, "手机和电脑要连同一个 Wi-Fi。提醒只在电脑在线时发过去，电脑离线就不发、也不攒着补发。"
                 + "这一页开着时每 10 秒查一次电脑在不在，离开这一页就停。");
+    }
+
+    /** 当前页上「接受电脑指令」那一行（轮询时刷新常连状态）；离开页面后由 detach 置空也无妨，只是不再刷新。 */
+    static volatile ConsoleHost.Row rxRow;
+
+    /** v2：加密状态 + 「电脑可以让手机做的事」（总开关 = 常连通道，每项单独开关）+ 最近记录。 */
+    static void buildRx(final ConsoleHost host, LinearLayout root, final Activity act) {
+        String fp = PcLink.pcFp(act);
+        LinearLayout sec = host.group(root, "连接安全");
+        if (fp.length() > 0) {
+            host.valueRow(sec, "加密连接", "电脑证书指纹 " + PcTls.shortFp(fp) + " · 本机 " + PcTls.shortFp(PcLink.myTls(act).fp)
+                    + "（两边设置页里显示的应一致）", "已加密", ConsoleHost.TONE_OK);
+        } else {
+            host.valueRow(sec, "加密连接", "这是旧版配对码（电脑端 0.4.x）：内容有签名但没加密。电脑端升到 0.5.0 后重新扫码即可加密", "未加密", ConsoleHost.TONE_WARN);
+        }
+
+        LinearLayout g = host.group(root, "电脑可以让手机做的事");
+        final boolean on = PcRxAndroid.rxOn(act);
+        final ConsoleHost.Row[] rows = new ConsoleHost.Row[PcRxPolicy.CMDS.length];
+        rxRow = host.switchRow(g, "接受电脑指令", on ? PcRxAndroid.stateText() : "关着：电脑找不到这台手机，下面各项都不生效", on, new ConsoleHost.Toggle() {
+            @Override public void onToggle(boolean v) {
+                PcRxAndroid.setRx(act, v);
+                for (ConsoleHost.Row r : rows) if (r != null) r.setEnabled(v);
+                if (rxRow != null) rxRow.setSub(v ? "正在找电脑…" : "关着：电脑找不到这台手机，下面各项都不生效");
+            }
+        });
+        for (int i = 0; i < PcRxPolicy.CMDS.length; i++) {
+            final String cmd = PcRxPolicy.CMDS[i];
+            rows[i] = host.switchRow(g, PcRxPolicy.label(cmd), PcRxPolicy.sub(cmd) + (PcRxPolicy.dangerous(cmd) ? " · 会改动手机，按需打开" : ""),
+                    PcRxAndroid.cmdOn(act, cmd), new ConsoleHost.Toggle() {
+                        @Override public void onToggle(boolean v) { PcRxAndroid.setCmd(act, cmd, v); }
+                    });
+            rows[i].setEnabled(on);
+        }
+        String log = PcLink.sp(act).getString(PcRxAndroid.K_RX_LOG, "");
+        host.footer(root, "开着时手机和电脑保持一条连接（只在 Wi-Fi 下，电脑不在就等它上线），电脑随时能找到手机；每条指令都带配对钥匙签名，"
+                + "过期或重放的直接拒绝。" + (log.length() > 0 ? "\n最近：\n" + log : ""));
     }
 
     /** 重画当前页（控制台的 onResume 会重建顶层页面）。 */
@@ -222,12 +261,17 @@ public final class PcLinkUi {
                 final String last = PcLink.sp(app).getString(PcLink.K_LAST, "");
                 host.ui(new Runnable() {
                     @Override public void run() {
+                        ConsoleHost.Row rr = rxRow;
+                        if (rr != null && rr.isOn()) rr.setSub(PcRxAndroid.stateText());
                         if (r.ok) {
                             row.setValue("在线", ConsoleHost.TONE_OK);
                             row.setSub("经由局域网" + (last.length() > 0 ? " " + last.substring(0, Math.max(0, last.lastIndexOf(':'))) : "") + " · " + name);
                         } else if ("auth".equals(r.fail)) {
                             row.setValue("被拒绝", ConsoleHost.TONE_BAD);
                             row.setSub("电脑端换过钥匙？请解除配对后重新扫码");
+                        } else if ("tls".equals(r.fail) || "pin".equals(r.fail)) {
+                            row.setValue("证书不对", ConsoleHost.TONE_BAD);
+                            row.setSub(r.text);
                         } else {
                             row.setValue("离线", ConsoleHost.TONE_WARN);
                             row.setSub("局域网里没找到 " + name + "：电脑开着 OneSay 吗？和手机在同一个 Wi-Fi 吗？");
