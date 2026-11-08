@@ -267,7 +267,9 @@ let S=null, page='today', pending=false;
 const now=Date.now(), H=3600e3, D=24*H, t0=new Date(new Date().toDateString()).getTime();
 const DEMO={version:'0.5.1',phone_level:'auto',phone_level_zh:'自动',pc_level:'auto',workspace:'C:\\Users\\me\\OneSay\\workspace',confirms:[],tls_fp:'1A2B-3C4D',phone:'my-phone',device:'pc-desktop',voice:'长按空格说话',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
  caps:['ping','screenshot','open_url','open_app','clipboard_get','clipboard_set','lock','volume','media','sleep','shutdown','shutdown_abort'],
- shortcuts:['下班模式','备份照片'],
+ shortcuts:['下班模式','备份照片','改代理'],
+ shortcut_policy:[{name:'下班模式.ps1',id:'下班模式.ps1',status:'approved',why:''},{name:'备份照片.bat',id:'备份照片.bat',status:'changed',why:''},{name:'改代理.ps1',id:'改代理.ps1',status:'blocked',why:'内容涉及注册表 / 网络配置 / 服务驱动（Set-ItemProperty）'}],
+ shortcut_approvals:[{id:'下班模式.ps1',name:'下班模式.ps1',status:'approved',hash:'3f2a9c0d11ee'},{id:'备份照片.bat',name:'备份照片.bat',status:'changed',hash:'a81b77c2d004'}],
  log:['00:21:03 执行 screenshot（来自 my-phone，经局域网）','00:18:40 听到：打开B站','00:12:11 执行 volume（来自 my-phone，经局域网）','00:05:02 拒绝来自 unknown 的指令：BAD_SIG','23:59:30 局域网 在线'],
  settings:{device_id:'pc-desktop',lan_port:47820,relay:false,ptt:true,ptt_skip:'mstsc.exe',asr_mode:'cloud',asr_key_set:true,llm_provider:'deepseek',llm_key_set:true,llm_model:'',llm_model_default:'deepseek-chat',llm_base:'',files_dir:'',scripts_dir:'C:\\Users\\me\\Documents\\OneSay\\快捷指令',apps:'微信=C:\\Program Files\\Tencent\\WeChat\\WeChat.exe;VS Code=C:\\Users\\me\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',autostart:true},
  memory:{text:'- 用户叫刘泓江，用 Windows 电脑和 Note 8 手机\n- 偏好简短回答，先给结论\n- 在做开源项目 OneSay',updated_at:now-2*H},
@@ -345,7 +347,16 @@ P.autos=()=>head('自动任务','触发后的结果会通过通知弹到电脑�
 P.shortcuts=()=>{const s=S.shortcuts;
   return head('快捷指令','说名字就执行，只回一句「正在执行快捷指令」')+
   (S.settings.scripts_dir?(s.length?`<div class="grid3">${s.map(n=>`<div class="tile"><span class="tag blue" style="align-self:flex-start">电脑</span><div class="tt">${esc(n)}</div><div class="st">说「${esc(n)}」或「执行${esc(n)}」</div><div class="row"><button class="btn sm" onclick="runSc('${esc(n)}')">运行</button></div></div>`).join('')}</div>`:empty('文件夹里还没有 .ps1 / .bat / .cmd 脚本')):empty('还没设快捷指令文件夹，去设置里填'))+
-  `<p class="note">快捷指令文件夹：${esc(S.settings.scripts_dir||'未设置')} · 每个脚本最多跑 60 秒 · 成败由你判断。</p>`};
+  `<p class="note">快捷指令文件夹：${esc(S.settings.scripts_dir||'未设置')} · 每个脚本最多跑 60 秒 · 成败由你判断。</p>`+scPolicy()};
+const SC_ST={approved:['green','手机可直接执行'],changed:['red','内容改过，要重新批准'],new:['','手机触发时先问你'],blocked:['red','不能批准远程直接执行'],missing:['','文件已不在']};
+function scPolicy(){const p=S.shortcut_policy||[],a=S.shortcut_approvals||[];
+  return sec('var(--auto)','手机触发','第一次（或内容改过）会在这里问你，可选「以后直接执行」')+
+  (p.length?card(p.map(x=>{const t=SC_ST[x.status]||SC_ST.new;return `<div class="item"><div class="tx"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.why||t[1])}</div></div><span class="tag ${t[0]}">${esc(t[1])}</span></div>`})):empty('没有快捷指令'))+
+  sec('var(--green)','已批准直接执行',a.length+' 个')+
+  (a.length?card(a.map(x=>{const t=SC_ST[x.status]||SC_ST.approved;return `<div class="item"><div class="tx"><div class="tt">${esc(x.name)}</div><div class="st">内容指纹 ${esc(x.hash)} · ${esc(t[1])}</div></div><button class="tag" onclick="scRevoke(${esc(JSON.stringify(x.id))})">撤销</button></div>`})):empty('还没有批准过'))+
+  `<p class="note">只认快捷指令文件夹里的 .ps1 / .bat / .cmd，按文件名 + 内容指纹批准；改了内容或改了名都要重新批准。内容涉及注册表、网络配置、服务驱动、授权或看不出内容的编码命令的，只能你自己运行。只读档一律不执行。</p>`}
+async function scRevoke(id){if(!LIVE){S.shortcut_approvals=(S.shortcut_approvals||[]).filter(x=>x.id!==id);render();return}
+  const r=await api('shortcuts',{op:'revoke',id});snack(r.text);refresh()}
 P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
   return head('手机',on?`在线 · ${esc(S.peers[ids[0]])} · ${esc(ids[0])}`:(ph?`离线 · 上次常连 ${esc(ph)}`:'离线'))+
   `<div class="card">${kv('手机执行级别','只能在手机上改（手机 OneSay › 电脑联动 › 执行级别）。自动档：写剪贴板、打开不在信任列表的网址、卸载 App 要在手机上点「允许一次」，30 秒不点算拒绝',`<span class="tag ${S.phone_level==='full'?'':'green'}">${S.phone_level_zh?esc(S.phone_level_zh):'未知（连上后显示）'}</span>`)}</div>
@@ -398,7 +409,7 @@ P.settings=()=>{const s=S.settings;
   ${kv('快捷指令文件夹','放 .ps1 / .bat / .cmd',inp('scripts_dir',s.scripts_dir,'D:\\OneSay\\快捷指令'))}
   ${kv('开机自动启动','启动后只在托盘',sw('autostart',s.autostart))}</div>
   ${sec('var(--accent)','手机→电脑的执行级别','仿照 Codex 的审批模式')}<div class="card">
-  ${kv('执行级别','只读：只回答状态；自动：截图 / 媒体键 / 锁屏直接做，音量、关机、卸载要你在这里点确认，写文件只限工作区；完全访问：再多出运行工作区脚本（每次确认）和操作第三方 App',levelSeg(s.pc_level))}
+  ${kv('执行级别','只读：只回答状态；自动：截图 / 媒体键 / 锁屏直接做，音量、关机、卸载要你在这里点确认，写文件只限工作区；完全访问：再多出运行工作区脚本（每次确认）和操作第三方 App。快捷指令（自动 / 完全访问）：第一次从手机触发或内容改过要你批准，可选「以后直接执行」',levelSeg(s.pc_level))}
   ${kv('信任的网址域名','手机让电脑开这些网站时不用确认；逗号分隔',inp('trusted_domains',s.trusted_domains,'bilibili.com, github.com',260))}</div></div>
   <div>${sec('var(--accent)','配对手机')}<div class="card" style="padding:20px">
   <div style="display:flex;gap:18px;align-items:center"><div class="qr" id="qrbox" style="display:grid;place-items:center;color:var(--text3);font-size:12px;text-align:center">${pairShown?'':'点「显示」<br>生成二维码'}</div>
@@ -449,9 +460,9 @@ let cfShown='';
 function confirmBar(){const c=(S&&S.confirms)||[];const box=$('cfbox');if(!box)return;
   if(!c.length){box.style.display='none';cfShown='';return}
   const x=c[0],key=String(x.id);if(cfShown===key)return;cfShown=key;
-  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px">手机请求，需要你确认</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div><div class="note" style="margin:0 0 10px">30 秒不点就自动拒绝</div><button class="btn sm" onclick="cfAns(${x.id},true)">允许一次</button> <button class="btn ghost sm" onclick="cfAns(${x.id},false)">拒绝</button>`;
+  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px">手机请求，需要你确认</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div><div class="note" style="margin:0 0 10px">30 秒不点就自动拒绝</div><button class="btn sm" onclick="cfAns(${x.id},true)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm" onclick="cfAns(${x.id},true,true)">以后直接执行</button> `:''}<button class="btn ghost sm" onclick="cfAns(${x.id},false)">拒绝</button>`;
   box.style.display=''}
-async function cfAns(id,allow){const r=await api('confirm',{id,allow});cfShown='';snack(r.text);refresh()}
+async function cfAns(id,allow,always){const r=await api('confirm',{id,allow,always:!!always});cfShown='';snack(r.text);refresh()}
 async function setv(k,v){if(!LIVE){S.settings[k]=v;if(k==='llm_key'||k==='asr_key')S.settings[k+'_set']=!!v;render();return}
   const r=await api('settings',{[k]:v});snack(r.text);if(r.settings)S.settings=r.settings;render()}
 async function testLlm(){snack('测试中…');const r=await api('test_llm',{});snack(r.text)}

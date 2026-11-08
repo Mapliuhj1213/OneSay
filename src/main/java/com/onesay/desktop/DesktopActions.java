@@ -63,7 +63,7 @@ public class DesktopActions implements Actions {
             case "file_list": return fileList();
             case "file_get": return fileGet(str(a, "name"));
             case "shortcut_list": return shortcutList();
-            case "shortcut_run": return shortcutRun(str(a, "name"));
+            case "shortcut_run": return shortcutRun(str(a, "name"), str(a, "_sha256"));
             case "lock": return win("锁屏", "rundll32.exe", "user32.dll,LockWorkStation");
             case "volume": return volume(str(a, "action"), num(a, "steps", 5));
             case "media": return media(str(a, "action"));
@@ -208,14 +208,22 @@ public class DesktopActions implements Actions {
         return Result.ok(names.size() + " 个快捷指令", map("shortcuts", names));
     }
 
-    Result shortcutRun(String name) throws Exception {
-        Path p = null;
+    /** 快捷指令名 → 文件夹里的文件（名字可带或不带 .ps1 / .bat / .cmd）；没有返回 null。PcGuard 判定和这里执行用同一个查找。 */
+    static Path shortcutPath(String dir, String name) {
+        if (dir == null || name == null) return null;
         for (String ext : new String[]{"", ".ps1", ".bat", ".cmd"}) {
-            p = safeChild(cfg.scriptsDir, name + ext);
-            if (p != null && p.getFileName().toString().matches("(?i).+\\.(ps1|bat|cmd)$")) break;
-            p = null;
+            Path p = safeChild(dir, name + ext);
+            if (p != null && p.getFileName().toString().matches("(?i).+\\.(ps1|bat|cmd)$")) return p;
         }
+        return null;
+    }
+
+    /** sha256 非空（手机触发、PcGuard 判过的）：执行前再核对内容，和判定时不一样就不跑。 */
+    Result shortcutRun(String name, String sha256) throws Exception {
+        Path p = shortcutPath(cfg.scriptsDir, name);
         if (p == null) return Result.fail("没有这个快捷指令：" + name);
+        if (sha256 != null && !sha256.isEmpty() && !LinkPolicy.sha256Hex(Files.readAllBytes(p)).equalsIgnoreCase(sha256))
+            return Result.fail("快捷指令「" + p.getFileName() + "」内容刚改过，没执行（重新触发会再问你）");
         String fn = p.toString();
         ProcessBuilder pb = fn.toLowerCase(Locale.ROOT).endsWith(".ps1")
                 ? new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", fn)

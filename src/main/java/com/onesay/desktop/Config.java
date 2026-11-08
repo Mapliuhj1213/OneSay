@@ -50,6 +50,7 @@ public final class Config {
     public boolean lanPlain = true;   // 还接受旧版（v1，明文）手机；已经用 TLS 连过的设备不再接受明文
     public String phoneLast = "";     // 最近一台常连（hold）的手机 id，电脑→手机下令时找它
     public String pcLevel = "auto";   // 手机→电脑指令的执行级别：read_only / auto（默认）/ full（见 LinkPolicy，电脑是严格矩阵）
+    public String shortcutApprovals = ""; // 手机触发快捷指令「以后直接执行」的批准表：id=内容哈希,...（LinkPolicy.parseApprovals）
     public String trusted = "";       // 手机让电脑打开网址时的信任域名，逗号分隔
     public String workspaceDir = "";  // 空 = %USERPROFILE%\OneSay\workspace（中文用户名退到 %ProgramData%\OneSay\workspace）
 
@@ -100,6 +101,7 @@ public final class Config {
         c.phoneLast = p.getProperty("phone_last", "").trim();
         c.pcLevel = LinkPolicy.Level.of(p.getProperty("pc_level", "auto")).id;
         c.trusted = p.getProperty("trusted_domains", "").trim();
+        c.shortcutApprovals = LinkPolicy.formatApprovals(LinkPolicy.parseApprovals(p.getProperty("shortcut_approvals", "")));
         c.workspaceDir = p.getProperty("workspace_dir", "").trim();
         return c;
     }
@@ -126,6 +128,7 @@ public final class Config {
         p.setProperty("asr_mode", asrMode);
         p.setProperty("pc_level", pcLevel);
         p.setProperty("trusted_domains", trusted);
+        p.setProperty("shortcut_approvals", shortcutApprovals);
         p.setProperty("workspace_dir", workspaceDir);
         p.setProperty("llm_provider", llmProvider);
         p.setProperty("llm_key", llmKey);

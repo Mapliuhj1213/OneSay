@@ -248,6 +248,8 @@ public final class App {
             s.put("phone_level_zh", pl == null ? "" : pl.zh);
             s.put("pc_level", cfg.level().id);
             s.put("confirms", agent.confirms.list());
+            s.put("shortcut_policy", agent.guard.shortcutView());
+            s.put("shortcut_approvals", agent.guard.approvalView());
             s.put("workspace", cfg.workspace().toString());
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
@@ -325,9 +327,27 @@ public final class App {
             Object id = b.get("id");
             if (!(id instanceof Number)) return fail("没有这条请求");
             boolean allow = Boolean.TRUE.equals(b.get("allow"));
-            if (!agent.confirms.resolve(((Number) id).intValue(), allow)) return fail("请求已经过期");
-            log.accept((allow ? "允许" : "拒绝") + "了一条远程请求");
-            return ok(allow ? "已允许一次" : "已拒绝");
+            boolean always = allow && Boolean.TRUE.equals(b.get("always"));
+            if (!agent.confirms.resolve(((Number) id).intValue(), allow, always)) return fail("请求已经过期");
+            log.accept((allow ? (always ? "允许（以后直接执行）" : "允许") : "拒绝") + "了一条远程请求");
+            return ok(allow ? (always ? "已允许，以后直接执行" : "已允许一次") : "已拒绝");
+        });
+        // 快捷指令批准表：看 / 撤销（批准只能在手机触发时的确认里点「以后直接执行」）
+        ui.on("shortcuts", b -> {
+            String op = str(b, "op", "list");
+            if (op.equals("revoke")) {
+                String id = str(b, "id", "");
+                if (!agent.guard.revoke(id)) return fail("没有这条批准");
+                log.accept("撤销了快捷指令批准：" + id);
+                Map<String, Object> m = ok("已撤销，下次从手机触发会再问你");
+                m.put("approvals", agent.guard.approvalView());
+                return m;
+            }
+            if (!op.equals("list")) return fail("不认识的操作");
+            Map<String, Object> m = ok("快捷指令批准");
+            m.put("shortcuts", agent.guard.shortcutView());
+            m.put("approvals", agent.guard.approvalView());
+            return m;
         });
         ui.on("pairing", b -> {
             if (str(b, "op", "").equals("unpin")) {

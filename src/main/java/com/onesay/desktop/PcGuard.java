@@ -2,8 +2,12 @@ package com.onesay.desktop;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,15 +22,25 @@ import java.util.function.Consumer;
  *
  * <p>电脑端已有的能力（截图、音量、关机、快捷指令…）和以后新增的都必须在 {@link LinkPolicy#pcCat} 里登记类别，没登记的一律拒绝。
  * A 类（注册表、网络配置、服务 / 驱动）与工作区以外的写入：任何级别都只生成 .ps1 脚本，永远不执行；给自己授权同样只生成脚本。
+ *
+ * <p>快捷指令（用户在电脑上定义的、快捷指令文件夹里的 .ps1 / .bat / .cmd）单独一类：按「文件名 id + 内容 SHA-256」批准。第一次触发 / 内容改过
+ * 在电脑上问「允许 / 拒绝」并可选「以后直接执行」；批准表存在配置里，界面能看、能撤销；内容碰严格规则或文件在远程可写的工作区里的不能批准。
  */
 public final class PcGuard {
 
     public static final long CONFIRM_MS = 30_000;
-    public static final int ALLOW = 1, DENY = 0, TIMEOUT = -1;
+    public static final int ALLOW = 1, DENY = 0, TIMEOUT = -1, ALWAYS = 2;
+    /** 快捷指令文件太大就不认（正常的快捷指令只有几 KB）。 */
+    public static final long SHORTCUT_MAX = 256 * 1024;
 
     /** 电脑上弹确认（界面对话框 + 右下角通知）。 */
     public interface Confirmer {
         int ask(String from, String cmd, String detail, long timeoutMs);
+
+        /** offerAlways：多给一个「以后直接执行」（快捷指令用），选了返回 {@link #ALWAYS}。 */
+        default int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways) {
+            return ask(from, cmd, detail, timeoutMs);
+        }
     }
 
     /** 界面轮询用的待确认列表。 */
@@ -36,6 +50,10 @@ public final class PcGuard {
         volatile Consumer<String> onNew = s -> { };
 
         @Override public int ask(String from, String cmd, String detail, long timeoutMs) {
+            return ask(from, cmd, detail, timeoutMs, false);
+        }
+
+        @Override public int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways) {
             int id = seq.getAndIncrement();
             CountDownLatch l = new CountDownLatch(1);
             int[] res = {TIMEOUT};
@@ -45,6 +63,7 @@ public final class PcGuard {
             info.put("cmd", cmd);
             info.put("detail", detail);
             info.put("deadline", System.currentTimeMillis() + timeoutMs);
+            info.put("always", offerAlways);
             pending.put(id, new Object[]{l, res, info});
             try { onNew.accept(detail); } catch (Exception ignored) { }
             try {
@@ -58,9 +77,16 @@ public final class PcGuard {
         }
 
         public boolean resolve(int id, boolean allow) {
+            return resolve(id, allow, false);
+        }
+
+        /** always 只在这条请求给了「以后直接执行」时才算数，否则当「允许一次」。 */
+        @SuppressWarnings("unchecked")
+        public boolean resolve(int id, boolean allow, boolean always) {
             Object[] p = pending.remove(id);
             if (p == null) return false;
-            ((int[]) p[1])[0] = allow ? ALLOW : DENY;
+            boolean offered = Boolean.TRUE.equals(((Map<String, Object>) p[2]).get("always"));
+            ((int[]) p[1])[0] = allow ? (always && offered ? ALWAYS : ALLOW) : DENY;
             ((CountDownLatch) p[0]).countDown();
             return true;
         }
@@ -119,6 +145,12 @@ public final class PcGuard {
             String low = (name + " " + path).toLowerCase(java.util.Locale.ROOT);
             f.appSystem = low.contains("\\windows\\") || low.contains("explorer") || low.contains("taskmgr") || low.contains("regedit") || low.contains("onesay");
         }
+        Shortcut sc = null;
+        if (cat == LinkPolicy.Cat.SHORTCUT) {
+            sc = shortcut(str(a, "name"));
+            f = shortcutFacts(sc);
+            if (sc != null) a.put("_sha256", f.shortcutHash); // 执行前再核对一次，防判定后文件被换掉
+        }
         LinkPolicy.Decision d = LinkPolicy.decide(LinkPolicy.Target.PC, cfg.level(), cat, f);
         switch (d.verdict) {
             case DENY:
@@ -134,9 +166,26 @@ public final class PcGuard {
             case CONFIRM: {
                 String detail = from + " 请求：" + detail(cmd, a, d.text);
                 Confirmer c = confirmer;
-                int r = c == null ? TIMEOUT : c.ask(from, cmd, detail, CONFIRM_MS);
+                boolean offer = sc != null;
+                int r = c == null ? TIMEOUT : c.ask(from, cmd, detail, CONFIRM_MS, offer);
+                if (offer) {
+                    // 快捷指令：没批准下来时原因码是 shortcut_needs_approval / shortcut_changed，确认结果另放 confirm_result
+                    Map<String, Object> x = new TreeMap<>();
+                    x.put("shortcut", sc.id);
+                    if (r == ALWAYS) {
+                        approve(sc.id, f.shortcutHash);
+                        try { notify.accept("已批准快捷指令「" + sc.name + "」以后从手机直接执行（可在快捷指令页撤销）"); } catch (Exception ignored) { }
+                    } else if (r == TIMEOUT) {
+                        x.put("confirm_result", LinkPolicy.R_CONFIRM_TIMEOUT);
+                        o.reply = result(false, "电脑上 30 秒没人确认，没执行快捷指令「" + sc.name + "」", d.reason, x);
+                    } else if (r != ALLOW) {
+                        x.put("confirm_result", LinkPolicy.R_CONFIRM_DENIED);
+                        o.reply = result(false, "电脑上拒绝了快捷指令「" + sc.name + "」", d.reason, x);
+                    }
+                    return o;
+                }
                 if (r == TIMEOUT) o.reply = result(false, "电脑上 30 秒没人确认，已拒绝", LinkPolicy.R_CONFIRM_TIMEOUT, null);
-                else if (r != ALLOW) o.reply = result(false, "电脑上拒绝了", LinkPolicy.R_CONFIRM_DENIED, null);
+                else if (r != ALLOW && r != ALWAYS) o.reply = result(false, "电脑上拒绝了", LinkPolicy.R_CONFIRM_DENIED, null);
                 return o;
             }
             default:
@@ -153,6 +202,7 @@ public final class PcGuard {
     static String detail(String cmd, Map<String, Object> a, String why) {
         switch (cmd) {
             case "script_run": return "运行工作区脚本 scripts/" + str(a, "name");
+            case "shortcut_run": return "运行快捷指令「" + str(a, "name") + "」（" + why + "）";
             case "sys_exec": return "执行命令：" + str(a, "command");
             case "uninstall_app": return "卸载 " + (str(a, "name").isEmpty() ? str(a, "package") : str(a, "name"));
             case "volume": return "调音量（" + str(a, "action") + "）";
@@ -160,6 +210,137 @@ public final class PcGuard {
             case "sleep": return "睡眠";
             default: return why;
         }
+    }
+
+    // ------------------------------------------------------------------ 快捷指令
+
+    /** 一个快捷指令：文件名、稳定 id（文件名小写）、路径、触发这一刻的内容。 */
+    public static final class Shortcut {
+        public final String name, id;
+        public final Path path;
+        public final byte[] bytes;
+
+        Shortcut(Path path, byte[] bytes) {
+            this.path = path;
+            this.name = path.getFileName().toString();
+            this.id = LinkPolicy.shortcutId(name);
+            this.bytes = bytes;
+        }
+    }
+
+    /** 快捷指令文件夹里名字对应的文件（和 {@link DesktopActions#shortcutRun} 用同一个查找）；没有返回 null。 */
+    public Shortcut shortcut(String name) {
+        Path p = DesktopActions.shortcutPath(cfg.scriptsDir, name);
+        return p == null ? null : load(p);
+    }
+
+    static Shortcut load(Path p) {
+        try {
+            if (Files.size(p) > SHORTCUT_MAX) return new Shortcut(p, null);
+            return new Shortcut(p, Files.readAllBytes(p));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 快捷指令列表（文件夹里的 .ps1 / .bat / .cmd，最多 200 个，按名字排序）。 */
+    public List<Shortcut> shortcuts() {
+        List<Shortcut> out = new ArrayList<>();
+        if (cfg.scriptsDir.isEmpty()) return out;
+        try (var s = Files.list(Paths.get(cfg.scriptsDir))) {
+            s.filter(Files::isRegularFile).filter(p -> p.getFileName().toString().matches("(?i).+\\.(ps1|bat|cmd)$")).sorted().limit(200)
+                    .forEach(p -> { Shortcut x = load(p); if (x != null) out.add(x); });
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    /** 判定事实：内容哈希 / 严格规则 / 批准表，再加两条电脑端才知道的：文件太大、文件在远程可写的工作区里（不算你定义的）。 */
+    LinkPolicy.Facts shortcutFacts(Shortcut sc) {
+        if (sc == null) return LinkPolicy.shortcutFacts(null, null, null, false);
+        LinkPolicy.Facts f = LinkPolicy.shortcutFacts(sc.id, sc.bytes == null ? new byte[0] : sc.bytes, approvals(), true);
+        String extra = null;
+        if (sc.bytes == null) extra = "文件太大（超过 256 KB）";
+        else if (insideWorkspace(sc.path)) extra = "文件在手机能写的电脑工作区里（不算你在电脑上定义的快捷指令）";
+        if (extra != null && f.shortcutBlocked.isEmpty()) {
+            f.shortcutBlocked = extra;
+            f.shortcutApproved = false;
+        }
+        return f;
+    }
+
+    boolean insideWorkspace(Path p) {
+        try {
+            File ws = workspace().getCanonicalFile();
+            File x = p.toFile().getCanonicalFile();
+            for (File d = x; d != null; d = d.getParentFile()) if (d.equals(ws)) return true;
+        } catch (Exception e) {
+            return true; // 判断不了就当在里面（不放开）
+        }
+        return false;
+    }
+
+    public synchronized Map<String, String> approvals() {
+        return LinkPolicy.parseApprovals(cfg.shortcutApprovals);
+    }
+
+    /** 记下「以后直接执行」：id → 内容哈希。内容碰严格规则的不会走到这里（判定直接拒）。 */
+    public synchronized void approve(String id, String hash) {
+        Map<String, String> m = approvals();
+        m.put(LinkPolicy.shortcutId(id), hash);
+        cfg.shortcutApprovals = LinkPolicy.formatApprovals(m);
+        save();
+    }
+
+    /** 撤销批准；没有这条返回 false。 */
+    public synchronized boolean revoke(String id) {
+        Map<String, String> m = approvals();
+        if (m.remove(LinkPolicy.shortcutId(id)) == null) return false;
+        cfg.shortcutApprovals = LinkPolicy.formatApprovals(m);
+        save();
+        return true;
+    }
+
+    private void save() {
+        try { cfg.save(); } catch (Exception ignored) { } // 测试里配置可能没有文件路径；内存里的批准表照样生效
+    }
+
+    /** 界面用：每个快捷指令的状态 approved（以后直接执行）/ changed（改过，要重新批准）/ new（还没批准）/ blocked（不能批准，带原因）。 */
+    public List<Object> shortcutView() {
+        List<Object> out = new ArrayList<>();
+        for (Shortcut sc : shortcuts()) {
+            LinkPolicy.Facts f = shortcutFacts(sc);
+            Map<String, Object> m = new TreeMap<>();
+            m.put("name", sc.name);
+            m.put("id", sc.id);
+            String st = !f.shortcutBlocked.isEmpty() ? "blocked" : f.shortcutApproved ? "approved" : f.shortcutChanged ? "changed" : "new";
+            m.put("status", st);
+            m.put("why", f.shortcutBlocked);
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** 界面用：批准表（含文件已经没了 / 内容改过的），每条可撤销。 */
+    public List<Object> approvalView() {
+        Map<String, Shortcut> byId = new TreeMap<>();
+        for (Shortcut sc : shortcuts()) byId.put(sc.id, sc);
+        List<Object> out = new ArrayList<>();
+        for (Map.Entry<String, String> e : approvals().entrySet()) {
+            Shortcut sc = byId.get(e.getKey());
+            String st;
+            if (sc == null) st = "missing";
+            else {
+                LinkPolicy.Facts f = shortcutFacts(sc);
+                st = !f.shortcutBlocked.isEmpty() ? "blocked" : f.shortcutApproved ? "approved" : "changed";
+            }
+            Map<String, Object> m = new TreeMap<>();
+            m.put("id", e.getKey());
+            m.put("name", sc == null ? e.getKey() : sc.name);
+            m.put("status", st);
+            m.put("hash", e.getValue().substring(0, 12));
+            out.add(m);
+        }
+        return out;
     }
 
     String script(String from, String cmd, Map<String, Object> a, String why) {

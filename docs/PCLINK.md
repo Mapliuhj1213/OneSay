@@ -118,6 +118,7 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 | 卸载第三方 App（走系统卸载界面） | 拒绝 / 确认 / 确认 | 拒绝 / 确认 / 确认 |
 | 操作第三方 App | 拒绝 / 确认 / 允许 | 拒绝 / 拒绝 / 允许 |
 | 运行工作区 scripts/ 里已有的脚本 | 拒绝 / 拒绝 / 每次确认 | 拒绝 / 拒绝 / 每次确认 |
+| 电脑上你定义的快捷指令（shortcut_run） | — | 拒绝 / 第一次问 / 第一次问（批准「以后直接执行」后直接执行；内容碰严格规则的一律拒） |
 | 任意系统命令（su / Shizuku / shell） | 脚本 / 脚本 / 确认（显示完整命令） | 脚本 / 脚本 / 脚本 |
 | 给自己授权（pm grant、appops、无障碍 / 通知监听、设备管理器、Shizuku 批准、ACL） | 脚本 / 脚本 / 脚本 | 脚本 / 脚本 / 脚本 |
 | 系统 App 的卸载 / 停用 | 拒绝 | 拒绝 |
@@ -128,5 +129,6 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 - 工作区：手机 `getExternalFilesDir("workspace")`；电脑 `%USERPROFILE%\OneSay\workspace`，用户目录含非 ASCII 时用 `%ProgramData%\OneSay\workspace`。路径检查拒绝 `..`、绝对路径、盘符、UNC、设备路径、NTFS 备用流、Windows 保留名，并用规范路径比对（符号链接跳出也拒）。
 - 网址检查：只许 http/https；拒绝 user:pass@、IP 字面量 / 内网主机（除非在信任列表）、混合文字 / 整段西里尔或希腊仿冒的 IDN（含 punycode）、超长（2048）、控制字符和反斜杠。v1 不做联网信誉查询。
 - 剪贴板检查：超过 10 KB、像命令 / 脚本、含过不了网址检查的链接 → 拒绝；验证码、银行卡号（Luhn）、私钥 / 密钥、助记词、密码 → 敏感：要确认，Android 13+ 标 `EXTRA_IS_SENSITIVE`，60 秒后自动清除。
-- 回复 `data` 带 `level` / `level_zh`，没执行时带 `reason`（`denied_by_level`、`needs_confirm_timeout`、`confirm_denied`、`untrusted_url`、`blocked_app`、`clipboard_rejected`、`script_generated`、`system_app`、`unknown_command`）和 `reason_zh`；生成脚本时带 `path`。
+- 回复 `data` 带 `level` / `level_zh`，没执行时带 `reason`（`denied_by_level`、`needs_confirm_timeout`、`confirm_denied`、`untrusted_url`、`blocked_app`、`clipboard_rejected`、`script_generated`、`system_app`、`unknown_command`、`shortcut_needs_approval`、`shortcut_changed`、`shortcut_category_blocked`）和 `reason_zh`；生成脚本时带 `path`。
+- 快捷指令（电脑快捷指令文件夹里的 .ps1 / .bat / .cmd）：只认列表里有的，按「文件名（小写）+ 内容 SHA-256」批准。第一次从手机触发、或内容改过（哈希对不上），电脑上弹「允许 / 以后直接执行 / 拒绝」，30 秒不点算拒绝；没批准下来时 `reason` 是 `shortcut_needs_approval` / `shortcut_changed`，确认结果放 `confirm_result`。点「以后直接执行」后，自动 / 完全访问下再触发直接执行；只读一律拒绝。批准表存在配置 `shortcut_approvals`，快捷指令页能看、能撤销；改内容或改名都要重新批准；执行前再核对一次哈希。内容涉及注册表 / 网络配置 / 服务驱动 / 授权，或用了编码命令 / `iex` 等看不出内容的写法，或文件在手机能写的工作区里 → `shortcut_category_blocked`，只能你自己在电脑上运行，不能批准。
 - 默认级别：自动（个人版、开源版都是；开源版「接受电脑指令」总开关仍默认关）。手机的级别只能在手机上改，电脑上只读显示；电脑自己的级别在电脑设置页改。打开「完全访问」两边都要再确认一次。

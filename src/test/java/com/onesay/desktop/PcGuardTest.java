@@ -60,7 +60,8 @@ public class PcGuardTest {
                 {LinkPolicy.Cat.NET_SEC_SETTING, S, S, S}, {LinkPolicy.Cat.SHELL_EXEC, S, S, S}, {LinkPolicy.Cat.OUTSIDE_WRITE, S, S, S},
                 {LinkPolicy.Cat.OPEN_APP, D, A, A}, {LinkPolicy.Cat.WORKSPACE_WRITE, D, A, A}, {LinkPolicy.Cat.UNINSTALL_APP, D, C, C},
                 {LinkPolicy.Cat.APP_OPERATE, D, D, A}, {LinkPolicy.Cat.RUN_WS_SCRIPT, D, D, C}, {LinkPolicy.Cat.SELF_GRANT, S, S, S},
-                {LinkPolicy.Cat.SYSTEM_APP_OP, D, D, D}, {LinkPolicy.Cat.UNKNOWN, D, D, D}};
+                {LinkPolicy.Cat.SYSTEM_APP_OP, D, D, D}, {LinkPolicy.Cat.UNKNOWN, D, D, D},
+                {LinkPolicy.Cat.SHORTCUT, D, D, D}}; // 没有事实 = 不在快捷指令列表里 → 一律拒
         for (Object[] r : rows) {
             int i = 1;
             for (LinkPolicy.Level l : LinkPolicy.Level.values()) {
@@ -90,8 +91,16 @@ public class PcGuardTest {
         st.answer = PcGuard.ALLOW;
         assertNull(g.check("phone", "sleep", m("confirm", true)).reply);
 
-        // 快捷指令 = 运行脚本：自动档不让
-        assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, reason(g.check("phone", "shortcut_run", m("name", "x"))));
+        // 快捷指令单独一类：列表里没有的不认；有但没批准的先问（没人点 = 不执行）
+        assertEquals(LinkPolicy.R_UNKNOWN, reason(g.check("phone", "shortcut_run", m("name", "x"))));
+        c.scriptsDir = Files.createTempDirectory("pcsc-auto").toString();
+        Files.writeString(Path.of(c.scriptsDir, "x.ps1"), "Start-Process notepad");
+        int asked0 = st.asked.size(), ans0 = st.answer;
+        st.answer = PcGuard.TIMEOUT;
+        assertEquals(LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL, reason(g.check("phone", "shortcut_run", m("name", "x"))));
+        assertEquals(asked0 + 1, st.asked.size());
+        st.answer = ans0;
+        assertTrue(g.approvals().isEmpty());
         assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, reason(g.check("phone", "app_close", m("name", "notepad"))));
 
         // 网址 / 剪贴板信任检查
@@ -159,8 +168,10 @@ public class PcGuardTest {
         Stub st = new Stub();
         PcGuard g = new PcGuard(c, st);
         st.answer = PcGuard.TIMEOUT;
-        assertEquals("完全访问运行脚本仍每次确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "shortcut_run", m("name", "x"))));
+        assertEquals("完全访问运行脚本仍每次确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "script_run", m("name", "x"))));
         assertTrue(st.asked.get(0).contains("运行工作区脚本"));
+        assertEquals("快捷指令列表里没有的完全访问也不认", LinkPolicy.R_UNKNOWN, reason(g.check("phone", "shortcut_run", m("name", "x"))));
+        assertEquals(1, st.asked.size());
         assertNull(g.check("phone", "app_close", m("name", "notepad")).reply);
         assertEquals(LinkPolicy.R_SYSTEM_APP, reason(g.check("phone", "app_close", m("name", "explorer"))));
         assertEquals("B 类在完全访问也要确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "volume", m("action", "mute"))));
@@ -263,13 +274,13 @@ public class PcGuardTest {
             File[] sc = new File(pcCfg.workspaceDir, "scripts").listFiles();
             assertNotNull(sc);
             assertEquals(1, sc.length);
-            assertEquals("自动档不让跑快捷指令", 1, Cli.send(cli, "pc-lan", "shortcut_run", m("name", "x"), out, 10));
+            assertEquals("列表里没有的快捷指令不跑", 1, Cli.send(cli, "pc-lan", "shortcut_run", m("name", "x"), out, 10));
             assertEquals(1, Cli.send(cli, "pc-lan", "open_url", m("url", "http://10.0.0.1/"), out, 10));
             assertEquals(0, Cli.send(cli, "pc-lan", "file_write", m("path", "inbox/a.txt", "text", "来自手机"), out, 10));
             assertEquals("来自手机", Files.readString(Path.of(pcCfg.workspaceDir, "inbox", "a.txt")));
             String l = log.toString();
             assertTrue(l, l.contains("没执行 sys_exec") && l.contains(LinkPolicy.R_SCRIPT_GENERATED));
-            assertTrue(l, l.contains("没执行 shortcut_run") && l.contains(LinkPolicy.R_DENIED_BY_LEVEL));
+            assertTrue(l, l.contains("没执行 shortcut_run") && l.contains(LinkPolicy.R_UNKNOWN));
             assertTrue(l, l.contains(LinkPolicy.R_UNTRUSTED_URL));
         } finally {
             agent.stop();
@@ -285,7 +296,8 @@ public class PcGuardTest {
         d.put("reason", LinkPolicy.R_UNTRUSTED_URL);
         assertEquals("网址没通过安全检查", PhoneCmds.withReason(new Actions.Result(false, "", d)));
         assertEquals("好", PhoneCmds.withReason(Actions.Result.ok("好")));
-        for (String code : new String[]{"denied_by_level", "needs_confirm_timeout", "untrusted_url", "blocked_app", "clipboard_rejected", "script_generated"})
+        for (String code : new String[]{"denied_by_level", "needs_confirm_timeout", "untrusted_url", "blocked_app", "clipboard_rejected", "script_generated",
+                "shortcut_needs_approval", "shortcut_changed", "shortcut_category_blocked"})
             assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
         assertEquals(40_000L, PhoneCmds.timeoutMs("open_url"));
         assertEquals(8_000L, PhoneCmds.timeoutMs("status"));
