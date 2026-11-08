@@ -237,6 +237,21 @@ public class PcLinkV2Test {
         assertEquals(8, PcRxPolicy.CMDS.length);
     }
 
+    /** [第二轮] 加回来的 8 项：开源版总开关仍默认关，这 8 项也都默认关；控制台里全部 16 项各一个开关。 */
+    @Test public void ossExtraDefaultsOff() {
+        assertFalse(PcRxPolicy.MASTER_DEFAULT);
+        assertEquals(8, PcRxPolicy.EXTRA.length);
+        assertEquals(16, PcRxPolicy.ALL.length);
+        for (String c : PcRxPolicy.EXTRA) {
+            assertTrue(c, PcRxPolicy.known(c) && PcRxPolicy.extra(c));
+            assertFalse("开源版默认关：" + c, PcRxPolicy.defaultOn(c));
+            assertFalse(c, PcRxPolicy.label(c).equals(c));
+            assertFalse(c, PcRxPolicy.sub(c).isEmpty());
+        }
+        // 原来的 8 项默认值不变
+        assertTrue(PcRxPolicy.defaultOn("find_phone") && PcRxPolicy.defaultOn("status") && !PcRxPolicy.defaultOn("open_url"));
+    }
+
     @Test public void announceVerifiedWithPairKeyOnly() {
         PcLanClient.Peer p = new PcLanClient.Peer(ME, PC, KEY, "", 47820, "");
         String n = "nonce12345";

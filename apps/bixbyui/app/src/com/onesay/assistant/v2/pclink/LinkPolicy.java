@@ -70,7 +70,8 @@ public final class LinkPolicy {
      * [link-v2 · 两轴] 沙箱档（Codex 的 sandbox mode）：能动什么。
      * <ul>
      *   <li>{@link #READ_ONLY} 只读：只回答查询，什么都不改。</li>
-     *   <li>{@link #WORKSPACE_WRITE} 工作区可写（默认）：只往工作区里写；工作区外的写入和任意命令只生成脚本（子进程关不进工作区），命令默认断网。</li>
+     *   <li>{@link #WORKSPACE_WRITE} 工作区可写（默认）：工作区里直接写；工作区外的写入、任意命令、跑工作区脚本在你确认后按你自己的权限执行
+     *   （子进程关不进工作区，你知道这一点），命令默认断网；审批「从不」下这些直接拒绝。</li>
      *   <li>{@link #FULL_ACCESS} 完全访问：按这台电脑当前用户的权限来（仍然不提权、不碰需要管理员的东西）。</li>
      * </ul>
      */
@@ -341,20 +342,22 @@ public final class LinkPolicy {
             case SIMPLE_SETTING:
                 // 音量 / 亮度这类看得见的改动：分类和按需都先问（和以前一样）；从不询问时只有完全访问照做
                 return needsApproval(sb, ap, "电脑设置改动需要确认");
-            // 工作区可写档：子进程没法真的被关在工作区里（Windows 上 Java 做不了系统级沙箱），所以和以前一样 ——
-            // 写工作区外只生成脚本、执行命令只生成脚本、跑工作区脚本 / 操作第三方程序拒绝；完全访问档才按当前用户权限执行
+            // 工作区可写档（2026-11-08 用户决定）：命令、跑工作区脚本、工作区外写入改成「确认后按你自己的权限执行」——
+            // 你知道子进程关不进工作区（Windows 上 Java 做不了系统级沙箱），所以不再只生成脚本；审批策略照常：
+            // 分类 / 按需 → 电脑上确认，从不询问 → 拒绝（不升级）。安全插件在这之前已经过了（提权 / 要管理员 / 自授权 / 编码 / 默认断网）。
+            // 操作第三方程序仍然只在完全访问档下做。
             case APP_OPERATE:
                 return full ? Decision.allow() : Decision.deny(R_DENIED_BY_LEVEL, "沙箱档是「工作区可写」，不操作第三方程序（要完全访问）");
             case OUTSIDE_WRITE:
-                return full ? Decision.allow() : Decision.script("沙箱档是「工作区可写」，工作区以外的文件只生成脚本，需要你自己执行");
+                return full ? Decision.allow() : askOrDeny(ap, "写工作区以外的文件（按你自己的权限写，Windows 权限为准）");
             case POWER:
                 return needsApproval(sb, ap, "关机 / 睡眠需要确认");
             case UNINSTALL_APP:
                 return needsApproval(sb, ap, "卸载程序需要确认");
             case RUN_WS_SCRIPT:
-                return full ? needsApproval(sb, ap, "运行工作区脚本（每次都要确认）") : Decision.deny(R_DENIED_BY_LEVEL, "沙箱档是「工作区可写」，不运行脚本（要完全访问）");
+                return needsApproval(sb, ap, "运行工作区脚本（每次都要确认，按你自己的权限执行）");
             case SHELL_EXEC:
-                return full ? needsApproval(sb, ap, "执行命令（会显示完整命令）") : Decision.script("沙箱档是「工作区可写」，命令关不进工作区：只生成脚本，需要你自己执行");
+                return needsApproval(sb, ap, "执行命令（会显示完整命令，按你自己的权限执行）");
             default:
                 return Decision.deny(R_UNKNOWN, "不认识的指令");
         }
@@ -384,14 +387,22 @@ public final class LinkPolicy {
     }
 
     /**
-     * 手机作为被控端：恢复成执行级别（三档 / 沙箱）之前的语义 —— 不分档、不确认、不做网址 / 剪贴板 / App 分类拦截，
-     * 只看手机控制台里的逐项开关（个人版默认全开；开源版「接受电脑指令」总开关默认关）。
-     * 仍然保留两条和分档无关的红线：不给任何 App 授权（只生成脚本）、远程不能改 OneSay 自己的设置。
+     * 手机作为被控端：恢复成执行级别（三档 / 沙箱）之前的语义 —— 不分档、不在手机上确认，只看手机控制台里的逐项开关
+     * （个人版默认全开；开源版「接受电脑指令」总开关和新加的 8 项默认关）。保留和分档无关的红线：
+     * 不给任何 App 授权（只生成脚本）、远程不能改 OneSay 自己的设置、支付 / 银行 / 密码 / 钱包 / 商店 / 安装器类 App 不碰、
+     * 系统 App 不卸载 / 不改动、网址过不了检查不开、剪贴板内容过不了检查不写（敏感内容不确认，但标敏感并 60 秒后清除）。
+     * 没检查过的事实（url / clip 为 null）按「没有这项检查」处理。
      */
     static Decision phoneLegacy(Cat c, Facts f) {
         if (c == Cat.SELF_AUTHORIZE) return Decision.deny(R_SELF_GRANT_BLOCKED, "远程不能改 OneSay 自己的设置");
         if (c == Cat.SELF_GRANT) return Decision.script("涉及授予权限，只生成脚本，需要你自己执行");
         if (c == Cat.UNKNOWN) return Decision.deny(R_UNKNOWN, "不认识的指令");
+        if (c == Cat.SYSTEM_APP_OP || ((c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appSystem))
+            return Decision.deny(R_SYSTEM_APP, "系统 App 不允许远程改动");
+        if ((c == Cat.OPEN_APP || c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appBlocked)
+            return Decision.deny(R_BLOCKED_APP, "支付 / 银行 / 密码 / 钱包 / 应用商店 / 安装器类 App 不允许远程操作");
+        if (c == Cat.OPEN_URL && f.url != null && !f.url.ok) return Decision.deny(R_UNTRUSTED_URL, f.url.why);
+        if (c == Cat.CLIPBOARD_WRITE && f.clip != null && f.clip.verdict == ClipCheck.REJECT) return Decision.deny(R_CLIPBOARD_REJECTED, f.clip.why);
         return Decision.allow();
     }
 
@@ -1513,8 +1524,16 @@ public final class LinkPolicy {
                 data[2] = (byte) 0xBF;
                 System.arraycopy(text, 0, data, 3, text.length);
             }
-            File f = writeInside(root, s.relPath, data);
-            return f == null ? null : s.relPath;
+            // 同一秒里生成的同类脚本文件名一样：不覆盖前一份，名字后面加 -2、-3…
+            String rel = s.relPath;
+            int dot = rel.lastIndexOf('.');
+            for (int i = 2; i < 100; i++) {
+                File old = resolveInside(root, rel);
+                if (old == null || !old.exists()) break;
+                rel = dot < 0 ? s.relPath + "-" + i : s.relPath.substring(0, dot) + "-" + i + s.relPath.substring(dot);
+            }
+            File f = writeInside(root, rel, data);
+            return f == null ? null : rel;
         } catch (IOException e) {
             return null;
         }

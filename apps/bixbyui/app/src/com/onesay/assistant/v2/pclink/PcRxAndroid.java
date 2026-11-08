@@ -51,7 +51,7 @@ import java.util.concurrent.TimeUnit;
  * </ul>
  * 日志只打指令名、结果、长度，不打网址、剪贴板、通知内容。
  */
-public final class PcRxAndroid implements PcRx.Env, PcRx.Handler {
+public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard {
 
     static final String TAG = "PcLink";
     public static final String K_RX = "rx_enabled", K_RX_LOG = "rx_log";
@@ -108,6 +108,19 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler {
     public static void setCmd(Context c, String cmd, boolean on) {
         PcLink.sp(c).edit().putBoolean("rx_" + cmd, on).apply();
     }
+
+    /** 手机工作区：getExternalFilesDir("workspace")（App 专属存储，卸载即删，不需要存储权限）；拿不到退到内部存储。 */
+    public static java.io.File workspaceDir(Context c) {
+        java.io.File d = null;
+        try {
+            d = c.getExternalFilesDir("workspace");
+        } catch (Throwable ignored) {
+        }
+        if (d == null) d = new java.io.File(c.getFilesDir(), "workspace");
+        if (!d.isDirectory()) d.mkdirs();
+        return d;
+    }
+
 
     /** 控制台显示用：常连状态。 */
     public static String stateText() {
@@ -182,6 +195,99 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler {
         return this;
     }
 
+    // ================================================================== Guard（红线要的手机侧事实；没有执行级别、不确认）
+
+    static final int NID_SCRIPT = 47860;
+
+    @Override public java.io.File workspace() {
+        return workspaceDir(app);
+    }
+
+    @Override public void appFacts(String cmd, Map<String, Object> a, LinkPolicy.Facts f) {
+        String pkg = PcRxPolicy.str(a, "package");
+        String label = PcRxPolicy.str(a, "name");
+        PackageManager pm = app.getPackageManager();
+        if (pkg.length() == 0 && label.length() > 0) {
+            ResolveInfo hit = findByName(pm, label);
+            if (hit != null) {
+                pkg = hit.activityInfo.packageName;
+                a.put("package", pkg); // 之后按包名打开，判定和执行用同一个 App
+            }
+        }
+        try {
+            android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+            CharSequence l = pm.getApplicationLabel(ai);
+            if (l != null) label = l.toString();
+            f.appSystem = (ai.flags & (android.content.pm.ApplicationInfo.FLAG_SYSTEM | android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0;
+        } catch (Exception ignored) {
+        }
+        f.appLabel = label;
+        // 自己（OneSay）也按禁止类处理：电脑不能远程卸载本 App
+        f.appBlocked = f.appBlocked || LinkPolicy.blockedApp(pkg, label) || app.getPackageName().equals(pkg);
+    }
+
+    @Override public String script(String cmd, Map<String, Object> a, String why) {
+        String title, what, risk, command;
+        if (PcRxPolicy.SYS_EXEC.equals(cmd)) {
+            command = PcRxPolicy.str(a, "command");
+            title = "system-command";
+            what = "电脑请求在手机上执行系统命令（见下方）";
+            risk = "系统命令可能改动设置、权限或数据；涉及授权的步骤 OneSay 永远不会自己执行";
+        } else if (PcRxPolicy.SETTING.equals(cmd)) {
+            String n = PcRxPolicy.str(a, "name"), v = PcRxPolicy.str(a, "value");
+            command = settingShell(n, v);
+            title = "setting-" + n;
+            what = "电脑请求把手机设置「" + n + "」改成「" + v + "」";
+            risk = "可能影响网络、安全或权限；请确认后再执行";
+        } else if (PcRxPolicy.FILE_WRITE.equals(cmd)) {
+            String path = PcRxPolicy.str(a, "path");
+            String marker = "ONESAY_EOF_" + Long.toHexString(System.nanoTime());
+            command = "cat > '" + path.replace("'", "'\\''") + "' <<'" + marker + "'\n" + String.valueOf(a.get("text")) + "\n" + marker;
+            title = "write-file";
+            what = "电脑请求写工作区以外的文件：" + path;
+            risk = "会覆盖同名文件";
+        } else {
+            command = "# " + cmd + " " + LinkPolicy.oneLine(String.valueOf(a));
+            title = cmd;
+            what = "电脑请求：" + PcRxPolicy.label(cmd);
+            risk = "未知";
+        }
+        LinkPolicy.Script sc = LinkPolicy.buildScript(LinkPolicy.ScriptKind.SH, title, what + "。" + why, risk, command, System.currentTimeMillis());
+        String rel = LinkPolicy.writeScript(workspace(), sc);
+        if (rel == null) return null;
+        try {
+            Notification n = builder(app).setSmallIcon(app.getApplicationInfo().icon).setContentTitle("已生成脚本，需你自己执行")
+                    .setContentText(rel).setStyle(new Notification.BigTextStyle().bigText(what + "\n位置：OneSay 工作区 / " + rel)).setAutoCancel(true).build();
+            channel(app).notify(NID_SCRIPT + (int) (System.currentTimeMillis() % 50), n);
+        } catch (Throwable ignored) {
+        }
+        Log.i(TAG, "[PCLINK] 已生成脚本 " + cmd);
+        return rel;
+    }
+
+    /** setting_set 对应的 shell 命令（生成脚本 / 通过特权通道执行网络安全设置时用）。 */
+    static String settingShell(String name, String value) {
+        String n = name.trim().toLowerCase(Locale.ROOT);
+        boolean on = isOn(value);
+        String v = value.replaceAll("[^A-Za-z0-9_.\\-]", "");
+        if ("airplane".equals(n)) return "cmd connectivity airplane-mode " + (on ? "enable" : "disable");
+        if ("mobile_data".equals(n)) return "svc data " + (on ? "enable" : "disable");
+        if ("nfc".equals(n)) return "svc nfc " + (on ? "enable" : "disable");
+        if ("location".equals(n)) return "settings put secure location_mode " + (on ? "3" : "0");
+        if ("private_dns".equals(n)) return on || v.length() == 0 ? "settings put global private_dns_mode " + (v.contains(".") ? "hostname; settings put global private_dns_specifier " + v : "opportunistic") : "settings put global private_dns_mode off";
+        if ("proxy".equals(n)) return v.length() == 0 || !on && !v.contains(":") ? "settings put global http_proxy :0" : "settings put global http_proxy " + v;
+        if ("adb".equals(n)) return "settings put global adb_enabled " + (on ? "1" : "0");
+        if ("unknown_sources".equals(n)) return "settings put secure install_non_market_apps " + (on ? "1" : "0");
+        if ("hotspot".equals(n)) return "cmd wifi " + (on ? "start-softap" : "stop-softap");
+        if ("lock_screen".equals(n)) return "locksettings " + (on ? "set-disabled false" : "set-disabled true");
+        return "# 设置 " + LinkPolicy.oneLine(name) + " = " + LinkPolicy.oneLine(value) + "（需要你自己在系统设置里操作）";
+    }
+
+    static boolean isOn(String v) {
+        String x = v == null ? "" : v.trim().toLowerCase(Locale.ROOT);
+        return x.equals("on") || x.equals("true") || x.equals("1") || x.equals("enable") || x.equals("开") || x.equals("打开");
+    }
+
     // ================================================================== Handler
 
     @Override public boolean enabled(String cmd) {
@@ -245,13 +351,16 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler {
         }
         if (PcRxPolicy.CLIPBOARD.equals(cmd)) {
             final String t = String.valueOf(a.get("text"));
+            final boolean sensitive = Boolean.TRUE.equals(a.get("_sensitive"));
             final boolean[] done = {false};
             final CountDownLatch l = new CountDownLatch(1);
             new Handler(Looper.getMainLooper()).post(new Runnable() {
                 @Override public void run() {
                     try {
                         ClipboardManager cm = (ClipboardManager) app.getSystemService(Context.CLIPBOARD_SERVICE);
-                        cm.setPrimaryClip(ClipData.newPlainText("OneSay", t));
+                        ClipData cd = ClipData.newPlainText("OneSay", t);
+                        if (sensitive) Clip.markSensitive(cd);
+                        Clip.set(cm, cd, sensitive);
                         done[0] = true;
                     } catch (Throwable ignored) {
                     }
@@ -262,8 +371,20 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler {
                 l.await(3, TimeUnit.SECONDS);
             } catch (InterruptedException ignored) {
             }
-            return done[0] ? ok("已放进手机剪贴板（" + t.length() + " 字）", null) : fail("写不了剪贴板");
+            return done[0] ? ok("已放进手机剪贴板（" + t.length() + " 字）" + (sensitive ? "，标为敏感，60 秒后自动清除" : ""), null) : fail("写不了剪贴板");
         }
+        if (PcRxPolicy.FLASHLIGHT.equals(cmd)) return flashlight(!Boolean.FALSE.equals(a.get("on")));
+        if (PcRxPolicy.SETTING.equals(cmd)) return setting(PcRxPolicy.str(a, "name"), PcRxPolicy.str(a, "value"), a);
+        if (PcRxPolicy.FILE_WRITE.equals(cmd)) return fileWrite(PcRxPolicy.str(a, "path"), String.valueOf(a.get("text")), Boolean.TRUE.equals(a.get("_outside")));
+        if (PcRxPolicy.FILE_LIST.equals(cmd)) return fileList();
+        if (PcRxPolicy.UNINSTALL.equals(cmd)) return uninstall(PcRxPolicy.str(a, "package"));
+        if (PcRxPolicy.SCRIPT_LIST.equals(cmd)) {
+            Map<String, Object> d = new TreeMap<String, Object>();
+            d.put("scripts", new java.util.ArrayList<Object>(LinkPolicy.listScripts(workspace())));
+            return ok("工作区脚本", d);
+        }
+        if (PcRxPolicy.SCRIPT_RUN.equals(cmd)) return scriptRun(PcRxPolicy.str(a, "name"));
+        if (PcRxPolicy.SYS_EXEC.equals(cmd)) return shell(PcRxPolicy.str(a, "command"));
         if (PcRxPolicy.NOTIFY.equals(cmd)) {
             String title = PcRxPolicy.str(a, "title"), text = PcRxPolicy.str(a, "text");
             try {
@@ -288,17 +409,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler {
         if (pkg.length() > 0) {
             launch = pm.getLaunchIntentForPackage(pkg);
         } else {
-            Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-            List<ResolveInfo> all = pm.queryIntentActivities(q, 0);
-            ResolveInfo exact = null, part = null;
-            String want = name.toLowerCase(Locale.ROOT).replace(" ", "");
-            for (ResolveInfo ri : all) {
-                CharSequence l = ri.loadLabel(pm);
-                String s = l == null ? "" : l.toString().toLowerCase(Locale.ROOT).replace(" ", "");
-                if (s.equals(want)) { exact = ri; break; }
-                if (part == null && s.length() > 0 && (s.contains(want) || want.contains(s))) part = ri;
-            }
-            ResolveInfo hit = exact != null ? exact : part;
+            ResolveInfo hit = findByName(pm, name);
             if (hit != null) {
                 launch = pm.getLaunchIntentForPackage(hit.activityInfo.packageName);
                 label = String.valueOf(hit.loadLabel(pm));
@@ -311,6 +422,21 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler {
         } catch (Exception e) {
             return fail("打不开：" + e.getClass().getSimpleName());
         }
+    }
+
+    /** 按桌面上的名字找 App：先全等，再包含。 */
+    static ResolveInfo findByName(PackageManager pm, String name) {
+        Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> all = pm.queryIntentActivities(q, 0);
+        ResolveInfo exact = null, part = null;
+        String want = name.toLowerCase(Locale.ROOT).replace(" ", "");
+        for (ResolveInfo ri : all) {
+            CharSequence l = ri.loadLabel(pm);
+            String s = l == null ? "" : l.toString().toLowerCase(Locale.ROOT).replace(" ", "");
+            if (s.equals(want)) { exact = ri; break; }
+            if (part == null && s.length() > 0 && (s.contains(want) || want.contains(s))) part = ri;
+        }
+        return exact != null ? exact : part;
     }
 
     PcLanClient.Result status() {
@@ -364,6 +490,216 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler {
     @SuppressWarnings("deprecation")
     static Notification.Builder builder(Context c) {
         return Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CH) : new Notification.Builder(c);
+    }
+
+    // ================================================================== 加回来的 8 项的执行（开关 / 参数 / 红线已在 PcRx.handle 里查过）
+
+    PcLanClient.Result flashlight(boolean on) {
+        try {
+            android.hardware.camera2.CameraManager cm = (android.hardware.camera2.CameraManager) app.getSystemService(Context.CAMERA_SERVICE);
+            for (String id : cm.getCameraIdList()) {
+                Boolean has = cm.getCameraCharacteristics(id).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                if (Boolean.TRUE.equals(has)) {
+                    cm.setTorchMode(id, on);
+                    return ok(on ? "手电筒已打开" : "手电筒已关闭", null);
+                }
+            }
+            return fail("这台手机没有闪光灯");
+        } catch (Exception e) {
+            return fail("开不了手电筒：" + e.getClass().getSimpleName());
+        }
+    }
+
+    PcLanClient.Result setting(String name, String value, Map<String, Object> a) {
+        String n = name.trim().toLowerCase(Locale.ROOT);
+        boolean on = isOn(value);
+        try {
+            if ("volume".equals(n)) {
+                Map<String, Object> m = new TreeMap<String, Object>();
+                m.put("percent", Long.valueOf(clampInt(value, 0, 100)));
+                return run(PcRxPolicy.VOLUME, m);
+            }
+            if ("brightness".equals(n) || "screen_timeout".equals(n)) {
+                // 不会自己去申请「修改系统设置」权限：没给就说清楚，让用户自己去系统设置里开
+                if (Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.System.canWrite(app)) return fail("手机没给 OneSay「修改系统设置」权限（不会自动申请，需要你在系统设置里手动打开）");
+                if ("brightness".equals(n)) {
+                    android.provider.Settings.System.putInt(app.getContentResolver(), android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
+                    android.provider.Settings.System.putInt(app.getContentResolver(), android.provider.Settings.System.SCREEN_BRIGHTNESS, Math.round(clampInt(value, 0, 100) * 255 / 100f));
+                    return ok("亮度 " + clampInt(value, 0, 100) + "%", null);
+                }
+                int sec = clampInt(value, 15, 1800);
+                android.provider.Settings.System.putInt(app.getContentResolver(), android.provider.Settings.System.SCREEN_OFF_TIMEOUT, sec * 1000);
+                return ok("屏幕超时 " + sec + " 秒", null);
+            }
+            if ("dnd".equals(n)) {
+                NotificationManager nm = (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (!nm.isNotificationPolicyAccessGranted()) return fail("手机没给 OneSay「勿扰权限」（不会自动申请，需要你手动打开）");
+                nm.setInterruptionFilter(on ? NotificationManager.INTERRUPTION_FILTER_PRIORITY : NotificationManager.INTERRUPTION_FILTER_ALL);
+                return ok(on ? "勿扰已打开" : "勿扰已关闭", null);
+            }
+            if ("ringer".equals(n)) {
+                AudioManager am = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
+                String v = value.trim().toLowerCase(Locale.ROOT);
+                int mode = v.startsWith("vib") || v.equals("振动") ? AudioManager.RINGER_MODE_VIBRATE : v.startsWith("sil") || v.equals("静音") ? AudioManager.RINGER_MODE_SILENT : AudioManager.RINGER_MODE_NORMAL;
+                am.setRingerMode(mode);
+                return ok("铃声模式已改", null);
+            }
+            if ("wifi".equals(n)) {
+                WifiManager wm = (WifiManager) app.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                @SuppressWarnings("deprecation")
+                boolean r = wm.setWifiEnabled(on);
+                return r ? ok(on ? "Wi-Fi 已打开" : "Wi-Fi 已关闭（电脑联动会断开）", null) : fail("改不了 Wi-Fi");
+            }
+            if ("bluetooth".equals(n)) {
+                android.bluetooth.BluetoothAdapter ba = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+                if (ba == null) return fail("这台手机没有蓝牙");
+                boolean r = on ? ba.enable() : ba.disable();
+                return r ? ok(on ? "蓝牙正在打开" : "蓝牙正在关闭", null) : fail("改不了蓝牙");
+            }
+        } catch (Exception e) {
+            return fail("改不了设置：" + e.getClass().getSimpleName());
+        }
+        // 网络 / 安全设置：开关开着就走特权通道执行对应的 shell 命令（分档之前的语义，不在手机上确认）
+        return shell(settingShell(name, value));
+    }
+
+    static int clampInt(String v, int lo, int hi) {
+        int x;
+        try {
+            x = (int) Math.round(Double.parseDouble(v.trim()));
+        } catch (Exception e) {
+            x = lo;
+        }
+        return Math.max(lo, Math.min(hi, x));
+    }
+
+    PcLanClient.Result fileWrite(String path, String text, boolean outside) {
+        try {
+            byte[] data = text.getBytes("UTF-8");
+            if (!outside) {
+                java.io.File f = LinkPolicy.writeInside(workspace(), path, data);
+                return f == null ? fail("只能写工作区里的文件") : ok("已写入工作区 " + path + "（" + data.length + " 字节）", null);
+            }
+            // 工作区以外：只许共享存储根目录下的普通文件，不碰别的 App 的私有目录（Android/）
+            java.io.File root = android.os.Environment.getExternalStorageDirectory();
+            String rel = path;
+            String rp = root.getCanonicalPath();
+            if (rel.startsWith(rp + "/")) rel = rel.substring(rp.length() + 1);
+            else if (rel.startsWith("/sdcard/")) rel = rel.substring(8);
+            if (rel.toLowerCase(Locale.ROOT).startsWith("android/")) return fail("不写 Android/ 目录（别的 App 的数据）");
+            java.io.File f = LinkPolicy.writeInside(root, rel, data);
+            return f == null ? fail("路径不允许（只能是手机共享存储里的普通文件）") : ok("已写入 " + f.getPath() + "（" + data.length + " 字节）", null);
+        } catch (Exception e) {
+            return fail("写不了文件：" + e.getClass().getSimpleName());
+        }
+    }
+
+    PcLanClient.Result fileList() {
+        java.io.File ws = workspace();
+        List<Object> out = new java.util.ArrayList<Object>();
+        listInto(ws, "", out, 0);
+        Map<String, Object> d = new TreeMap<String, Object>();
+        d.put("files", out);
+        d.put("workspace", "OneSay 工作区");
+        return ok("工作区 " + out.size() + " 个文件", d);
+    }
+
+    static void listInto(java.io.File dir, String prefix, List<Object> out, int depth) {
+        java.io.File[] fs = dir.listFiles();
+        if (fs == null || depth > 4) return;
+        java.util.Arrays.sort(fs);
+        for (java.io.File f : fs) {
+            if (out.size() >= 200) return;
+            if (f.isDirectory()) listInto(f, prefix + f.getName() + "/", out, depth + 1);
+            else out.add(prefix + f.getName());
+        }
+    }
+
+    PcLanClient.Result uninstall(String pkg) {
+        try {
+            app.getPackageManager().getApplicationInfo(pkg, 0);
+        } catch (Exception e) {
+            return fail("手机上没装这个 App");
+        }
+        try {
+            // 系统卸载界面：最后一步仍由手机上的人点「确定」
+            app.startActivity(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return ok("已在手机上弹出系统卸载确认", null);
+        } catch (Exception e) {
+            return fail("弹不出卸载界面：" + e.getClass().getSimpleName());
+        }
+    }
+
+    PcLanClient.Result scriptRun(String name) {
+        java.io.File f = LinkPolicy.resolveInside(workspace(), "scripts/" + name);
+        if (f == null || !f.isFile()) return fail("工作区 scripts/ 里没有这个脚本");
+        if (!name.toLowerCase(Locale.ROOT).endsWith(".sh")) return fail("手机上只能运行 .sh 脚本");
+        return shell("sh '" + f.getPath().replace("'", "'\\''") + "'");
+    }
+
+    /** 走特权通道执行（判定 / 确认已做完）；没有特权通道就说清楚。输出最多回 2000 字。 */
+    PcLanClient.Result shell(String command) {
+        try {
+            com.onesay.assistant.v2.executor.ShellExecutor.ShellResponse r = new com.onesay.assistant.v2.executor.ShellExecutor(app).execute(command);
+            if (r == null || r.isDown) return fail("手机上没有可用的特权通道（root 守护没在运行）");
+            if (r.isDenied) return fail("特权通道拒绝：" + r.denyReason);
+            if (r.isTimeout) return fail("执行超时");
+            Map<String, Object> d = new TreeMap<String, Object>();
+            d.put("rc", Long.valueOf(r.rc));
+            d.put("output", clip(r.output, 2000));
+            return r.isSuccess() ? ok("已执行", d) : new PcLanClient.Result(false, "执行失败（rc=" + r.rc + "）", d, "");
+        } catch (Throwable t) {
+            return fail("执行不了：" + t.getClass().getSimpleName());
+        }
+    }
+
+    // ================================================================== 敏感剪贴板
+
+    static final class Clip {
+        private static final Handler H = new Handler(Looper.getMainLooper());
+        private static int gen;
+        private static boolean ours;
+        private static ClipboardManager.OnPrimaryClipChangedListener lis;
+
+        /** Android 13+ 的 EXTRA_IS_SENSITIVE（老系统忽略，常量直接写字符串，targetSdk 28 也能编）。 */
+        static void markSensitive(ClipData cd) {
+            try {
+                android.os.PersistableBundle b = new android.os.PersistableBundle();
+                b.putBoolean("android.content.extra.IS_SENSITIVE", true);
+                cd.getDescription().setExtras(b);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        /** 主线程调用。敏感内容 60 秒后清掉——期间如果剪贴板被别人改过就不清。 */
+        static void set(final ClipboardManager cm, ClipData cd, boolean sensitive) {
+            if (lis == null) {
+                lis = new ClipboardManager.OnPrimaryClipChangedListener() {
+                    @Override public void onPrimaryClipChanged() {
+                        if (ours) ours = false;
+                        else gen++;
+                    }
+                };
+                cm.addPrimaryClipChangedListener(lis);
+            }
+            ours = true;
+            gen++;
+            cm.setPrimaryClip(cd);
+            if (!sensitive) return;
+            final int mine = gen;
+            H.postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (gen != mine) return;
+                    try {
+                        ours = true;
+                        if (Build.VERSION.SDK_INT >= 28) cm.clearPrimaryClip();
+                        else cm.setPrimaryClip(ClipData.newPlainText("", ""));
+                        Log.i(TAG, "[PCLINK] 敏感剪贴板已清除");
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }, LinkPolicy.CLIP_SENSITIVE_CLEAR_MS);
+        }
     }
 
     // ================================================================== 找手机

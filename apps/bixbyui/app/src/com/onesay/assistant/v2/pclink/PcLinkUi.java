@@ -170,7 +170,7 @@ public final class PcLinkUi {
 
         LinearLayout g = host.group(root, "电脑可以让手机做的事");
         final boolean on = PcRxAndroid.rxOn(act);
-        final ConsoleHost.Row[] rows = new ConsoleHost.Row[PcRxPolicy.CMDS.length];
+        final ConsoleHost.Row[] rows = new ConsoleHost.Row[PcRxPolicy.ALL.length]; // 原来的 8 项 + 加回来的 8 项，每项一个开关，都挂在总开关下
         rxRow = host.switchRow(g, "接受电脑指令", on ? PcRxAndroid.stateText() : "关着：电脑找不到这台手机，下面各项都不生效", on, new ConsoleHost.Toggle() {
             @Override public void onToggle(boolean v) {
                 PcRxAndroid.setRx(act, v);
@@ -178,8 +178,8 @@ public final class PcLinkUi {
                 if (rxRow != null) rxRow.setSub(v ? "正在找电脑…" : "关着：电脑找不到这台手机，下面各项都不生效");
             }
         });
-        for (int i = 0; i < PcRxPolicy.CMDS.length; i++) {
-            final String cmd = PcRxPolicy.CMDS[i];
+        for (int i = 0; i < PcRxPolicy.ALL.length; i++) {
+            final String cmd = PcRxPolicy.ALL[i];
             rows[i] = host.switchRow(g, PcRxPolicy.label(cmd), PcRxPolicy.sub(cmd) + (PcRxPolicy.dangerous(cmd) ? " · 会改动手机，按需打开" : ""),
                     PcRxAndroid.cmdOn(act, cmd), new ConsoleHost.Toggle() {
                         @Override public void onToggle(boolean v) { PcRxAndroid.setCmd(act, cmd, v); }
