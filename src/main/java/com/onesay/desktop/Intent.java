@@ -14,11 +14,20 @@ public final class Intent {
     public final String cmd;               // null = 不执行，只回 say
     public final Map<String, Object> args;
     public final String say;               // 给用户看的一句话
+    public String phoneCmd;                // 非空 = 发给手机的指令（协议 v2，见 PhoneCmds）；这时 cmd 为 null，电脑自己不执行
 
     private Intent(String cmd, Map<String, Object> args, String say) {
         this.cmd = cmd;
         this.args = args;
         this.say = say;
+    }
+
+    static Intent onPhone(String cmd, String say, Object... kv) {
+        Map<String, Object> a = new TreeMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) a.put((String) kv[i], kv[i + 1]);
+        Intent it = new Intent(null, a, say);
+        it.phoneCmd = cmd;
+        return it;
     }
 
     static Intent run(String cmd, String say, Object... kv) {
@@ -50,6 +59,36 @@ public final class Intent {
                 .replace("bilibili", "b站").replace("哔哩哔哩", "b站");
     }
 
+    /** 「让手机响一下」「手机亮屏」「手机音量调到30」「手机打开微信」…（normalize 后的 t；raw 用来取原样文字）。 */
+    static Intent phone(String t, String raw) {
+        if (t.matches(".*(别响|停止响|不要响|停下|关掉铃声|停止找手机|找到了).*")) return onPhone("find_phone", "已让手机停止响铃", "action", "stop");
+        if (t.matches(".*(响一下|响一声|响铃|找手机|找一下手机|手机在哪|让手机响|手机响).*")) return onPhone("find_phone", "手机正在响（最大音量，静音也响），找到后说「手机别响了」", "action", "start", "seconds", 30L);
+        if (t.matches(".*(亮屏|点亮|屏幕亮|唤醒手机|手机亮一下).*")) return onPhone("screen_on", "手机屏幕已点亮");
+        if (t.matches(".*(电量|还有多少电|电池|手机状态|在充电).*")) return onPhone("status", "");
+        java.util.regex.Matcher v = java.util.regex.Pattern.compile("音量(?:调到|设为|设成|调成|改成)?(\\d{1,3})").matcher(t);
+        if (v.find()) {
+            int p = Math.min(100, Integer.parseInt(v.group(1)));
+            return onPhone("volume_set", "手机媒体音量已调到 " + p, "percent", (long) p);
+        }
+        if (t.matches(".*(手机静音|手机媒体静音).*")) return onPhone("volume_set", "手机媒体音量已调到 0", "percent", 0L);
+        if (t.matches(".*剪贴板.*(发|传|给|同步).*手机.*|.*(发|传|同步).*剪贴板.*手机.*")) return onPhone("clipboard_set", "电脑剪贴板已发到手机");
+        java.util.regex.Matcher n = java.util.regex.Pattern.compile("^.*?手机上?(?:提醒我|提醒|通知我|通知)(.+)$").matcher(raw.replaceAll("\\s+", ""));
+        if (n.find()) return onPhone("notify", "已在手机上提醒", "title", "电脑提醒", "text", n.group(1).replaceAll("^[：:，,]", ""));
+        java.util.regex.Matcher o = java.util.regex.Pattern.compile("手机(?:上)?(?:打开|启动|开一下)(.+)$").matcher(t);
+        if (o.find()) {
+            String what = o.group(1);
+            for (Map.Entry<String, String> e : SITES.entrySet())
+                if (what.equals(e.getKey()) || what.equals(e.getKey() + "网站")) return onPhone("open_url", "手机上已打开" + e.getKey(), "url", e.getValue());
+            if (what.matches("https?//.+")) what = what.replaceFirst("//", "://");
+            if (what.matches("https?://.+")) return onPhone("open_url", "手机上已打开网址", "url", what);
+            // 包名（com.tencent.mm）：域名不会以 com. / org. 这类开头
+            if (what.matches("(com|org|net|cn|io|me|tv|top|app|de)\\.[a-z0-9_]+(\\.[a-z0-9_]+)*")) return onPhone("open_app", "手机上已打开 " + what, "package", what);
+            if (what.matches("[a-z0-9-]+(\\.[a-z0-9-]+)+(/.*)?")) return onPhone("open_url", "手机上已打开 " + what, "url", "https://" + what);
+            return onPhone("open_app", "手机上已打开" + what, "name", what);
+        }
+        return reply("手机能做的：响铃找手机、亮屏、调媒体音量、打开网址或 App、发剪贴板、发通知、看电量。换个说法试试，比如「让手机响一下」");
+    }
+
     /** apps：可按名字打开的程序（小写名）；shortcuts：快捷指令文件名（不含扩展名）。 */
     public static Intent parse(String text, Map<String, String> apps, List<String> shortcuts) {
         String t = normalize(text);
@@ -61,7 +100,7 @@ public final class Intent {
         if (t.matches(".*(关机|关电脑|关掉电脑).*")) return reply("关机要说「确认关机」");
         if (t.matches(".*(睡眠|休眠).*")) return reply("睡眠要说「确认睡眠」");
 
-        if (t.matches(".*(手机).*")) return reply("让手机干活的功能还在做");
+        if (t.contains("手机")) return phone(t, text);
 
         for (String s : shortcuts) {
             String n = normalize(s);

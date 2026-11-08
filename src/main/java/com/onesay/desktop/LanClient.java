@@ -41,6 +41,10 @@ public final class LanClient implements Link {
     private volatile boolean connected, stopped;
     private CompletableFuture<?> chain = CompletableFuture.completedFuture(null);
     public volatile InetSocketAddress found;
+    /** 常连（hold）：对方（电脑）可以从这条连接往这边下令。 */
+    public volatile boolean hold;
+    /** 这次连接是否走了 TLS（配对串带指纹时一定走，不退回明文）。 */
+    public volatile boolean tls;
 
     public LanClient(Config cfg, String peer, Link.Listener listener, long findMs) {
         this.cfg = cfg;
@@ -59,13 +63,23 @@ public final class LanClient implements Link {
             if (a == null) { listener.onState(false, OFFLINE + "局域网里没找到 " + peer); return; }
             found = a;
             try {
-                HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+                boolean useTls = Tls.validFp(cfg.peerFp);
+                HttpClient.Builder hb = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3));
+                if (useTls) {
+                    hb.sslContext(cfg.tls().clientContext(cfg.peerFp));
+                    javax.net.ssl.SSLParameters sp = new javax.net.ssl.SSLParameters();
+                    sp.setProtocols(new String[]{"TLSv1.3", "TLSv1.2"});
+                    hb.sslParameters(sp);
+                }
+                HttpClient http = hb.build();
                 String host = a.getAddress().getHostAddress();
-                URI uri = URI.create("ws://" + host + ":" + a.getPort() + "/v1/ws?device=" + java.net.URLEncoder.encode(cfg.deviceId, StandardCharsets.UTF_8));
+                URI uri = URI.create((useTls ? "wss://" : "ws://") + host + ":" + a.getPort() + "/v1/ws?device=" + java.net.URLEncoder.encode(cfg.deviceId, StandardCharsets.UTF_8));
                 ws = http.newWebSocketBuilder().connectTimeout(Duration.ofSeconds(3)).buildAsync(uri, new L()).get(5, TimeUnit.SECONDS);
                 String id = Protocol.newId();
                 Map<String, Object> b = new TreeMap<>();
                 b.put("kind", "hello");
+                if (useTls) b.put("cfp", cfg.tls().fp);
+                if (hold) b.put("hold", true);
                 Map<String, Object> hello = new TreeMap<>();
                 hello.put("type", "hello");
                 hello.put("from", cfg.deviceId);
@@ -73,7 +87,8 @@ public final class LanClient implements Link {
                 hello.put("body", Protocol.seal(cfg.pairKey, id, cfg.deviceId, peer, b, System.currentTimeMillis()));
                 send(Json.stringify(hello)).get(5, TimeUnit.SECONDS);
                 connected = true;
-                listener.onState(true, "局域网 " + host);
+                tls = useTls;
+                listener.onState(true, "局域网 " + host + (useTls ? "（加密）" : ""));
             } catch (Exception e) {
                 Throwable c = e.getCause() != null ? e.getCause() : e;
                 listener.onState(false, OFFLINE + "找到了 " + peer + " 但连不上：" + c.getClass().getSimpleName());
@@ -116,7 +131,9 @@ public final class LanClient implements Link {
         @Override
         public CompletionStage<?> onClose(WebSocket w, int code, String reason) {
             connected = false;
-            if (!stopped) listener.onState(false, (code == 4001 ? OFFLINE + "配对密钥不对，被 " + peer + " 拒绝" : "断开 " + code));
+            if (!stopped) listener.onState(false, (code == 4001 ? OFFLINE + "配对密钥不对，被 " + peer + " 拒绝"
+                    : code == 4003 ? OFFLINE + peer + " 记住的是本机旧证书，请在电脑上「忘掉已配对设备的证书」后重连"
+                    : code == 4002 ? OFFLINE + peer + " 要求加密连接，请用新配对串重新配对" : "断开 " + code));
             return null;
         }
 
@@ -147,6 +164,7 @@ public final class LanClient implements Link {
             Set<InetSocketAddress> targets = new LinkedHashSet<>();
             for (InetSocketAddress h : hints) targets.add(new InetSocketAddress(h.getAddress(), h.getPort() + 1));
             int dport = cfg.lanPort + 1;
+            targets.add(new InetSocketAddress(LanServer.groupAddr(), dport)); // v2：组播
             for (InetAddress b : broadcasts()) targets.add(new InetSocketAddress(b, dport));
             targets.add(new InetSocketAddress(InetAddress.getByName("255.255.255.255"), dport));
             byte[] buf = new byte[2048];
@@ -172,14 +190,23 @@ public final class LanClient implements Link {
                 } catch (Exception ignored) { }
             }
         } catch (Exception ignored) { }
-        // UDP 可能被挡：直接试连记下的地址（TCP 能连上不代表是自己人，握手还会验签）
-        for (InetSocketAddress h : hints) {
-            try (Socket s = new Socket()) {
-                s.connect(h, 700);
-                return h;
-            } catch (Exception ignored) { }
-        }
+        // UDP 可能被挡：直接探记下的地址（v2：GET /healthz 回 ok 才算；不是自己人握手时还会被拒）
+        for (InetSocketAddress h : hints) if (healthz(h, 700)) return h;
         return null;
+    }
+
+    /** 明文 GET /healthz → "ok"（电脑端 v1 / v2 都回）。 */
+    static boolean healthz(InetSocketAddress h, int ms) {
+        try (Socket s = new Socket()) {
+            s.connect(h, ms);
+            s.setSoTimeout(ms);
+            s.getOutputStream().write(("GET /healthz HTTP/1.1\r\nHost: " + h.getAddress().getHostAddress() + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+            byte[] buf = s.getInputStream().readNBytes(256);
+            String r = new String(buf, StandardCharsets.ISO_8859_1);
+            return r.startsWith("HTTP/1.1 200") && r.endsWith("ok");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     static List<InetSocketAddress> hints(Config cfg) {

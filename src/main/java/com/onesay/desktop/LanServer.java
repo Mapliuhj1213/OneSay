@@ -7,15 +7,23 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.MulticastSocket;
+import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
 
 /**
  * 局域网直连（开源版默认）：电脑在家用路由器里开一个小 WebSocket 服务（默认 TCP 47820），
@@ -24,13 +32,32 @@ import java.util.concurrent.ConcurrentHashMap;
  * 握手：客户端连上后 10 秒内必须发 {"type":"hello","from":..,"id":..,"body":<签名的 {kind:"hello"}>}，
  * 用配对密钥验过签才算自己人；否则断开。之后的帧与中转格式相同，指令照样逐条验签。
  * 发现：只回应带正确标签的探测，没配对的人在局域网里扫不到这台电脑。
+ *
+ * <p>协议 v2（0.5.0，端口不变）：
+ * <ul>
+ *   <li>同一个 TCP 端口上嗅探首字节：0x16 = TLS（{@link Tls}，双向证书），否则按 v1 明文 WebSocket 处理（旧手机照常用）；</li>
+ *   <li>TLS 里的 hello 带 cfp（对方证书指纹，在签名里），与 TLS 实际看到的证书一致才收，并按设备 id 记住；之后指纹不一致拒（4003），
+ *       用 TLS 连过的设备再用明文来也拒（4002，防降级）；</li>
+ *   <li>UDP 端口 +1 同时加入组播组 {@link #GROUP}（LocalSend 的做法：224.0.0.0/24，部分安卓只收这一段），
+ *       收组播 / 广播 / 单播三种探测；开机和每分钟、以及要给手机下令而手机不在时，往组播 + 广播发一条带标签的 announce，
+ *       常连的手机收到就立刻连回来；</li>
+ *   <li>hello 带 hold=true 的连接是手机的常连通道：电脑往手机下的指令（{@link Agent#callPeer}）从这里发；
+ *       同一台手机的一次性连接（按钮下令）不会顶掉常连，回复按 re 送回发起的那条连接。</li>
+ * </ul>
  */
 public final class LanServer implements Link {
     public static final int DEFAULT_PORT = 47820;
+    /** 发现用的组播组（端口 = 局域网端口 + 1）。 */
+    public static final String GROUP = "224.0.0.167";
 
     private final Config cfg;
     private final Link.Listener listener;
-    private final Map<String, Conn> conns = new ConcurrentHashMap<>();
+    private final Map<String, Conn> conns = new ConcurrentHashMap<>();   // 每台设备的主连接（常连优先）
+    private final Set<Conn> extra = ConcurrentHashMap.newKeySet();       // 主连接之外的一次性连接
+    private final Map<String, Conn> routes = Collections.synchronizedMap(new LinkedHashMap<String, Conn>(64, 0.75f, false) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Conn> e) { return size() > 2000; }
+    });
+    private volatile SSLContext tlsCtx;
     private final Protocol.ReplayGuard helloGuard = new Protocol.ReplayGuard();
     private volatile boolean running;
     private ServerSocket ss;
@@ -52,19 +79,28 @@ public final class LanServer implements Link {
             ss = new ServerSocket();
             ss.setReuseAddress(true);
             ss.bind(new InetSocketAddress(cfg.lanPort), 16);
-            ds = new DatagramSocket(null);
-            ds.setReuseAddress(true);
-            ds.setBroadcast(true);
-            ds.bind(new InetSocketAddress(cfg.lanPort + 1));
+            MulticastSocket ms = new MulticastSocket(null);
+            ms.setReuseAddress(true);
+            ms.setBroadcast(true);
+            ms.bind(new InetSocketAddress(cfg.lanPort + 1));
+            ds = ms;
+            joinGroup(ms);
         } catch (IOException e) {
             close(ss);
             if (ds != null) ds.close();
             listener.onState(false, "局域网端口 " + cfg.lanPort + " 开不了：" + e.getClass().getSimpleName() + (e.getMessage() == null ? "" : " " + e.getMessage()));
             return;
         }
+        try { tlsCtx = cfg.tls().serverContext(); } catch (RuntimeException e) { tlsCtx = null; listener.onState(false, "证书出错，只能明文：" + e.getMessage()); }
         running = true;
         daemon("onesay-lan-accept", this::acceptLoop);
         daemon("onesay-lan-discovery", this::discoveryLoop);
+        daemon("onesay-lan-announce", () -> {
+            while (running) {
+                announce();
+                try { Thread.sleep(60_000); } catch (InterruptedException e) { return; }
+            }
+        });
         listener.onState(true, "局域网端口 " + cfg.lanPort);
     }
 
@@ -74,7 +110,9 @@ public final class LanServer implements Link {
         close(ss);
         if (ds != null) ds.close();
         for (Conn c : conns.values()) c.close(1001, "bye");
+        for (Conn c : extra) c.close(1001, "bye");
         conns.clear();
+        extra.clear();
     }
 
     /** Agent 的回复：{type:"msg", to, id, body} → 送到对应连接，并补上 from。 */
@@ -82,7 +120,12 @@ public final class LanServer implements Link {
     public CompletableFuture<?> send(String text) {
         try {
             Map<String, Object> env = Json.obj(text);
-            Conn c = conns.get(String.valueOf(env.get("to")));
+            Conn c = null;
+            if (env.get("body") instanceof Map) {
+                Object re = ((Map<?, ?>) env.get("body")).get("re");
+                if (re != null) c = routes.remove(String.valueOf(re)); // 回复：送回发起的那条连接
+            }
+            if (c == null || c.closed) c = conns.get(String.valueOf(env.get("to")));
             if (c == null) return CompletableFuture.failedFuture(new IllegalStateException("offline"));
             Map<String, Object> out = new TreeMap<>();
             out.put("type", "msg");
@@ -126,7 +169,52 @@ public final class LanServer implements Link {
         }
     }
 
-    /** 探测 {"t":"probe","from","to","n","tag"} → 应答 {"t":"here","id","port","n","tag"}；不是自己人返回 null。 */
+    private static void joinGroup(MulticastSocket ms) {
+        InetSocketAddress g = new InetSocketAddress(groupAddr(), 0);
+        boolean any = false;
+        try {
+            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                try {
+                    if (!ni.isUp() || ni.isLoopback() || !ni.supportsMulticast()) continue;
+                    ms.joinGroup(g, ni);
+                    any = true;
+                } catch (Exception ignored) { }
+            }
+        } catch (Exception ignored) { }
+        if (!any) try { ms.joinGroup(g, null); } catch (Exception ignored) { }
+    }
+
+    static InetAddress groupAddr() {
+        try { return InetAddress.getByName(GROUP); } catch (Exception e) { throw new IllegalStateException(e); }
+    }
+
+    /** announce：{"t":"ann","v":2,"port","n","tag"}，标签 = tag(key, "ann\n" + 本机id + "\n" + port + "\n" + n)。不带本机 id（没配对的人看不出是谁）。 */
+    static String announceText(Config cfg) {
+        String n = Protocol.nonce();
+        Map<String, Object> m = new TreeMap<>();
+        m.put("t", "ann");
+        m.put("v", 2L);
+        m.put("port", (long) cfg.lanPort);
+        m.put("n", n);
+        m.put("tag", Protocol.tag(cfg.pairKey, "ann\n" + cfg.deviceId + "\n" + cfg.lanPort + "\n" + n));
+        return Json.stringify(m);
+    }
+
+    /** 往组播组 + 各网卡广播发一条 announce（常连的手机收到就立刻连回来）。 */
+    public void announce() {
+        DatagramSocket d = ds;
+        if (!running || d == null || cfg.pairKey.length < 32) return;
+        byte[] b = announceText(cfg).getBytes(StandardCharsets.UTF_8);
+        int dport = cfg.lanPort + 1;
+        List<InetAddress> to = new java.util.ArrayList<>();
+        to.add(groupAddr());
+        to.addAll(LanClient.broadcasts());
+        for (InetAddress a : to) {
+            try { d.send(new DatagramPacket(b, b.length, a, dport)); } catch (Exception ignored) { }
+        }
+    }
+
+    /** 探测 {"t":"probe","from","to","n","tag"} → 应答 {"t":"here","id","port","n","tag"}（v2 另带 "v":2、"tls":true 提示，不在标签里）；不是自己人返回 null。 */
     static String answerProbe(Config cfg, String text) {
         Map<String, Object> m;
         try { m = Json.obj(text); } catch (Exception e) { return null; }
@@ -141,18 +229,51 @@ public final class LanServer implements Link {
         r.put("port", (long) cfg.lanPort);
         r.put("n", n);
         r.put("tag", Protocol.tag(cfg.pairKey, "here\n" + cfg.deviceId + "\n" + cfg.lanPort + "\n" + n));
+        r.put("v", 2L);
+        r.put("tls", true);
         return Json.stringify(r);
     }
 
     // ---- 连接 ----
 
-    private void handle(Socket s) {
+    /** 握手结果：通过 = who 非空；否则 code/why 说明拒绝原因。 */
+    static final class Hello {
+        String who;
+        boolean hold;
+        int code = 4001;
+        String why = "auth";
+    }
+
+    private void handle(Socket raw) {
         Conn c = null;
+        Socket s = raw;
         try {
-            s.setTcpNoDelay(true);
-            s.setSoTimeout(10_000);
-            InputStream in = new BufferedInputStream(s.getInputStream());
-            OutputStream out = new BufferedOutputStream(s.getOutputStream());
+            raw.setTcpNoDelay(true);
+            raw.setSoTimeout(10_000);
+            // 嗅探首字节：0x16 = TLS ClientHello；其他按 v1 明文 HTTP
+            InputStream rin = raw.getInputStream();
+            int first = rin.read();
+            if (first < 0) { close(raw); return; }
+            String tlsFp = null;
+            InputStream in;
+            OutputStream out;
+            if (first == 0x16) {
+                SSLContext ctx = tlsCtx;
+                if (ctx == null) { close(raw); return; }
+                SSLSocket ss2 = (SSLSocket) ctx.getSocketFactory().createSocket(raw, new java.io.ByteArrayInputStream(new byte[]{0x16}), true);
+                ss2.setUseClientMode(false);
+                ss2.setNeedClientAuth(true);
+                ss2.setEnabledProtocols(protocols(ss2.getSupportedProtocols()));
+                ss2.startHandshake();
+                java.security.cert.Certificate[] pc = ss2.getSession().getPeerCertificates();
+                try { tlsFp = Tls.fingerprint(pc[0].getEncoded()); } catch (java.security.cert.CertificateEncodingException e) { throw new IOException(e); }
+                s = ss2;
+                in = new BufferedInputStream(ss2.getInputStream());
+                out = new BufferedOutputStream(ss2.getOutputStream());
+            } else {
+                in = new BufferedInputStream(new java.io.SequenceInputStream(new java.io.ByteArrayInputStream(new byte[]{(byte) first}), rin));
+                out = new BufferedOutputStream(raw.getOutputStream());
+            }
             Map<String, String> h = Ws.readHttpHead(in);
             String line = h.get("_line");
             String key = h.get("sec-websocket-key");
@@ -167,19 +288,33 @@ public final class LanServer implements Link {
                     + Ws.acceptKey(key) + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
             out.flush();
             c = new Conn(s, out);
-            String first = readMessage(in, c);
-            String who = checkHello(first);
-            if (who == null) {
-                c.sendText("{\"code\":\"auth\",\"type\":\"error\"}");
-                c.close(4001, "auth");
+            c.tls = tlsFp != null;
+            Hello hello = checkHello(readMessage(in, c), tlsFp);
+            if (hello.who == null) {
+                c.sendText("{\"code\":" + Json.stringify(hello.why) + ",\"type\":\"error\"}");
+                c.close(hello.code, hello.why);
                 return;
             }
+            String who = hello.who;
             c.device = who;
-            Conn old = conns.put(who, c);
-            if (old != null) old.close(4000, "replaced");
+            c.held = hello.hold;
+            Conn old = conns.get(who);
+            boolean primary;
+            if (old == null || old.closed || c.held || !old.held) {
+                conns.put(who, c);
+                primary = true;
+                if (old != null && old != c) old.close(4000, "replaced");
+            } else {
+                extra.add(c); // 已有常连：一次性连接不顶掉它
+                primary = false;
+            }
+            if (c.held && !who.equals(cfg.phoneLast)) {
+                cfg.phoneLast = who;
+                try { cfg.save(); } catch (IOException ignored) { }
+            }
             s.setSoTimeout(95_000); // 客户端每 25 秒 ping
             c.sendText("{\"list\":[{\"device\":" + Json.stringify(cfg.deviceId) + ",\"kind\":\"pc\",\"online\":true}],\"type\":\"devices\"}");
-            listener.onFrame(presence(who, true));
+            if (primary) listener.onFrame(presence(who, true));
             while (running) {
                 String msg = readMessage(in, c);
                 if (msg == null) break;
@@ -197,31 +332,69 @@ public final class LanServer implements Link {
                 }
                 f.remove("to");
                 f.put("from", who); // 来源以握手验过的身份为准
+                if (f.get("id") != null) routes.put(String.valueOf(f.get("id")), c);
                 listener.onFrame(f);
             }
         } catch (IOException e) {
-            // 断开
+            // 断开（含 TLS 握手失败：指纹 / 证书不对）
         } finally {
             if (c != null) {
+                extra.remove(c);
                 if (c.device != null && conns.remove(c.device, c)) listener.onFrame(presence(c.device, false));
                 c.close(1000, "");
             } else close(s);
         }
     }
 
-    private String checkHello(String first) {
-        if (first == null) return null;
+    static String[] protocols(String[] supported) {
+        List<String> out = new java.util.ArrayList<>();
+        for (String p : supported) if (p.equals("TLSv1.3") || p.equals("TLSv1.2")) out.add(p);
+        return out.toArray(new String[0]);
+    }
+
+    /** 当前主连接是不是常连通道（电脑往手机下令走它）。 */
+    public boolean held(String device) {
+        Conn c = conns.get(device);
+        return c != null && c.held && !c.closed;
+    }
+
+    /** 主连接是不是 TLS。 */
+    public boolean tls(String device) {
+        Conn c = conns.get(device);
+        return c != null && c.tls;
+    }
+
+    Hello checkHello(String first, String tlsFp) {
+        Hello r = new Hello();
+        if (first == null) return r;
         try {
             Map<String, Object> f = Json.obj(first);
-            if (!"hello".equals(f.get("type")) || !(f.get("body") instanceof Map)) return null;
+            if (!"hello".equals(f.get("type")) || !(f.get("body") instanceof Map)) return r;
             String from = String.valueOf(f.get("from")), id = String.valueOf(f.get("id"));
-            if (!from.matches("[A-Za-z0-9._-]{1,64}") || from.equals(cfg.deviceId)) return null;
+            if (!from.matches("[A-Za-z0-9._-]{1,64}") || from.equals(cfg.deviceId)) return r;
             @SuppressWarnings("unchecked") Map<String, Object> body = (Map<String, Object>) f.get("body");
-            if (!"hello".equals(body.get("kind"))) return null;
-            if (Protocol.verify(cfg.pairKey, id, from, cfg.deviceId, body, System.currentTimeMillis(), helloGuard) != Protocol.Check.OK) return null;
-            return cfg.peerAllowed(from) ? from : null;
+            if (!"hello".equals(body.get("kind"))) return r;
+            if (Protocol.verify(cfg.pairKey, id, from, cfg.deviceId, body, System.currentTimeMillis(), helloGuard) != Protocol.Check.OK) return r;
+            if (!cfg.peerAllowed(from)) return r;
+            String pinned = cfg.pinOf(from);
+            if (tlsFp == null) {
+                // v1 明文：用 TLS 连过的设备不许退回明文；关了明文兼容也拒
+                if (pinned != null || !cfg.lanPlain) { r.code = 4002; r.why = "tls_required"; return r; }
+            } else {
+                Object cfp = body.get("cfp");
+                if (!(cfp instanceof String) || !Tls.fpEquals((String) cfp, tlsFp)) return r; // 签名里的指纹必须就是 TLS 上这张证书
+                if (pinned == null) {
+                    cfg.pin(from, tlsFp);
+                    try { cfg.save(); } catch (IOException ignored) { }
+                } else if (!Tls.fpEquals(pinned, tlsFp)) {
+                    r.code = 4003; r.why = "pin"; return r;
+                }
+            }
+            r.who = from;
+            r.hold = Boolean.TRUE.equals(body.get("hold"));
+            return r;
         } catch (Exception e) {
-            return null;
+            return r;
         }
     }
 
@@ -263,6 +436,7 @@ public final class LanServer implements Link {
         final Socket s;
         final OutputStream out;
         volatile String device;
+        volatile boolean held, tls, closed;
 
         Conn(Socket s, OutputStream out) { this.s = s; this.out = out; }
 
@@ -279,6 +453,7 @@ public final class LanServer implements Link {
                 System.arraycopy(r, 0, p, 2, r.length);
                 sendRaw(Ws.OP_CLOSE, p);
             } catch (IOException ignored) { }
+            closed = true;
             LanServer.close(s);
         }
     }

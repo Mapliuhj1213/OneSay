@@ -42,6 +42,15 @@ public final class Config {
     public String llmKey = "";        // 大模型 API Key（自带，只存本机）
     public String llmModel = "";      // 空 = 服务商默认
     public String llmBase = "";       // custom 时的接口地址，如 https://example.com/v1
+    // ---- 协议 v2（0.5.0）----
+    public String tlsKey = "";        // 本机 TLS 私钥（PKCS8，base64url）；第一次运行生成，之后不变（换了手机要重新扫码）
+    public String tlsCert = "";       // 本机自签证书（DER，base64url）
+    public String peerFp = "";        // 下令端：配对串里对方电脑的证书指纹（空 = 旧版配对串，走明文 v1）
+    public String pins = "";          // 记住的对方设备证书指纹：设备id=指纹,...（首次 TLS 连上时记，换钥匙清空）
+    public boolean lanPlain = true;   // 还接受旧版（v1，明文）手机；已经用 TLS 连过的设备不再接受明文
+    public String phoneLast = "";     // 最近一台常连（hold）的手机 id，电脑→手机下令时找它
+
+    private transient Tls tls;
 
     public final Path file;
 
@@ -80,6 +89,12 @@ public final class Config {
         c.llmKey = p.getProperty("llm_key", "").trim();
         c.llmModel = p.getProperty("llm_model", "").trim();
         c.llmBase = p.getProperty("llm_base", "").trim();
+        c.tlsKey = p.getProperty("tls_key", "").trim();
+        c.tlsCert = p.getProperty("tls_cert", "").trim();
+        c.peerFp = p.getProperty("peer_fp", "").trim();
+        c.pins = p.getProperty("lan_pins", "").trim();
+        c.lanPlain = !"off".equalsIgnoreCase(p.getProperty("lan_plain", "on").trim());
+        c.phoneLast = p.getProperty("phone_last", "").trim();
         return c;
     }
 
@@ -107,6 +122,12 @@ public final class Config {
         p.setProperty("llm_key", llmKey);
         p.setProperty("llm_model", llmModel);
         p.setProperty("llm_base", llmBase);
+        p.setProperty("tls_key", tlsKey);
+        p.setProperty("tls_cert", tlsCert);
+        p.setProperty("peer_fp", peerFp);
+        p.setProperty("lan_pins", pins);
+        p.setProperty("lan_plain", lanPlain ? "on" : "off");
+        p.setProperty("phone_last", phoneLast);
         try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) { p.store(w, "OneSay desktop - contains secrets, do not share"); }
         try { Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------")); } catch (UnsupportedOperationException | IOException ignored) { }
     }
@@ -143,8 +164,8 @@ public final class Config {
     }
 
     /**
-     * 配对串：onesay://pair?key=..&peer=<本机 id>&lan=ip:port,..[&relay=..&token=..]
-     * 整串等于钥匙，只在自己设备间传。中转部分可选。
+     * 配对串 v2：onesay://pair?key=..&peer=<本机 id>&lan=ip:port,..[&relay=..&token=..]&fp=<证书指纹>&v=2
+     * v1 串没有 fp / v（仍然接受，走明文）。整串等于钥匙，只在自己设备间传。中转部分可选。
      */
     public String pairingString() {
         StringBuilder b = new StringBuilder("onesay://pair?key=").append(Base64.getUrlEncoder().withoutPadding().encodeToString(pairKey))
@@ -156,6 +177,8 @@ public final class Config {
             b.append("&lan=").append(enc(l.toString()));
         }
         if (relayEnabled()) b.append("&relay=").append(enc(relayUrl)).append("&token=").append(enc(relayToken));
+        // v2：带本机证书指纹（旧版手机 / 电脑会忽略不认识的参数，照旧走明文 v1）
+        if (lanEnabled()) b.append("&fp=").append(tls().fp).append("&v=2");
         return b.toString();
     }
 
@@ -169,6 +192,13 @@ public final class Config {
         }
         String relay = q.getOrDefault("relay", ""), token = q.getOrDefault("token", ""), key = q.getOrDefault("key", ""), peer = q.getOrDefault("peer", "");
         String lan = q.getOrDefault("lan", "");
+        String fp = q.getOrDefault("fp", ""), ver = q.getOrDefault("v", "1");
+        int v;
+        try { v = Integer.parseInt(ver.trim()); } catch (NumberFormatException e) { throw new IllegalArgumentException("配对串版本不对"); }
+        if (v < 1) throw new IllegalArgumentException("配对串版本不对");
+        if (v > 2) throw new IllegalArgumentException("配对串来自更新的版本（v" + v + "），请先升级本机");
+        if (!fp.isEmpty() && !Tls.validFp(fp)) throw new IllegalArgumentException("配对串里的证书指纹不对");
+        if (v >= 2 && fp.isEmpty() && !lan.isEmpty()) throw new IllegalArgumentException("配对串缺证书指纹");
         if (key.isEmpty() || peer.isEmpty() || !peer.matches("[A-Za-z0-9._-]{1,64}")) throw new IllegalArgumentException("配对串不完整");
         if (!relay.isEmpty() && token.length() < 24) throw new IllegalArgumentException("配对串里的中转令牌不完整");
         if (relay.isEmpty() && lan.isEmpty()) throw new IllegalArgumentException("配对串既没有局域网也没有中转");
@@ -189,7 +219,40 @@ public final class Config {
         relayUrl = relay;
         relayToken = token;
         pairKey = k;
+        peerFp = fp;
         return peer;
+    }
+
+    /** 本机 TLS 证书（没有就生成并保存）。 */
+    public synchronized Tls tls() {
+        if (tls == null) tls = Tls.load(tlsKey, tlsCert);
+        if (tls == null) {
+            tls = Tls.generate("onesay-" + (deviceId.isEmpty() ? "device" : deviceId));
+            tlsKey = tls.keyB64();
+            tlsCert = tls.certB64();
+            try { if (file != null) save(); } catch (IOException ignored) { }
+        }
+        return tls;
+    }
+
+    /** 记住的设备证书指纹；没有返回 null。 */
+    public synchronized String pinOf(String device) {
+        for (String part : pins.split(",")) {
+            int eq = part.indexOf('=');
+            if (eq > 0 && part.substring(0, eq).equals(device)) return part.substring(eq + 1);
+        }
+        return null;
+    }
+
+    public synchronized void pin(String device, String fp) {
+        StringBuilder b = new StringBuilder();
+        for (String part : pins.split(",")) {
+            int eq = part.indexOf('=');
+            if (eq <= 0 || part.substring(0, eq).equals(device)) continue;
+            b.append(b.length() == 0 ? "" : ",").append(part);
+        }
+        if (fp != null) b.append(b.length() == 0 ? "" : ",").append(device).append('=').append(fp);
+        pins = b.toString();
     }
 
     private static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }

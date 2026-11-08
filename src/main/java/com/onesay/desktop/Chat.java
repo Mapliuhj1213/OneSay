@@ -27,6 +27,8 @@ public final class Chat {
     private final Consumer<String> log;
     private final AtomicBoolean memBusy = new AtomicBoolean();
     private int turnsSinceMemory = 0;
+    /** 协议 v2：给手机下令（App 里接到 Agent.callPeer）；null = 没接。 */
+    public volatile java.util.function.BiFunction<String, Map<String, Object>, Actions.Result> phone;
     private boolean truncatedSinceMemory = false;
 
     public Chat(Config cfg, Store store, Actions actions, Supplier<List<String>> shortcuts, Consumer<String> log) {
@@ -54,6 +56,7 @@ public final class Chat {
         add("user", text, via);
 
         Intent it = Intent.parse(text, cfg.appMap(), shortcuts.get());
+        if (it.phoneCmd != null) return add("assistant", runPhone(it), "cmd");
         if (it.cmd != null) {
             String reply;
             try {
@@ -80,6 +83,38 @@ public final class Chat {
         } catch (Exception e) {
             return add("assistant", e.getMessage() == null ? "大模型出错" : e.getMessage(), "error");
         }
+    }
+
+    /** 发给手机：剪贴板指令没带文字时取电脑剪贴板；status 把电量等拼成一句。 */
+    String runPhone(Intent it) {
+        java.util.function.BiFunction<String, Map<String, Object>, Actions.Result> p = phone;
+        if (p == null) return "手机联动没接上";
+        Map<String, Object> args = new TreeMap<>(it.args);
+        try {
+            if (it.phoneCmd.equals("clipboard_set") && !args.containsKey("text")) {
+                Actions.Result c = actions.run("clipboard_get", Map.of());
+                Object t = c.ok && c.data != null ? c.data.get("text") : null;
+                if (t == null || String.valueOf(t).isEmpty()) return "电脑剪贴板里没有文字";
+                args.put("text", String.valueOf(t));
+            }
+            Actions.Result r = p.apply(it.phoneCmd, args);
+            if (!r.ok) return r.text;
+            if (it.phoneCmd.equals("status")) return statusLine(r);
+            return it.say.isEmpty() ? r.text : it.say;
+        } catch (Exception e) {
+            return "出错：" + e.getClass().getSimpleName();
+        }
+    }
+
+    static String statusLine(Actions.Result r) {
+        Map<String, Object> d = r.data == null ? Map.of() : r.data;
+        StringBuilder b = new StringBuilder("手机");
+        if (d.get("battery") != null) b.append("电量 ").append(d.get("battery")).append("%");
+        if (Boolean.TRUE.equals(d.get("charging"))) b.append("，在充电");
+        if (d.get("ringer") != null) b.append("，").append(d.get("ringer"));
+        if (d.get("music_volume") != null) b.append("，媒体音量 ").append(d.get("music_volume")).append("%");
+        if (Boolean.TRUE.equals(d.get("screen_on"))) b.append("，屏幕亮着");
+        return b.length() > 2 ? b.toString() : r.text;
     }
 
     String systemPrompt() {

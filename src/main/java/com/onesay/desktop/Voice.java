@@ -133,7 +133,7 @@ public final class Voice {
         Intent it = Intent.parse(text, cfg.appMap(), shortcutNames());
         if (it.cmd == null) {
             java.util.function.Function<String, String> fb = fallback;
-            if (fb != null && (it.say.startsWith("没听懂") || it.say.startsWith("没听清") || it.say.startsWith("让手机"))) {
+            if (fb != null && (it.phoneCmd != null || it.say.startsWith("没听懂") || it.say.startsWith("没听清") || it.say.startsWith("让手机"))) {
                 show("「" + text + "」 交给对话…", true);
                 String ans = fb.apply(text);
                 show(ans == null ? "「" + text + "」 " + it.say : Notify.clip(ans.replace('\n', ' '), 60), false);

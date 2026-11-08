@@ -57,7 +57,7 @@ public final class Agent {
     public Map<String, String> peers() {
         Map<String, String> m = new TreeMap<>();
         for (String p : relayPeers) m.put(p, "中转");
-        for (Link l : links) if (l instanceof LanServer) for (String c : ((LanServer) l).clients()) m.put(c, "局域网");
+        for (Link l : links) if (l instanceof LanServer) for (String c : ((LanServer) l).clients()) m.put(c, ((LanServer) l).tls(c) ? "局域网·加密" : "局域网");
         return m;
     }
 
@@ -87,7 +87,8 @@ public final class Agent {
         String from = String.valueOf(f.get("from"));
         String id = String.valueOf(f.get("id"));
         Map<String, Object> body = (Map<String, Object>) f.get("body");
-        if (!"cmd".equals(body.get("kind"))) return; // 只执行指令；结果类消息忽略
+        if ("result".equals(body.get("kind"))) { onResult(from, id, body); return; } // 电脑 → 手机下令的回复
+        if (!"cmd".equals(body.get("kind"))) return;
 
         Protocol.Check c = Protocol.verify(cfg.pairKey, id, from, cfg.deviceId, body, System.currentTimeMillis(), replay);
         if (c != Protocol.Check.OK) {
@@ -120,6 +121,87 @@ public final class Agent {
             }
             reply(via, from, id, r.ok, r.text, r.data, false);
         });
+    }
+
+    // ------------------------------------------------------------------ 电脑 → 手机（协议 v2）
+
+    private final Map<String, java.util.concurrent.CompletableFuture<Actions.Result>> pending = new ConcurrentHashMap<>();
+    private final Map<String, String> pendingTo = new ConcurrentHashMap<>();
+    private final Protocol.ReplayGuard resultReplay = new Protocol.ReplayGuard();
+
+    @SuppressWarnings("unchecked")
+    private void onResult(String from, String id, Map<String, Object> body) {
+        String re = String.valueOf(body.get("re"));
+        java.util.concurrent.CompletableFuture<Actions.Result> f = pending.get(re);
+        if (f == null || !from.equals(pendingTo.get(re))) return; // 不是我们发出去的，或来源不对
+        Protocol.Check c = Protocol.verify(cfg.pairKey, id, from, cfg.deviceId, body, System.currentTimeMillis(), resultReplay);
+        if (c != Protocol.Check.OK) {
+            log.accept("手机 " + from + " 的回复没通过校验：" + c);
+            f.complete(Actions.Result.fail("手机的回复没通过校验（" + c + "）"));
+            return;
+        }
+        Map<String, Object> data = body.get("data") instanceof Map ? (Map<String, Object>) body.get("data") : new TreeMap<>();
+        String text = body.get("text") == null ? "" : String.valueOf(body.get("text"));
+        f.complete(Boolean.TRUE.equals(body.get("ok")) ? Actions.Result.ok(text, data) : new Actions.Result(false, text, data));
+    }
+
+    /** 要下令的手机：指定的 → 已连着常连通道的 → 最近一台常连的。没有返回 null。 */
+    public String phoneTarget(String wanted) {
+        if (wanted != null && !wanted.isEmpty()) return wanted;
+        for (Link l : links) if (l instanceof LanServer) for (String c : ((LanServer) l).clients()) if (((LanServer) l).held(c)) return c;
+        return cfg.phoneLast.isEmpty() ? null : cfg.phoneLast;
+    }
+
+    /**
+     * 电脑给手机下一条签名指令，等签名结果。手机没连着常连通道时先发 announce（组播 + 广播）叫它连回来，最多等 waitMs。
+     * 离线不排队：等不到就直接失败。
+     */
+    public java.util.concurrent.CompletableFuture<Actions.Result> callPeer(String device, String cmd, Map<String, Object> args, long waitMs, long timeoutMs) {
+        java.util.concurrent.CompletableFuture<Actions.Result> out = new java.util.concurrent.CompletableFuture<>();
+        if (device == null || device.isEmpty()) { out.complete(Actions.Result.fail("还没有手机常连过这台电脑（手机上打开「电脑联动」里的「接受电脑指令」）")); return out; }
+        Thread t = new Thread(() -> {
+            Link via = route(device);
+            if (via == null) {
+                for (Link l : links) if (l instanceof LanServer) ((LanServer) l).announce();
+                long end = System.currentTimeMillis() + waitMs;
+                long nextAnn = System.currentTimeMillis() + 1500;
+                while (via == null && System.currentTimeMillis() < end) {
+                    try { Thread.sleep(100); } catch (InterruptedException e) { break; }
+                    if (System.currentTimeMillis() >= nextAnn) {
+                        for (Link l : links) if (l instanceof LanServer) ((LanServer) l).announce();
+                        nextAnn = System.currentTimeMillis() + 1500;
+                    }
+                    via = route(device);
+                }
+            }
+            if (via == null) { out.complete(Actions.Result.fail("手机离线（局域网里没连上 " + device + "），没发出去")); return; }
+            String id = Protocol.newId();
+            pending.put(id, out);
+            pendingTo.put(id, device);
+            Map<String, Object> body = Protocol.command(cfg.pairKey, id, cfg.deviceId, device, cmd, args == null ? new TreeMap<>() : args, System.currentTimeMillis());
+            log.accept("向手机 " + device + " 下令 " + cmd + "（经" + via.name() + "）");
+            via.send(Protocol.envelope(device, id, body)).whenComplete((x, e) -> {
+                if (e != null) out.complete(Actions.Result.fail("发不出去：" + e.getClass().getSimpleName()));
+            });
+            try {
+                out.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                out.complete(Actions.Result.fail("手机没有回应（超时）"));
+            } finally {
+                pending.remove(id);
+                pendingTo.remove(id);
+            }
+        }, "onesay-callpeer");
+        t.setDaemon(true);
+        t.start();
+        return out;
+    }
+
+    /** 能到这台设备的通道：局域网常连优先，其次中转。 */
+    private Link route(String device) {
+        for (Link l : links) if (l instanceof LanServer && ((LanServer) l).held(device)) return l;
+        if (relayPeers.contains(device)) for (Link l : links) if (l instanceof RelayClient && l.isConnected()) return l;
+        return null;
     }
 
     private void reply(Link via, String to, String re, boolean ok, String text, Map<String, Object> data, boolean unsigned) {

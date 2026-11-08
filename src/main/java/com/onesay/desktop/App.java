@@ -72,13 +72,21 @@ public final class App {
         cfg.save();
     }
 
+    /** 界面端口：默认 47830；测试 / 多开可用 -Donesay.ui.port 或环境变量 ONESAY_UI_PORT 指定（0 = 随机）。 */
+    static int uiPort() {
+        String p = System.getProperty("onesay.ui.port", System.getenv("ONESAY_UI_PORT"));
+        try { return p == null || p.isEmpty() ? UiServer.DEFAULT_PORT : Integer.parseInt(p.trim()); } catch (NumberFormatException e) { return UiServer.DEFAULT_PORT; }
+    }
+
     public static void launch(Config cfg, boolean showWindow) throws Exception {
         // 已经开着一个：只把窗口叫出来
-        if (ping(UiServer.DEFAULT_PORT)) {
-            if (showWindow) openWindow("http://127.0.0.1:" + UiServer.DEFAULT_PORT + "/");
+        int up = uiPort();
+        if (up > 0 && ping(up)) {
+            if (showWindow) openWindow("http://127.0.0.1:" + up + "/");
             return;
         }
         autoSetup(cfg);
+        cfg.tls(); // 协议 v2：第一次运行生成本机证书
         App app = new App(cfg);
         app.start();
         if (showWindow) openWindow(app.ui.url());
@@ -110,12 +118,13 @@ public final class App {
             return Actions.Result.ok("记忆已同步", m);
         });
         agent.start();
+        chat.phone = (cmd, args) -> callPhone(cmd, args);
         voice = new Voice(cfg, actions, log);
         voice.fallback = text -> String.valueOf(chat.send(text, "voice").get("text"));
         voice.start();
         ui = new UiServer();
         routes();
-        if (!ui.start(UiServer.DEFAULT_PORT) && !ui.start(0)) throw new IOException("界面端口打不开");
+        if (!ui.start(uiPort()) && !ui.start(0)) throw new IOException("界面端口打不开");
         log.accept("界面 " + ui.url());
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();
@@ -145,6 +154,17 @@ public final class App {
             p.getInputStream().readAllBytes();
             if (p.waitFor() == 0 && desk) Files.writeString(marker, "1");
         } catch (Exception ignored) { }
+    }
+
+    /** 协议 v2：给手机下令（同步，最多十几秒）。 */
+    Actions.Result callPhone(String cmd, Map<String, Object> args) {
+        String bad = PhoneCmds.check(cmd, args);
+        if (bad != null) return Actions.Result.fail(bad);
+        try {
+            return agent.callPeer(agent.phoneTarget(""), cmd, args, 4000, PhoneCmds.timeoutMs(cmd)).get(PhoneCmds.timeoutMs(cmd) + 6000, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            return Actions.Result.fail("手机没有回应");
+        }
     }
 
     static String psq(String s) { return "'" + s.replace("'", "''") + "'"; }
@@ -215,6 +235,9 @@ public final class App {
             s.put("caps", new ArrayList<Object>(actions.capabilities()));
             s.put("shortcuts", new ArrayList<Object>(shortcuts()));
             s.put("lan_ips", new ArrayList<Object>(LanClient.localAddresses()));
+            String ph = agent.phoneTarget("");
+            s.put("phone", ph == null ? "" : ph);
+            s.put("tls_fp", Tls.shortFp(cfg.tls().fp));
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
         });
@@ -268,17 +291,41 @@ public final class App {
             }
         });
         ui.on("phone", b -> {
-            if (agent.peers().isEmpty()) return fail("手机离线，没发出去");
-            return fail("手机端还没接上这个功能（下一步做手机那边）");
+            String cmd = str(b, "cmd", "");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> args = b.get("args") instanceof Map ? new TreeMap<>((Map<String, Object>) b.get("args")) : new TreeMap<>();
+            if (cmd.equals("clipboard_set") && !args.containsKey("text")) {
+                try {
+                    Actions.Result c = actions.run("clipboard_get", Map.of());
+                    Object t = c.ok && c.data != null ? c.data.get("text") : null;
+                    if (t == null || String.valueOf(t).isEmpty()) return fail("电脑剪贴板里没有文字");
+                    args.put("text", String.valueOf(t));
+                } catch (Exception e) {
+                    return fail("读不到电脑剪贴板");
+                }
+            }
+            if (!PhoneCmds.ALL.contains(cmd)) return fail("手机还不支持这个（" + cmd + "）");
+            Actions.Result r = callPhone(cmd, args);
+            Map<String, Object> m = r.ok ? ok(cmd.equals("status") ? Chat.statusLine(r) : r.text) : fail(r.text);
+            if (r.data != null) m.put("data", new TreeMap<String, Object>(r.data));
+            return m;
         });
         ui.on("pairing", b -> {
+            if (str(b, "op", "").equals("unpin")) {
+                cfg.pins = "";
+                try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+                log.accept("已忘掉手机证书，下次加密连上时重新记住");
+                return ok("已忘掉手机证书");
+            }
             if (str(b, "op", "").equals("rekey")) {
                 cfg.pairKey = Protocol.newKey();
+                cfg.pins = "";
                 try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
                 log.accept("已换新钥匙，旧配对全部失效");
             }
             Map<String, Object> m = ok("配对串");
             m.put("pairing", cfg.pairingString());
+            m.put("fp", Tls.shortFp(cfg.tls().fp));
             return m;
         });
         ui.on("test_llm", b -> {
