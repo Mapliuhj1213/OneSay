@@ -143,7 +143,7 @@ public class DesktopActions implements Actions {
         String sch = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
         if (!sch.equals("http") && !sch.equals("https")) return Result.fail("只打开 http/https 网址");
         if (windows) {
-            new ProcessBuilder("rundll32.exe", "url.dll,FileProtocolHandler", u.toString()).start();
+            SafeExec.start(new ProcessBuilder("rundll32.exe", "url.dll,FileProtocolHandler", u.toString()));
         } else if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
             Desktop.getDesktop().browse(u);
         } else return Result.fail("这台电脑不支持打开网址");
@@ -155,7 +155,7 @@ public class DesktopActions implements Actions {
         if (path == null) return Result.fail("没配置这个程序：" + name + "（在设置的 apps 里加 名字=路径）");
         File f = new File(path);
         if (!f.exists()) return Result.fail("程序路径不存在：" + name);
-        new ProcessBuilder(f.getAbsolutePath()).directory(f.getParentFile()).start();
+        SafeExec.start(new ProcessBuilder(f.getAbsolutePath()).directory(f.getParentFile()));
         return Result.ok("已打开 " + name);
     }
 
@@ -229,7 +229,7 @@ public class DesktopActions implements Actions {
                 ? new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", fn)
                 : new ProcessBuilder("cmd.exe", "/c", fn);
         pb.directory(p.getParent().toFile()).redirectErrorStream(true);
-        Process proc = pb.start();
+        Process proc = SafeExec.start(pb); // 永不提权：不走 runas；OneSay 是管理员时远程触发的拒绝
         proc.getOutputStream().close();
         byte[] out = proc.getInputStream().readNBytes(4000);
         boolean done = proc.waitFor(60, TimeUnit.SECONDS);
@@ -269,7 +269,7 @@ public class DesktopActions implements Actions {
 
     protected Result win(String label, String... cmd) throws Exception {
         if (!windows) return Result.fail("仅 Windows 支持");
-        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+        Process p = SafeExec.start(new ProcessBuilder(cmd).redirectErrorStream(true));
         p.getOutputStream().close();
         if (!p.waitFor(15, TimeUnit.SECONDS)) { p.destroyForcibly(); return Result.fail(label + " 超时"); }
         return p.exitValue() == 0 ? Result.ok(label + " 完成") : Result.fail(label + " 失败（" + p.exitValue() + "）");

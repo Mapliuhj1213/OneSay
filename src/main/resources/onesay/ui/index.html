@@ -265,7 +265,7 @@ let S=null, page='today', pending=false;
 
 // ---------- 演示数据（直接用浏览器打开文件时） ----------
 const now=Date.now(), H=3600e3, D=24*H, t0=new Date(new Date().toDateString()).getTime();
-const DEMO={version:'0.5.1',phone_level:'auto',phone_level_zh:'自动',pc_level:'auto',workspace:'C:\\Users\\me\\OneSay\\workspace',confirms:[],tls_fp:'1A2B-3C4D',phone:'my-phone',device:'pc-desktop',voice:'长按空格说话',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
+const DEMO={version:'0.5.1',phone_level:'',phone_level_zh:'',pc_level:'auto',pc_sandbox:'workspace_write',pc_approval:'untrusted',plugin_enabled:true,workspace:'C:\\Users\\me\\OneSay\\workspace',confirms:[],tls_fp:'1A2B-3C4D',phone:'my-phone',device:'pc-desktop',voice:'长按空格说话',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
  caps:['ping','screenshot','open_url','open_app','clipboard_get','clipboard_set','lock','volume','media','sleep','shutdown','shutdown_abort'],
  shortcuts:['下班模式','备份照片','改代理'],
  shortcut_policy:[{name:'下班模式.ps1',id:'下班模式.ps1',status:'approved',why:''},{name:'备份照片.bat',id:'备份照片.bat',status:'changed',why:''},{name:'改代理.ps1',id:'改代理.ps1',status:'blocked',why:'内容涉及注册表 / 网络配置 / 服务驱动（Set-ItemProperty）'}],
@@ -354,13 +354,12 @@ function scPolicy(){const p=S.shortcut_policy||[],a=S.shortcut_approvals||[];
   (p.length?card(p.map(x=>{const t=SC_ST[x.status]||SC_ST.new;return `<div class="item"><div class="tx"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.why||t[1])}</div></div><span class="tag ${t[0]}">${esc(t[1])}</span></div>`})):empty('没有快捷指令'))+
   sec('var(--green)','已批准直接执行',a.length+' 个')+
   (a.length?card(a.map(x=>{const t=SC_ST[x.status]||SC_ST.approved;return `<div class="item"><div class="tx"><div class="tt">${esc(x.name)}</div><div class="st">内容指纹 ${esc(x.hash)} · ${esc(t[1])}</div></div><button class="tag" onclick="scRevoke(${esc(JSON.stringify(x.id))})">撤销</button></div>`})):empty('还没有批准过'))+
-  `<p class="note">只认快捷指令文件夹里的 .ps1 / .bat / .cmd，按文件名 + 内容指纹批准；改了内容或改了名都要重新批准。内容涉及注册表、网络配置、服务驱动、授权或看不出内容的编码命令的，只能你自己运行。只读档一律不执行。</p>`}
+  `<p class="note">只认快捷指令文件夹里的 .ps1 / .bat / .cmd，按文件名 + 内容指纹批准；改了内容或改了名都要重新批准。普通用户自己能做的（改自己的注册表、删自己的文件、开程序…）照常批准；需要管理员（机器级注册表、服务驱动、防火墙 / 网卡 / DNS、系统级计划任务、磁盘）、能影响提权（劫持 ms-settings 之类、改 windir / COR_PROFILER、Policies）、想提权，或用了看不出内容的编码命令的，只能你自己运行。注释里写到的词不算。只读档一律不执行。</p>`}
 async function scRevoke(id){if(!LIVE){S.shortcut_approvals=(S.shortcut_approvals||[]).filter(x=>x.id!==id);render();return}
   const r=await api('shortcuts',{op:'revoke',id});snack(r.text);refresh()}
 P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
   return head('手机',on?`在线 · ${esc(S.peers[ids[0]])} · ${esc(ids[0])}`:(ph?`离线 · 上次常连 ${esc(ph)}`:'离线'))+
-  `<div class="card">${kv('手机执行级别','只能在手机上改（手机 OneSay › 电脑联动 › 执行级别）。自动档：写剪贴板、打开不在信任列表的网址、卸载 App 要在手机上点「允许一次」，30 秒不点算拒绝',`<span class="tag ${S.phone_level==='full'?'':'green'}">${S.phone_level_zh?esc(S.phone_level_zh):'未知（连上后显示）'}</span>`)}</div>
-  <div class="hero"><div class="big" style="background:var(--device)">▯</div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'手机开着「接受电脑指令」时，下面这些点一下就发过去':'手机上打开「电脑联动」并扫码配对；要让电脑找得到手机，打开手机上的「接受电脑指令」'}</p></div><span class="tag ${on?'green':''}">${on?'在线':'离线'}</span></div>
+  `<div class="hero"><div class="big" style="background:var(--device)">▯</div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'手机开着「接受电脑指令」时，下面这些点一下就发过去':'手机上打开「电脑联动」并扫码配对；要让电脑找得到手机，打开手机上的「接受电脑指令」'}</p></div><span class="tag ${on?'green':''}">${on?'在线':'离线'}</span></div>
   <div class="acts">
   <button class="act" onclick="phone('find_phone',{action:'start',seconds:30})"><span class="ic" style="background:var(--red)">♪</span>找手机<span>最大音量响 30 秒，静音也响</span></button>
   <button class="act" onclick="phone('find_phone',{action:'stop'})"><span class="ic" style="background:var(--red)">■</span>停止响铃<span>找到了就停</span></button>
@@ -373,14 +372,15 @@ P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
   <button class="act" onclick="phone('status')"><span class="ic" style="background:var(--device)">ϟ</span>电量和状态<span>电量、充电、铃声模式</span></button>
   <button class="act" onclick="alarm(true)"><span class="ic" style="background:var(--todo)">⏰</span>设闹钟<span>在手机上响（还没做）</span></button></div>
   <p class="note">也可以在「对话」里说：让手机响一下 / 手机别响了 / 手机亮屏 / 把手机音量调到 30 / 手机打开微信 / 把剪贴板发到手机 / 手机还有多少电。
-  手机离线时直接提示没发出去，不偷偷排队。每一项手机上都能单独关掉，另外受手机上的执行级别管；没执行时会写明原因（级别不允许 / 手机上没确认 / 网址或剪贴板没过安全检查 / 这类 App 不让碰 / 已生成脚本）。</p>`};
+  手机离线时直接提示没发出去，不偷偷排队。每一项手机上都能单独关掉（手机 OneSay › 电脑联动）。</p>`};
 P.pc=()=>{const s=S.settings;
   return head('这台电脑',`${esc(S.device)} · 局域网 ${esc((S.lan_ips||[]).join(', ')||'无地址')}:${s.lan_port} · 中转${s.relay?'已开':'未开'}`)+
   `<div class="cols"><div>${sec('var(--device)','手机能让它做的事')}<div class="card">
   ${kv('截图、打开网址、剪贴板','默认开启',tag(true))}${kv('锁屏、音量、播放控制','Windows',tag(S.caps.includes('lock')))}
   ${kv('打开程序',s.apps?'只开设置里列出的程序':'设置里还没加程序',tag(!!s.apps))}${kv('取文件',s.files_dir?'只限：'+esc(s.files_dir)+'，单个 ≤ 5 MB':'没设共享文件夹',tag(!!s.files_dir))}
   ${kv('睡眠、关机','必须说「确认关机」，60 秒内可取消',tag(S.caps.includes('shutdown')))}
-  ${kv('执行级别（手机→电脑）','只读 / 自动（默认）/ 完全访问，在设置里改。注册表、网络、服务驱动和授权类改动任何级别都只生成脚本',`<span class="tag ${S.pc_level==='full'?'':'green'}">${({read_only:'只读',auto:'自动',full:'完全访问'})[S.pc_level]||'自动'}</span>`)}
+  ${kv('沙箱档 · 审批策略（手机→电脑）','在设置里改。要管理员的事任何档位都只生成脚本；OneSay 永远不提权',`<span class="tag ${S.pc_sandbox==='full_access'?'':'green'}">${esc(SB_ZH[S.pc_sandbox]||'工作区可写')} · ${esc(AP_ZH[S.pc_approval]||'分类')}</span>`)}
+  ${kv('安全插件','永不提权、需要管理员只生成脚本、禁止远程改 OneSay 设置；在设置里开关',tag(S.plugin_enabled!==false))}
   ${kv('工作区','远程指令只能在这里建 / 改文件，生成的脚本在 scripts/ 里',`<span class="note" style="margin:0">${esc(S.workspace||'')}</span>`)}</div></div>
   <div>${sec('var(--device)','最近')}<div class="card log">${(S.log||[]).slice().reverse().slice(0,14).map(l=>`<div>${esc(l)}</div>`).join('')||'<div>暂无</div>'}</div></div></div>`};
 const kv=(k,p,v)=>`<div class="kv"><div class="k"><div>${k}</div><p>${p}</p></div>${v}</div>`;
@@ -408,9 +408,17 @@ P.settings=()=>{const s=S.settings;
   ${kv('共享给手机的文件夹','留空 = 不开',inp('files_dir',s.files_dir,'D:\\共享'))}
   ${kv('快捷指令文件夹','放 .ps1 / .bat / .cmd',inp('scripts_dir',s.scripts_dir,'D:\\OneSay\\快捷指令'))}
   ${kv('开机自动启动','启动后只在托盘',sw('autostart',s.autostart))}</div>
-  ${sec('var(--accent)','手机→电脑的执行级别','仿照 Codex 的审批模式')}<div class="card">
-  ${kv('执行级别','只读：只回答状态；自动：截图 / 媒体键 / 锁屏直接做，音量、关机、卸载要你在这里点确认，写文件只限工作区；完全访问：再多出运行工作区脚本（每次确认）和操作第三方 App。快捷指令（自动 / 完全访问）：第一次从手机触发或内容改过要你批准，可选「以后直接执行」',levelSeg(s.pc_level))}
-  ${kv('信任的网址域名','手机让电脑开这些网站时不用确认；逗号分隔',inp('trusted_domains',s.trusted_domains,'bilibili.com, github.com',260))}</div></div>
+  ${sec('var(--accent)','手机→电脑：沙箱档 × 审批策略','照搬 Codex 的两轴；只能在这台电脑上改，手机改不了')}<div class="card">
+  ${kv('沙箱档','只读：只回答状态；工作区可写（默认）：只往工作区里写，工作区外要你确认，命令默认断网；完全访问：按这台电脑当前用户的权限来（仍不提权）',seg2('pc_sandbox',s.pc_sandbox||'workspace_write',[['read_only','只读'],['workspace_write','工作区可写'],['full_access','完全访问']]))}
+  ${kv('审批策略','分类（默认）：只有查询、无害动作、工作区内写不问，其余都问；按需：沙箱以内的直接做，超出沙箱或有破坏性的（关机、卸载、跑脚本、执行命令）才问；从不：永不弹确认，要确认的直接拒绝（只有完全访问下照做）',seg2('pc_approval',s.pc_approval||'untrusted',[['untrusted','分类'],['on_request','按需'],['never','从不']]))}
+  ${kv('信任的网址域名','手机让电脑开这些网站时不用确认；逗号分隔',inp('trusted_domains',s.trusted_domains,'bilibili.com, github.com',260))}
+  ${kv('命令可以联网的域名','沙箱档不是完全访问时命令默认断网，只放行这些；逗号分隔',inp('net_allow',s.net_allow,'github.com',260))}</div>
+  ${sec('var(--accent)','安全插件','只收紧不放宽；普通用户能做的事不拦，Windows 自己会挡没有管理员的操作')}<div class="card">
+  ${kv('安全插件','关掉要确认两次。关掉后下面三项仍然生效',plugSw(s.plugin_enabled!==false))}
+  ${kv('永不提权','远程指令的子进程绝不 runas、不弹 UAC；OneSay 自己是管理员时远程子进程拒绝启动',`<span class="tag green">始终开</span>`)}
+  ${kv('需要管理员 → 只生成脚本','机器级注册表、服务驱动、防火墙 / 网卡 / DNS / hosts、系统级计划任务、磁盘等：生成 .ps1 + 中文说明，由你自己用管理员身份运行',`<span class="tag green">始终开</span>`)}
+  ${kv('禁止自授权','远程指令不能改 OneSay 的档位、插件、信任列表、白名单、批准表',`<span class="tag green">始终开</span>`)}
+  ${kv('拦截编码 / 隐藏命令','powershell -enc、FromBase64String、iex 这类看不出内容的写法',s.plugin_enabled!==false?sw('plugin_encoded',s.plugin_encoded!==false):tag(false))}</div></div>
   <div>${sec('var(--accent)','配对手机')}<div class="card" style="padding:20px">
   <div style="display:flex;gap:18px;align-items:center"><div class="qr" id="qrbox" style="display:grid;place-items:center;color:var(--text3);font-size:12px;text-align:center">${pairShown?'':'点「显示」<br>生成二维码'}</div>
   <div style="font-size:13px;color:var(--text2);line-height:1.7">用手机 OneSay 的「电脑联动」插件扫码配对。<br>这个码就是钥匙，别截图发给别人。<br><button class="btn ghost sm" style="margin-top:8px" onclick="showPair()">${pairShown?'隐藏':'显示'}</button> <button class="btn ghost sm" style="color:var(--red)" onclick="rekey()">换一把钥匙</button><br>本机证书指纹 <b>${esc(S.tls_fp||'')}</b>（手机上显示的应一致） <button class="btn ghost sm" onclick="unpin()">忘掉手机证书</button></div></div>
@@ -454,6 +462,16 @@ function phoneUrl(){const u=(prompt('在手机上打开的网址','https://')||'
 function phoneApp(){const n=(prompt('打开手机上的哪个 App？（写桌面上的名字，或包名如 com.tencent.mm）','')||'').trim();if(!n)return;phone('open_app',/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i.test(n)?{package:n}:{name:n})}
 function phoneNote(){const t=(prompt('发到手机的通知内容','')||'').trim();if(!t)return;phone('notify',{title:'电脑提醒',text:t})}
 async function unpin(){if(!confirm('忘掉已配对手机的证书？手机下次加密连上时会重新记住（手机重装 / 清过数据后连不上时用）。'))return;const r=await api('pairing',{op:'unpin'});snack(r.text)}
+const SB_ZH={read_only:'只读',workspace_write:'工作区可写',full_access:'完全访问'},AP_ZH={untrusted:'分类',on_request:'按需',never:'从不'};
+const seg2=(key,val,opts)=>`<div class="seg">${opts.map(([v,l])=>`<span class="${v===val?'on':''}" onclick="setAxis('${key}','${v}')">${l}</span>`).join('')}</div>`;
+function setAxis(k,v){if(k==='pc_sandbox'&&v==='full_access'&&!confirm('打开「完全访问」？\n\n手机发来的指令将按这台电脑当前用户的权限执行：可以写工作区以外的文件、操作第三方程序、联网。\n\n仍然不会：提权 / 弹 UAC、做要管理员的事（只生成脚本）、改 OneSay 自己的设置。\n\n只在你信任这台手机时打开。'))return;
+  if(k==='pc_approval'&&v==='never'&&!confirm('审批策略改成「从不」？\n\n以后不会再弹确认：要确认的事直接拒绝；如果沙箱档是完全访问，关机、卸载、跑脚本、执行命令会直接执行。'))return;setv(k,v)}
+const plugSw=on=>`<span class="sw ${on?'on':''}" style="cursor:pointer" onclick="setPlugin(${!on})"></span>`;
+async function setPlugin(on){if(on){setv('plugin_enabled',true);return}
+  if(!confirm('关掉安全插件？\n\n关掉后不再拦截编码 / 隐藏命令。永不提权、需要管理员只生成脚本、禁止自授权这三项关不掉。'))return;
+  if(!confirm('再确认一次：真的关掉安全插件？'))return;
+  if(!LIVE){S.settings.plugin_enabled=false;render();return}
+  const r=await api('settings',{plugin_enabled:false,plugin_off_confirm:true});snack(r.text);refresh()}
 const levelSeg=v=>`<div class="seg">${[['read_only','只读'],['auto','自动'],['full','完全访问']].map(([k,l])=>`<span class="${k===(v||'auto')?'on':''}" onclick="setLevel('${k}')">${l}</span>`).join('')}</div>`;
 function setLevel(k){if(k==='full'&&!confirm('打开「完全访问」？\n\n手机发来的指令将可以：运行电脑工作区 scripts/ 里已有的脚本（每次仍要你确认）、操作第三方程序。\n\n仍然只生成脚本、不会执行的：注册表、网络配置、服务驱动、工作区以外的文件、任何授权。\n\n只在你信任这台手机时打开。'))return;setv('pc_level',k)}
 let cfShown='';

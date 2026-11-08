@@ -49,7 +49,12 @@ public final class Config {
     public String pins = "";          // 记住的对方设备证书指纹：设备id=指纹,...（首次 TLS 连上时记，换钥匙清空）
     public boolean lanPlain = true;   // 还接受旧版（v1，明文）手机；已经用 TLS 连过的设备不再接受明文
     public String phoneLast = "";     // 最近一台常连（hold）的手机 id，电脑→手机下令时找它
-    public String pcLevel = "auto";   // 手机→电脑指令的执行级别：read_only / auto（默认）/ full（见 LinkPolicy，电脑是严格矩阵）
+    public String pcLevel = "auto";   // 旧版的三档（read_only / auto / full）：只为兼容旧配置和旧手机；现在以下面两轴为准
+    public String pcSandbox = "workspace_write"; // 沙箱档：read_only / workspace_write（默认）/ full_access（LinkPolicy.Sandbox）
+    public String pcApproval = "untrusted";      // 审批策略：untrusted 分类（默认）/ on_request 按需 / never 从不（LinkPolicy.Approval）
+    public boolean pluginEnabled = true; // 安全插件（默认开）：关掉只关可关项；永不提权 / 需管理员只生成脚本 / 禁止自授权三项关不掉
+    public boolean pluginEncoded = true; // 插件里的「编码 / 隐藏命令（-enc、FromBase64String、iex）」拦截，单独一项
+    public String netAllow = "";      // 沙箱默认断网：命令可以访问的域名白名单，逗号分隔
     public String shortcutApprovals = ""; // 手机触发快捷指令「以后直接执行」的批准表：id=内容哈希,...（LinkPolicy.parseApprovals）
     public String trusted = "";       // 手机让电脑打开网址时的信任域名，逗号分隔
     public String workspaceDir = "";  // 空 = %USERPROFILE%\OneSay\workspace（中文用户名退到 %ProgramData%\OneSay\workspace）
@@ -100,6 +105,15 @@ public final class Config {
         c.lanPlain = !"off".equalsIgnoreCase(p.getProperty("lan_plain", "on").trim());
         c.phoneLast = p.getProperty("phone_last", "").trim();
         c.pcLevel = LinkPolicy.Level.of(p.getProperty("pc_level", "auto")).id;
+        // 两轴：新配置直接读；旧配置只有 pc_level，按 LinkPolicy.Mode.ofLegacy 映射（只读 / 自动 / 完全访问 → 两轴）
+        LinkPolicy.Mode legacy = LinkPolicy.Mode.ofLegacy(LinkPolicy.Level.of(c.pcLevel));
+        String sb = p.getProperty("pc_sandbox", "").trim(), ap = p.getProperty("pc_approval", "").trim();
+        c.pcSandbox = sb.isEmpty() ? legacy.sandbox.id : LinkPolicy.Sandbox.of(sb).id;
+        c.pcApproval = ap.isEmpty() ? legacy.approval.id : LinkPolicy.Approval.of(ap).id;
+        c.pcLevel = LinkPolicy.Mode.of(c.pcSandbox, c.pcApproval).legacy().id;
+        c.pluginEnabled = !"off".equalsIgnoreCase(p.getProperty("plugin_enabled", "on").trim());
+        c.pluginEncoded = !"off".equalsIgnoreCase(p.getProperty("plugin_encoded", "on").trim());
+        c.netAllow = String.join(",", LinkPolicy.parseDomains(p.getProperty("net_allow", "")));
         c.trusted = p.getProperty("trusted_domains", "").trim();
         c.shortcutApprovals = LinkPolicy.formatApprovals(LinkPolicy.parseApprovals(p.getProperty("shortcut_approvals", "")));
         c.workspaceDir = p.getProperty("workspace_dir", "").trim();
@@ -126,7 +140,12 @@ public final class Config {
         p.setProperty("scripts_dir", scriptsDir);
         p.setProperty("apps", apps);
         p.setProperty("asr_mode", asrMode);
-        p.setProperty("pc_level", pcLevel);
+        p.setProperty("pc_level", mode().legacy().id); // 旧版本读这个
+        p.setProperty("pc_sandbox", mode().sandbox.id);
+        p.setProperty("pc_approval", mode().approval.id);
+        p.setProperty("plugin_enabled", pluginEnabled ? "on" : "off");
+        p.setProperty("plugin_encoded", pluginEncoded ? "on" : "off");
+        p.setProperty("net_allow", netAllow);
         p.setProperty("trusted_domains", trusted);
         p.setProperty("shortcut_approvals", shortcutApprovals);
         p.setProperty("workspace_dir", workspaceDir);
@@ -148,7 +167,30 @@ public final class Config {
         return !deviceId.isEmpty() && pairKey.length >= 32 && (lanEnabled() || relayEnabled());
     }
 
-    public LinkPolicy.Level level() { return LinkPolicy.Level.of(pcLevel); }
+    /** 两轴（沙箱档 × 审批策略）。 */
+    public LinkPolicy.Mode mode() {
+        LinkPolicy.Mode m = LinkPolicy.Mode.of(pcSandbox, pcApproval);
+        // 旧代码直接改 pcLevel（和两轴对不上）时，按旧三档映射
+        LinkPolicy.Level l = LinkPolicy.Level.of(pcLevel);
+        return m.legacy() == l ? m : LinkPolicy.Mode.ofLegacy(l);
+    }
+
+    /** 最接近的旧三档（只给旧界面 / 旧手机显示）。 */
+    public LinkPolicy.Level level() { return mode().legacy(); }
+
+    /** 用旧三档设置：两轴跟着映射（旧界面 / 旧接口 pc_level 用）。 */
+    public void setLegacyLevel(String v) {
+        LinkPolicy.Mode m = LinkPolicy.Mode.ofLegacy(LinkPolicy.Level.of(v));
+        pcSandbox = m.sandbox.id;
+        pcApproval = m.approval.id;
+        pcLevel = m.legacy().id;
+    }
+
+    public void setMode(LinkPolicy.Mode m) {
+        pcSandbox = m.sandbox.id;
+        pcApproval = m.approval.id;
+        pcLevel = m.legacy().id;
+    }
 
     /** 远程指令能写的工作区（不自动建）。Windows：%USERPROFILE%\OneSay\workspace，用户目录非 ASCII 时用 %ProgramData%；其他系统 ~/OneSay/workspace。 */
     public Path workspace() {

@@ -128,6 +128,55 @@ public final class PcGuard {
         return LinkPolicy.pcCat(cmd);
     }
 
+    /** 安全插件当前的规则（可关项从配置读；三条硬规则不在里面）。 */
+    public LinkPolicy.Rules rules() {
+        LinkPolicy.Rules r = new LinkPolicy.Rules(cfg.pluginEnabled && cfg.pluginEncoded, LinkPolicy.parseDomains(cfg.netAllow),
+                List.of(cfg.file == null ? "" : cfg.file.toAbsolutePath().toString()));
+        // 沙箱默认断网（Codex：只读 / 工作区可写没有网络，完全访问有）：这是沙箱档的事，和插件开关无关
+        r.net = cfg.mode().sandbox != LinkPolicy.Sandbox.FULL_ACCESS;
+        return r;
+    }
+
+    /**
+     * 安全插件：过一条指令，命中返回原因。插件「关掉」只关可关项（编码 / 隐藏命令拦截），
+     * 三条硬规则（永不提权、需要管理员只生成脚本、禁止自授权）永远在；插件自己抛异常 = 拒绝（出错即拒）。
+     */
+    /** 测试用：插件检查时注入一个故障（验证「插件出错即拒」）。 */
+    volatile Runnable pluginFault = null;
+
+    public LinkPolicy.Hit plugin(String cmd, Map<String, Object> a) {
+        try {
+            Runnable fault = pluginFault;
+            if (fault != null) fault.run();
+            LinkPolicy.Rules r = rules(); // 插件关掉时 encoded=false；提权 / 自授权两条硬规则照样查
+            String text = switch (cmd) {
+                case "sys_exec" -> str(a, "command");
+                case "script_run", "shortcut_run" -> str(a, "name");
+                case "open_app" -> str(a, "name") + " " + str(a, "path") + " " + str(a, "package");
+                case "file_write" -> str(a, "path");
+                default -> "";
+            };
+            if (text.isBlank()) return null;
+            LinkPolicy.Hit h = LinkPolicy.inspectCommand(text, r);
+            if (h != null || !"script_run".equals(cmd)) return h;
+            // 工作区脚本：内容也要过（剥注释后）；要管理员的不跑，告诉你自己用管理员身份运行
+            File f = scriptFile(str(a, "name"));
+            if (f == null) return null;
+            if (f.length() > SHORTCUT_MAX) return new LinkPolicy.Hit(LinkPolicy.R_PLUGIN_BLOCKED, "脚本太大（超过 256 KB），不检查就不跑");
+            String n = str(a, "name").toLowerCase(Locale.ROOT);
+            String body = LinkPolicy.normalizeCommand(LinkPolicy.stripComments(LinkPolicy.decodeScript(Files.readAllBytes(f.toPath())), n.endsWith(".bat") || n.endsWith(".cmd")));
+            h = LinkPolicy.inspectCommand(body, r);
+            if (h != null) return h;
+            String adm = LinkPolicy.adminReason(body);
+            if (adm.isEmpty()) adm = LinkPolicy.hkcuElevationReason(body);
+            if (adm.isEmpty() && LinkPolicy.classifyShell(LinkPolicy.Target.PC, body) == LinkPolicy.Cat.SELF_GRANT) adm = "涉及授予权限";
+            return adm.isEmpty() ? null : new LinkPolicy.Hit(LinkPolicy.R_NEEDS_ADMIN_SCRIPT, "这个脚本" + adm + "：OneSay 不提权、不替你运行，需要你自己用管理员身份执行");
+        } catch (Throwable t) {
+            // 插件自己出错：拒绝，不放行
+            return new LinkPolicy.Hit(LinkPolicy.R_PLUGIN_BLOCKED, "安全插件检查时出错（" + t.getClass().getSimpleName() + "），按拒绝处理");
+        }
+    }
+
     public Outcome check(String from, String cmd, Map<String, Object> a0) {
         Outcome o = new Outcome();
         Map<String, Object> a = new TreeMap<>();
@@ -145,22 +194,39 @@ public final class PcGuard {
             String low = (name + " " + path).toLowerCase(java.util.Locale.ROOT);
             f.appSystem = low.contains("\\windows\\") || low.contains("explorer") || low.contains("taskmgr") || low.contains("regedit") || low.contains("onesay");
         }
+        if (cat == LinkPolicy.Cat.WORKSPACE_WRITE) f.protectedPath = LinkPolicy.protectedWorkspacePath(str(a, "path"));
+        if (cat == LinkPolicy.Cat.OUTSIDE_WRITE) a.put("_outside", Boolean.TRUE); // 判定过的工作区外写入（手机自己带的 _ 参数上面已经丢掉）
         Shortcut sc = null;
         if (cat == LinkPolicy.Cat.SHORTCUT) {
             sc = shortcut(str(a, "name"));
             f = shortcutFacts(sc);
             if (sc != null) a.put("_sha256", f.shortcutHash); // 执行前再核对一次，防判定后文件被换掉
         }
-        LinkPolicy.Decision d = LinkPolicy.decide(LinkPolicy.Target.PC, cfg.level(), cat, f);
+        LinkPolicy.Hit hit = plugin(cmd, a);
+        if (hit != null) {
+            f.pluginBlocked = hit.text;
+            f.pluginReason = hit.code;
+        }
+        LinkPolicy.Decision d = LinkPolicy.decide(LinkPolicy.Target.PC, cfg.mode(), cat, f);
         switch (d.verdict) {
             case DENY:
                 o.reply = result(false, d.text, d.reason, null);
+                if (LinkPolicy.R_PLUGIN_BLOCKED.equals(d.reason) || LinkPolicy.R_SELF_GRANT_BLOCKED.equals(d.reason))
+                    try { notify.accept(from + " 的 " + cmd + "：" + LinkPolicy.reasonZh(d.reason)); } catch (Exception ignored) { }
                 return o;
             case SCRIPT: {
+                if ("script_run".equals(cmd)) {
+                    // 已经是工作区里的脚本：不再生成一份，告诉你它在哪
+                    Map<String, Object> x = new TreeMap<>();
+                    x.put("path", "scripts/" + str(a, "name"));
+                    o.reply = result(false, d.text + "：scripts/" + str(a, "name"), d.reason, x);
+                    return o;
+                }
                 String rel = script(from, cmd, a, d.text);
                 Map<String, Object> x = new TreeMap<>();
                 if (rel != null) x.put("path", rel);
-                o.reply = result(false, rel == null ? "要生成脚本，但写不进电脑工作区" : "已生成脚本，需你自己执行：" + rel, LinkPolicy.R_SCRIPT_GENERATED, x);
+                String head = LinkPolicy.R_NEEDS_ADMIN_SCRIPT.equals(d.reason) ? "这件事要管理员，已生成脚本，需你自己用管理员身份执行：" : "已生成脚本，需你自己执行：";
+                o.reply = result(false, rel == null ? "要生成脚本，但写不进电脑工作区" : head + rel, d.reason, x);
                 return o;
             }
             case CONFIRM: {
@@ -257,7 +323,7 @@ public final class PcGuard {
     /** 判定事实：内容哈希 / 严格规则 / 批准表，再加两条电脑端才知道的：文件太大、文件在远程可写的工作区里（不算你定义的）。 */
     LinkPolicy.Facts shortcutFacts(Shortcut sc) {
         if (sc == null) return LinkPolicy.shortcutFacts(null, null, null, false);
-        LinkPolicy.Facts f = LinkPolicy.shortcutFacts(sc.id, sc.bytes == null ? new byte[0] : sc.bytes, approvals(), true);
+        LinkPolicy.Facts f = LinkPolicy.shortcutFacts(sc.id, sc.bytes == null ? new byte[0] : sc.bytes, approvals(), true, rules());
         String extra = null;
         if (sc.bytes == null) extra = "文件太大（超过 256 KB）";
         else if (insideWorkspace(sc.path)) extra = "文件在手机能写的电脑工作区里（不算你在电脑上定义的快捷指令）";
@@ -348,7 +414,8 @@ public final class PcGuard {
         String risk;
         if ("sys_exec".equals(cmd)) {
             command = str(a, "command");
-            risk = "系统级改动（注册表 / 网络 / 服务 / 驱动 / 权限）可能让电脑断网、变得不安全或无法启动";
+            String why2 = LinkPolicy.adminReason(LinkPolicy.normalizeCommand(command));
+            risk = (why2.isEmpty() ? "系统级改动" : why2) + "：可能让电脑断网、变得不安全或无法启动。OneSay 不会自己提权，这一步要你自己用管理员身份运行";
         } else if ("file_write".equals(cmd)) {
             command = "$text = @'\n" + String.valueOf(a.get("text")).replace("\n'@", "\n '@") + "\n'@\nSet-Content -LiteralPath '" + str(a, "path").replace("'", "''") + "' -Value $text -Encoding UTF8";
             risk = "写工作区以外的文件，会覆盖同名文件";
@@ -369,11 +436,15 @@ public final class PcGuard {
             switch (cmd) {
                 case "level": {
                     Map<String, Object> d = new TreeMap<>();
-                    return Actions.Result.ok("电脑执行级别：" + cfg.level().zh, d);
+                    d.put("sandbox", cfg.mode().sandbox.id);
+                    d.put("approval", cfg.mode().approval.id);
+                    return Actions.Result.ok("电脑档位：" + cfg.mode().zh(), d);
                 }
                 case "file_write": {
                     String t = a.get("text") == null ? "" : String.valueOf(a.get("text"));
                     if (t.length() > 256 * 1024) return Actions.Result.fail("文件太大（超过 256 KB）");
+                    if (LinkPolicy.protectedWorkspacePath(str(a, "path"))) return Actions.Result.fail("工作区里的 .git / .codex / .agents 是只读的");
+                    if (Boolean.TRUE.equals(a.get("_outside"))) return writeOutside(str(a, "path"), t);
                     File f = LinkPolicy.writeInside(ws, str(a, "path"), t.getBytes(StandardCharsets.UTF_8));
                     return f == null ? Actions.Result.fail("只能写工作区里的文件") : Actions.Result.ok("已写入电脑工作区 " + str(a, "path"));
                 }
@@ -384,24 +455,63 @@ public final class PcGuard {
                 }
                 case "script_run": {
                     String n = str(a, "name");
-                    File f = n.contains("/") || n.contains("\\") ? null : LinkPolicy.resolveInside(ws, "scripts/" + n);
-                    if (f == null || !f.isFile()) return Actions.Result.fail("工作区 scripts/ 里没有这个脚本");
+                    File f = scriptFile(n);
+                    if (f == null) return Actions.Result.fail("工作区 scripts/ 里没有这个脚本");
                     String low = n.toLowerCase(java.util.Locale.ROOT);
                     ProcessBuilder pb;
                     if (low.endsWith(".ps1")) pb = new ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", f.getPath());
                     else if (low.endsWith(".bat")) pb = new ProcessBuilder("cmd", "/c", f.getPath());
                     else return Actions.Result.fail("电脑上只运行 .ps1 / .bat");
-                    pb.directory(ws).redirectErrorStream(true).start();
+                    SafeExec.start(pb.directory(ws).redirectErrorStream(true));
                     return Actions.Result.ok("已开始运行 " + n);
                 }
                 case "sys_exec":
-                    return Actions.Result.fail("电脑上的系统命令不执行（只生成脚本）");
+                    return exec(str(a, "command"), ws);
                 default:
                     return null;
             }
+        } catch (SafeExec.Refused e) {
+            Map<String, Object> d = new TreeMap<>();
+            d.put("reason", LinkPolicy.R_PLUGIN_BLOCKED);
+            d.put("reason_zh", LinkPolicy.reasonZh(LinkPolicy.R_PLUGIN_BLOCKED));
+            return new Actions.Result(false, e.getMessage(), d);
         } catch (Exception e) {
             return Actions.Result.fail(cmd + " 出错：" + e.getClass().getSimpleName());
         }
+    }
+
+    File scriptFile(String n) {
+        if (n == null || n.isEmpty() || n.contains("/") || n.contains("\\")) return null;
+        File f = LinkPolicy.resolveInside(workspace(), "scripts/" + n);
+        return f != null && f.isFile() ? f : null;
+    }
+
+    /** 工作区外写文件：按这台电脑当前用户的权限（Windows ACL 说了算），OneSay 是管理员时远程触发的拒绝。 */
+    Actions.Result writeOutside(String path, String text) throws Exception {
+        SafeExec.checkInProcessWrite();
+        Path p = Paths.get(path);
+        if (!p.isAbsolute()) return Actions.Result.fail("工作区以外的文件要给完整路径");
+        Path parent = p.toAbsolutePath().getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Files.writeString(p, text, StandardCharsets.UTF_8);
+        return Actions.Result.ok("已写入 " + p);
+    }
+
+    /** 执行一条命令（判定和插件已经放行）：Windows 走 PowerShell，其他系统走 sh；不提权，工作目录是工作区，最多 60 秒。 */
+    Actions.Result exec(String command, File ws) throws Exception {
+        if (command.isBlank()) return Actions.Result.fail("没有命令");
+        ProcessBuilder pb = SafeExec.WINDOWS
+                ? new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command)
+                : new ProcessBuilder("sh", "-c", command);
+        if (ws.isDirectory()) pb.directory(ws);
+        Process p = SafeExec.start(pb.redirectErrorStream(true));
+        p.getOutputStream().close();
+        byte[] out = p.getInputStream().readNBytes(4000);
+        if (!p.waitFor(60, TimeUnit.SECONDS)) { p.destroyForcibly(); return Actions.Result.ok("命令还在跑（超过 60 秒，已停止等待）"); }
+        Map<String, Object> d = new TreeMap<>();
+        d.put("exit", (long) p.exitValue());
+        d.put("output", new String(out, java.nio.charset.Charset.defaultCharset()).trim());
+        return p.exitValue() == 0 ? Actions.Result.ok("命令执行完了", d) : new Actions.Result(false, "命令失败（" + p.exitValue() + "）", d);
     }
 
     Actions.Result result(boolean ok, String text, String reason, Map<String, Object> extra) {
@@ -417,8 +527,12 @@ public final class PcGuard {
     /** 回复里带上电脑的执行级别（手机界面可以显示）。 */
     public Map<String, Object> decorate(Map<String, Object> d0) {
         Map<String, Object> d = d0 == null ? new TreeMap<>() : new TreeMap<>(d0);
-        d.put("level", cfg.level().id);
+        d.put("level", cfg.level().id);       // 旧字段：最接近的三档（旧手机界面读这个）
         d.put("level_zh", cfg.level().zh);
+        d.put("sandbox", cfg.mode().sandbox.id);
+        d.put("sandbox_zh", cfg.mode().sandbox.zh);
+        d.put("approval", cfg.mode().approval.id);
+        d.put("approval_zh", cfg.mode().approval.zh);
         return d;
     }
 

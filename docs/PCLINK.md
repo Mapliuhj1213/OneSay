@@ -132,3 +132,70 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 - 回复 `data` 带 `level` / `level_zh`，没执行时带 `reason`（`denied_by_level`、`needs_confirm_timeout`、`confirm_denied`、`untrusted_url`、`blocked_app`、`clipboard_rejected`、`script_generated`、`system_app`、`unknown_command`、`shortcut_needs_approval`、`shortcut_changed`、`shortcut_category_blocked`）和 `reason_zh`；生成脚本时带 `path`。
 - 快捷指令（电脑快捷指令文件夹里的 .ps1 / .bat / .cmd）：只认列表里有的，按「文件名（小写）+ 内容 SHA-256」批准。第一次从手机触发、或内容改过（哈希对不上），电脑上弹「允许 / 以后直接执行 / 拒绝」，30 秒不点算拒绝；没批准下来时 `reason` 是 `shortcut_needs_approval` / `shortcut_changed`，确认结果放 `confirm_result`。点「以后直接执行」后，自动 / 完全访问下再触发直接执行；只读一律拒绝。批准表存在配置 `shortcut_approvals`，快捷指令页能看、能撤销；改内容或改名都要重新批准；执行前再核对一次哈希。内容涉及注册表 / 网络配置 / 服务驱动 / 授权，或用了编码命令 / `iex` 等看不出内容的写法，或文件在手机能写的工作区里 → `shortcut_category_blocked`，只能你自己在电脑上运行，不能批准。
 - 默认级别：自动（个人版、开源版都是；开源版「接受电脑指令」总开关仍默认关）。手机的级别只能在手机上改，电脑上只读显示；电脑自己的级别在电脑设置页改。打开「完全访问」两边都要再确认一次。
+## 两轴 + 安全插件（link-v2，电脑作为被控端）
+
+> 这一节替代上面「执行级别与信任检查」里**电脑一列**的旧三档矩阵。手机作为被控端已恢复到分档之前（见手机仓库 docs/PCLINK.md），下面只讲手机 → 电脑。
+
+### 两轴（照搬 Codex 的 sandbox mode × approval policy，只参考思路、没拷代码）
+
+- **沙箱档**（能动什么）：`read_only` 只读 / `workspace_write` 工作区可写（**默认**）/ `full_access` 完全访问。
+- **审批策略**（什么时候问你）：`untrusted` 分类（**默认**：只有查询、无害动作、工作区内写不问）/ `on_request` 按需（沙箱以内的不问，超出沙箱或会被注意到 / 有破坏性的才问）/ `never` 从不（永不弹确认，要确认的直接拒；只有完全访问档下照做）。
+- 配置键 `pc_sandbox`、`pc_approval`。旧配置只有 `pc_level` 时按下表映射，保存时仍写 `pc_level`（最接近的旧档）给旧版本读；回复里 `level` / `level_zh` 照旧，另加 `sandbox` / `approval`（及 `_zh`）。界面接口 `pc_level` 仍可用（按映射改两轴）。
+
+| 旧档（pc_level） | → 沙箱档 · 审批策略 |
+|---|---|
+| read_only 只读 | 只读 · 分类 |
+| auto 自动（默认） | 工作区可写 · 分类 |
+| full 完全访问 | 完全访问 · 按需 |
+
+### 矩阵（A 直接做 / C 电脑上确认，30 秒不点 = 拒 / D 拒绝 / S 只生成 .ps1 脚本，从不执行）
+
+| 类别 | 只读（任一审批） | 工作区可写：分类 / 按需 / 从不 | 完全访问：分类 / 按需 / 从不 |
+|---|---|---|---|
+| 查询（ping / caps / info / 列快捷指令） | A | A / A / A | A / A / A |
+| 读隐私、无害、打开程序（禁止类除外）、写工作区里的文件 | D | A / A / A | A / A / A |
+| 简单设置（音量等） | D | C / C / D | C / C / A |
+| 关机 / 睡眠、卸载程序 | D | C / C / D | C / C / A |
+| 打开网址（先过网址检查；信任域名直接开） | D | C / 提醒 / 提醒 | C / 提醒 / 提醒 |
+| 写剪贴板（先过剪贴板检查；敏感内容一律要人确认，「从不」= 拒） | D | C / A / A | C / A / A |
+| 操作第三方程序 | D | D / D / D | A / A / A |
+| 写工作区以外的文件 | D | S / S / S | A / A / A（按 Windows ACL） |
+| 运行工作区 scripts/ 里的脚本（内容也过插件） | D | D / D / D | C / C / A |
+| 任意命令 sys_exec | D | S / S / S | C / C / A |
+| 快捷指令（批准过 = A；没批准 / 改过 = C；内容碰插件规则 = D） | D | 同左 | 同左 |
+| 需要管理员（见下） | S | S | S |
+| 给自己授权（ACL / Defender 排除 / 本地管理员组） | S | S | S |
+| 远程改 OneSay 自己的设置 | D（self_grant_blocked） | D | D |
+| 系统程序、支付 / 银行 / 密码 / 钱包 / 商店 / 安装器类 | D | D | D |
+
+- **工作区**：`%USERPROFILE%\OneSay\workspace`（用户目录非 ASCII 时 `%ProgramData%\OneSay\workspace`）；工作区里的 `.git`、`.codex`、`.agents` 只读。
+- **工作区可写档为什么不执行命令**：Windows 上 Java 没法把子进程关在工作区里（没有系统级沙箱），所以命令 / 工作区外写入只生成脚本、跑脚本 / 操作程序拒绝；要执行请用完全访问档（仍不提权）。
+- **默认断网**：只读 / 工作区可写档下，命令要联网（curl / wget / Invoke-WebRequest / WebClient / bitsadmin / certutil -urlcache / UNC `\\主机\共享`…）时，域名必须在白名单 `net_allow` 里（含子域），否则 `plugin_blocked`。完全访问档不断网。
+
+### 安全插件（默认开，只收紧不放宽）
+
+原则：**普通用户能做的事不拦，Windows 自己会挡没有管理员的操作。** 插件只强制下面这些：
+
+1. **永不提权**（关不掉）：OneSay 启动的子进程只走 CreateProcess（不走 ShellExecute / runas 动词，所以永远不会弹 UAC）。命令行里出现 `runas`、`-Verb RunAs`、`ShellExecute…runas`、`gsudo` / `psexec`、`/rl highest`、UAC 绕过程序（fodhelper / eventvwr / computerdefaults / sdclt / slui / wsreset / cmstp…）一律 `plugin_blocked`。OneSay 自己以管理员（高完整性级别）运行时，远程触发的子进程要降权启动；纯 Java 做不到，所以**拒绝**（`SafeExec.deElevate` 留了接口）；工作区外写文件同样拒绝。检测不了是不是管理员 = 当作是。
+2. **需要管理员 → 只生成脚本**（关不掉）：HKLM / HKCR / HKU（其他用户）注册表、`reg load/unload/import/restore/copy`；服务与驱动（sc / *-Service / net start|stop / pnputil / devcon / bcdedit）；防火墙 / 网卡 / DNS / 系统级代理（netsh、*-Net*、Set-DnsClient*、route、ipconfig /release|renew）/ hosts；系统级计划任务（/ru SYSTEM、/rl highest、-User SYSTEM）；diskpart / format / vssadmin / dism / sfc / wbadmin / bootrec / fsutil / secedit / auditpol / net user|localgroup / setx /m / msiexec / 机器级 Set-ExecutionPolicy。生成 `scripts/*.ps1`（UTF-8 BOM + 中文头注释写明为什么要管理员、风险、怎么用管理员身份运行），原因码 `needs_admin_script`。
+3. **当前用户注册表（HKCU）放开**，例外（仍只生成脚本）：`HKCU\Software\Classes` 下的 `shell\open\command` / `DelegateExecute` 劫持与 ms-settings / mscfile / exefile 等键（fodhelper / eventvwr 类 UAC 绕过）、`HKCU\Environment` 的 windir / SystemRoot / COR_PROFILER / COR_ENABLE_PROFILING 等、`HKCU\Software\Policies` 与 `…\CurrentVersion\Policies`。
+4. **删除自己的文件、工作区外写文件**：按普通用户权限放行（Windows ACL 为准），但遵守沙箱档。
+5. **禁止自授权**（关不掉）：远程指令不能改 OneSay 的档位 / 插件开关 / 信任列表 / 联网白名单 / 快捷指令批准表 / 配置文件、不能结束 OneSay、不能调本机界面接口（127.0.0.1:47830/api）；`settings`、`pc_level`、`plugin_off`、`trust_add`、`shortcut_approve` 等指令名一律拒。原因码 `self_grant_blocked`。只能在电脑界面上亲手改（界面接口要本机随机口令）。
+6. 保留：网址校验、剪贴板校验、支付 / 银行 / 钱包类程序屏蔽、快捷指令（SHORTCUT）规则。
+7. **编码 / 隐藏命令**（`-enc` / `-EncodedCommand`、`FromBase64String`、`iex` / `Invoke-Expression`）：单独一项「拦截编码 / 隐藏命令」，默认开（配置 `plugin_encoded`）。关掉后编码本身不再拦，但 `-enc` 解出来的内容照样过其他规则。
+8. **先规范化再匹配**：大小写、`cmd /c` / `powershell -Command` 外壳、`^` 与反引号转义、引号拆词、`%VAR%` / `$env:VAR` 展开、8.3 短名（PROGRA~1、WINDOW~1、SYSTEM~1…）、`powershell -enc <base64>` 解码（UTF-16LE）、`HKEY_CURRENT_USER` / `Registry::` 写法。
+9. **开关**：设置页「安全插件」关掉要确认两次（接口要 `plugin_off_confirm=true`）；关掉只关可关项（编码命令拦截），1 / 2 / 5 三项照样生效。插件检查时自己出错 = 拒绝（`plugin_blocked`）。
+
+### 快捷指令（SHORTCUT）对齐新规则
+
+仍按「文件名小写 + 内容 SHA-256」识别、第一次问、内容变化重问、执行前复核哈希、快捷指令目录不得在工作区内、256 KB 上限。内容检查改成：**只有**想提权、需要管理员、影响提权的 HKCU 键、想改 OneSay 自己的设置、给自己授权（沿用）、编码命令（可关）才 `shortcut_category_blocked`；普通用户能做的（改自己的 HKCU 键 / HKCU 代理、删自己的文件、启动程序…）照常批准。**先剥注释再匹配**：.ps1 的 `#` 行注释与 `<# #>` 块注释（引号里的 # 不算），.bat / .cmd 的 `REM` 与 `::`。
+
+### 原因码（新增）
+
+| 码 | 中文 |
+|---|---|
+| `plugin_blocked` | 安全插件拦下了（提权 / 看不出内容 / 沙箱断网 / .git 等只读 / 插件出错） |
+| `needs_admin_script` | 这件事要管理员，已生成脚本，需你自己用管理员身份执行 |
+| `self_grant_blocked` | 远程不能改 OneSay 自己的设置 |
+
+`script_generated` 现在只用于「工作区可写档下的命令 / 工作区外写入」这种不需要管理员、只是关不进沙箱的情况。没有新增 exfil / credential / destructive 这类为普通用户行为加的码。

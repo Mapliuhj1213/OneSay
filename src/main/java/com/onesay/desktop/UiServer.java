@@ -37,6 +37,9 @@ public final class UiServer {
 
     public void on(String path, Function<Map<String, Object>, Object> h) { api.put(path, h); }
 
+    /** 测试用：直接拿某个接口的处理函数（不经 HTTP / 口令）。 */
+    Function<Map<String, Object>, Object> handler(String path) { return api.get(path); }
+
     public int port() { return port; }
 
     public String url() { return "http://127.0.0.1:" + port + "/"; }

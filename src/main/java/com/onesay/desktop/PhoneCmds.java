@@ -17,17 +17,12 @@ import java.util.Map;
  * 每一项手机上都有开关，开源版危险项（打开网址 / 打开 App / 写剪贴板）默认关；都必须先配对。
  */
 public final class PhoneCmds {
-    public static final List<String> ALL = List.of("ping", "caps", "status", "find_phone", "open_url", "open_app", "screen_on", "volume_set", "clipboard_set", "notify",
-            // link-v2 执行级别：手机端只受执行级别管的新指令
-            "flashlight", "setting_set", "file_write", "file_list", "uninstall_app", "script_list", "script_run", "sys_exec");
-
-    /** 手机上可能要人点「允许一次」的（手机最多等 30 秒），电脑这边多等一会儿。 */
-    public static final List<String> MAY_CONFIRM = List.of("open_url", "clipboard_set", "setting_set", "file_write", "uninstall_app", "script_run", "sys_exec");
+    /** 手机作为被控端恢复成分档之前：只有这 10 项（每项在手机控制台有开关），不再有执行级别 / 手机上确认。 */
+    public static final List<String> ALL = List.of("ping", "caps", "status", "find_phone", "open_url", "open_app", "screen_on", "volume_set", "clipboard_set", "notify");
 
     private PhoneCmds() {}
 
     public static long timeoutMs(String cmd) {
-        if (MAY_CONFIRM.contains(cmd)) return 40_000;
         return cmd.equals("find_phone") || cmd.equals("open_app") ? 12_000 : 8_000;
     }
 
@@ -55,16 +50,6 @@ public final class PhoneCmds {
                 String act = str(a, "action");
                 return act.isEmpty() || act.equals("start") || act.equals("stop") ? null : "action 只能是 start / stop";
             }
-            case "setting_set":
-                return str(a, "name").isEmpty() || a.get("value") == null ? "要给设置名和值" : null;
-            case "file_write":
-                return str(a, "path").isEmpty() || a.get("text") == null ? "要给路径和内容" : null;
-            case "uninstall_app":
-                return str(a, "package").isEmpty() ? "要给包名" : null;
-            case "script_run":
-                return str(a, "name").isEmpty() ? "要给脚本名" : null;
-            case "sys_exec":
-                return str(a, "command").isEmpty() ? "要给命令" : null;
             default: return null;
         }
     }

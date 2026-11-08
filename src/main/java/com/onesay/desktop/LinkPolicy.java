@@ -66,6 +66,96 @@ public final class LinkPolicy {
 
     public static final Level DEFAULT_LEVEL = Level.AUTO;
 
+    /**
+     * [link-v2 · 两轴] 沙箱档（Codex 的 sandbox mode）：能动什么。
+     * <ul>
+     *   <li>{@link #READ_ONLY} 只读：只回答查询，什么都不改。</li>
+     *   <li>{@link #WORKSPACE_WRITE} 工作区可写（默认）：只往工作区里写；工作区外的写入和任意命令只生成脚本（子进程关不进工作区），命令默认断网。</li>
+     *   <li>{@link #FULL_ACCESS} 完全访问：按这台电脑当前用户的权限来（仍然不提权、不碰需要管理员的东西）。</li>
+     * </ul>
+     */
+    public enum Sandbox {
+        READ_ONLY("read_only", "只读"), WORKSPACE_WRITE("workspace_write", "工作区可写"), FULL_ACCESS("full_access", "完全访问");
+        public final String id, zh;
+
+        Sandbox(String id, String zh) {
+            this.id = id;
+            this.zh = zh;
+        }
+
+        public static Sandbox of(String s) {
+            if (s != null) for (Sandbox x : values()) if (x.id.equalsIgnoreCase(s.trim()) || x.zh.equals(s.trim())) return x;
+            return WORKSPACE_WRITE;
+        }
+    }
+
+    /**
+     * [link-v2 · 两轴] 审批策略（Codex 的 approval policy）：什么时候问你。
+     * <ul>
+     *   <li>{@link #UNTRUSTED} 分类（默认）：只有「可信」的那一类（查询 / 无害 / 工作区内写）不问，其余都先问你。</li>
+     *   <li>{@link #ON_REQUEST} 按需：沙箱档以内的直接做（不在信任列表的网址只提醒、写剪贴板不问），超出沙箱或会被注意到 / 有破坏性的
+     *   （音量等设置、关机、卸载、跑脚本、执行命令）才问。</li>
+     *   <li>{@link #NEVER} 从不：永不弹确认。沙箱档以内的照做；要升级的（工作区可写档写工作区外）直接拒绝；
+     *   要确认的动作（关机、卸载、跑脚本、执行命令）只在「完全访问」下照做（Codex 的 danger-full-access + never），其余档拒绝。
+     *   敏感剪贴板、未批准的快捷指令照样要人确认，所以「从不」下拒绝。</li>
+     * </ul>
+     */
+    public enum Approval {
+        UNTRUSTED("untrusted", "分类"), ON_REQUEST("on_request", "按需"), NEVER("never", "从不");
+        public final String id, zh;
+
+        Approval(String id, String zh) {
+            this.id = id;
+            this.zh = zh;
+        }
+
+        public static Approval of(String s) {
+            if (s != null) for (Approval x : values()) if (x.id.equalsIgnoreCase(s.trim()) || x.zh.equals(s.trim())) return x;
+            return UNTRUSTED;
+        }
+    }
+
+    /** 两轴合起来的一档。旧配置里的三档（只读 / 自动 / 完全访问）照 {@link #ofLegacy} 映射过来，旧界面照 {@link #legacy} 显示。 */
+    public static final class Mode {
+        public final Sandbox sandbox;
+        public final Approval approval;
+
+        public Mode(Sandbox sandbox, Approval approval) {
+            this.sandbox = sandbox == null ? Sandbox.WORKSPACE_WRITE : sandbox;
+            this.approval = approval == null ? Approval.UNTRUSTED : approval;
+        }
+
+        public static final Mode DEFAULT = new Mode(Sandbox.WORKSPACE_WRITE, Approval.UNTRUSTED);
+
+        public static Mode of(String sandbox, String approval) { return new Mode(Sandbox.of(sandbox), Approval.of(approval)); }
+
+        /**
+         * 旧的三档 → 两轴（向后兼容：旧配置读进来就是这三种组合）：只读 → 只读·分类；自动 → 工作区可写·分类；完全访问 → 完全访问·按需。
+         * 旧档位下原来要确认的照样确认（音量 / 关机 / 卸载 / 跑脚本）；只有新规则明确放开的（完全访问档写工作区外、执行普通命令）按新规则来。
+         */
+        public static Mode ofLegacy(Level l) {
+            if (l == Level.READ_ONLY) return new Mode(Sandbox.READ_ONLY, Approval.UNTRUSTED);
+            if (l == Level.FULL) return new Mode(Sandbox.FULL_ACCESS, Approval.ON_REQUEST);
+            return DEFAULT;
+        }
+
+        /** 两轴 → 最接近的旧档（给旧版手机 / 旧界面显示用，只看沙箱轴）。 */
+        public Level legacy() {
+            if (sandbox == Sandbox.READ_ONLY) return Level.READ_ONLY;
+            return sandbox == Sandbox.FULL_ACCESS ? Level.FULL : Level.AUTO;
+        }
+
+        public String zh() { return sandbox.zh + " · " + approval.zh; }
+
+        @Override public String toString() { return sandbox.id + "/" + approval.id; }
+
+        @Override public boolean equals(Object o) {
+            return o instanceof Mode && ((Mode) o).sandbox == sandbox && ((Mode) o).approval == approval;
+        }
+
+        @Override public int hashCode() { return sandbox.hashCode() * 31 + approval.hashCode(); }
+    }
+
     public enum Target { PC, PHONE }
 
     public enum Verdict { ALLOW, CONFIRM, DENY, SCRIPT }
@@ -76,7 +166,13 @@ public final class LinkPolicy {
             R_CLIPBOARD_REJECTED = "clipboard_rejected", R_SCRIPT_GENERATED = "script_generated", R_SYSTEM_APP = "system_app",
             R_OUTSIDE_WORKSPACE = "outside_workspace", R_UNKNOWN = "unknown_command",
             R_SHORTCUT_NEEDS_APPROVAL = "shortcut_needs_approval", R_SHORTCUT_CHANGED = "shortcut_changed",
-            R_SHORTCUT_BLOCKED = "shortcut_category_blocked";
+            R_SHORTCUT_BLOCKED = "shortcut_category_blocked",
+            /** 安全插件拦下的（提权、UAC 绕过、沙箱断网、看不出内容的编码命令…）。 */
+            R_PLUGIN_BLOCKED = "plugin_blocked",
+            /** 需要管理员：不执行，只生成 .ps1 脚本，由用户自己用管理员身份运行。 */
+            R_NEEDS_ADMIN_SCRIPT = "needs_admin_script",
+            /** 远程想给自己放权（改 OneSay 的策略 / 配置 / 白名单 / 插件开关）。 */
+            R_SELF_GRANT_BLOCKED = "self_grant_blocked";
 
     /** 指令的类别（决定矩阵行）。 */
     public enum Cat {
@@ -105,8 +201,10 @@ public final class LinkPolicy {
         SHORTCUT,
         /** 任意 shell / su / Shizuku 命令（分类不出更具体的）。 */
         SHELL_EXEC,
-        /** 给自己（或任何 App）授权：pm grant、appops、无障碍 / 通知监听、设备管理器、Shizuku 批准。 */
+        /** 给自己（或任何 App）授权：pm grant、appops、无障碍 / 通知监听、设备管理器、Shizuku 批准；电脑上的 ACL / Defender 排除 / 本地管理员组。 */
         SELF_GRANT,
+        /** 远程给自己放权：改 OneSay 自己的策略 / 配置 / 信任列表 / 插件开关 / 关掉 OneSay。任何档位都拒绝。 */
+        SELF_AUTHORIZE,
         /** 改动系统 App（卸载 / 停用 / 清数据）。 */
         SYSTEM_APP_OP,
         UNKNOWN
@@ -125,6 +223,10 @@ public final class LinkPolicy {
         public String shortcutBlocked = "";
         /** 快捷指令内容的 SHA-256（十六进制），批准时记下。 */
         public String shortcutHash = "";
+        /** 安全插件的结论：非空 = 这条被插件拦下（原因码放 {@link #pluginReason}）。 */
+        public String pluginBlocked = "", pluginReason = "";
+        /** 写的是工作区里的只读目录（.git / .codex / .agents）。 */
+        public boolean protectedPath;
     }
 
     public static final class Decision {
@@ -148,6 +250,7 @@ public final class LinkPolicy {
         static Decision confirm(String reason, String text) { return new Decision(Verdict.CONFIRM, reason, text, false); }
         static Decision deny(String reason, String text) { return new Decision(Verdict.DENY, reason, text, false); }
         static Decision script(String text) { return new Decision(Verdict.SCRIPT, R_SCRIPT_GENERATED, text, false); }
+        static Decision script(String reason, String text) { return new Decision(Verdict.SCRIPT, reason, text, false); }
 
         @Override public String toString() {
             return verdict + (reason.length() > 0 ? "/" + reason : "") + (headsUp ? "/heads-up" : "");
@@ -156,87 +259,140 @@ public final class LinkPolicy {
 
     // ================================================================== 矩阵
 
-    /**
-     * 核心判定：被控端 × 级别 × 类别（+ 信任检查事实）→ 允许 / 先确认 / 拒绝 / 只生成脚本。
-     * 顺序：红线（给自己授权、系统 App、禁止类 App）→ 信任检查（网址 / 剪贴板）→ 级别矩阵。
-     */
+    /** 旧调用口（三档）：映射成两轴再判。 */
     public static Decision decide(Target t, Level l, Cat c, Facts f) {
-        if (f == null) f = new Facts();
-        if (l == null) l = DEFAULT_LEVEL;
-        if (c == null) c = Cat.UNKNOWN;
-        boolean ro = l == Level.READ_ONLY, full = l == Level.FULL, pc = t == Target.PC;
+        return decide(t, Mode.ofLegacy(l == null ? DEFAULT_LEVEL : l), c, f);
+    }
 
-        // ---- 红线：任何级别都一样
-        if (c == Cat.SELF_GRANT) return Decision.script("涉及授予权限，只生成脚本，需要你自己执行");
+    /**
+     * 核心判定：被控端 × （沙箱档 × 审批策略）× 类别（+ 信任检查与插件事实）→ 允许 / 先确认 / 拒绝 / 只生成脚本。
+     *
+     * <p>顺序：插件结论 → 红线（自授权、需要管理员、系统 App、禁止类 App）→ 信任检查（网址 / 剪贴板）→ 快捷指令 → 两轴矩阵。
+     * 手机作为被控端不走两轴（见 {@link #phoneLegacy}：恢复成分档之前的语义，只看手机上的逐项开关）。
+     */
+    public static Decision decide(Target t, Mode mode, Cat c, Facts f) {
+        if (f == null) f = new Facts();
+        if (mode == null) mode = Mode.DEFAULT;
+        if (c == null) c = Cat.UNKNOWN;
+        if (t == Target.PHONE) return phoneLegacy(c, f);
+
+        // ---- 安全插件：任何档位都先过它（插件自己出错时调用方传 pluginBlocked，这里一律拒）
+        if (f.pluginBlocked != null && f.pluginBlocked.length() > 0) {
+            String code = f.pluginReason == null || f.pluginReason.length() == 0 ? R_PLUGIN_BLOCKED : f.pluginReason;
+            if (R_NEEDS_ADMIN_SCRIPT.equals(code)) return Decision.script(code, f.pluginBlocked);
+            return Decision.deny(code, f.pluginBlocked);
+        }
+
+        Sandbox sb = mode.sandbox;
+        Approval ap = mode.approval;
+        boolean ro = sb == Sandbox.READ_ONLY, full = sb == Sandbox.FULL_ACCESS;
+
+        // ---- 红线：任何档位都一样
+        if (c == Cat.SELF_AUTHORIZE)
+            return Decision.deny(R_SELF_GRANT_BLOCKED, "远程不能改 OneSay 自己的策略 / 配置 / 信任列表 / 插件开关，只能你在电脑上改");
+        if (c == Cat.SELF_GRANT) return Decision.script(R_NEEDS_ADMIN_SCRIPT, "涉及授予权限，只生成脚本，需要你自己执行");
         if (c == Cat.SYSTEM_APP_OP || ((c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appSystem))
             return Decision.deny(R_SYSTEM_APP, "系统 App 不允许远程改动");
         if ((c == Cat.OPEN_APP || c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appBlocked)
             return Decision.deny(R_BLOCKED_APP, "支付 / 银行 / 密码 / 钱包 / 应用商店 / 安装器类 App 不允许远程操作");
         if (c == Cat.UNKNOWN) return Decision.deny(R_UNKNOWN, "不认识的指令");
-
-        // ---- 只读：查询以外都不做；系统级改动改成生成脚本（不执行）
         if (c == Cat.QUERY) return Decision.allow();
-        if (pc && (c == Cat.SYSTEM_A || c == Cat.NET_SEC_SETTING || c == Cat.SHELL_EXEC || c == Cat.OUTSIDE_WRITE))
-            return Decision.script("电脑上的系统级改动只生成脚本，需要你自己执行");
-        if (ro) {
-            if (c == Cat.SYSTEM_A || c == Cat.NET_SEC_SETTING || c == Cat.SHELL_EXEC || c == Cat.OUTSIDE_WRITE)
-                return Decision.script("只读模式：系统级改动只生成脚本");
-            return Decision.deny(R_DENIED_BY_LEVEL, "当前是只读模式，只能查状态");
-        }
+        // 需要管理员的（注册表 HKLM / 服务驱动 / 防火墙 / 系统级网络…）：任何档位都只生成脚本，从不执行
+        if (c == Cat.SYSTEM_A || c == Cat.NET_SEC_SETTING)
+            return Decision.script(R_NEEDS_ADMIN_SCRIPT, "这件事需要管理员，OneSay 不提权：只生成 .ps1 脚本，需要你自己用管理员身份执行");
+        // 只读档：查询以外一律不做（和以前一样回 denied_by_level，不管后面的信任检查）
+        if (ro) return denyBySandbox(sb, "这条指令（只能查状态）");
 
-        // ---- 信任检查（自动 / 完全访问都要过）
+        // ---- 信任检查（网址 / 剪贴板）
         if (c == Cat.OPEN_URL) {
             UrlCheck u = f.url;
             if (u == null || !u.ok) return Decision.deny(R_UNTRUSTED_URL, u == null ? "网址没过检查" : u.why);
             if (u.trusted) return Decision.allow();
-            if (full) return Decision.heads("打开不在信任列表的网址：" + u.shown);
-            return Decision.confirm("打开网址：" + u.shown);
+            if (ap == Approval.UNTRUSTED) return Decision.confirm("打开网址：" + u.shown);
+            return Decision.heads("打开不在信任列表的网址：" + u.shown);
         }
         if (c == Cat.CLIPBOARD_WRITE) {
             ClipCheck k = f.clip;
             if (k == null || k.verdict == ClipCheck.REJECT) return Decision.deny(R_CLIPBOARD_REJECTED, k == null ? "剪贴板内容没过检查" : k.why);
-            if (k.verdict == ClipCheck.SENSITIVE) return Decision.confirm("写入敏感内容（" + k.why + "），60 秒后自动清除");
-            return full ? Decision.allow() : Decision.confirm("写剪贴板（" + k.chars + " 字）");
+            // 敏感内容任何档位都要人确认（「从不询问」下就是拒绝）
+            if (k.verdict == ClipCheck.SENSITIVE) return askOrDeny(ap, "写入敏感内容（" + k.why + "），60 秒后自动清除");
+            return ap == Approval.UNTRUSTED ? Decision.confirm("写剪贴板（" + k.chars + " 字）") : Decision.allow();
         }
 
-        // ---- 快捷指令（自动 / 完全访问一样）：列表里有 → 内容没碰严格规则 → 按 id + 哈希批准过就直接执行，否则先问
+        // ---- 快捷指令：列表里有 → 内容没碰严格规则 → 按 id + 哈希批准过就直接执行，否则先问（批准一定要人点，「从不询问」下拒绝）
         if (c == Cat.SHORTCUT) {
             if (!f.shortcutListed) return Decision.deny(R_UNKNOWN, "电脑的快捷指令列表里没有这个");
             if (f.shortcutBlocked != null && f.shortcutBlocked.length() > 0)
                 return Decision.deny(R_SHORTCUT_BLOCKED, "快捷指令" + f.shortcutBlocked + "，只能你在电脑上自己运行，不能批准远程直接执行");
             if (f.shortcutApproved) return Decision.allow();
-            if (f.shortcutChanged) return Decision.confirm(R_SHORTCUT_CHANGED, "快捷指令内容改过了，需要重新批准");
-            return Decision.confirm(R_SHORTCUT_NEEDS_APPROVAL, "第一次从手机运行这个快捷指令，需要你批准");
+            if (f.shortcutChanged) return askReason(ap, R_SHORTCUT_CHANGED, "快捷指令内容改过了，需要重新批准");
+            return askReason(ap, R_SHORTCUT_NEEDS_APPROVAL, "第一次从手机运行这个快捷指令，需要你批准");
         }
 
-        // ---- 级别矩阵（自动 / 完全访问）
+        // ---- 两轴矩阵
         switch (c) {
             case READ_PRIVATE:
             case HARMLESS:
-            case WORKSPACE_WRITE:
             case OPEN_APP:
                 return Decision.allow();
+            case WORKSPACE_WRITE:
+                if (f.protectedPath) return Decision.deny(R_PLUGIN_BLOCKED, "工作区里的 .git / .codex / .agents 是只读的");
+                return Decision.allow();
             case SIMPLE_SETTING:
-            case POWER:
-                if (pc) return Decision.confirm("电脑设置改动需要确认");
-                return c == Cat.POWER && !full ? Decision.confirm("需要确认") : Decision.allow();
-            case NET_SEC_SETTING:
-            case SYSTEM_A:
-                return full ? Decision.allow() : Decision.confirm("网络 / 安全设置改动需要确认");
-            case OUTSIDE_WRITE:
-                return full ? Decision.allow() : Decision.confirm("写工作区以外的文件需要确认");
-            case UNINSTALL_APP:
-                return Decision.confirm("卸载 App 需要确认（走系统卸载界面）");
+                // 音量 / 亮度这类看得见的改动：分类和按需都先问（和以前一样）；从不询问时只有完全访问照做
+                return needsApproval(sb, ap, "电脑设置改动需要确认");
+            // 工作区可写档：子进程没法真的被关在工作区里（Windows 上 Java 做不了系统级沙箱），所以和以前一样 ——
+            // 写工作区外只生成脚本、执行命令只生成脚本、跑工作区脚本 / 操作第三方程序拒绝；完全访问档才按当前用户权限执行
             case APP_OPERATE:
-                if (full) return Decision.allow();
-                return pc ? Decision.deny(R_DENIED_BY_LEVEL, "操作第三方 App 要完全访问") : Decision.confirm("操作 App 需要确认");
+                return full ? Decision.allow() : Decision.deny(R_DENIED_BY_LEVEL, "沙箱档是「工作区可写」，不操作第三方程序（要完全访问）");
+            case OUTSIDE_WRITE:
+                return full ? Decision.allow() : Decision.script("沙箱档是「工作区可写」，工作区以外的文件只生成脚本，需要你自己执行");
+            case POWER:
+                return needsApproval(sb, ap, "关机 / 睡眠需要确认");
+            case UNINSTALL_APP:
+                return needsApproval(sb, ap, "卸载程序需要确认");
             case RUN_WS_SCRIPT:
-                return full ? Decision.confirm("运行工作区脚本（每次都要确认）") : Decision.deny(R_DENIED_BY_LEVEL, "运行脚本要完全访问");
+                return full ? needsApproval(sb, ap, "运行工作区脚本（每次都要确认）") : Decision.deny(R_DENIED_BY_LEVEL, "沙箱档是「工作区可写」，不运行脚本（要完全访问）");
             case SHELL_EXEC:
-                return full ? Decision.confirm("执行系统命令（会显示完整命令）") : Decision.script("系统命令只生成脚本，需要你自己执行");
+                return full ? needsApproval(sb, ap, "执行命令（会显示完整命令）") : Decision.script("沙箱档是「工作区可写」，命令关不进工作区：只生成脚本，需要你自己执行");
             default:
                 return Decision.deny(R_UNKNOWN, "不认识的指令");
         }
+    }
+
+    /** 要升级 / 要人确认的一条：「从不询问」直接拒（和 Codex 一样不升级），否则弹确认。 */
+    static Decision askOrDeny(Approval ap, String text) {
+        return ap == Approval.NEVER ? denyNever(text) : Decision.confirm(text);
+    }
+
+    /** 有破坏性 / 要每次确认的动作（关机、卸载、跑脚本、执行命令）：按需 / 分类 → 确认；从不询问 → 只有完全访问照做，其余拒。 */
+    static Decision needsApproval(Sandbox sb, Approval ap, String text) {
+        if (ap != Approval.NEVER) return Decision.confirm(text);
+        return sb == Sandbox.FULL_ACCESS ? Decision.allow() : denyNever(text);
+    }
+
+    static Decision askReason(Approval ap, String reason, String text) {
+        return ap == Approval.NEVER ? Decision.deny(reason, "审批策略是「从不询问」：" + text + "，已拒绝") : Decision.confirm(reason, text);
+    }
+
+    static Decision denyNever(String what) {
+        return Decision.deny(R_DENIED_BY_LEVEL, "审批策略是「从不询问」，需要确认的事直接拒绝：" + what);
+    }
+
+    static Decision denyBySandbox(Sandbox sb, String what) {
+        return Decision.deny(R_DENIED_BY_LEVEL, "当前沙箱档是「" + sb.zh + "」，不做：" + what);
+    }
+
+    /**
+     * 手机作为被控端：恢复成执行级别（三档 / 沙箱）之前的语义 —— 不分档、不确认、不做网址 / 剪贴板 / App 分类拦截，
+     * 只看手机控制台里的逐项开关（个人版默认全开；开源版「接受电脑指令」总开关默认关）。
+     * 仍然保留两条和分档无关的红线：不给任何 App 授权（只生成脚本）、远程不能改 OneSay 自己的设置。
+     */
+    static Decision phoneLegacy(Cat c, Facts f) {
+        if (c == Cat.SELF_AUTHORIZE) return Decision.deny(R_SELF_GRANT_BLOCKED, "远程不能改 OneSay 自己的设置");
+        if (c == Cat.SELF_GRANT) return Decision.script("涉及授予权限，只生成脚本，需要你自己执行");
+        if (c == Cat.UNKNOWN) return Decision.deny(R_UNKNOWN, "不认识的指令");
+        return Decision.allow();
     }
 
     // ================================================================== 指令 → 类别
@@ -275,6 +431,9 @@ public final class LinkPolicy {
         if ("script_run".equals(cmd)) return Cat.RUN_WS_SCRIPT;
         if ("shortcut_run".equals(cmd)) return Cat.SHORTCUT;
         if ("sys_exec".equals(cmd)) return Cat.SHELL_EXEC;
+        // 远程想改电脑端自己的设置（档位 / 插件 / 信任列表 / 白名单 / 批准表）：一律 self_grant_blocked，只能在电脑界面上改
+        if (in(cmd, "settings", "settings_set", "config_set", "pc_level", "level_set", "set_level", "sandbox_set", "approval_set", "plugin_set", "plugin_off",
+                "trust_add", "trusted_add", "net_allow_add", "shortcut_approve", "policy_set")) return Cat.SELF_AUTHORIZE;
         return Cat.UNKNOWN;
     }
 
@@ -295,13 +454,6 @@ public final class LinkPolicy {
                     + "|(\\bshizuku\\b)|(moe\\.shizuku)|(\\bmagisk\\b.*\\b(--sqlite|policy)\\b)|(\\bsupolicy\\b)"
                     + "|(\\bAdd-MpPreference\\b)|(\\bicacls\\b)|(\\btakeown\\b)|(\\bSet-Acl\\b)|(\\bnet\\s+localgroup\\b)",
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern PC_SYSTEM_A = Pattern.compile(
-            "(\\breg(\\.exe)?\\s+(add|delete|import|copy|load|restore)\\b)|(\\bregedit\\b)|(\\bHK(LM|CU|CR|U|CC)[:\\\\])|(\\bHKEY_)"
-                    + "|(\\b(New|Set|Remove)-ItemProperty\\b)|(\\bnetsh\\b)|(\\b(New|Set|Remove)-Net\\w+)|(\\bSet-DnsClient\\w*)"
-                    + "|(\\bipconfig\\s+/(release|renew|flushdns))|(\\broute(\\.exe)?\\s+(add|delete|change)\\b)|(drivers\\\\etc\\\\hosts)"
-                    + "|(\\bsc(\\.exe)?\\s+(create|config|delete|start|stop)\\b)|(\\b(New|Set|Start|Stop|Remove)-Service\\b)"
-                    + "|(\\bpnputil\\b)|(\\bbcdedit\\b)|(\\bdism\\b)|(\\bwmic\\b)|(\\bproxy\\b)|(\\bfirewall\\b)|(\\bDisable-NetAdapter\\b)",
-            Pattern.CASE_INSENSITIVE);
     private static final Pattern PHONE_SIMPLE = Pattern.compile(
             "^\\s*(settings\\s+put\\s+system\\s+(screen_brightness|screen_brightness_mode|screen_off_timeout)\\s+\\S+"
                     + "|svc\\s+(wifi|bluetooth)\\s+(enable|disable)|cmd\\s+(wifi|bluetooth_manager)\\s+(set-wifi-enabled\\s+(enabled|disabled)|enable|disable)"
@@ -316,8 +468,14 @@ public final class LinkPolicy {
     public static Cat classifyShell(Target t, String cmd) {
         String s = cmd == null ? "" : cmd;
         if (s.trim().length() == 0) return Cat.UNKNOWN;
+        if (t == Target.PC) {
+            String n = normalizeCommand(s);
+            if (selfAuthorizeReason(n, null).length() > 0) return Cat.SELF_AUTHORIZE;
+            if (SELF_GRANT.matcher(n).find()) return Cat.SELF_GRANT;
+            if (adminReason(n).length() > 0 || hkcuElevationReason(n).length() > 0) return Cat.SYSTEM_A;
+            return Cat.SHELL_EXEC;
+        }
         if (SELF_GRANT.matcher(s).find()) return Cat.SELF_GRANT;
-        if (t == Target.PC) return PC_SYSTEM_A.matcher(s).find() ? Cat.SYSTEM_A : Cat.SHELL_EXEC;
         if (SYS_APP_OP.matcher(s).find()) return Cat.SHELL_EXEC; // 卸载 / 停用要走 uninstall_app（系统卸载界面），shell 形式按系统命令处理
         // 多条命令拼接的（; && | 反引号 $()）一律按任意命令处理，不按其中一段放宽
         if (s.matches("(?s).*(;|&&|\\|\\||\\||`|\\$\\(|\\n|>|<).*")) return Cat.SHELL_EXEC;
@@ -375,18 +533,39 @@ public final class LinkPolicy {
     }
 
     /**
-     * 快捷指令内容按电脑严格规则检查（定义时就判，内容一改重新判）：给自己授权、注册表 / 网络配置 / 服务驱动（电脑 A 类）、
-     * 看不出内容的编码命令 → 返回原因（只能自己运行，不能批准远程直接执行）；都没碰返回空串。注释里写到也算（宁严勿松）。
+     * 快捷指令内容检查（定义时就判，内容一改重新判）：**只拦普通用户做不到或能影响提权的事** ——
+     * 想提权 / 绕 UAC、需要管理员（HKLM / 服务驱动 / 防火墙 / 系统级网络 / 计划任务系统级 / bcdedit / diskpart / 格式化 / vssadmin…）、
+     * 能影响提权的 HKCU 键（Classes 下的 shell\open\command 劫持、Environment 的 windir / COR_PROFILER、Policies）、
+     * 想改 OneSay 自己的设置、给自己授权（ACL / Defender 排除 / 本地管理员组，沿用之前的红线）、以及看不出内容的编码 / 动态执行（{@link Rules#encoded}，可单独关）。
+     * 普通用户自己能做的（HKCU 普通键、删自己的文件、启动程序、复制文件…）一律放行。
+     *
+     * <p>先按文件类型剥掉注释（.ps1 的 {@code #} 与 {@code <# #>}、.bat 的 REM 与 {@code ::}）再匹配，注释里写到的词不算。
+     * 都没碰返回空串。
      */
-    public static String shortcutBodyBlocked(String body) {
-        String s = body == null ? "" : body;
-        String h = firstHit(SELF_GRANT, s);
+    public static String shortcutBodyBlocked(String body, String fileName, Rules rules) {
+        Rules r = rules == null ? new Rules() : rules;
+        boolean bat = fileName != null && fileName.toLowerCase(Locale.ROOT).matches(".*\\.(bat|cmd)$");
+        String code = normalizeCommand(stripComments(body, bat));
+        String h = elevationReason(code);
+        if (h.length() > 0) return "内容" + h;
+        h = selfAuthorizeReason(code, r.selfPaths);
+        if (h.length() > 0) return "内容" + h;
+        h = firstHit(SELF_GRANT, code);
         if (h != null) return "内容涉及授予权限（" + h + "）";
-        h = firstHit(PC_SYSTEM_A, s);
-        if (h != null) return "内容涉及注册表 / 网络配置 / 服务驱动（" + h + "）";
-        h = firstHit(OPAQUE, s);
-        if (h != null) return "内容用了编码 / 动态执行，看不出真正做什么（" + h + "）";
+        h = adminReason(code);
+        if (h.length() > 0) return "内容" + h;
+        h = hkcuElevationReason(code);
+        if (h.length() > 0) return "内容" + h;
+        if (r.encoded) {
+            h = opaqueReason(code);
+            if (h.length() > 0) return "内容" + h;
+        }
         return "";
+    }
+
+    /** 老调用口（按 .ps1 处理、默认规则）。 */
+    public static String shortcutBodyBlocked(String body) {
+        return shortcutBodyBlocked(body, "x.ps1", null);
     }
 
     /**
@@ -394,11 +573,15 @@ public final class LinkPolicy {
      * 内容碰严格规则 = blocked（不管批准表里有没有）。
      */
     public static Facts shortcutFacts(String id, byte[] content, Map<String, String> approvals, boolean listed) {
+        return shortcutFacts(id, content, approvals, listed, null);
+    }
+
+    public static Facts shortcutFacts(String id, byte[] content, Map<String, String> approvals, boolean listed, Rules rules) {
         Facts f = new Facts();
         f.shortcutListed = listed && content != null && id != null && id.length() > 0;
         if (!f.shortcutListed) return f;
         f.shortcutHash = sha256Hex(content);
-        f.shortcutBlocked = shortcutBodyBlocked(decodeScript(content));
+        f.shortcutBlocked = shortcutBodyBlocked(decodeScript(content), id, rules);
         String ok = approvals == null ? null : approvals.get(shortcutId(id));
         f.shortcutApproved = ok != null && ok.equalsIgnoreCase(f.shortcutHash) && f.shortcutBlocked.length() == 0;
         f.shortcutChanged = ok != null && !ok.equalsIgnoreCase(f.shortcutHash);
@@ -438,6 +621,404 @@ public final class LinkPolicy {
             }
         }
         return b.toString();
+    }
+
+    // ================================================================== 安全插件规则（电脑端）
+
+    /**
+     * [link-v2 · 安全插件] 插件的可调项。三条硬规则（永不提权、需要管理员只生成脚本、禁止自授权）不在这里 —— 它们关不掉。
+     */
+    public static final class Rules {
+        /** 看不出内容的写法（-enc / FromBase64String / iex）：默认拦，单独一条，可以关。 */
+        public boolean encoded = true;
+        /** 沙箱默认断网：开着时命令只能访问 {@link #netAllow} 里的域名（含子域）；空 = 一个都不行。完全访问档关掉。 */
+        public boolean net = true;
+        public List<String> netAllow = Collections.emptyList();
+        /** OneSay 自己的配置 / 目录（远程不许碰）。 */
+        public List<String> selfPaths = Collections.emptyList();
+
+        public Rules() {}
+
+        public Rules(boolean encoded, List<String> netAllow, List<String> selfPaths) {
+            this.encoded = encoded;
+            if (netAllow != null) this.netAllow = netAllow;
+            if (selfPaths != null) this.selfPaths = selfPaths;
+        }
+    }
+
+    /** 插件命中的一条规则：原因码（R_*）+ 给人看的中文。 */
+    public static final class Hit {
+        public final String code, text;
+
+        Hit(String code, String text) {
+            this.code = code;
+            this.text = text;
+        }
+
+        @Override public String toString() { return code + ": " + text; }
+    }
+
+    /**
+     * 插件对一条命令的检查（规范化之后匹配）。命中返回 {@link Hit}，没命中返回 null。
+     * 顺序：想提权 / 绕 UAC → 想改 OneSay 自己的设置 → 编码命令（可关）→ 沙箱断网。
+     * 「需要管理员」不在这里：它是类别（{@link Cat#SYSTEM_A}），结果是只生成脚本而不是拒绝。
+     */
+    public static Hit inspectCommand(String raw, Rules rules) {
+        Rules r = rules == null ? new Rules() : rules;
+        String n = normalizeCommand(raw);
+        if (n.length() == 0) return null;
+        String h = elevationReason(n);
+        if (h.length() > 0) return new Hit(R_PLUGIN_BLOCKED, "这条命令" + h + "：OneSay 永远不提权，已拒绝");
+        h = selfAuthorizeReason(n, r.selfPaths);
+        if (h.length() > 0) return new Hit(R_SELF_GRANT_BLOCKED, "这条命令" + h + "，只能你在电脑上自己改");
+        if (r.encoded) {
+            h = opaqueReason(n);
+            if (h.length() > 0) return new Hit(R_PLUGIN_BLOCKED, "这条命令" + h + "，检查不了就不放行");
+        }
+        if (r.net) {
+            h = netReason(n, r.netAllow);
+            if (h.length() > 0) return new Hit(R_PLUGIN_BLOCKED, "这条命令" + h);
+        }
+        return null;
+    }
+
+    // ------------------------------------------------------------------ 规范化
+
+    private static final Pattern ENC_B64 = Pattern.compile("-(e|ec|enc|encodedcommand)\\s+([A-Za-z0-9+/=]{16,})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ENV_PCT = Pattern.compile("%([A-Za-z_][A-Za-z0-9_()]*)%");
+    private static final Pattern ENV_PS = Pattern.compile("\\$\\{?env:([A-Za-z_][A-Za-z0-9_]*)\\}?", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SHORT_83 = Pattern.compile("([A-Za-z0-9]{1,6})~([0-9]{1,2})");
+    private static final Pattern WRAPPER = Pattern.compile(
+            "^\\s*(cmd(\\.exe)?\\s+(/[a-z]\\s+)*/[ck]\\s+|powershell(\\.exe)?\\s+((-[a-z]+\\s+(?!-)[^\\s]+|-[a-z]+)\\s+)*-(c|command)\\s+"
+                    + "|pwsh(\\.exe)?\\s+((-[a-z]+\\s+(?!-)[^\\s]+|-[a-z]+)\\s+)*-(c|command)\\s+|start\\s+(/b\\s+)?|call\\s+)",
+            Pattern.CASE_INSENSITIVE);
+
+    /** 8.3 短名 → 长名（常见的几个；其余只去掉 ~N 留前缀）。 */
+    private static final String[][] SHORT_NAMES = {
+            {"progra~1", "program files"}, {"progra~2", "program files (x86)"}, {"progra~3", "programdata"},
+            {"window~1", "windows"}, {"system~1", "system32"}, {"docume~1", "documents and settings"}, {"defaul~1", "default"}};
+
+    /** 环境变量的常见值（只为匹配，不求准确）。 */
+    private static final String[][] ENVS = {
+            {"systemroot", "c:\\windows"}, {"windir", "c:\\windows"}, {"comspec", "c:\\windows\\system32\\cmd.exe"},
+            {"programdata", "c:\\programdata"}, {"allusersprofile", "c:\\programdata"}, {"programfiles", "c:\\program files"},
+            {"programfiles(x86)", "c:\\program files (x86)"}, {"systemdrive", "c:"}, {"public", "c:\\users\\public"}};
+
+    /**
+     * 命令规范化（匹配之前先做）：大小写、`cmd /c` / `powershell -Command` 外壳、转义符（^ ` 引号）、环境变量、8.3 短名、
+     * `powershell -enc <base64>` 解码（解出来的内容接在后面一起匹配）。做几轮直到不再变化。
+     */
+    public static String normalizeCommand(String raw) {
+        String s = raw == null ? "" : raw;
+        if (s.length() > 64 * 1024) s = s.substring(0, 64 * 1024);
+        s = s.replace("\u0000", " ");
+        boolean decoded = false;
+        for (int round = 0; round < 4; round++) {
+            String before = s;
+            s = unescape(s);
+            if (!decoded) {
+                String d = decodeEncoded(s);
+                decoded = !d.equals(s);
+                s = d;
+            }
+            s = expandEnv(s);
+            s = stripWrappers(s);
+            if (s.equals(before)) break;
+        }
+        s = shortNames(s.toLowerCase(Locale.ROOT)).replace("hkey_current_user", "hkcu").replace("registry::", "").replace("microsoft.powershell.core\\registry::", "");
+        return s.replaceAll("[\\s\u00a0]+", " ").trim();
+    }
+
+    /** -enc <base64>：解成文字接在后面（原文保留，这样「用了编码命令」这条规则还看得见）。 */
+    static String decodeEncoded(String s) {
+        Matcher m = ENC_B64.matcher(s);
+        StringBuilder extra = new StringBuilder();
+        while (m.find()) {
+            try {
+                byte[] b = base64(m.group(2));
+                if (b == null) continue;
+                String t = new String(b, "UTF-16LE");
+                if (t.indexOf('\u0000') >= 0) t = new String(b, "UTF-8");
+                extra.append(' ').append(t);
+            } catch (Exception ignored) {
+                // 解不开就算了，编码命令那条规则照样会拦
+            }
+        }
+        return extra.length() == 0 ? s : s + extra;
+    }
+
+    /** 不依赖 java.util.Base64（手机端 Java 7）：自己解。 */
+    static byte[] base64(String t) {
+        String x = t.replace("\n", "").replace("\r", "").trim();
+        int pad = 0;
+        while (x.endsWith("=")) { x = x.substring(0, x.length() - 1); pad++; }
+        final String AB = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        int buf = 0, bits = 0;
+        for (int i = 0; i < x.length(); i++) {
+            int v = AB.indexOf(x.charAt(i));
+            if (v < 0) return null;
+            buf = (buf << 6) | v;
+            bits += 6;
+            if (bits >= 8) {
+                bits -= 8;
+                out.write((buf >> bits) & 0xff);
+            }
+        }
+        return out.toByteArray();
+    }
+
+    /** 去掉 cmd 的 ^、PowerShell 的反引号与引号（只为匹配）。 */
+    static String unescape(String s) {
+        StringBuilder b = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '^' || c == '`') {
+                if (i + 1 < s.length()) {
+                    char nx = s.charAt(i + 1);
+                    if (nx != 'n' && nx != 'r' && nx != 't' || c == '^') { i++; b.append(nx); continue; }
+                }
+                continue;
+            }
+            if (c == '"' || c == '\'') continue;
+            b.append(c);
+        }
+        return b.toString();
+    }
+
+    static String expandEnv(String s) {
+        Matcher m = ENV_PCT.matcher(s);
+        StringBuffer b = new StringBuffer();
+        while (m.find()) m.appendReplacement(b, Matcher.quoteReplacement(envValue(m.group(1))));
+        m.appendTail(b);
+        String out = b.toString();
+        m = ENV_PS.matcher(out);
+        b = new StringBuffer();
+        while (m.find()) m.appendReplacement(b, Matcher.quoteReplacement(envValue(m.group(1))));
+        m.appendTail(b);
+        return b.toString();
+    }
+
+    static String envValue(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        for (String[] e : ENVS) if (e[0].equals(n)) return e[1];
+        return n;
+    }
+
+    static String stripWrappers(String s) {
+        String out = s;
+        for (int i = 0; i < 4; i++) {
+            Matcher m = WRAPPER.matcher(out);
+            if (!m.find()) break;
+            out = out.substring(m.end());
+        }
+        return out.trim();
+    }
+
+    static String shortNames(String s) {
+        String out = s;
+        for (String[] k : SHORT_NAMES) out = out.replace(k[0], k[1]);
+        Matcher m = SHORT_83.matcher(out);
+        StringBuffer b = new StringBuffer();
+        while (m.find()) m.appendReplacement(b, Matcher.quoteReplacement(m.group(1)));
+        m.appendTail(b);
+        return b.toString();
+    }
+
+    /** 剥掉脚本注释再匹配（.bat：REM / ::；.ps1：&lt;# #&gt; 与行内 #，引号里的 # 不算）。 */
+    public static String stripComments(String body, boolean batch) {
+        String s = body == null ? "" : body.replace("\r\n", "\n").replace('\r', '\n');
+        StringBuilder out = new StringBuilder();
+        if (batch) {
+            for (String line : s.split("\n", -1)) {
+                String t = line.trim().toLowerCase(Locale.ROOT);
+                if (t.startsWith("rem ") || t.equals("rem") || t.startsWith("@rem") || t.startsWith("::")) continue;
+                out.append(line).append('\n');
+            }
+            return out.toString();
+        }
+        // <# ... #> 块注释
+        StringBuilder noBlock = new StringBuilder();
+        int depth = 0;
+        for (int i = 0; i < s.length(); i++) {
+            if (i + 1 < s.length() && s.charAt(i) == '<' && s.charAt(i + 1) == '#') { depth++; i++; continue; }
+            if (depth > 0 && i + 1 < s.length() && s.charAt(i) == '#' && s.charAt(i + 1) == '>') { depth--; i++; continue; }
+            if (depth == 0) noBlock.append(s.charAt(i));
+        }
+        for (String line : noBlock.toString().split("\n", -1)) {
+            char quote = 0;
+            StringBuilder kept = new StringBuilder();
+            for (int i = 0; i < line.length(); i++) {
+                char c = line.charAt(i);
+                if (quote != 0) {
+                    kept.append(c);
+                    if (c == quote) quote = 0;
+                    continue;
+                }
+                if (c == '\'' || c == '"') { quote = c; kept.append(c); continue; }
+                if (c == '#') break; // 行内注释到行尾
+                kept.append(c);
+            }
+            out.append(kept).append('\n');
+        }
+        return out.toString();
+    }
+
+    // ------------------------------------------------------------------ 规则
+
+    /** 想提权 / 触发 UAC / 走 UAC 绕过程序。 */
+    private static final Pattern ELEVATE = Pattern.compile(
+            "(\\brunas\\b)|(-verb\\s+runas)|(verb\\s*[:=]\\s*runas)|(shellexecute\\w*\\s*\\([^)]*runas)|(\\bgsudo\\b)|(\\bsudo\\b)"
+                    + "|(\\bpsexec(\\.exe)?\\b)|(\\bfodhelper\\b)|(\\beventvwr\\b)|(\\bcomputerdefaults\\b)|(\\bsdclt\\b)|(\\bslui\\b)"
+                    + "|(\\bwsreset\\b)|(\\bcmstp\\b)|(\\bdccw\\b)|(\\bsilentcleanup\\b)|(-runlevel\\s+highest)|(/rl\\s+highest)"
+                    + "|(\\bstart-process\\b[^|;]*\\bas\\s*administrator\\b)", Pattern.CASE_INSENSITIVE);
+
+    public static String elevationReason(String normalized) {
+        String h = firstHit(ELEVATE, normalized == null ? "" : normalized);
+        return h == null ? "" : "想用管理员身份运行 / 触发 UAC（" + h + "）";
+    }
+
+    /** 需要管理员的事：机器级注册表、服务与驱动、防火墙 / 网卡 / DNS / 系统级代理 / hosts、系统级计划任务、磁盘与启动项。 */
+    private static final Pattern ADMIN_REG = Pattern.compile(
+            "(\\bhklm[:\\\\])|(hkey_local_machine)|(\\bhkcr[:\\\\])|(hkey_classes_root)|(\\bhku[:\\\\])|(hkey_users)"
+                    + "|(\\breg(\\.exe)?\\s+(load|unload|restore|import|copy)\\b)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ADMIN_SVC = Pattern.compile(
+            "(\\bsc(\\.exe)?\\s+(create|config|delete|start|stop|failure|sdset|qc)\\b)|(\\b(new|set|start|stop|restart|remove|suspend|resume)-service\\b)"
+                    + "|(\\bnet\\s+(start|stop)\\s+\\S)|(\\bpnputil\\b)|(\\bdevcon\\b)|(\\bdriverquery\\b)|(\\bbcdedit\\b)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ADMIN_NET = Pattern.compile(
+            "(\\bnetsh\\b)|(\\b(new|set|remove|enable|disable|restart|rename)-net[a-z]+\\b)|(\\bset-dnsclient\\w*\\b)|(\\bdrivers\\\\etc\\\\hosts\\b)"
+                    + "|(\\broute(\\.exe)?\\s+(add|delete|change)\\b)|(\\bipconfig\\s+/(release|renew)\\b)|(\\bbitsadmin\\s+/util\\s+/setieproxy\\b)"
+                    + "|(\\bset-netipinterface\\b)|(\\barp\\s+-d\\b)|(\\bnetcfg\\b)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ADMIN_TASK = Pattern.compile(
+            "(\\bschtasks\\b[^|;]*(/ru\\s+(system|administrator|nt authority)|/rl\\s+highest))"
+                    + "|(\\bregister-scheduledtask\\b[^|;]*(-user\\s+system|-runlevel\\s+highest))|(\\bat\\s+[0-9]{1,2}:[0-9]{2}\\b)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ADMIN_DISK = Pattern.compile(
+            "(\\bdiskpart\\b)|(\\bformat\\s+[a-z]:)|(\\bvssadmin\\b)|(\\bdism\\b)|(\\bsfc\\s+/)|(\\bchkdsk\\s+[a-z]:\\s*/)|(\\bwbadmin\\b)"
+                    + "|(\\breagentc\\b)|(\\bbootrec\\b)|(\\bmountvol\\b)|(\\bfsutil\\b)|(\\bwusa\\b)|(\\bsecedit\\b)|(\\bauditpol\\b)"
+                    + "|(\\bnet\\s+(user|localgroup|accounts)\\b)|(\\bsetx\\b[^|;]*\\s/m\\b)|(\\bmsiexec\\b)"
+                    + "|(\\bset-executionpolicy\\b(?![^|;]*-scope\\s+(currentuser|process)))", Pattern.CASE_INSENSITIVE);
+
+    /** 需要管理员就返回中文原因（给脚本头注释用），不需要返回空串。 */
+    public static String adminReason(String normalized) {
+        String s = normalized == null ? "" : normalized;
+        String h = firstHit(ADMIN_REG, s);
+        if (h != null) return "要改机器级注册表（" + h + "），需要管理员";
+        h = firstHit(ADMIN_SVC, s);
+        if (h != null) return "要动服务 / 驱动 / 启动项（" + h + "），需要管理员";
+        h = firstHit(ADMIN_NET, s);
+        if (h != null) return "要改防火墙 / 网卡 / DNS / 系统级代理 / hosts（" + h + "），需要管理员";
+        h = firstHit(ADMIN_TASK, s);
+        if (h != null) return "要建系统级计划任务（" + h + "），需要管理员";
+        h = firstHit(ADMIN_DISK, s);
+        if (h != null) return "要动磁盘 / 系统映像 / 账户（" + h + "），需要管理员";
+        return "";
+    }
+
+    /**
+     * 当前用户注册表（HKCU）放开，但这几类仍然不行，因为它们能影响提权：
+     * Classes 下 ms-settings / mscfile / exefile 等的 shell\open\command 劫持（fodhelper / eventvwr 那类 UAC 绕过）、
+     * Environment 里的 windir / COR_PROFILER、以及 Policies。
+     */
+    private static final Pattern HKCU_HIJACK = Pattern.compile(
+            "hkcu[:\\\\][^ ]*classes[\\\\][^ ]*(shell[\\\\][^ ]*command|delegateexecute)"
+                    + "|hkcu[:\\\\][^ ]*classes[\\\\](ms-settings|mscfile|exefile|progfile|folder|regfile|batfile|cmdfile)\\b",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern HKCU_ENV = Pattern.compile(
+            "hkcu:?\\\\environment[^|;]*\\b(windir|systemroot|cor_profiler|cor_enable_profiling|cor_profiler_path|coreclr_profiler|appinit_dlls)\\b",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern HKCU_POLICY = Pattern.compile(
+            "(hkcu[:\\\\][^ ]*\\\\policies\\b)|(hkcu[:\\\\]software[\\\\]policies\\b)|(currentversion[\\\\]policies\\b)", Pattern.CASE_INSENSITIVE);
+
+    public static String hkcuElevationReason(String normalized) {
+        String s = normalized == null ? "" : normalized;
+        String h = firstHit(HKCU_HIJACK, s);
+        if (h != null) return "要改能劫持系统程序的用户注册表键（" + h + "），这类改动能绕过 UAC";
+        h = firstHit(HKCU_ENV, s);
+        if (h != null) return "要改 HKCU\\Environment 里能影响提权的变量（" + h + "）";
+        h = firstHit(HKCU_POLICY, s);
+        if (h != null) return "要改策略（Policies）相关的注册表键（" + h + "）";
+        return "";
+    }
+
+    /** 远程想改 OneSay 自己的策略 / 配置 / 信任列表 / 插件开关，或把 OneSay 关掉。 */
+    private static final Pattern SELF_CFG = Pattern.compile(
+            "(desktop\\.properties)|(shortcut_approvals)|(pc_sandbox)|(pc_approval)|(pc_level)|(trusted_domains)|(plugin_enabled)"
+                    + "|(plugin_encoded)|(plugin_net_allow)|(\\btaskkill\\b[^|;]*onesay)|(\\bstop-process\\b[^|;]*onesay)"
+                    + "|(appdata[\\\\]onesay)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts))",
+            Pattern.CASE_INSENSITIVE);
+
+    public static String selfAuthorizeReason(String normalized, List<String> selfPaths) {
+        String s = normalized == null ? "" : normalized;
+        String h = firstHit(SELF_CFG, s);
+        if (h != null) return "想改 OneSay 自己的设置 / 把 OneSay 关掉（" + h + "）";
+        if (selfPaths != null) for (String p : selfPaths) {
+            if (p == null || p.trim().length() == 0) continue;
+            String t = p.trim().toLowerCase(Locale.ROOT).replace('/', '\\');
+            if (s.replace('/', '\\').indexOf(t) >= 0) return "想改 OneSay 自己的文件（" + oneLine(t) + "）";
+        }
+        return "";
+    }
+
+    /** 看不出真实内容的写法（编码命令、动态执行）。 */
+    public static String opaqueReason(String normalized) {
+        String h = firstHit(OPAQUE, normalized == null ? "" : normalized);
+        return h == null ? "" : "用了编码 / 动态执行，看不出真正做什么（" + h + "）";
+    }
+
+    /** 沙箱默认断网：命令要联网时，域名必须在白名单里。 */
+    private static final Pattern NET_FETCH = Pattern.compile(
+            "(\\bcurl(\\.exe)?\\s)|(\\bwget(\\.exe)?\\s)|(\\binvoke-webrequest\\b)|(\\binvoke-restmethod\\b)|(\\biwr\\b)|(\\birm\\b)"
+                    + "|(\\bbitsadmin\\b)|(\\bstart-bitstransfer\\b)|(\\bcertutil\\b[^|;]*-urlcache)|(\\bnet\\s+use\\s+\\\\\\\\)"
+                    + "|(\\bnew-object\\s+net\\.webclient\\b)|(\\bdownloadstring\\b)|(\\bdownloadfile\\b)|(\\bftp(\\.exe)?\\s)",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern URL_HOST = Pattern.compile("https?://([^/\\s'\"]+)", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern UNC = Pattern.compile("(^|[\\s=(,])(\\\\\\\\|//)([a-z0-9?.][a-z0-9.\\-]*)[\\\\/]", Pattern.CASE_INSENSITIVE);
+
+    /** 命令 / 路径里的 UNC 主机（\\server\share、//server/share）；设备路径（\\?\、\\.\）不算。没有返回 null。 */
+    public static String uncHost(String normalized) {
+        Matcher m = UNC.matcher(normalized == null ? "" : normalized);
+        while (m.find()) {
+            String h = m.group(3).toLowerCase(Locale.ROOT);
+            if (h.equals("?") || h.equals(".")) continue;
+            return h;
+        }
+        return null;
+    }
+
+    public static String netReason(String normalized, List<String> allow) {
+        String s = normalized == null ? "" : normalized;
+        String unc = uncHost(s);
+        if (unc != null && !trustedHost(unc, allow)) return "要访问网络共享 \\\\" + oneLine(unc) + "；沙箱默认断网，只放行白名单里的主机";
+        String h = firstHit(NET_FETCH, s);
+        if (h == null) return "";
+        List<String> hosts = new ArrayList<String>();
+        Matcher m = URL_HOST.matcher(s);
+        while (m.find()) {
+            String host = m.group(1);
+            int at = host.indexOf('@');
+            if (at >= 0) host = host.substring(at + 1);
+            int colon = host.lastIndexOf(':');
+            if (colon > 0 && host.indexOf('[') < 0) host = host.substring(0, colon);
+            hosts.add(host.toLowerCase(Locale.ROOT));
+        }
+        if (hosts.isEmpty()) return "要联网（" + h + "），但看不出访问哪个域名；沙箱默认断网，已拒绝";
+        for (String host : hosts) if (!trustedHost(host, allow)) return "要访问 " + oneLine(host) + "；沙箱默认断网，只放行白名单里的域名";
+        return "";
+    }
+
+    // ------------------------------------------------------------------ 工作区里的只读目录
+
+    private static final String[] WS_READONLY = {".git", ".codex", ".agents"};
+
+    /** 工作区里的 .git / .codex / .agents 只读（Codex 沙箱同样的约定）。 */
+    public static boolean protectedWorkspacePath(String rel) {
+        if (rel == null) return false;
+        for (String part : rel.replace('\\', '/').split("/")) {
+            String p = part.trim().toLowerCase(Locale.ROOT);
+            for (String k : WS_READONLY) if (p.equals(k)) return true;
+        }
+        return false;
     }
 
     // ================================================================== 禁止类 App
@@ -968,7 +1549,10 @@ public final class LinkPolicy {
         if (R_UNKNOWN.equals(code)) return "不认识的指令";
         if (R_SHORTCUT_NEEDS_APPROVAL.equals(code)) return "这个快捷指令还没在电脑上批准";
         if (R_SHORTCUT_CHANGED.equals(code)) return "快捷指令内容改过，需要在电脑上重新批准";
-        if (R_SHORTCUT_BLOCKED.equals(code)) return "快捷指令内容涉及注册表 / 网络 / 服务 / 授权，不能远程直接执行";
+        if (R_SHORTCUT_BLOCKED.equals(code)) return "快捷指令要管理员或能影响提权，不能远程直接执行";
+        if (R_PLUGIN_BLOCKED.equals(code)) return "安全插件拦下了（提权 / 看不出内容 / 沙箱断网）";
+        if (R_NEEDS_ADMIN_SCRIPT.equals(code)) return "这件事要管理员，已生成脚本，需你自己用管理员身份执行";
+        if (R_SELF_GRANT_BLOCKED.equals(code)) return "远程不能改 OneSay 自己的设置";
         return "";
     }
 

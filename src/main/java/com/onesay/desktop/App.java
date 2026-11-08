@@ -223,6 +223,11 @@ public final class App {
         s.put("apps", cfg.apps);
         s.put("autostart", autostartOn());
         s.put("pc_level", cfg.level().id);
+        s.put("pc_sandbox", cfg.mode().sandbox.id);
+        s.put("pc_approval", cfg.mode().approval.id);
+        s.put("plugin_enabled", cfg.pluginEnabled);
+        s.put("plugin_encoded", cfg.pluginEncoded);
+        s.put("net_allow", cfg.netAllow);
         s.put("trusted_domains", cfg.trusted);
         return s;
     }
@@ -247,6 +252,9 @@ public final class App {
             s.put("phone_level", pl == null ? "" : pl.id);
             s.put("phone_level_zh", pl == null ? "" : pl.zh);
             s.put("pc_level", cfg.level().id);
+            s.put("pc_sandbox", cfg.mode().sandbox.id);
+            s.put("pc_approval", cfg.mode().approval.id);
+            s.put("plugin_enabled", cfg.pluginEnabled);
             s.put("confirms", agent.confirms.list());
             s.put("shortcut_policy", agent.guard.shortcutView());
             s.put("shortcut_approvals", agent.guard.approvalView());
@@ -393,7 +401,18 @@ public final class App {
                     case "files_dir": cfg.filesDir = v; break;
                     case "scripts_dir": cfg.scriptsDir = v; break;
                     case "apps": cfg.apps = v; break;
-                    case "pc_level": cfg.pcLevel = LinkPolicy.Level.of(v).id; log.accept("电脑执行级别 → " + cfg.pcLevel); break;
+                    case "pc_level": cfg.setLegacyLevel(v); log.accept("电脑档位 → " + cfg.mode()); break; // 旧接口：三档映射到两轴
+                    case "pc_sandbox": cfg.setMode(new LinkPolicy.Mode(LinkPolicy.Sandbox.of(v), cfg.mode().approval)); log.accept("沙箱档 → " + cfg.pcSandbox); break;
+                    case "pc_approval": cfg.setMode(new LinkPolicy.Mode(cfg.mode().sandbox, LinkPolicy.Approval.of(v))); log.accept("审批策略 → " + cfg.pcApproval); break;
+                    case "plugin_enabled": {
+                        String err = pluginSwitch(cfg, v, b.get("plugin_off_confirm"));
+                        if (err != null) return fail(err);
+                        log.accept("安全插件 → " + (cfg.pluginEnabled ? "开" : "关（永不提权、需管理员只生成脚本、禁止自授权仍然生效）"));
+                        break;
+                    }
+                    case "plugin_off_confirm": break;
+                    case "plugin_encoded": cfg.pluginEncoded = v.equals("true"); log.accept("编码 / 隐藏命令拦截 → " + (cfg.pluginEncoded ? "开" : "关")); break;
+                    case "net_allow": cfg.netAllow = String.join(",", LinkPolicy.parseDomains(v)); break;
                     case "trusted_domains": cfg.trusted = String.join(",", LinkPolicy.parseDomains(v)); break;
                     case "autostart": autostart(v.equals("true")); break;
                     default: break;
@@ -411,6 +430,17 @@ public final class App {
             m.put("settings", settingsView());
             return m;
         });
+    }
+
+    /**
+     * 安全插件开关（只在电脑界面上能改，界面接口要本机口令）：打开直接开；关掉要二次确认（界面上点两次后带 plugin_off_confirm=true）。
+     * 返回 null 表示改了，否则是给人看的原因。关掉只关可关项，三条硬规则仍然生效。
+     */
+    static String pluginSwitch(Config cfg, String v, Object confirm) {
+        if ("true".equals(v)) { cfg.pluginEnabled = true; return null; }
+        if (!Boolean.TRUE.equals(confirm)) return "关掉安全插件要再确认一次";
+        cfg.pluginEnabled = false;
+        return null;
     }
 
     // ---------- 开机自启：注册表 Run 键，启动后只进托盘 ----------

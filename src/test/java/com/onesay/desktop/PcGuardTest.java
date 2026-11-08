@@ -57,7 +57,8 @@ public class PcGuardTest {
         Object[][] rows = {
                 {LinkPolicy.Cat.QUERY, A, A, A}, {LinkPolicy.Cat.READ_PRIVATE, D, A, A}, {LinkPolicy.Cat.HARMLESS, D, A, A},
                 {LinkPolicy.Cat.SIMPLE_SETTING, D, C, C}, {LinkPolicy.Cat.POWER, D, C, C}, {LinkPolicy.Cat.SYSTEM_A, S, S, S},
-                {LinkPolicy.Cat.NET_SEC_SETTING, S, S, S}, {LinkPolicy.Cat.SHELL_EXEC, S, S, S}, {LinkPolicy.Cat.OUTSIDE_WRITE, S, S, S},
+                // [两轴] 改：只读档不再生成脚本（只读 = 什么都不写，B.4）→ D；完全访问档按当前用户权限放行（B.4）：命令先确认、工作区外写入直接写
+                {LinkPolicy.Cat.NET_SEC_SETTING, S, S, S}, {LinkPolicy.Cat.SHELL_EXEC, D, S, C}, {LinkPolicy.Cat.OUTSIDE_WRITE, D, S, A},
                 {LinkPolicy.Cat.OPEN_APP, D, A, A}, {LinkPolicy.Cat.WORKSPACE_WRITE, D, A, A}, {LinkPolicy.Cat.UNINSTALL_APP, D, C, C},
                 {LinkPolicy.Cat.APP_OPERATE, D, D, A}, {LinkPolicy.Cat.RUN_WS_SCRIPT, D, D, C}, {LinkPolicy.Cat.SELF_GRANT, S, S, S},
                 {LinkPolicy.Cat.SYSTEM_APP_OP, D, D, D}, {LinkPolicy.Cat.UNKNOWN, D, D, D},
@@ -133,7 +134,8 @@ public class PcGuardTest {
             g.notify = notes::add;
             for (String cmd : cmds) {
                 PcGuard.Outcome o = g.check("phone", "sys_exec", m("command", cmd));
-                assertEquals(l + " " + cmd, LinkPolicy.R_SCRIPT_GENERATED, reason(o));
+                // [插件] 改：原因码 script_generated → needs_admin_script（B.2 / B.10），仍是只生成脚本、不问、不执行
+                assertEquals(l + " " + cmd, LinkPolicy.R_NEEDS_ADMIN_SCRIPT, reason(o));
                 assertFalse(o.reply.ok);
                 String rel = String.valueOf(o.reply.data.get("path"));
                 File f = new File(c.workspaceDir, rel);
@@ -141,12 +143,12 @@ public class PcGuardTest {
                 String body = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
                 assertTrue("BOM + 中文头注释", body.startsWith("\uFEFF# 由 OneSay 远程指令生成，没有执行"));
                 assertTrue(body.contains(cmd));
-                assertTrue(o.reply.text.contains("已生成脚本，需你自己执行"));
+                assertTrue(o.reply.text, o.reply.text.contains("已生成脚本，需你自己用管理员身份执行"));
             }
             assertEquals("A 类从不问、从不执行", 0, st.asked.size());
             assertEquals(cmds.length, notes.size());
-            assertNotNull(g.builtin("sys_exec", m("command", "x")));
-            assertFalse("builtin 也不执行系统命令", g.builtin("sys_exec", m("command", "x")).ok);
+            // [两轴] 删：原来「builtin 也不执行系统命令」—— 完全访问档确认后要真的执行普通命令（B.4），builtin 现在会执行；
+            // 不执行的保证改由判定层负责（上面 A 类从不问、从不执行），另见 PcPluginTest.adminNeverReachesExecutor
         }
     }
 
@@ -158,7 +160,8 @@ public class PcGuardTest {
             PcGuard g = new PcGuard(cfg(l.id), new Stub());
             for (String cmd : cmds) {
                 assertEquals(cmd, LinkPolicy.Cat.SELF_GRANT, LinkPolicy.classifyShell(LinkPolicy.Target.PC, cmd));
-                assertEquals(l + " " + cmd, LinkPolicy.R_SCRIPT_GENERATED, reason(g.check("phone", "sys_exec", m("command", cmd))));
+                // [插件] 改：原因码从 script_generated 换成新的 needs_admin_script（B.10），结论仍是只生成脚本
+                assertEquals(l + " " + cmd, LinkPolicy.R_NEEDS_ADMIN_SCRIPT, reason(g.check("phone", "sys_exec", m("command", cmd))));
             }
         }
     }
@@ -175,9 +178,13 @@ public class PcGuardTest {
         assertNull(g.check("phone", "app_close", m("name", "notepad")).reply);
         assertEquals(LinkPolicy.R_SYSTEM_APP, reason(g.check("phone", "app_close", m("name", "explorer"))));
         assertEquals("B 类在完全访问也要确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "volume", m("action", "mute"))));
-        assertEquals("A 类完全访问也不放开", LinkPolicy.R_SCRIPT_GENERATED, reason(g.check("phone", "sys_exec", m("command", "reg delete HKCU\\X /f"))));
-        assertEquals("普通命令电脑上也不执行", LinkPolicy.R_SCRIPT_GENERATED, reason(g.check("phone", "sys_exec", m("command", "dir C:\\"))));
-        assertEquals("工作区以外不放开", LinkPolicy.R_SCRIPT_GENERATED, reason(g.check("phone", "file_write", m("path", "C:\\Windows\\x.txt", "text", "x"))));
+        // [插件] 改：例子从 HKCU 换成 HKLM —— HKCU 普通键现在放开（B.3），要管理员的仍只生成脚本（原因码 needs_admin_script）
+        assertEquals("要管理员的完全访问也不放开", LinkPolicy.R_NEEDS_ADMIN_SCRIPT, reason(g.check("phone", "sys_exec", m("command", "reg delete HKLM\\SOFTWARE\\X /f"))));
+        // [两轴] 改：完全访问档普通命令按当前用户权限执行，先确认（B.4）；原来是「只生成脚本」
+        assertEquals("普通命令完全访问先确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "sys_exec", m("command", "dir C:\\"))));
+        assertEquals("HKCU 普通键完全访问先确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "sys_exec", m("command", "reg delete HKCU\\X /f"))));
+        // [两轴] 改：完全访问档写工作区以外按 Windows ACL 放行（B.4）；原来是「只生成脚本」
+        assertNull("完全访问写工作区外放行（由 Windows 权限把关）", g.check("phone", "file_write", m("path", "C:\\Windows\\x.txt", "text", "x")).reply);
         List<String> heads = new ArrayList<>();
         g.notify = heads::add;
         assertNull(g.check("phone", "open_url", m("url", "https://example.net/")).reply);
@@ -203,7 +210,9 @@ public class PcGuardTest {
         for (String bad : new String[]{"../evil.txt", "notes/../../evil.txt", "C:\\Windows\\win.ini", "C:evil.txt", "\\\\server\\share\\x.txt", "//server/share/x",
                 "\\\\?\\C:\\x", "/etc/passwd", "NUL", "a.txt:ads"}) {
             assertEquals(bad, LinkPolicy.Cat.OUTSIDE_WRITE, PcGuard.category("file_write", m("path", bad), new File(c.workspaceDir)));
-            assertEquals(bad, LinkPolicy.R_SCRIPT_GENERATED, reason(g.check("phone", "file_write", m("path", bad, "text", "x"))));
+            // [插件] 改：UNC（\\\\server、//server）现在先被「沙箱默认断网」拦（plugin_blocked），其余照旧只生成脚本
+            String want = bad.startsWith("\\\\server") || bad.startsWith("//server") ? LinkPolicy.R_PLUGIN_BLOCKED : LinkPolicy.R_SCRIPT_GENERATED;
+            assertEquals(bad, want, reason(g.check("phone", "file_write", m("path", bad, "text", "x"))));
             assertFalse(g.builtin("file_write", m("path", bad, "text", "x")).ok);
         }
         assertFalse(new File(new File(c.workspaceDir).getParentFile(), "evil.txt").exists());
@@ -299,8 +308,10 @@ public class PcGuardTest {
         for (String code : new String[]{"denied_by_level", "needs_confirm_timeout", "untrusted_url", "blocked_app", "clipboard_rejected", "script_generated",
                 "shortcut_needs_approval", "shortcut_changed", "shortcut_category_blocked"})
             assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
-        assertEquals(40_000L, PhoneCmds.timeoutMs("open_url"));
+        // [恢复手机] 改：手机作为被控端恢复成分档之前（D）：不再在手机上确认，电脑不用多等 40 秒；手机端的 8 个新指令不再有
+        assertEquals(8_000L, PhoneCmds.timeoutMs("open_url"));
         assertEquals(8_000L, PhoneCmds.timeoutMs("status"));
-        assertTrue(PhoneCmds.ALL.contains("flashlight") && PhoneCmds.ALL.contains("sys_exec"));
+        assertFalse(PhoneCmds.ALL.contains("flashlight") || PhoneCmds.ALL.contains("sys_exec"));
+        for (String code : new String[]{"plugin_blocked", "needs_admin_script", "self_grant_blocked"}) assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
     }
 }

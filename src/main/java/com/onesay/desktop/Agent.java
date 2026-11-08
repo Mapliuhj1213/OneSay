@@ -113,6 +113,7 @@ public final class Agent {
         // 要电脑上确认的指令最多等 30 秒：放到单独线程，免得挡住后面的指令（找手机 / 状态等仍走顺序执行线程）
         Runnable job = () -> {
             Actions.Result r;
+            SafeExec.REMOTE.set(Boolean.TRUE); // 远程指令：子进程永不提权；OneSay 是管理员时要降权，降不了就拒
             try {
                 PcGuard.Outcome o = guard.check(from, cmd, args);
                 if (o.reply != null) {
@@ -131,8 +132,16 @@ public final class Agent {
                     Actions.Result b = guard.builtin(cmd, o.args);
                     r = b != null ? b : actions.run(cmd, o.args);
                 }
+            } catch (SafeExec.Refused t) {
+                Map<String, Object> d = new TreeMap<>();
+                d.put("reason", LinkPolicy.R_PLUGIN_BLOCKED);
+                d.put("reason_zh", LinkPolicy.reasonZh(LinkPolicy.R_PLUGIN_BLOCKED));
+                r = new Actions.Result(false, t.getMessage(), d);
+                log.accept("没执行 " + cmd + "（来自 " + from + "）：" + LinkPolicy.R_PLUGIN_BLOCKED);
             } catch (Throwable t) {
                 r = Actions.Result.fail(cmd + " 出错：" + t.getClass().getSimpleName());
+            } finally {
+                SafeExec.REMOTE.set(Boolean.FALSE);
             }
             reply(via, from, id, r.ok, r.text, guard.decorate(r.data), false);
         };
