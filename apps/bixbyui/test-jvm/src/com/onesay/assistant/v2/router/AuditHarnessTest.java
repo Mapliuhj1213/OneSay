@@ -58,6 +58,9 @@ public class AuditHarnessTest {
     static CapabilityRegistry reg;
 
     /** 仍未修项（类别|句子）。每条的原因见 INT-1102.md §审计「仍未修」。 */
+    /** 日程审计固定在一个周三中午（上海时区），不随跑测试的日期与时区变化：语料里有「周日晚上七点」之类的句子，周日当天跑会被判成需要追问。 */
+    static final java.util.TimeZone AUDIT_TZ = java.util.TimeZone.getTimeZone("Asia/Shanghai");
+    static final long AUDIT_NOW_MS = 1793764800000L; // 2026-11-04 (Wed) 12:00 +08:00
     static final Set<String> KNOWN = new LinkedHashSet<String>();
 
     static {
@@ -216,8 +219,8 @@ public class AuditHarnessTest {
             if (r.flags.contains("sched")) {
                 if (res.rule.startsWith("6m") || res.rule.startsWith("3m")) out.add(new Finding("SLOW", r, "日程句被记一记 / 记忆吞：" + where));
                 else if (!res.rule.startsWith("6d") && !res.rule.startsWith("5d")) out.add(new Finding("SLOW", r, "日程句没走本地日程：" + where));
-                com.onesay.assistant.v2.sched.SchedEngine se = new com.onesay.assistant.v2.sched.SchedEngine(new com.onesay.assistant.v2.sched.SchedStore.Memory(), java.util.TimeZone.getDefault());
-                com.onesay.assistant.v2.sched.SchedEngine.Reply sr = se.handle(r.utt, System.currentTimeMillis());
+                com.onesay.assistant.v2.sched.SchedEngine se = new com.onesay.assistant.v2.sched.SchedEngine(new com.onesay.assistant.v2.sched.SchedStore.Memory(), AUDIT_TZ);
+                com.onesay.assistant.v2.sched.SchedEngine.Reply sr = se.handle(r.utt, AUDIT_NOW_MS);
                 if (sr == null) out.add(new Finding("SLOW", r, "日程引擎不接：" + where));
                 else if (sr.kind == com.onesay.assistant.v2.sched.SchedEngine.Kind.ASK && !r.flags.contains("askok")) out.add(new Finding("ASK", r, "日程多余追问：" + sr.text));
                 else if (sr.text.contains("记住了") || sr.text.contains("记下了")) out.add(new Finding("SLOW", r, "日程回执像记一记：" + sr.text));
