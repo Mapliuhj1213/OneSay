@@ -69,8 +69,9 @@ final class GroupPages {
         }
 
         private static void showRoot(ConsoleKit.RowImpl r, ConsoleStatus.Snapshot s) {
-            if (s.rootOk == null) r.setValue(s.done ? "未知" : "检测中", ConsoleHost.TONE_MUTED);
-            else r.setValue(s.rootOk ? "就绪" : "未就绪", s.rootOk ? ConsoleHost.TONE_OK : ConsoleHost.TONE_BAD);
+            ConsoleStatus.Level l = ConsoleStatus.root(s).level;   // ★ priv-llm：Shizuku 中间档；开源版无 root 只是提示
+            r.setValue(ConsoleStatus.privilegeText(s), l == ConsoleStatus.Level.OK ? ConsoleHost.TONE_OK
+                    : l == ConsoleStatus.Level.BAD ? ConsoleHost.TONE_BAD : l == ConsoleStatus.Level.WARN ? ConsoleHost.TONE_WARN : ConsoleHost.TONE_MUTED);
         }
     }
 

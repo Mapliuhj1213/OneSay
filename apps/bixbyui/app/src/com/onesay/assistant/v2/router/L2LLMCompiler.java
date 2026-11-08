@@ -159,6 +159,14 @@ public class L2LLMCompiler implements IRouter {
     }
 
     public String getApiKey() {
+        String routed = com.onesay.assistant.v2.llm.ProviderRouting.mainKeyOverride();   // ★ priv-llm：主对话选了别家 → 那家的 Key
+        if (routed != null) return routed;
+        SharedPreferences sp = mContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        return com.onesay.assistant.v2.security.SecretPrefs.get(sp, KEY_API_KEY);
+    }
+
+    /** ★ priv-llm：DeepSeek 自己存的 Key（不受「主对话服务商」影响；DeepSeek Key 编辑框用）。 */
+    public String getDeepseekKey() {
         SharedPreferences sp = mContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         return com.onesay.assistant.v2.security.SecretPrefs.get(sp, KEY_API_KEY);
     }

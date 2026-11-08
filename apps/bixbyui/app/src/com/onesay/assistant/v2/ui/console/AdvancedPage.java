@@ -34,6 +34,18 @@ final class AdvancedPage extends Console.BuiltPage {
                 c.act.startActivity(new Intent(c.act, com.onesay.assistant.v2.ui.KeysActivity.class));
             }
         });
+        String prov;   // ★ priv-llm：自带 Key 服务商（主对话可改走 OpenAI 兼容 / Anthropic / Gemini）
+        try {
+            com.onesay.assistant.v2.llm.ProviderRoute r = com.onesay.assistant.v2.llm.ProviderRouting.active();
+            prov = r == null ? "主对话：DeepSeek（默认）" : "主对话：" + com.onesay.assistant.v2.llm.ProviderPreset.get(r.providerId).title + " · " + r.model;
+        } catch (Throwable t) {
+            prov = "未知";
+        }
+        k.linkRow(g, "大模型服务商（自带 Key）", prov, 0, new Runnable() {
+            @Override public void run() {
+                c.act.startActivity(new Intent(c.act, com.onesay.assistant.v2.ui.LlmProvidersActivity.class));
+            }
+        });
         String vm;
         try {
             vm = com.onesay.assistant.v2.vision.ScreenVisionEngine.effectiveModel(c.act);

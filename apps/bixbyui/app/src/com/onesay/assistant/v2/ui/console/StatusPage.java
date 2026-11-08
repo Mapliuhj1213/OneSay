@@ -73,7 +73,8 @@ final class StatusPage extends Console.BuiltPage {
             k.valueRow(g, "唤醒服务", s.paused ? "已暂停：唤醒与按键不响应" : "前台服务：麦克风与唤醒入口", v, tone(w.level));
         }
         ConsoleStatus.Pill r = ConsoleStatus.root(s);
-        k.valueRow(g, "Root 通道", "系统设置类操作靠它", s.rootOk == null ? unknown(s) : (s.rootOk ? "就绪" : "未就绪"), tone(r.level));
+        k.valueRow(g, "特权通道", "系统设置类操作靠它（root 或 Shizuku 特权）", s.rootOk == null && s.shizukuOk == null ? unknown(s)
+                : ConsoleStatus.privilegeText(s), tone(r.level));
 
         LinearLayout m = k.group(col, "云端");
         if (Boolean.FALSE.equals(s.llmConfigured)) {

@@ -97,6 +97,7 @@ public final class LlmEndpoints {
             SharedPreferences p = sp(c);
             setForProcess(p.getString(K_DEEPSEEK, DEEPSEEK_PRESET), p.getString(K_DASHSCOPE, DASHSCOPE_PRESET));
         } catch (Throwable ignored) { }
+        com.onesay.assistant.v2.llm.ProviderStore.apply(c);   // ★ priv-llm：主对话服务商（没选别家 = 原 DeepSeek 通道）
     }
 
     /** 保存 DeepSeek base；非法返回 false 且不改。空串 = 恢复预置。 */

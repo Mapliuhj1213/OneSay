@@ -81,8 +81,11 @@ public final class FeatureRegistry {
         // ---------------------------------------------------------------- 受限未实现
         l.add(FeatureSpec.notBuilt("wake.floating", "悬浮球唤醒", new DeviceCap[]{OVERLAY},
                 "复用灵动岛的 overlay 窗口加一个可拖动按钮", "无 root、无按键时最稳的入口"));
-        l.add(FeatureSpec.notBuilt("exec.shizuku", "Shizuku 执行后端", new DeviceCap[]{SHIZUKU},
-                "作为 ShellRunner 的第二实现，覆盖 settings / cmd / am / input / uiautomator / screencap", "无 root 设备上替代 root 执行守护的大部分能力"));
+        // ★ priv-llm：Shizuku 已做成可选插件「Shizuku 特权」（默认关，开关在「执行后端」里），不再是未实现项。
+        //   本身不需要任何能力即可「可用」（打开后 Shizuku 不在 / 没授权时，插件自己报原因，不置灰别的功能）。
+        l.add(FeatureSpec.status("exec.shizuku", "Shizuku 特权（可选插件 · 中间档：剪贴板授权 / 通知使用权 / 按键 / 截屏）", G_EXEC,
+                FeatureSpec.Status.SHIPPED, new DeviceCap[]{}, "root 执行守护 · 无障碍服务",
+                "默认关；在「执行后端」里打开，只执行白名单命令（libs/plugins/exec-shizuku）"));
         l.add(FeatureSpec.notBuilt("install.silent", "静默安装 App", new DeviceCap[]{ROOT, EXEC_DAEMON},
                 "PackageInstaller 弹系统确认 · Shizuku 的 pm install", "用户已搁置"));
         l.add(FeatureSpec.notBuilt("imgsave.lsposed", "进程内取原图（LSPosed）", new DeviceCap[]{ROOT},

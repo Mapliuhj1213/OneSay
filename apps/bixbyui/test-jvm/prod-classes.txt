@@ -648,3 +648,23 @@ com/onesay/assistant/v2/pclink/PcWs.java
 com/onesay/assistant/v2/pclink/PcLanClient.java
 com/onesay/assistant/v2/pclink/PcForward.java
 com/onesay/assistant/v2/pclink/PcVoice.java
+
+# ---- priv-llm（2026-11-08）：自带 Key 服务商层 + Shizuku 特权插件 ----
+com/onesay/assistant/v2/llm/ProviderKind.java
+com/onesay/assistant/v2/llm/ProviderPreset.java
+com/onesay/assistant/v2/llm/WireRequest.java
+com/onesay/assistant/v2/llm/ProviderUrls.java
+com/onesay/assistant/v2/llm/ProviderErrors.java
+com/onesay/assistant/v2/llm/ProviderAdapter.java
+com/onesay/assistant/v2/llm/Adapters.java
+com/onesay/assistant/v2/llm/OpenAiCompatAdapter.java
+com/onesay/assistant/v2/llm/AnthropicAdapter.java
+com/onesay/assistant/v2/llm/GeminiAdapter.java
+com/onesay/assistant/v2/llm/ProviderHttp.java
+com/onesay/assistant/v2/llm/ProviderCheck.java
+com/onesay/assistant/v2/llm/ProviderRoute.java
+com/onesay/assistant/v2/llm/ProviderRouting.java
+com/onesay/assistant/v2/llm/ProviderStore.java
+com/onesay/assistant/v2/platform/ExecTierRouter.java
+com/onesay/assistant/v2/platform/ShizukuActions.java
+com/onesay/assistant/v2/ui/console/ConsoleStatus.java

@@ -260,7 +260,7 @@ public final class Console implements ConsoleHost {
         final EditText et = new EditText(act);
         et.setSingleLine(true);
         et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        String masked = KeyMask.mask(compiler.getApiKey());
+        String masked = KeyMask.mask(compiler.getDeepseekKey());   // ★ priv-llm：这里只编辑 DeepSeek 自己的 Key
         et.setHint("粘贴新的 Key（留空 = 不改）");
         et.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         et.setTextColor(kit.t.text1);

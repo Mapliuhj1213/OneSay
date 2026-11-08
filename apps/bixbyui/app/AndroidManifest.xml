@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.onesay.assistant"
-    android:versionCode="21"
+    android:versionCode="32"
     android:versionName="2.5.0">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
@@ -88,6 +88,9 @@
     <!-- OneSay 时钟对外闹钟接口（AlarmApiReceiver）：signature 级，只有与时钟同一证书签名才授予。
          这里也同名声明一次（时钟清单里同样声明；同证书可重复声明），这样先装哪个 App 都能授予。 -->
     <uses-permission android:name="com.onesay.clock.permission.ALARM_CONTROL" />
+    <!-- priv-llm：「Shizuku 特权」插件（默认关）。Shizuku 官方 API 库（MIT，RikkaW）要求的权限声明；
+         没装 / 没开 Shizuku 时不起任何作用。 -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <permission
         android:name="com.onesay.clock.permission.ALARM_CONTROL"
         android:label="设置、开关、删除 OneSay 时钟的闹钟"
@@ -199,6 +202,13 @@
             android:name="com.onesay.assistant.v2.ui.KeysActivity"
             android:exported="false"
             android:label="API 密钥"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- priv-llm：大模型服务商（自带 Key：OpenAI 兼容 / Anthropic / Gemini，FLAG_SECURE）。只由本 App 打开，不导出。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.LlmProvidersActivity"
+            android:exported="false"
+            android:label="大模型服务商"
             android:windowSoftInputMode="adjustResize" />
 
         <!-- 邮箱（IMAP）设置页。只由本 App 打开（控制台按钮 / 面板「去填写邮箱授权码」），不导出。 -->
@@ -414,5 +424,18 @@
         </receiver>
         <!-- DEBUG-ONLY-END -->
 
+        <!-- priv-llm：Shizuku 官方 API 库的 Binder 接收端（rikka.shizuku.ShizukuProvider，dev.rikka.shizuku:provider 13.1.5）。
+             只有持 INTERACT_ACROSS_USERS_FULL 的系统 / Shizuku 服务能调用；插件「Shizuku 特权」默认关，关时不请求授权、不执行任何命令。
+             debug 包的 authority 由 build_linux.sh 改成 com.onesay.assistant.debug.shizuku。 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="com.onesay.assistant.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <meta-data
+            android:name="moe.shizuku.client.V3_SUPPORT"
+            android:value="true" />
     </application>
 </manifest>

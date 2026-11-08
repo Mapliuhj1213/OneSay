@@ -71,6 +71,11 @@ public final class StatusProbe {
                 } catch (Throwable t) {
                     s.rootOk = Boolean.FALSE;
                 }
+                try {   // ★ priv-llm：「Shizuku 特权」（插件关 = null）
+                    s.shizukuOk = com.onesay.assistant.v2.platform.ExecBackendHost.shizukuReady(app);
+                } catch (Throwable t) {
+                    s.shizukuOk = null;
+                }
                 post(h, l, s, finished);
                 // 服务可能刚被 MainActivity 拉起：再读一次
                 s.wakeRunning = com.onesay.assistant.v2.wake.WakeService.isServiceRunning();
@@ -175,6 +180,7 @@ public final class StatusProbe {
         b.micReady = a.micReady;
         b.paused = a.paused;
         b.rootOk = a.rootOk;
+        b.shizukuOk = a.shizukuOk;
         b.llmConfigured = a.llmConfigured;
         b.visionModel = a.visionModel;
         b.asrConfigured = a.asrConfigured;

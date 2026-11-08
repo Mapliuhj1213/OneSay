@@ -255,6 +255,10 @@ final class DeviceCapsPage extends Console.BuiltPage {
         final String sel = com.onesay.plugin.api.exec.ExecBackends.selected();
         for (final com.onesay.plugin.api.exec.ExecBackend b : com.onesay.plugin.api.exec.ExecBackends.all()) {
             com.onesay.plugin.api.exec.ExecBackend.Tri t = b.available();
+            if (com.onesay.plugin.exec.shizuku.ShizukuExecBackend.ID.equals(b.id())) {
+                addShizukuRow(g, b, t);   // ★ priv-llm：Shizuku 是独立插件开关（中间档），不占「选一个后端」
+                continue;
+            }
             String sub = (b.level() == com.onesay.plugin.api.exec.ExecBackend.UidLevel.ROOT ? "root 身份" : "shell 身份（uid 2000）")
                     + " · " + (t == com.onesay.plugin.api.exec.ExecBackend.Tri.YES ? "可用"
                     : (t == com.onesay.plugin.api.exec.ExecBackend.Tri.NO ? "不可用" : "未确认"))
@@ -267,7 +271,59 @@ final class DeviceCapsPage extends Console.BuiltPage {
             });
             r.setSubTone(t == com.onesay.plugin.api.exec.ExecBackend.Tri.YES ? ConsoleHost.TONE_OK : ConsoleHost.TONE_MUTED);
         }
-        k.footer(parent, "默认不选任何后端：需要 root / shell 身份的动作保持置灰。su 直连没有执行守护的命令白名单，只靠确认卡把关。");
+        k.footer(parent, "默认不选任何后端：需要 root / shell 身份的动作保持置灰。su 直连没有执行守护的命令白名单，只靠确认卡把关。"
+                + "「Shizuku 特权」默认关：打开后在没有 root 时，只把白名单里的命令（后台读剪贴板授权、通知使用权、模拟按键、截屏）交给 Shizuku。");
+    }
+
+    /** ★ priv-llm：「Shizuku 特权」插件开关（默认关）。打开时 Shizuku 在跑但没授权会弹 Shizuku 的授权框。 */
+    private void addShizukuRow(LinearLayout g, final com.onesay.plugin.api.exec.ExecBackend b, com.onesay.plugin.api.exec.ExecBackend.Tri t) {
+        final ConsoleKit k = c.kit;
+        boolean on = com.onesay.assistant.v2.platform.ExecBackendHost.shizukuEnabled(c.act);
+        String sub = "中间档：普通权限与 root 之间 · " + (t == com.onesay.plugin.api.exec.ExecBackend.Tri.YES
+                ? (b.level() == com.onesay.plugin.api.exec.ExecBackend.UidLevel.ROOT ? "可用（root 启动）" : "可用（shell 身份）")
+                : (t == com.onesay.plugin.api.exec.ExecBackend.Tri.NO ? "不可用" : "未确认"))
+                + (b.reason() == null ? "" : "\n" + b.reason())
+                + "\n只执行白名单命令：后台读剪贴板授权 · 通知使用权 · 模拟按键 · 截屏";
+        ConsoleKit.RowImpl r = k.switchRow(g, "Shizuku 特权（可选插件）", sub, on, new ConsoleHost.Toggle() {
+            @Override public void onToggle(boolean v) {
+                com.onesay.assistant.v2.platform.ExecBackendHost.setShizukuEnabled(c.act, v);
+                if (col != null) fill();
+            }
+        });
+        r.setSubTone(t == com.onesay.plugin.api.exec.ExecBackend.Tri.YES ? ConsoleHost.TONE_OK : ConsoleHost.TONE_MUTED);
+        if (!on || t != com.onesay.plugin.api.exec.ExecBackend.Tri.YES) return;
+        final String pkg = c.act.getPackageName();
+        k.actionRow(g, "授予后台读剪贴板", "电脑联动同步剪贴板用（appops READ_CLIPBOARD）", "授予", new Runnable() {
+            @Override public void run() {
+                runShizuku(com.onesay.assistant.v2.platform.ShizukuActions.clipboardGrant(pkg), "后台读剪贴板");
+            }
+        });
+        k.actionRow(g, "打开通知使用权", "放开受限设置并允许本 App 的通知监听", "打开", new Runnable() {
+            @Override public void run() {
+                runShizuku(com.onesay.assistant.v2.platform.ShizukuActions.notificationAccess(pkg, android.os.Build.VERSION.SDK_INT), "通知使用权");
+            }
+        });
+    }
+
+    private void runShizuku(final java.util.List<String> cmds, final String what) {
+        final android.content.Context app = c.act.getApplicationContext();
+        com.onesay.assistant.v2.util.Threads.start("shizuku-grant", new Runnable() {
+            @Override public void run() {
+                String fail = null;
+                com.onesay.assistant.v2.executor.ShellExecutor ex = new com.onesay.assistant.v2.executor.ShellExecutor(app);
+                for (String cmd : cmds) {
+                    com.onesay.assistant.v2.executor.ShellExecutor.ShellResponse r = ex.execute(cmd);
+                    if (!r.isSuccess()) { fail = r.isDenied ? r.denyReason : (r.output.length() > 80 ? r.output.substring(0, 80) : r.output); break; }
+                }
+                final String msg = fail == null ? what + "：已完成" : what + "：失败（" + fail + "）";
+                c.act.runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        android.widget.Toast.makeText(c.act, msg, android.widget.Toast.LENGTH_LONG).show();
+                        if (col != null) fill();
+                    }
+                });
+            }
+        });
     }
 
     /** OneSay 开源版：本地唤醒词（可选，默认关；不内置任何唤醒词，用户自己填 token 序列）。 */
