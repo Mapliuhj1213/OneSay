@@ -14,6 +14,7 @@ OneSay 自身以 Apache License 2.0 发布（见 `LICENSE`、`NOTICE`）。下�
 | Jakarta Activation for Android | `apps/bixbyui/vendor/mail/android-activation-1.6.5.jar` | com.sun.mail:android-activation:1.6.5 | EPL-2.0 或 GPL-2.0 with Classpath Exception（jar 内无独立 LICENSE，按上游项目） | 同上 |
 | Mika（部分代码移植） | `apps/bixbyui/app/src/com/onesay/assistant/plug/{screen,action,guard,evidence,outbox,intent,inbox,outcome,appkb}/core`、`com/onesay/assistant/v2/a11y`、`app/assets/kb_app_*.md` | https://github.com/wangzan101/mika @ebb0e44，Copyright 2026 wangzan101；Kotlin → Java 7 改写，文件头有声明 | Apache-2.0 | `NOTICE`、`licenses/Apache-2.0.txt` |
 | phongent（部分代码移植） | `apps/bixbyui/app/src/com/onesay/assistant/plug/phongent/core/Pg*.java` 等 | https://github.com/mylea1/phongent @0b57e35 | Apache-2.0 | `NOTICE`、`licenses/Apache-2.0.txt` |
+| VYRSE（手机连接协议兼容，部分代码改写） | `apps/bixbyui/app/src/com/onesay/assistant/plug/vyrse/core/*.java`、`apps/bixbyui/app/src/com/onesay/assistant/v2/vyrse/VyrseAbilities.java` | https://github.com/felixthosharon/vyrse @41c5651，Copyright (c) 2026 VYRSE contributors；协议常量 / 动作语义 / 结果格式 / 禁用 App 表按原样对齐，Java 7 重写，文件头有声明 | MIT | 见下方 MIT 文本（VYRSE） |
 | mermaid | `apps/bixbyui/app/assets/richout_mermaid.min.js` | 9.1.7，Copyright (c) 2014-2022 Knut Sveidqvist | MIT | `apps/bixbyui/app/assets/richout_LICENSES.txt` |
 | Chart.js | `apps/bixbyui/app/assets/richout_chart.umd.js` | 3.9.1，Copyright (c) 2014-2022 Chart.js Contributors | MIT | 同上 |
 | Poppins Bold（仅图标字形） | `apps/*/app/res/mipmap-*/ic_launcher*.png`、`apps/*/app/res/drawable-*/ic_launcher_fg*.png`（「One」桌面图标，字形渲染为位图；仓库与 APK 都不含字体文件） | Indian Type Foundry / Jonny Pinhorn | SIL OFL 1.1（不限制用其渲染出的图像） | https://openfontlicense.org |
@@ -40,6 +41,32 @@ OneSay 自身以 Apache License 2.0 发布（见 `LICENSE`、`NOTICE`）。下�
 MIT License
 
 Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## MIT License（VYRSE）
+
+```
+MIT License
+
+Copyright (c) 2026 VYRSE contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

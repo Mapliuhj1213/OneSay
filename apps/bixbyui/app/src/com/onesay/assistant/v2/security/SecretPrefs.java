@@ -37,6 +37,7 @@ public final class SecretPrefs {
             {"bixby_rain", "qweather_key"},    // ★ feat/rain-minutely 和风天气 API Key
             {"bixby_rain", "qweather_host"},   // ★ 私有 API Host（覆盖 local-config 里的默认值）
             {"bixby_pclink", "pair_key"},      // ★ feat/pclink 电脑联动配对密钥（32 字节，base64url）
+            {"bixby_vyrse", "vyrse_token"},  // ★ compat-vyrse VYRSE 电脑发给本机的 key（电脑只存哈希）
     };
 
     private static volatile SecretCodec sCodec;

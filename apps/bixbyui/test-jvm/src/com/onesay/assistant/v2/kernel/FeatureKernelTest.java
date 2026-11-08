@@ -33,7 +33,7 @@ public class FeatureKernelTest {
     @Test public void builtinRegistry() {
         List<String> ids = new ArrayList<String>();
         for (FeaturePlugin p : FeatureKernel.get().plugins()) ids.add(p.id());
-        assertEquals(Arrays.asList("s1", "island", "s2", "roles", "diag", "summary", "imgsave", "s3", "screenref", "quicknote", "brief", "conn", "errand", "callback", "notice", "sched", "planner", "rain", "phone", "phongent", "suggest", "askonce", "pclink", "hello"), ids);   // oss-device-1108 +pclink（移植电脑联动插件）;   // 2026-11-06 +rain，2026-11-05 +planner，2026-11-03 +askonce，2026-11-02 +phongent，B 线 +conn，lane C3 +errand，lane-a +callback +notice +sched
+        assertEquals(Arrays.asList("s1", "island", "s2", "roles", "diag", "summary", "imgsave", "s3", "screenref", "quicknote", "brief", "conn", "errand", "callback", "notice", "sched", "planner", "rain", "phone", "phongent", "suggest", "askonce", "pclink", "vyrse", "hello"), ids);   // compat-vyrse +vyrse（VYRSE 电脑兼容，默认关）; oss-device-1108 +pclink（移植电脑联动插件）;   // 2026-11-06 +rain，2026-11-05 +planner，2026-11-03 +askonce，2026-11-02 +phongent，B 线 +conn，lane C3 +errand，lane-a +callback +notice +sched
         assertEquals("id 唯一", ids.size(), new HashSet<String>(ids).size());
         for (FeaturePlugin p : FeatureKernel.get().plugins()) {
             assertNotNull(p.id() + " title", p.title());

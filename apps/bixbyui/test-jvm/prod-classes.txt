@@ -648,3 +648,17 @@ com/onesay/assistant/v2/pclink/PcWs.java
 com/onesay/assistant/v2/pclink/PcLanClient.java
 com/onesay/assistant/v2/pclink/PcForward.java
 com/onesay/assistant/v2/pclink/PcVoice.java
+# 2026-11-08 compat-vyrse：VYRSE 兼容插件 core（纯 Java + org.json）+ 适配层（只编译，确保接线能过 javac）
+com/onesay/assistant/plug/vyrse/core/VyrseProtocol.java
+com/onesay/assistant/plug/vyrse/core/VyrseHttp.java
+com/onesay/assistant/plug/vyrse/core/VyrsePairing.java
+com/onesay/assistant/plug/vyrse/core/PhoneAbilities.java
+com/onesay/assistant/plug/vyrse/core/AppGuard.java
+com/onesay/assistant/plug/vyrse/core/RingController.java
+com/onesay/assistant/plug/vyrse/core/VyrseDispatcher.java
+com/onesay/assistant/plug/vyrse/core/VyrseLink.java
+com/onesay/assistant/v2/vyrse/VyrseSettings.java
+com/onesay/assistant/v2/vyrse/VyrseAbilities.java
+com/onesay/assistant/v2/vyrse/VyrseLinkService.java
+com/onesay/assistant/v2/vyrse/VyrseUi.java
+com/onesay/assistant/v2/kernel/plugins/VyrsePlugin.java

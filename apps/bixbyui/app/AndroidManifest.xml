@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.onesay.assistant"
-    android:versionCode="21"
+    android:versionCode="31"
     android:versionName="2.5.0">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
@@ -251,6 +251,12 @@
              配对 / 看屏的「允许 / 拒绝」通知按钮也是发给它的显式 PendingIntent，不注册任何广播接收器。 -->
         <service
             android:name="com.onesay.assistant.v2.phongent.PhongentService"
+            android:exported="false" />
+
+        <!-- compat-vyrse：VYRSE 电脑兼容的长轮询服务（只主动连配对时填的局域网地址，不监听端口）。exported=false：
+             只由本 App 起停（总开关开 + 已配对 + 连接开关开），常驻通知的「停止」按钮是发给它的显式 PendingIntent。 -->
+        <service
+            android:name="com.onesay.assistant.v2.vyrse.VyrseLinkService"
             android:exported="false" />
 
         <!-- 底部 Sheet 悬浮抽屉服务（置顶但保持被控应用可见）
