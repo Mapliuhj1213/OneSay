@@ -49,6 +49,9 @@ public final class Config {
     public String pins = "";          // 记住的对方设备证书指纹：设备id=指纹,...（首次 TLS 连上时记，换钥匙清空）
     public boolean lanPlain = true;   // 还接受旧版（v1，明文）手机；已经用 TLS 连过的设备不再接受明文
     public String phoneLast = "";     // 最近一台常连（hold）的手机 id，电脑→手机下令时找它
+    public String pcLevel = "auto";   // 手机→电脑指令的执行级别：read_only / auto（默认）/ full（见 LinkPolicy，电脑是严格矩阵）
+    public String trusted = "";       // 手机让电脑打开网址时的信任域名，逗号分隔
+    public String workspaceDir = "";  // 空 = %USERPROFILE%\OneSay\workspace（中文用户名退到 %ProgramData%\OneSay\workspace）
 
     private transient Tls tls;
 
@@ -95,6 +98,9 @@ public final class Config {
         c.pins = p.getProperty("lan_pins", "").trim();
         c.lanPlain = !"off".equalsIgnoreCase(p.getProperty("lan_plain", "on").trim());
         c.phoneLast = p.getProperty("phone_last", "").trim();
+        c.pcLevel = LinkPolicy.Level.of(p.getProperty("pc_level", "auto")).id;
+        c.trusted = p.getProperty("trusted_domains", "").trim();
+        c.workspaceDir = p.getProperty("workspace_dir", "").trim();
         return c;
     }
 
@@ -118,6 +124,9 @@ public final class Config {
         p.setProperty("scripts_dir", scriptsDir);
         p.setProperty("apps", apps);
         p.setProperty("asr_mode", asrMode);
+        p.setProperty("pc_level", pcLevel);
+        p.setProperty("trusted_domains", trusted);
+        p.setProperty("workspace_dir", workspaceDir);
         p.setProperty("llm_provider", llmProvider);
         p.setProperty("llm_key", llmKey);
         p.setProperty("llm_model", llmModel);
@@ -134,6 +143,16 @@ public final class Config {
 
     public boolean ready() {
         return !deviceId.isEmpty() && pairKey.length >= 32 && (lanEnabled() || relayEnabled());
+    }
+
+    public LinkPolicy.Level level() { return LinkPolicy.Level.of(pcLevel); }
+
+    /** 远程指令能写的工作区（不自动建）。Windows：%USERPROFILE%\OneSay\workspace，用户目录非 ASCII 时用 %ProgramData%；其他系统 ~/OneSay/workspace。 */
+    public Path workspace() {
+        if (!workspaceDir.isEmpty()) return Paths.get(workspaceDir);
+        String up = System.getenv("USERPROFILE");
+        if (up != null && !up.isEmpty()) return Paths.get(LinkPolicy.pcWorkspaceDir(up, System.getenv("ProgramData")));
+        return Paths.get(System.getProperty("user.home"), "OneSay", "workspace");
     }
 
     public boolean lanEnabled() { return lanPort > 0 && lanPort < 65535; }

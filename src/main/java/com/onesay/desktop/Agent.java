@@ -27,11 +27,17 @@ public final class Agent {
     /** 程序内部处理的指令（通知、记忆同步等），优先于 Actions。 */
     public final Map<String, java.util.function.Function<Map<String, Object>, Actions.Result>> local = new ConcurrentHashMap<>();
     private final java.util.Set<String> relayPeers = ConcurrentHashMap.newKeySet();
+    /** link-v2：手机发来的指令先过执行级别 / 信任检查 / 工作区沙箱（电脑是严格矩阵）。 */
+    public final PcGuard.Confirms confirms = new PcGuard.Confirms();
+    public final PcGuard guard;
+    /** 手机回复里带来的手机执行级别（只读显示，在手机上改）。 */
+    public volatile String phoneLevel = "";
 
     public Agent(Config cfg, Actions actions, Consumer<String> log) {
         this.cfg = cfg;
         this.actions = actions;
         this.log = log;
+        this.guard = new PcGuard(cfg, confirms);
         if (cfg.lanEnabled()) add(l -> new LanServer(cfg, l));
         if (cfg.relayEnabled()) add(l -> new RelayClient(cfg, l));
     }
@@ -104,23 +110,39 @@ public final class Agent {
         String cmd = String.valueOf(body.get("cmd"));
         Map<String, Object> args = body.get("args") instanceof Map ? (Map<String, Object>) body.get("args") : Map.of();
         log.accept("执行 " + cmd + "（来自 " + from + "，经" + via.name() + "）");
-        exec.execute(() -> {
+        // 要电脑上确认的指令最多等 30 秒：放到单独线程，免得挡住后面的指令（找手机 / 状态等仍走顺序执行线程）
+        Runnable job = () -> {
             Actions.Result r;
             try {
-                if (cmd.equals("caps")) {
+                PcGuard.Outcome o = guard.check(from, cmd, args);
+                if (o.reply != null) {
+                    r = o.reply;
+                    log.accept("没执行 " + cmd + "（来自 " + from + "）：" + r.data.get("reason"));
+                } else if (cmd.equals("caps")) {
                     List<Object> caps = new ArrayList<>(actions.capabilities());
                     caps.addAll(new java.util.TreeSet<>(local.keySet()));
+                    caps.addAll(List.of("file_write", "script_list", "script_run", "sys_exec", "level"));
                     r = Actions.Result.ok("能力清单", DesktopActions.map("caps", caps));
                 } else if (local.containsKey(cmd)) {
-                    Map<String, Object> a2 = new TreeMap<>(args);
+                    Map<String, Object> a2 = new TreeMap<>(o.args);
                     a2.put("_from", from);
                     r = local.get(cmd).apply(a2);
-                } else r = actions.run(cmd, args);
+                } else {
+                    Actions.Result b = guard.builtin(cmd, o.args);
+                    r = b != null ? b : actions.run(cmd, o.args);
+                }
             } catch (Throwable t) {
                 r = Actions.Result.fail(cmd + " 出错：" + t.getClass().getSimpleName());
             }
-            reply(via, from, id, r.ok, r.text, r.data, false);
-        });
+            reply(via, from, id, r.ok, r.text, guard.decorate(r.data), false);
+        };
+        LinkPolicy.Cat cat = PcGuard.category(cmd, args, null);
+        if (cat == LinkPolicy.Cat.QUERY || cat == LinkPolicy.Cat.HARMLESS || cat == LinkPolicy.Cat.READ_PRIVATE || cat == LinkPolicy.Cat.UNKNOWN) exec.execute(job);
+        else {
+            Thread t = new Thread(job, "onesay-exec-confirm");
+            t.setDaemon(true);
+            t.start();
+        }
     }
 
     // ------------------------------------------------------------------ 电脑 → 手机（协议 v2）
@@ -141,6 +163,7 @@ public final class Agent {
             return;
         }
         Map<String, Object> data = body.get("data") instanceof Map ? (Map<String, Object>) body.get("data") : new TreeMap<>();
+        if (data.get("level") != null) phoneLevel = String.valueOf(data.get("level"));
         String text = body.get("text") == null ? "" : String.valueOf(body.get("text"));
         f.complete(Boolean.TRUE.equals(body.get("ok")) ? Actions.Result.ok(text, data) : new Actions.Result(false, text, data));
     }

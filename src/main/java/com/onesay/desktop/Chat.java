@@ -98,7 +98,7 @@ public final class Chat {
                 args.put("text", String.valueOf(t));
             }
             Actions.Result r = p.apply(it.phoneCmd, args);
-            if (!r.ok) return r.text;
+            if (!r.ok) return PhoneCmds.withReason(r);
             if (it.phoneCmd.equals("status")) return statusLine(r);
             return it.say.isEmpty() ? r.text : it.say;
         } catch (Exception e) {

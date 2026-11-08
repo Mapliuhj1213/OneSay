@@ -117,6 +117,8 @@ public final class App {
             Map<String, Object> m = store.mergeMemory(a.get("text") == null ? null : String.valueOf(a.get("text")), at instanceof Number ? ((Number) at).longValue() : 0L);
             return Actions.Result.ok("记忆已同步", m);
         });
+        agent.confirms.onNew = d -> notify.post("pc", "手机请求，需要你确认", d + "（在 OneSay 窗口里点允许 / 拒绝，30 秒不点就拒绝）", "");
+        agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
         voice = new Voice(cfg, actions, log);
@@ -220,6 +222,8 @@ public final class App {
         s.put("scripts_dir", cfg.scriptsDir);
         s.put("apps", cfg.apps);
         s.put("autostart", autostartOn());
+        s.put("pc_level", cfg.level().id);
+        s.put("trusted_domains", cfg.trusted);
         return s;
     }
 
@@ -238,6 +242,13 @@ public final class App {
             String ph = agent.phoneTarget("");
             s.put("phone", ph == null ? "" : ph);
             s.put("tls_fp", Tls.shortFp(cfg.tls().fp));
+            // link-v2 执行级别：手机的（只读显示，在手机上改）、电脑自己的（设置页改）、电脑上待确认的远程请求
+            LinkPolicy.Level pl = agent.phoneLevel.isEmpty() ? null : LinkPolicy.Level.of(agent.phoneLevel);
+            s.put("phone_level", pl == null ? "" : pl.id);
+            s.put("phone_level_zh", pl == null ? "" : pl.zh);
+            s.put("pc_level", cfg.level().id);
+            s.put("confirms", agent.confirms.list());
+            s.put("workspace", cfg.workspace().toString());
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
         });
@@ -306,9 +317,17 @@ public final class App {
             }
             if (!PhoneCmds.ALL.contains(cmd)) return fail("手机还不支持这个（" + cmd + "）");
             Actions.Result r = callPhone(cmd, args);
-            Map<String, Object> m = r.ok ? ok(cmd.equals("status") ? Chat.statusLine(r) : r.text) : fail(r.text);
+            Map<String, Object> m = r.ok ? ok(cmd.equals("status") ? Chat.statusLine(r) : r.text) : fail(PhoneCmds.withReason(r));
             if (r.data != null) m.put("data", new TreeMap<String, Object>(r.data));
             return m;
+        });
+        ui.on("confirm", b -> {
+            Object id = b.get("id");
+            if (!(id instanceof Number)) return fail("没有这条请求");
+            boolean allow = Boolean.TRUE.equals(b.get("allow"));
+            if (!agent.confirms.resolve(((Number) id).intValue(), allow)) return fail("请求已经过期");
+            log.accept((allow ? "允许" : "拒绝") + "了一条远程请求");
+            return ok(allow ? "已允许一次" : "已拒绝");
         });
         ui.on("pairing", b -> {
             if (str(b, "op", "").equals("unpin")) {
@@ -354,6 +373,8 @@ public final class App {
                     case "files_dir": cfg.filesDir = v; break;
                     case "scripts_dir": cfg.scriptsDir = v; break;
                     case "apps": cfg.apps = v; break;
+                    case "pc_level": cfg.pcLevel = LinkPolicy.Level.of(v).id; log.accept("电脑执行级别 → " + cfg.pcLevel); break;
+                    case "trusted_domains": cfg.trusted = String.join(",", LinkPolicy.parseDomains(v)); break;
                     case "autostart": autostart(v.equals("true")); break;
                     default: break;
                 }
