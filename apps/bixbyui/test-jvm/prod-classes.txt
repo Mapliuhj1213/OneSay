@@ -652,3 +652,4 @@ com/onesay/assistant/v2/pclink/PcVoice.java
 com/onesay/assistant/v2/pclink/PcTls.java
 com/onesay/assistant/v2/pclink/PcRx.java
 com/onesay/assistant/v2/pclink/PcRxPolicy.java
+com/onesay/assistant/v2/pclink/LinkPolicy.java

@@ -186,9 +186,84 @@ public final class PcLinkUi {
                     });
             rows[i].setEnabled(on);
         }
+        buildLevel(host, root, act);
         String log = PcLink.sp(act).getString(PcRxAndroid.K_RX_LOG, "");
         host.footer(root, "开着时手机和电脑保持一条连接（只在 Wi-Fi 下，电脑不在就等它上线），电脑随时能找到手机；每条指令都带配对钥匙签名，"
                 + "过期或重放的直接拒绝。" + (log.length() > 0 ? "\n最近：\n" + log : ""));
+    }
+
+    // ================================================================== 执行级别（link-v2）
+
+    static final String[] LEVEL_SUB = {
+            "只回答电量、状态这类查询，别的一律拒绝",
+            "无害的直接做（响铃、手电筒、亮屏、音量、简单设置）；写剪贴板、打开不在信任列表的网址、卸载 App 要在手机上点「允许一次」",
+            "基本不再确认，但网址 / 剪贴板检查照旧；支付、银行、密码、钱包、应用商店、安装器和系统 App 照样不让碰；卸载仍要确认"};
+
+    static ConsoleHost.Row levelRow;
+
+    static void buildLevel(final ConsoleHost host, LinearLayout root, final Activity act) {
+        LinearLayout g = host.group(root, "执行级别");
+        LinkPolicy.Level cur = PcRxAndroid.levelOf(act);
+        levelRow = host.linkRow(g, "电脑指令的执行级别：" + cur.zh, LEVEL_SUB[cur.ordinal()], new Runnable() {
+            @Override public void run() { pickLevel(act); }
+        });
+        int n = LinkPolicy.parseDomains(PcRxAndroid.trustedText(act)).size();
+        host.linkRow(g, "信任的网址域名", n == 0 ? "还没有：所有网址都会先问你（自动档）" : n + " 个：这些网站在自动档直接打开，其余先问你", new Runnable() {
+            @Override public void run() { editTrusted(act); }
+        });
+        host.footer(root, "给自己授权（无障碍、通知监听、设备管理器、系统权限、Shizuku 授权）任何级别都不会执行，只在 OneSay 工作区 scripts/ 里生成脚本，由你自己决定要不要运行。"
+                + "电脑写文件只能写进 OneSay 工作区（App 专属目录）。");
+    }
+
+    static void pickLevel(final Activity act) {
+        final LinkPolicy.Level[] ls = LinkPolicy.Level.values();
+        String[] names = new String[ls.length];
+        for (int i = 0; i < ls.length; i++) names[i] = ls[i].zh + (ls[i] == LinkPolicy.DEFAULT_LEVEL ? "（默认）" : "");
+        new AlertDialog.Builder(act).setTitle("电脑指令的执行级别")
+                .setSingleChoiceItems(names, PcRxAndroid.levelOf(act).ordinal(), new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int which) {
+                        d.dismiss();
+                        final LinkPolicy.Level l = ls[which];
+                        if (l != LinkPolicy.Level.FULL) {
+                            applyLevel(act, l);
+                            return;
+                        }
+                        new AlertDialog.Builder(act).setTitle("打开完全访问？")
+                                .setMessage("打开后，电脑发来的大部分指令不再逐条问你：会直接打开网址（不在信任列表的会提醒）、写剪贴板、改网络和安全设置、写工作区以外的文件，"
+                                        + "运行工作区脚本和系统命令时仍会给你看完整命令再确认。\n\n仍然禁止：给 OneSay 自己授权、动系统 App、支付 / 银行 / 密码 / 钱包 / 应用商店 / 安装器类 App。\n\n"
+                                        + "只在你信任这台电脑、而且电脑本身安全的时候打开。")
+                                .setPositiveButton("我了解风险，打开", new DialogInterface.OnClickListener() {
+                                    @Override public void onClick(DialogInterface d2, int w) { applyLevel(act, LinkPolicy.Level.FULL); }
+                                })
+                                .setNegativeButton("取消", null).show();
+                    }
+                }).setNegativeButton("取消", null).show();
+    }
+
+    static void applyLevel(Activity act, LinkPolicy.Level l) {
+        PcRxAndroid.setLevel(act, l);
+        if (levelRow != null) levelRow.setSub(LEVEL_SUB[l.ordinal()]);
+        Toast.makeText(act, "执行级别：" + l.zh, Toast.LENGTH_SHORT).show();
+        if (act instanceof ConsoleHost) refresh((ConsoleHost) act);
+    }
+
+    static void editTrusted(final Activity act) {
+        final EditText et = new EditText(act);
+        et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        et.setMinLines(4);
+        et.setText(PcRxAndroid.trustedText(act));
+        et.setHint("一行一个，如 bilibili.com（含子域名）");
+        new AlertDialog.Builder(act).setTitle("信任的网址域名")
+                .setMessage("自动档下这些网站直接打开，其余网址先问你。IP 地址 / 内网地址默认拒绝，写进来才放行。")
+                .setView(et)
+                .setPositiveButton("保存", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        int n = PcRxAndroid.setTrusted(act, et.getText().toString());
+                        Toast.makeText(act, "已保存 " + n + " 个域名", Toast.LENGTH_SHORT).show();
+                        if (act instanceof ConsoleHost) refresh((ConsoleHost) act);
+                    }
+                })
+                .setNegativeButton("取消", null).show();
     }
 
     /** 重画当前页（控制台的 onResume 会重建顶层页面）。 */
@@ -292,9 +367,17 @@ public final class PcLinkUi {
     // ================================================================== 动作
 
     static void simple(final ConsoleHost host, String cmd, Map<String, Object> args, String pending) {
-        host.toast(pending);
-        PcLink.run(host.activity(), cmd, args, 15000, new PcLink.Done() {
-            @Override public void done(PcLanClient.Result r) { host.toast(r.text.length() > 0 ? r.text : (r.ok ? "完成" : "失败")); }
+        // link-v2：电脑上要确认的指令（音量 / 关机 / 睡眠等 B 类）电脑最多等 30 秒，手机这边多等一会儿
+        LinkPolicy.Cat cat = LinkPolicy.pcCat(cmd);
+        boolean mayConfirm = cat == LinkPolicy.Cat.SIMPLE_SETTING || cat == LinkPolicy.Cat.POWER || cat == LinkPolicy.Cat.OPEN_URL
+                || cat == LinkPolicy.Cat.CLIPBOARD_WRITE || cat == LinkPolicy.Cat.RUN_WS_SCRIPT;
+        host.toast(mayConfirm ? pending + "（电脑上可能要点确认）" : pending);
+        PcLink.run(host.activity(), cmd, args, mayConfirm ? 40000 : 15000, new PcLink.Done() {
+            @Override public void done(PcLanClient.Result r) {
+                Object why = r.data == null ? null : r.data.get("reason_zh");
+                String t = r.text.length() > 0 ? r.text : (r.ok ? "完成" : "失败");
+                host.toast(why != null && String.valueOf(why).length() > 0 && !t.contains(String.valueOf(why)) ? t + "（" + why + "）" : t);
+            }
         });
     }
 
