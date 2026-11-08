@@ -19,15 +19,6 @@ public final class PcRxPolicy {
     /** 控制台显示顺序。 */
     public static final String[] CMDS = {FIND, SCREEN_ON, VOLUME, NOTIFY, STATUS, CLIPBOARD, OPEN_URL, OPEN_APP};
 
-    /**
-     * [link-v2 · 执行级别] 新增指令：不在控制台逐项开关里，只受执行级别（{@link LinkPolicy}）管。
-     * 手电筒；简单 / 网络设置；工作区文件读写；卸载第三方 App（走系统卸载界面）；工作区脚本列表 / 运行；系统命令（只读 / 自动只生成脚本）。
-     */
-    public static final String FLASHLIGHT = "flashlight", SETTING = "setting_set", FILE_WRITE = "file_write", FILE_LIST = "file_list",
-            UNINSTALL = "uninstall_app", SCRIPT_LIST = "script_list", SCRIPT_RUN = "script_run", SYS_EXEC = "sys_exec";
-    public static final String[] EXTRA = {FLASHLIGHT, SETTING, FILE_WRITE, FILE_LIST, UNINSTALL, SCRIPT_LIST, SCRIPT_RUN, SYS_EXEC};
-    public static final int FILE_MAX = 256 * 1024, CMD_MAX = 4000;
-
     /** 「接受电脑指令」总开关默认值（开源版关：用户在控制台打开后才保持到电脑的常连）。 */
     public static final boolean MASTER_DEFAULT = false;
 
@@ -39,12 +30,6 @@ public final class PcRxPolicy {
 
     public static boolean known(String cmd) {
         for (String c : CMDS) if (c.equals(cmd)) return true;
-        return extra(cmd);
-    }
-
-    /** 新增指令（只受执行级别管，没有逐项开关）。 */
-    public static boolean extra(String cmd) {
-        for (String c : EXTRA) if (c.equals(cmd)) return true;
         return false;
     }
 
@@ -67,14 +52,6 @@ public final class PcRxPolicy {
         if (CLIPBOARD.equals(cmd)) return "写手机剪贴板";
         if (OPEN_URL.equals(cmd)) return "打开网址";
         if (OPEN_APP.equals(cmd)) return "打开 App";
-        if (FLASHLIGHT.equals(cmd)) return "手电筒";
-        if (SETTING.equals(cmd)) return "改手机设置";
-        if (FILE_WRITE.equals(cmd)) return "写工作区文件";
-        if (FILE_LIST.equals(cmd)) return "看工作区文件";
-        if (UNINSTALL.equals(cmd)) return "卸载 App";
-        if (SCRIPT_LIST.equals(cmd)) return "看工作区脚本";
-        if (SCRIPT_RUN.equals(cmd)) return "运行工作区脚本";
-        if (SYS_EXEC.equals(cmd)) return "系统命令";
         return cmd;
     }
 
@@ -124,37 +101,6 @@ public final class PcRxPolicy {
             String act = str(a, "action");
             if (!(act.length() == 0 || "start".equals(act) || "stop".equals(act))) return "action 只能是 start / stop";
             return null;
-        }
-        if (FLASHLIGHT.equals(cmd)) {
-            Object on = a == null ? null : a.get("on");
-            return on == null || on instanceof Boolean ? null : "on 只能是 true / false";
-        }
-        if (SETTING.equals(cmd)) {
-            String n = str(a, "name");
-            if (n.length() == 0) return "没说改哪个设置";
-            if (LinkPolicy.phoneSettingCat(n) == LinkPolicy.Cat.UNKNOWN) return "手机不支持改「" + n + "」";
-            Object v = a.get("value");
-            if (v == null) return "没给设置值";
-            return String.valueOf(v).length() > 200 ? "设置值太长" : null;
-        }
-        if (FILE_WRITE.equals(cmd)) {
-            if (str(a, "path").length() == 0) return "没给文件路径";
-            Object t = a.get("text");
-            if (t == null) return "没给文件内容";
-            return String.valueOf(t).length() > FILE_MAX ? "文件太大（超过 256 KB）" : null;
-        }
-        if (UNINSTALL.equals(cmd)) {
-            String pkg = str(a, "package");
-            return pkg.matches("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+") ? null : "要给包名";
-        }
-        if (SCRIPT_RUN.equals(cmd)) {
-            String n = str(a, "name");
-            return n.length() == 0 || n.contains("/") || n.contains("\\") || n.startsWith(".") ? "要给 scripts/ 里的脚本文件名" : null;
-        }
-        if (SYS_EXEC.equals(cmd)) {
-            String c = str(a, "command");
-            if (c.length() == 0) return "没给命令";
-            return c.length() > CMD_MAX ? "命令太长" : null;
         }
         return null;
     }

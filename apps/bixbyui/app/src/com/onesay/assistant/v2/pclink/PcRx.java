@@ -37,70 +37,6 @@ public final class PcRx {
         void record(String cmd, boolean ok, String text);
     }
 
-    /**
-     * [link-v2 · 执行级别] 执行端如果同时实现了它，指令先过 {@link LinkPolicy}（级别 × 类别 × 信任检查）再执行；
-     * 没实现的（旧测试桩）照旧只看逐项开关。Android 侧 {@code PcRxAndroid} 实现了它。
-     */
-    public interface Gate {
-        /** 手机上用户选的执行级别。 */
-        LinkPolicy.Level level();
-
-        /** 工作区根目录（手机：getExternalFilesDir("workspace")）；拿不到返回 null（写文件一律拒）。 */
-        java.io.File workspace();
-
-        /** 补全信任检查要的事实：信任域名、App 是否禁止类 / 系统 App（可以往 args 里填解析出的 package）。 */
-        LinkPolicy.Facts facts(String cmd, Map<String, Object> args, LinkPolicy.Cat cat);
-
-        /** 在手机上弹确认（允许一次 / 拒绝），阻塞最多 timeoutMs。返回 {@link #CONFIRM_ALLOW} / {@link #CONFIRM_DENY} / {@link #CONFIRM_TIMEOUT}。 */
-        int confirm(String cmd, String title, String detail, long timeoutMs);
-
-        /** 生成脚本写进工作区 scripts/ 并通知用户「已生成脚本，需你自己执行」；返回相对路径，失败 null。 */
-        String script(String cmd, Map<String, Object> args, String why);
-
-        /** 完全访问下不确认、但给用户提个醒（通知，不阻塞）。 */
-        void headsUp(String cmd, String text);
-    }
-
-    public static final int CONFIRM_ALLOW = 1, CONFIRM_DENY = 0, CONFIRM_TIMEOUT = -1;
-    public static final long CONFIRM_TIMEOUT_MS = 30000;
-
-    /** 等确认的小盒子（纯 Java，JVM 可测）：open 拿编号 → 通知按钮 resolve(编号, 允许?) → await 超时即算拒绝（CONFIRM_TIMEOUT）。 */
-    public static final class ConfirmBox {
-        private final Map<Integer, Object[]> pending = new java.util.concurrent.ConcurrentHashMap<Integer, Object[]>();
-        private final java.util.concurrent.atomic.AtomicInteger seq = new java.util.concurrent.atomic.AtomicInteger(1);
-
-        public int open() {
-            int id = seq.getAndIncrement();
-            pending.put(id, new Object[]{new java.util.concurrent.CountDownLatch(1), new int[]{CONFIRM_TIMEOUT}});
-            return id;
-        }
-
-        /** 按钮回调；编号不存在（已超时 / 已处理）返回 false。只认第一次。 */
-        public boolean resolve(int id, boolean allow) {
-            Object[] p = pending.remove(id);
-            if (p == null) return false;
-            ((int[]) p[1])[0] = allow ? CONFIRM_ALLOW : CONFIRM_DENY;
-            ((java.util.concurrent.CountDownLatch) p[0]).countDown();
-            return true;
-        }
-
-        public int await(int id, long timeoutMs) {
-            Object[] p = pending.get(id);
-            if (p == null) return CONFIRM_TIMEOUT;
-            try {
-                ((java.util.concurrent.CountDownLatch) p[0]).await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            pending.remove(id); // 超时后再点按钮也不算
-            return ((int[]) p[1])[0];
-        }
-
-        public int size() {
-            return pending.size();
-        }
-    }
-
     /** 常连循环需要的环境（Android：开关、Wi-Fi、组播锁、配对信息）。 */
     public interface Env {
         boolean wanted();
@@ -125,103 +61,28 @@ public final class PcRx {
 
     // ================================================================== 单条指令
 
-    /** 处理一条已验签的指令：ping / caps 总是可用；其他看开关和参数（执行端实现了 {@link Gate} 时再过执行级别）。 */
+    /** 处理一条已验签的指令：ping / caps 总是可用；其他看开关和参数。 */
     public static PcLanClient.Result handle(Handler h, String cmd, Map<String, Object> args) {
-        Gate g = h instanceof Gate ? (Gate) h : null;
         if ("ping".equals(cmd)) return new PcLanClient.Result(true, "在线", null, "");
         if ("caps".equals(cmd)) {
             List<Object> on = new ArrayList<Object>();
             on.add("ping");
             on.add("caps");
             for (String c : PcRxPolicy.CMDS) if (h.enabled(c)) on.add(c);
-            if (g != null) for (String c : PcRxPolicy.EXTRA) on.add(c);
             Map<String, Object> d = new TreeMap<String, Object>();
             d.put("caps", on);
-            if (g != null) putLevel(d, g);
             return new PcLanClient.Result(true, "能力清单", d, "");
         }
-        if (!PcRxPolicy.known(cmd) || (g == null && PcRxPolicy.extra(cmd))) return new PcLanClient.Result(false, "手机不支持「" + cmd + "」", null, "");
-        if (!PcRxPolicy.extra(cmd) && !h.enabled(cmd)) return new PcLanClient.Result(false, "手机上没开「" + PcRxPolicy.label(cmd) + "」（控制台 › 电脑联动 › 电脑可以让手机做的事）", null, "");
+        if (!PcRxPolicy.known(cmd)) return new PcLanClient.Result(false, "手机不支持「" + cmd + "」", null, "");
+        if (!h.enabled(cmd)) return new PcLanClient.Result(false, "手机上没开「" + PcRxPolicy.label(cmd) + "」（控制台 › 电脑联动 › 电脑可以让手机做的事）", null, "");
         String bad = PcRxPolicy.check(cmd, args);
         if (bad != null) return new PcLanClient.Result(false, bad, null, "");
-        if (g != null) return gated(h, g, cmd, args == null ? new TreeMap<String, Object>() : args);
         try {
             PcLanClient.Result r = h.run(cmd, args == null ? new TreeMap<String, Object>() : args);
             return r == null ? new PcLanClient.Result(false, "没有结果", null, "") : r;
         } catch (Throwable t) {
             return new PcLanClient.Result(false, "手机上出错：" + t.getClass().getSimpleName(), null, "");
         }
-    }
-
-    // ================================================================== 执行级别
-
-    static void putLevel(Map<String, Object> d, Gate g) {
-        LinkPolicy.Level l = g.level();
-        d.put("level", l.id);
-        d.put("level_zh", l.zh);
-    }
-
-    static PcLanClient.Result withReason(Gate g, boolean ok, String text, String reason, Map<String, Object> extra) {
-        Map<String, Object> d = new TreeMap<String, Object>();
-        if (extra != null) d.putAll(extra);
-        if (reason != null && reason.length() > 0) {
-            d.put("reason", reason);
-            d.put("reason_zh", LinkPolicy.reasonZh(reason));
-        }
-        putLevel(d, g);
-        return new PcLanClient.Result(ok, text, d, "");
-    }
-
-    /** 指令 → 类别：setting_set 看 name；sys_exec 看命令本身；file_write 看路径在不在工作区里。 */
-    public static LinkPolicy.Cat category(Gate g, String cmd, Map<String, Object> a) {
-        if (PcRxPolicy.SETTING.equals(cmd)) return LinkPolicy.phoneSettingCat(PcRxPolicy.str(a, "name"));
-        if (PcRxPolicy.SYS_EXEC.equals(cmd)) return LinkPolicy.classifyShell(LinkPolicy.Target.PHONE, PcRxPolicy.str(a, "command"));
-        if (PcRxPolicy.FILE_WRITE.equals(cmd)) {
-            java.io.File ws = g.workspace();
-            return ws != null && LinkPolicy.resolveInside(ws, PcRxPolicy.str(a, "path")) != null ? LinkPolicy.Cat.WORKSPACE_WRITE : LinkPolicy.Cat.OUTSIDE_WRITE;
-        }
-        return LinkPolicy.phoneCat(cmd);
-    }
-
-    /** 过执行级别：拒绝 / 生成脚本 / 确认后执行 / 直接执行。结果 data 带 level 和（不成功时）reason 原因码。 */
-    static PcLanClient.Result gated(Handler h, Gate g, String cmd, Map<String, Object> a0) {
-        Map<String, Object> a = new TreeMap<String, Object>();
-        for (Map.Entry<String, Object> e : a0.entrySet()) if (!e.getKey().startsWith("_")) a.put(e.getKey(), e.getValue()); // 下划线开头的是手机内部标记，电脑不能带
-        LinkPolicy.Cat cat = category(g, cmd, a);
-        LinkPolicy.Facts f = g.facts(cmd, a, cat);
-        LinkPolicy.Decision d = LinkPolicy.decide(LinkPolicy.Target.PHONE, g.level(), cat, f);
-        if (d.verdict == LinkPolicy.Verdict.DENY) return withReason(g, false, d.text, d.reason, null);
-        if (d.verdict == LinkPolicy.Verdict.SCRIPT) {
-            String path = g.script(cmd, a, d.text);
-            if (path == null) return withReason(g, false, "要生成脚本，但写不进手机工作区", LinkPolicy.R_SCRIPT_GENERATED, null);
-            Map<String, Object> x = new TreeMap<String, Object>();
-            x.put("path", path);
-            return withReason(g, false, "已生成脚本，需你自己执行：" + path, LinkPolicy.R_SCRIPT_GENERATED, x);
-        }
-        if (d.verdict == LinkPolicy.Verdict.CONFIRM) {
-            int c = g.confirm(cmd, PcRxPolicy.label(cmd), d.text, CONFIRM_TIMEOUT_MS);
-            if (c == CONFIRM_TIMEOUT) return withReason(g, false, "手机上 30 秒没人确认，已拒绝", LinkPolicy.R_CONFIRM_TIMEOUT, null);
-            if (c != CONFIRM_ALLOW) return withReason(g, false, "手机上拒绝了", LinkPolicy.R_CONFIRM_DENIED, null);
-            a.put("_confirmed", Boolean.TRUE);
-        } else if (d.headsUp) {
-            try {
-                g.headsUp(cmd, d.text);
-            } catch (Throwable ignored) {
-            }
-        }
-        if (PcRxPolicy.CLIPBOARD.equals(cmd) && f != null && f.clip != null && f.clip.verdict == LinkPolicy.ClipCheck.SENSITIVE) a.put("_sensitive", Boolean.TRUE);
-        if (cat == LinkPolicy.Cat.OUTSIDE_WRITE) a.put("_outside", Boolean.TRUE);
-        if (f != null && f.url != null && f.url.ok) a.put("_url_host", f.url.host);
-        PcLanClient.Result r;
-        try {
-            r = h.run(cmd, a);
-        } catch (Throwable t) {
-            r = new PcLanClient.Result(false, "手机上出错：" + t.getClass().getSimpleName(), null, "");
-        }
-        if (r == null) r = new PcLanClient.Result(false, "没有结果", null, "");
-        Map<String, Object> data = new TreeMap<String, Object>(r.data);
-        putLevel(data, g);
-        return new PcLanClient.Result(r.ok, r.text, data, r.fail);
     }
 
     // ================================================================== 常连会话
@@ -285,27 +146,6 @@ public final class PcRx {
                 }
                 if (m == null) return "closed " + ws.closeCode;
                 if ("pong".equals(m)) continue;
-                if (h instanceof Gate && inflight.get() < 4 && maybeCmd(m)) {
-                    // 可能要在手机上确认（最多 30 秒）：放到单独线程，常连线程继续收 ping / 别的指令。回复各带 re，乱序没关系。
-                    inflight.incrementAndGet();
-                    final String frame = m;
-                    final PcWs fws = ws;
-                    final PcLanClient.Peer fp = p;
-                    final PcProtocol.ReplayGuard fg = guard;
-                    final Handler fh = h;
-                    com.onesay.assistant.v2.util.Threads.start("pclink-rx-cmd", new Runnable() {
-                        @Override public void run() {
-                            try {
-                                String reply = onFrame(fp, fg, fh, frame, System.currentTimeMillis());
-                                if (reply != null) fws.sendText(reply);
-                            } catch (Throwable ignored) {
-                            } finally {
-                                inflight.decrementAndGet();
-                            }
-                        }
-                    }); // 最多等 30 秒确认就结束
-                    continue;
-                }
                 String reply = onFrame(p, guard, h, m, System.currentTimeMillis());
                 if (reply != null) ws.sendText(reply);
             }
@@ -315,13 +155,6 @@ public final class PcRx {
         } finally {
             s.close();
         }
-    }
-
-    private static final java.util.concurrent.atomic.AtomicInteger inflight = new java.util.concurrent.atomic.AtomicInteger();
-
-    /** 粗看是不是一条 cmd 帧（真正的解析 / 验签在 onFrame 里）。 */
-    static boolean maybeCmd(String m) {
-        return m.indexOf("\"cmd\"") >= 0 && m.indexOf("\"msg\"") >= 0;
     }
 
     public interface Stop {

