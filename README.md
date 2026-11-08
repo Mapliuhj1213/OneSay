@@ -1,4 +1,4 @@
-# OneSay Desktop 0.3.0（电脑端）
+# OneSay Desktop 0.5.0（电脑端）
 
 一句话让电脑干活：手机或另一台设备下令，电脑执行后回签名结果（截图直接回传）。
 电脑关机或断网，下令端立即看到「离线」。
@@ -6,7 +6,10 @@
 **连接方式**
 - 局域网直连（默认）：同一个路由器下即可，不需要账号、服务器或公网。电脑开 TCP 47820，UDP 47821 应答配对设备的发现。只回应持有配对密钥的设备，没配对的人扫不到。
 - 中转（可选插件）：不在同一 Wi-Fi 也要控制时才配。自建 Cloudflare Worker，见 onesay-relay。两条都开时，下令端先试局域网（约 1.5 秒），找不到再走中转。
-- 局域网里内容有签名但未加密（同 Wi-Fi 的人理论上能抓到截图、剪贴板）；加密在计划中。
+- 0.5.0 起（协议 v2）：局域网走 TLS，配对串里带电脑证书指纹，手机只认这张证书；手机也出示自己的证书，电脑按设备记住，换了就拒。
+  同一端口仍接受旧版（v1 明文、有签名）手机；用 TLS 连过的设备不许退回明文。发现另加组播 224.0.0.167 和电脑上线 announce。
+- 电脑 → 手机：手机开「接受电脑指令」后保持一条常连，电脑可以让手机响铃（找手机）、亮屏、调媒体音量、写剪贴板、弹通知、打开网址 / App、看电量。
+  协议说明见 `docs/PCLINK.md`。
 
 ## 安全
 - 中转只看收件人转发；每条指令和结果都用配对密钥做 HMAC-SHA256 签名，绑定消息 id、发件人、收件人，
@@ -47,6 +50,9 @@
 | volume | action=up/down/mute steps=5 | |
 | media | action=play_pause/next/prev | |
 | sleep / shutdown | confirm=true | 关机 60 秒倒计时，`shutdown /a` 可取消 |
+
+## 第三方
+见 `THIRD_PARTY_NOTICES.md`（qrcode-generator MIT；Temurin 运行时；协议 v2 的设计参考 LocalSend / Home Assistant 伴侣 App，Apache-2.0，未拷贝代码）。
 
 ## 开发
 `sh build.sh test`（JDK 17，零第三方依赖；单测需 junit 4.13.2 + hamcrest 1.3）。

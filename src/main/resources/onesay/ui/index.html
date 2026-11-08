@@ -264,7 +264,7 @@ let S=null, page='today', pending=false;
 
 // ---------- 演示数据（直接用浏览器打开文件时） ----------
 const now=Date.now(), H=3600e3, D=24*H, t0=new Date(new Date().toDateString()).getTime();
-const DEMO={version:'0.4.2',device:'pc-desktop',voice:'长按空格说话',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
+const DEMO={version:'0.5.0',tls_fp:'1A2B-3C4D',phone:'my-phone',device:'pc-desktop',voice:'长按空格说话',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
  caps:['ping','screenshot','open_url','open_app','clipboard_get','clipboard_set','lock','volume','media','sleep','shutdown','shutdown_abort'],
  shortcuts:['下班模式','备份照片'],
  log:['00:21:03 执行 screenshot（来自 my-phone，经局域网）','00:18:40 听到：打开B站','00:12:11 执行 volume（来自 my-phone，经局域网）','00:05:02 拒绝来自 unknown 的指令：BAD_SIG','23:59:30 局域网 在线'],
@@ -345,15 +345,22 @@ P.shortcuts=()=>{const s=S.shortcuts;
   return head('快捷指令','说名字就执行，只回一句「正在执行快捷指令」')+
   (S.settings.scripts_dir?(s.length?`<div class="grid3">${s.map(n=>`<div class="tile"><span class="tag blue" style="align-self:flex-start">电脑</span><div class="tt">${esc(n)}</div><div class="st">说「${esc(n)}」或「执行${esc(n)}」</div><div class="row"><button class="btn sm" onclick="runSc('${esc(n)}')">运行</button></div></div>`).join('')}</div>`:empty('文件夹里还没有 .ps1 / .bat / .cmd 脚本')):empty('还没设快捷指令文件夹，去设置里填'))+
   `<p class="note">快捷指令文件夹：${esc(S.settings.scripts_dir||'未设置')} · 每个脚本最多跑 60 秒 · 成败由你判断。</p>`};
-P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0;
-  return head('手机',on?`在线 · ${esc(S.peers[ids[0]])} · ${esc(ids[0])}`:'离线')+
-  `<div class="hero"><div class="big" style="background:var(--device)">▯</div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'计划、记忆和通知通过它同步':'手机装上 OneSay 的「电脑联动」插件，到设置里扫码配对'}</p></div><span class="tag ${on?'green':''}">${on?'在线':'离线'}</span></div>
+P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
+  return head('手机',on?`在线 · ${esc(S.peers[ids[0]])} · ${esc(ids[0])}`:(ph?`离线 · 上次常连 ${esc(ph)}`:'离线'))+
+  `<div class="hero"><div class="big" style="background:var(--device)">▯</div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'手机开着「接受电脑指令」时，下面这些点一下就发过去':'手机上打开「电脑联动」并扫码配对；要让电脑找得到手机，打开手机上的「接受电脑指令」'}</p></div><span class="tag ${on?'green':''}">${on?'在线':'离线'}</span></div>
   <div class="acts">
-  <button class="act" onclick="alarm(true)"><span class="ic" style="background:var(--todo)">⏰</span>设闹钟<span>在手机上响</span></button>
-  <button class="act" onclick="phone('screenshot')"><span class="ic" style="background:var(--event)">⎙</span>截手机屏<span>传到电脑</span></button>
-  <button class="act" onclick="phone('clipboard')"><span class="ic" style="background:var(--auto)">⇄</span>互传剪贴板<span>文字</span></button>
-  <button class="act" onclick="phone('ring')"><span class="ic" style="background:var(--red)">♪</span>找手机<span>静音也响</span></button></div>
-  <p class="note">电脑上没有闹钟 App：这里设的闹钟发到手机，由手机响；手机离线时直接提示没设上，不偷偷排队。这几项要等手机插件更新后才能用。</p>`};
+  <button class="act" onclick="phone('find_phone',{action:'start',seconds:30})"><span class="ic" style="background:var(--red)">♪</span>找手机<span>最大音量响 30 秒，静音也响</span></button>
+  <button class="act" onclick="phone('find_phone',{action:'stop'})"><span class="ic" style="background:var(--red)">■</span>停止响铃<span>找到了就停</span></button>
+  <button class="act" onclick="phone('screen_on')"><span class="ic" style="background:var(--event)">☀</span>点亮屏幕<span>不解锁</span></button>
+  <button class="act" onclick="phoneVol()"><span class="ic" style="background:var(--auto)">♫</span>媒体音量<span>0–100</span></button>
+  <button class="act" onclick="phone('clipboard_set')"><span class="ic" style="background:var(--auto)">⇄</span>剪贴板发到手机<span>电脑剪贴板里的文字</span></button>
+  <button class="act" onclick="phoneUrl()"><span class="ic" style="background:var(--event)">↗</span>手机上打开网址<span>http / https</span></button>
+  <button class="act" onclick="phoneApp()"><span class="ic" style="background:var(--todo)">▣</span>打开手机 App<span>名字或包名</span></button>
+  <button class="act" onclick="phoneNote()"><span class="ic" style="background:var(--todo)">✉</span>发通知到手机<span>弹在手机上</span></button>
+  <button class="act" onclick="phone('status')"><span class="ic" style="background:var(--device)">ϟ</span>电量和状态<span>电量、充电、铃声模式</span></button>
+  <button class="act" onclick="alarm(true)"><span class="ic" style="background:var(--todo)">⏰</span>设闹钟<span>在手机上响（还没做）</span></button></div>
+  <p class="note">也可以在「对话」里说：让手机响一下 / 手机别响了 / 手机亮屏 / 把手机音量调到 30 / 手机打开微信 / 把剪贴板发到手机 / 手机还有多少电。
+  手机离线时直接提示没发出去，不偷偷排队。每一项手机上都能单独关掉；开源版的「打开网址 / 打开 App / 写剪贴板」默认关。</p>`};
 P.pc=()=>{const s=S.settings;
   return head('这台电脑',`${esc(S.device)} · 局域网 ${esc((S.lan_ips||[]).join(', ')||'无地址')}:${s.lan_port} · 中转${s.relay?'已开':'未开'}`)+
   `<div class="cols"><div>${sec('var(--device)','手机能让它做的事')}<div class="card">
@@ -388,10 +395,10 @@ P.settings=()=>{const s=S.settings;
   ${kv('开机自动启动','启动后只在托盘',sw('autostart',s.autostart))}</div></div>
   <div>${sec('var(--accent)','配对手机')}<div class="card" style="padding:20px">
   <div style="display:flex;gap:18px;align-items:center"><div class="qr" id="qrbox" style="display:grid;place-items:center;color:var(--text3);font-size:12px;text-align:center">${pairShown?'':'点「显示」<br>生成二维码'}</div>
-  <div style="font-size:13px;color:var(--text2);line-height:1.7">用手机 OneSay 的「电脑联动」插件扫码配对。<br>这个码就是钥匙，别截图发给别人。<br><button class="btn ghost sm" style="margin-top:8px" onclick="showPair()">${pairShown?'隐藏':'显示'}</button> <button class="btn ghost sm" style="color:var(--red)" onclick="rekey()">换一把钥匙</button></div></div>
+  <div style="font-size:13px;color:var(--text2);line-height:1.7">用手机 OneSay 的「电脑联动」插件扫码配对。<br>这个码就是钥匙，别截图发给别人。<br><button class="btn ghost sm" style="margin-top:8px" onclick="showPair()">${pairShown?'隐藏':'显示'}</button> <button class="btn ghost sm" style="color:var(--red)" onclick="rekey()">换一把钥匙</button><br>本机证书指纹 <b>${esc(S.tls_fp||'')}</b>（手机上显示的应一致） <button class="btn ghost sm" onclick="unpin()">忘掉手机证书</button></div></div>
   <div id="pairtxt"></div></div>
   ${sec('var(--accent)','已连接')}<div class="card">${Object.keys(S.peers).map(id=>kv(esc(id),esc(S.peers[id])+' · 在线','')).join('')||'<div class="empty">没有设备连着</div>'}</div>
-  ${sec('var(--accent)','连接')}<div class="card">${kv('局域网直连','同一个路由器下，端口 '+s.lan_port+'（发现用 '+(s.lan_port+1)+'）',tag(s.lan_port>0))}${kv('中转（插件）',s.relay?esc(s.relay_url):'不在同一个 Wi-Fi 也要控制时再开，需自建',tag(s.relay))}</div>
+  ${sec('var(--accent)','连接')}<div class="card">${kv('局域网直连','同一个路由器下，端口 '+s.lan_port+'（发现用 '+(s.lan_port+1)+'，组播 224.0.0.167）；新手机走 TLS 加密 + 证书指纹',tag(s.lan_port>0))}${kv('中转（插件）',s.relay?esc(s.relay_url):'不在同一个 Wi-Fi 也要控制时再开，需自建',tag(s.relay))}</div>
   <p class="note">首次运行时 Windows 防火墙会问是否允许联网：勾「专用网络」。</p></div></div>`};
 
 // ---------- 对话 ----------
@@ -423,7 +430,12 @@ async function todoAdd(el){const v=el.value.trim();if(!v)return;
   el.value='';el.blur();const r=await api('todo',{op:'add',title:v});if(!r.ok)snack(r.text);await refresh();const n=$(page).querySelector('.newtodo');n&&n.focus()}
 async function notes(op){const r=await api('notes',{op});if(op==='test'&&r.ok)snack('已发，看右下角');refresh()}
 async function runSc(n){const r=await api('run',{cmd:'shortcut_run',args:{name:n}});snack(r.text)}
-async function phone(cmd,args){const r=await api('phone',{cmd,args:args||{}});snack(r.text)}
+async function phone(cmd,args){snack('正在发给手机…');const r=await api('phone',{cmd,args:args||{}});snack(r.text)}
+function phoneVol(){const v=prompt('手机媒体音量（0–100）','30');if(v===null)return;const n=parseInt(v,10);if(!(n>=0&&n<=100)){snack('要在 0–100');return}phone('volume_set',{percent:n})}
+function phoneUrl(){const u=(prompt('在手机上打开的网址','https://')||'').trim();if(!u||u==='https://')return;phone('open_url',{url:/^https?:\/\//.test(u)?u:'https://'+u})}
+function phoneApp(){const n=(prompt('打开手机上的哪个 App？（写桌面上的名字，或包名如 com.tencent.mm）','')||'').trim();if(!n)return;phone('open_app',/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i.test(n)?{package:n}:{name:n})}
+function phoneNote(){const t=(prompt('发到手机的通知内容','')||'').trim();if(!t)return;phone('notify',{title:'电脑提醒',text:t})}
+async function unpin(){if(!confirm('忘掉已配对手机的证书？手机下次加密连上时会重新记住（手机重装 / 清过数据后连不上时用）。'))return;const r=await api('pairing',{op:'unpin'});snack(r.text)}
 async function setv(k,v){if(!LIVE){S.settings[k]=v;if(k==='llm_key'||k==='asr_key')S.settings[k+'_set']=!!v;render();return}
   const r=await api('settings',{[k]:v});snack(r.text);if(r.settings)S.settings=r.settings;render()}
 async function testLlm(){snack('测试中…');const r=await api('test_llm',{});snack(r.text)}
