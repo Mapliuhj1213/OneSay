@@ -6,15 +6,20 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.IDN;
 import java.net.URI;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,6 +37,10 @@ import java.util.regex.Pattern;
  * 被控端分两种（{@link Target}）：电脑（严格矩阵：A 类系统改动任何级别都只生成脚本，B 类简单设置先问后做，完全访问只多出
  * 「运行工作区里已有脚本」和「操作第三方 App」）和手机（宽一些：简单设置自动档直接做，网络 / 安全设置先问后做）。
  * 两边共同的红线：不给 OneSay / 沙箱自己授权（pm grant、appops、无障碍 / 通知监听、设备管理器、Shizuku 自动批准）→ 只生成脚本。
+ *
+ * <p>电脑上用户自己定义的快捷指令单独一类（{@link Cat#SHORTCUT}，不算「运行脚本」）：只认电脑快捷指令列表里有的、按稳定 id + 内容哈希对上；
+ * 第一次从手机触发（或内容改过、哈希对不上）在电脑上问「允许 / 拒绝」（30 秒 = 拒绝），可选「以后直接执行」；这样批准过的在自动 / 完全访问下直接执行，
+ * 只读拒绝。内容碰了严格规则（注册表 / 网络 / 服务 / 给自己授权，或看不出内容的编码命令）的快捷指令只能自己运行，不能批准远程直接执行。
  */
 public final class LinkPolicy {
 
@@ -65,7 +74,9 @@ public final class LinkPolicy {
     public static final String R_DENIED_BY_LEVEL = "denied_by_level", R_CONFIRM_TIMEOUT = "needs_confirm_timeout",
             R_CONFIRM_DENIED = "confirm_denied", R_UNTRUSTED_URL = "untrusted_url", R_BLOCKED_APP = "blocked_app",
             R_CLIPBOARD_REJECTED = "clipboard_rejected", R_SCRIPT_GENERATED = "script_generated", R_SYSTEM_APP = "system_app",
-            R_OUTSIDE_WORKSPACE = "outside_workspace", R_UNKNOWN = "unknown_command";
+            R_OUTSIDE_WORKSPACE = "outside_workspace", R_UNKNOWN = "unknown_command",
+            R_SHORTCUT_NEEDS_APPROVAL = "shortcut_needs_approval", R_SHORTCUT_CHANGED = "shortcut_changed",
+            R_SHORTCUT_BLOCKED = "shortcut_category_blocked";
 
     /** 指令的类别（决定矩阵行）。 */
     public enum Cat {
@@ -90,6 +101,8 @@ public final class LinkPolicy {
         UNINSTALL_APP,
         /** 运行工作区 scripts/ 里已有的脚本。 */
         RUN_WS_SCRIPT,
+        /** 电脑上用户自己定义的快捷指令（快捷指令列表里有的，按 id + 内容哈希批准）。和 RUN_WS_SCRIPT 分开。 */
+        SHORTCUT,
         /** 任意 shell / su / Shizuku 命令（分类不出更具体的）。 */
         SHELL_EXEC,
         /** 给自己（或任何 App）授权：pm grant、appops、无障碍 / 通知监听、设备管理器、Shizuku 批准。 */
@@ -106,6 +119,12 @@ public final class LinkPolicy {
         public boolean appBlocked, appSystem;
         public String appLabel = "";
         public boolean insideWorkspace = true;
+        /** 快捷指令：在电脑的快捷指令列表里；已批准（id 和内容哈希都对上）；批准过但内容变了（哈希对不上）。 */
+        public boolean shortcutListed, shortcutApproved, shortcutChanged;
+        /** 快捷指令内容碰了严格规则的原因；非空 = 只能自己运行，不能批准远程直接执行。 */
+        public String shortcutBlocked = "";
+        /** 快捷指令内容的 SHA-256（十六进制），批准时记下。 */
+        public String shortcutHash = "";
     }
 
     public static final class Decision {
@@ -126,6 +145,7 @@ public final class LinkPolicy {
         static Decision allow() { return new Decision(Verdict.ALLOW, "", "", false); }
         static Decision heads(String text) { return new Decision(Verdict.ALLOW, "", text, true); }
         static Decision confirm(String text) { return new Decision(Verdict.CONFIRM, "", text, false); }
+        static Decision confirm(String reason, String text) { return new Decision(Verdict.CONFIRM, reason, text, false); }
         static Decision deny(String reason, String text) { return new Decision(Verdict.DENY, reason, text, false); }
         static Decision script(String text) { return new Decision(Verdict.SCRIPT, R_SCRIPT_GENERATED, text, false); }
 
@@ -177,6 +197,16 @@ public final class LinkPolicy {
             if (k == null || k.verdict == ClipCheck.REJECT) return Decision.deny(R_CLIPBOARD_REJECTED, k == null ? "剪贴板内容没过检查" : k.why);
             if (k.verdict == ClipCheck.SENSITIVE) return Decision.confirm("写入敏感内容（" + k.why + "），60 秒后自动清除");
             return full ? Decision.allow() : Decision.confirm("写剪贴板（" + k.chars + " 字）");
+        }
+
+        // ---- 快捷指令（自动 / 完全访问一样）：列表里有 → 内容没碰严格规则 → 按 id + 哈希批准过就直接执行，否则先问
+        if (c == Cat.SHORTCUT) {
+            if (!f.shortcutListed) return Decision.deny(R_UNKNOWN, "电脑的快捷指令列表里没有这个");
+            if (f.shortcutBlocked != null && f.shortcutBlocked.length() > 0)
+                return Decision.deny(R_SHORTCUT_BLOCKED, "快捷指令" + f.shortcutBlocked + "，只能你在电脑上自己运行，不能批准远程直接执行");
+            if (f.shortcutApproved) return Decision.allow();
+            if (f.shortcutChanged) return Decision.confirm(R_SHORTCUT_CHANGED, "快捷指令内容改过了，需要重新批准");
+            return Decision.confirm(R_SHORTCUT_NEEDS_APPROVAL, "第一次从手机运行这个快捷指令，需要你批准");
         }
 
         // ---- 级别矩阵（自动 / 完全访问）
@@ -242,7 +272,8 @@ public final class LinkPolicy {
         if ("file_write".equals(cmd)) return Cat.WORKSPACE_WRITE;
         if ("uninstall_app".equals(cmd)) return Cat.UNINSTALL_APP;
         if ("app_close".equals(cmd)) return Cat.APP_OPERATE;
-        if (in(cmd, "script_run", "shortcut_run")) return Cat.RUN_WS_SCRIPT;
+        if ("script_run".equals(cmd)) return Cat.RUN_WS_SCRIPT;
+        if ("shortcut_run".equals(cmd)) return Cat.SHORTCUT;
         if ("sys_exec".equals(cmd)) return Cat.SHELL_EXEC;
         return Cat.UNKNOWN;
     }
@@ -293,6 +324,120 @@ public final class LinkPolicy {
         if (PHONE_SIMPLE.matcher(s).find()) return Cat.SIMPLE_SETTING;
         if (PHONE_NETSEC.matcher(s).find()) return Cat.NET_SEC_SETTING;
         return Cat.SHELL_EXEC;
+    }
+
+    // ================================================================== 快捷指令（电脑上用户自己定义的）
+
+    /** 快捷指令的稳定 id：文件名（含扩展名）转小写。改名 = 新快捷指令，要重新批准。 */
+    public static String shortcutId(String fileName) {
+        String n = fileName == null ? "" : fileName.trim();
+        int k = Math.max(n.lastIndexOf('/'), n.lastIndexOf('\\'));
+        return (k >= 0 ? n.substring(k + 1) : n).toLowerCase(Locale.ROOT);
+    }
+
+    public static String sha256Hex(byte[] data) {
+        try {
+            byte[] h = MessageDigest.getInstance("SHA-256").digest(data == null ? new byte[0] : data);
+            StringBuilder b = new StringBuilder();
+            for (byte x : h) b.append(String.format(Locale.ROOT, "%02x", x & 0xff));
+            return b.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("SHA-256", e);
+        }
+    }
+
+    /** 脚本文件字节 → 文字：认 UTF-8 / UTF-16（带 BOM，或看起来是 UTF-16LE 的）；其余按 UTF-8（GBK 的 .bat 里英文关键字照样认得出）。 */
+    public static String decodeScript(byte[] b) {
+        if (b == null) return "";
+        try {
+            if (b.length >= 3 && (b[0] & 0xff) == 0xEF && (b[1] & 0xff) == 0xBB && (b[2] & 0xff) == 0xBF) return new String(b, 3, b.length - 3, "UTF-8");
+            if (b.length >= 2 && (b[0] & 0xff) == 0xFF && (b[1] & 0xff) == 0xFE) return new String(b, 2, b.length - 2, "UTF-16LE");
+            if (b.length >= 2 && (b[0] & 0xff) == 0xFE && (b[1] & 0xff) == 0xFF) return new String(b, 2, b.length - 2, "UTF-16BE");
+            int zeroOdd = 0;
+            for (int i = 1; i < b.length; i += 2) if (b[i] == 0) zeroOdd++;
+            if (b.length >= 4 && zeroOdd * 4 >= b.length) return new String(b, "UTF-16LE");
+            return new String(b, "UTF-8");
+        } catch (Exception e) {
+            return new String(b);
+        }
+    }
+
+    /** 看不出真实内容的写法（编码命令、动态执行），没法按严格规则检查。 */
+    private static final Pattern OPAQUE = Pattern.compile(
+            "(-(e|ec|enc|encodedcommand)\\s+[A-Za-z0-9+/=]{16,})|(\\bFromBase64String\\b)|(\\bInvoke-Expression\\b)|(\\biex\\b)",
+            Pattern.CASE_INSENSITIVE);
+
+    private static String firstHit(Pattern p, String s) {
+        Matcher m = p.matcher(s);
+        if (!m.find()) return null;
+        String h = oneLine(m.group());
+        return h.length() > 40 ? h.substring(0, 40) + "…" : h;
+    }
+
+    /**
+     * 快捷指令内容按电脑严格规则检查（定义时就判，内容一改重新判）：给自己授权、注册表 / 网络配置 / 服务驱动（电脑 A 类）、
+     * 看不出内容的编码命令 → 返回原因（只能自己运行，不能批准远程直接执行）；都没碰返回空串。注释里写到也算（宁严勿松）。
+     */
+    public static String shortcutBodyBlocked(String body) {
+        String s = body == null ? "" : body;
+        String h = firstHit(SELF_GRANT, s);
+        if (h != null) return "内容涉及授予权限（" + h + "）";
+        h = firstHit(PC_SYSTEM_A, s);
+        if (h != null) return "内容涉及注册表 / 网络配置 / 服务驱动（" + h + "）";
+        h = firstHit(OPAQUE, s);
+        if (h != null) return "内容用了编码 / 动态执行，看不出真正做什么（" + h + "）";
+        return "";
+    }
+
+    /**
+     * 一条快捷指令触发时的判定事实：listed = 在电脑快捷指令列表里；内容哈希和批准表（id → 哈希）比：相同 = 已批准，不同 = 内容变了；
+     * 内容碰严格规则 = blocked（不管批准表里有没有）。
+     */
+    public static Facts shortcutFacts(String id, byte[] content, Map<String, String> approvals, boolean listed) {
+        Facts f = new Facts();
+        f.shortcutListed = listed && content != null && id != null && id.length() > 0;
+        if (!f.shortcutListed) return f;
+        f.shortcutHash = sha256Hex(content);
+        f.shortcutBlocked = shortcutBodyBlocked(decodeScript(content));
+        String ok = approvals == null ? null : approvals.get(shortcutId(id));
+        f.shortcutApproved = ok != null && ok.equalsIgnoreCase(f.shortcutHash) && f.shortcutBlocked.length() == 0;
+        f.shortcutChanged = ok != null && !ok.equalsIgnoreCase(f.shortcutHash);
+        return f;
+    }
+
+    /** 批准表存成一行：id=哈希,id=哈希（id 做 URL 编码，防文件名里的 , = ）。坏的项跳过。 */
+    public static Map<String, String> parseApprovals(String text) {
+        Map<String, String> out = new LinkedHashMap<String, String>();
+        if (text == null) return out;
+        for (String part : text.split(",")) {
+            int eq = part.lastIndexOf('=');
+            if (eq <= 0) continue;
+            String h = part.substring(eq + 1).trim().toLowerCase(Locale.ROOT);
+            if (!h.matches("[0-9a-f]{64}")) continue;
+            try {
+                String id = shortcutId(URLDecoder.decode(part.substring(0, eq).trim(), "UTF-8"));
+                if (id.length() > 0) out.put(id, h);
+            } catch (Exception ignored) {
+                // 坏的项跳过
+            }
+        }
+        return out;
+    }
+
+    public static String formatApprovals(Map<String, String> m) {
+        StringBuilder b = new StringBuilder();
+        if (m == null) return "";
+        for (Map.Entry<String, String> e : m.entrySet()) {
+            String h = e.getValue() == null ? "" : e.getValue().toLowerCase(Locale.ROOT);
+            if (!h.matches("[0-9a-f]{64}")) continue;
+            try {
+                if (b.length() > 0) b.append(',');
+                b.append(URLEncoder.encode(shortcutId(e.getKey()), "UTF-8")).append('=').append(h);
+            } catch (Exception ignored) {
+                // UTF-8 一定有
+            }
+        }
+        return b.toString();
     }
 
     // ================================================================== 禁止类 App
@@ -821,6 +966,9 @@ public final class LinkPolicy {
         if (R_SYSTEM_APP.equals(code)) return "系统 App 不允许远程改动";
         if (R_OUTSIDE_WORKSPACE.equals(code)) return "只能写工作区里的文件";
         if (R_UNKNOWN.equals(code)) return "不认识的指令";
+        if (R_SHORTCUT_NEEDS_APPROVAL.equals(code)) return "这个快捷指令还没在电脑上批准";
+        if (R_SHORTCUT_CHANGED.equals(code)) return "快捷指令内容改过，需要在电脑上重新批准";
+        if (R_SHORTCUT_BLOCKED.equals(code)) return "快捷指令内容涉及注册表 / 网络 / 服务 / 授权，不能远程直接执行";
         return "";
     }
 

@@ -444,6 +444,135 @@ public class PcLinkV2InteropTest {
         }
     }
 
+    // ------------------------------------------------------------------ 电脑快捷指令批准（手机 → 电脑）
+
+    /** 后台等电脑界面上出现待确认，记下它，再按 allow / always 点掉（经电脑界面 API）。 */
+    static Thread answerOnPc(final boolean allow, final boolean always, final List<Map<?, ?>> seen) {
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    long end = System.currentTimeMillis() + 15000;
+                    while (System.currentTimeMillis() < end) {
+                        List<?> c = (List<?>) api("state", null).get("confirms");
+                        if (c != null && !c.isEmpty()) {
+                            Map<?, ?> x = (Map<?, ?>) c.get(0);
+                            seen.add(x);
+                            Map<String, Object> b = new TreeMap<String, Object>();
+                            b.put("id", x.get("id"));
+                            b.put("allow", allow);
+                            b.put("always", always);
+                            api("confirm", b);
+                            return;
+                        }
+                        Thread.sleep(100);
+                    }
+                } catch (Exception ignored) {
+                    // 断言在主线程里做
+                }
+            }
+        }, "pc-confirm");
+        t.setDaemon(true);
+        t.start();
+        return t;
+    }
+
+    static Map<?, ?> scEntry(String key, String id) throws Exception {
+        for (Object o : (List<?>) api("state", null).get(key)) if (id.equals(((Map<?, ?>) o).get("id"))) return (Map<?, ?>) o;
+        return null;
+    }
+
+    @Test public void shortcutApprovalThroughDesktopApi() throws Exception {
+        Assume.assumeTrue("电脑端 jar 还没有快捷指令批准（PcGuard$Shortcut），跳过", hasClass("com.onesay.desktop.PcGuard$Shortcut"));
+        Path scDir = Files.createTempDirectory("pclink-sc");
+        Path sc = scDir.resolve("下班模式.ps1");
+        Files.write(sc, "Start-Process notepad\r\n".getBytes(StandardCharsets.UTF_8));
+        assertEquals(Boolean.TRUE, api("settings", mm("scripts_dir", scDir.toString(), "pc_level", "auto")).get("ok"));
+        PcPairing pp = PcPairing.parse(pairing());
+        PcLanClient.Peer p = new PcLanClient.Peer("phone-sc", pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("phone-sc"));
+        InetSocketAddress addr = PcLanClient.locate(p, 3000, null);
+        assertNotNull(addr);
+        PcLanClient.Session s = PcLanClient.Session.open(p, addr, 5000);
+        try {
+            assertTrue(s.tls());
+            assertEquals("new", scEntry("shortcut_policy", "下班模式.ps1").get("status"));
+
+            // 第一次：电脑上弹确认（带「以后直接执行」），点拒绝 → shortcut_needs_approval + confirm_denied，中文原因
+            List<Map<?, ?>> seen = new CopyOnWriteArrayList<Map<?, ?>>();
+            Thread t = answerOnPc(false, false, seen);
+            PcLanClient.Result r = s.request("shortcut_run", mm("name", "下班模式"), 40000);
+            t.join(5000);
+            assertFalse(r.ok);
+            assertEquals(LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL, r.data.get("reason"));
+            assertEquals(LinkPolicy.R_CONFIRM_DENIED, r.data.get("confirm_result"));
+            assertEquals("这个快捷指令还没在电脑上批准", r.data.get("reason_zh"));
+            assertEquals(1, seen.size());
+            assertEquals(Boolean.TRUE, seen.get(0).get("always"));
+            assertTrue(String.valueOf(seen.get(0).get("detail")), String.valueOf(seen.get(0).get("detail")).contains("运行快捷指令「下班模式」"));
+
+            // 点「以后直接执行」→ 过了策略交给执行端（测试执行端不会真跑，回「不支持」但没有原因码）；批准表里有了，并写进配置
+            t = answerOnPc(true, true, seen);
+            r = s.request("shortcut_run", mm("name", "下班模式"), 40000);
+            t.join(5000);
+            assertEquals(2, seen.size());
+            assertNull(String.valueOf(r.data), r.data.get("reason"));
+            assertTrue(r.text, r.text.contains("shortcut_run"));
+            assertEquals("approved", scEntry("shortcut_approvals", "下班模式.ps1").get("status"));
+            assertEquals("approved", scEntry("shortcut_policy", "下班模式.ps1").get("status"));
+            String props = new String(Files.readAllBytes(dir.resolve("desktop.properties")), StandardCharsets.UTF_8);
+            assertTrue(props, props.contains("shortcut_approvals=") && !props.contains("shortcut_approvals=\n"));
+
+            // 之后自动 / 完全访问都不问，直接执行
+            for (String lvl : new String[]{"auto", "full"}) {
+                api("settings", mm("pc_level", lvl));
+                long t0 = System.currentTimeMillis();
+                r = s.request("shortcut_run", mm("name", "下班模式.ps1"), 40000);
+                assertNull(lvl + " " + r.data, r.data.get("reason"));
+                assertTrue(lvl, System.currentTimeMillis() - t0 < 10000);
+                assertEquals(lvl, ((List<?>) api("state", null).get("confirms")).size(), 0);
+            }
+            assertEquals(2, seen.size());
+            // 只读：拒
+            api("settings", mm("pc_level", "read_only"));
+            assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, s.request("shortcut_run", mm("name", "下班模式"), 40000).data.get("reason"));
+            api("settings", mm("pc_level", "auto"));
+
+            // 改内容 → shortcut_changed，重新问
+            Files.write(sc, "Start-Process calc\r\n".getBytes(StandardCharsets.UTF_8));
+            assertEquals("changed", scEntry("shortcut_policy", "下班模式.ps1").get("status"));
+            t = answerOnPc(false, false, seen);
+            r = s.request("shortcut_run", mm("name", "下班模式"), 40000);
+            t.join(5000);
+            assertEquals(LinkPolicy.R_SHORTCUT_CHANGED, r.data.get("reason"));
+            assertEquals(3, seen.size());
+
+            // 电脑界面撤销 → 回到第一次
+            Map<String, Object> rv = api("shortcuts", mm("op", "revoke", "id", "下班模式.ps1"));
+            assertEquals(String.valueOf(rv), Boolean.TRUE, rv.get("ok"));
+            assertNull(scEntry("shortcut_approvals", "下班模式.ps1"));
+            assertEquals(Boolean.FALSE, api("shortcuts", mm("op", "revoke", "id", "下班模式.ps1")).get("ok"));
+            t = answerOnPc(false, false, seen);
+            r = s.request("shortcut_run", mm("name", "下班模式"), 40000);
+            t.join(5000);
+            assertEquals(LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL, r.data.get("reason"));
+
+            // 内容碰严格规则：不问、不能批准，原因带回手机
+            Files.write(scDir.resolve("改代理.ps1"), "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings' -Name ProxyEnable -Value 1".getBytes(StandardCharsets.UTF_8));
+            int before = seen.size();
+            r = s.request("shortcut_run", mm("name", "改代理"), 40000);
+            assertEquals(LinkPolicy.R_SHORTCUT_BLOCKED, r.data.get("reason"));
+            assertTrue(r.text, r.text.contains("只能你在电脑上自己运行"));
+            assertEquals(before, seen.size());
+            Map<?, ?> blk = scEntry("shortcut_policy", "改代理.ps1");
+            assertEquals("blocked", blk.get("status"));
+            assertTrue(String.valueOf(blk.get("why")), String.valueOf(blk.get("why")).contains("注册表"));
+            // 列表里没有的
+            assertEquals(LinkPolicy.R_UNKNOWN, s.request("shortcut_run", mm("name", "nope"), 40000).data.get("reason"));
+        } finally {
+            s.close();
+            api("settings", mm("scripts_dir", "", "pc_level", "auto"));
+        }
+    }
+
     @Test public void healthzProbeAnswersOnSamePort() {
         assertTrue(PcLanClient.healthz(new InetSocketAddress("127.0.0.1", port), 1500));
         assertFalse(PcLanClient.healthz(new InetSocketAddress("127.0.0.1", 1), 500));

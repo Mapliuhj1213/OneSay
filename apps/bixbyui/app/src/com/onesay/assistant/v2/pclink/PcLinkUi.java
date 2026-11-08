@@ -367,10 +367,10 @@ public final class PcLinkUi {
     // ================================================================== 动作
 
     static void simple(final ConsoleHost host, String cmd, Map<String, Object> args, String pending) {
-        // link-v2：电脑上要确认的指令（音量 / 关机 / 睡眠等 B 类）电脑最多等 30 秒，手机这边多等一会儿
+        // link-v2：电脑上要确认的指令（音量 / 关机 / 睡眠等 B 类；快捷指令第一次 / 改过后要批准）电脑最多等 30 秒，手机这边多等一会儿
         LinkPolicy.Cat cat = LinkPolicy.pcCat(cmd);
         boolean mayConfirm = cat == LinkPolicy.Cat.SIMPLE_SETTING || cat == LinkPolicy.Cat.POWER || cat == LinkPolicy.Cat.OPEN_URL
-                || cat == LinkPolicy.Cat.CLIPBOARD_WRITE || cat == LinkPolicy.Cat.RUN_WS_SCRIPT;
+                || cat == LinkPolicy.Cat.CLIPBOARD_WRITE || cat == LinkPolicy.Cat.RUN_WS_SCRIPT || cat == LinkPolicy.Cat.SHORTCUT;
         host.toast(mayConfirm ? pending + "（电脑上可能要点确认）" : pending);
         PcLink.run(host.activity(), cmd, args, mayConfirm ? 40000 : 15000, new PcLink.Done() {
             @Override public void done(PcLanClient.Result r) {
