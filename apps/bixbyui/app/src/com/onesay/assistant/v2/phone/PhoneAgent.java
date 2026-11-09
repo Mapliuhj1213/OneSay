@@ -115,6 +115,13 @@ public final class PhoneAgent {
     public int maxElementLines = 120;
     /** ★ mika-plug：Mika 执行层插件（null 或全关 = 原行为）。 */
     public MikaExec mika;
+    /**
+     * ★ stable-screen：动作之后读屏前先等画面稳定（{@link StableRead}），执行一批里第一个指名元素的步骤前重读核对编号。
+     * null = 关（原行为，读屏次数与改前一致）；真机入口 {@link PhoneHooks} 打开。
+     */
+    public StableRead.Params settle;
+    /** ★ stable-screen 统计：等稳定多读的次数、超时没稳定的次数、编号失效拦下的步数、核对时发现元素挪了位置的次数。 */
+    public int settleReads, settleUnstable, refStale, refMoved;
 
     private final Driver mD;
     private final Planner mP;
@@ -129,6 +136,7 @@ public final class PhoneAgent {
 
     public Result run(String goal, String startPkg) {
         Result res = new Result();
+        mRes = res;
         long t0 = mD.now();
         TaskBudget budget = TaskBudget.forTask(unattended, t0);
         List<String> history = new ArrayList<String>();
@@ -137,7 +145,7 @@ public final class PhoneAgent {
             mD.launch(startPkg);
             mD.waitIdle(400, 4000);
         }
-        UiTree screen = mD.observe(mIds);
+        UiTree screen = startPkg != null && startPkg.length() > 0 ? observeAfterAction("打开应用") : mD.observe(mIds);
         String lastBatchReport = "";
         boolean wantShot = false;
         int stepNo = 0;
@@ -288,6 +296,26 @@ public final class PhoneAgent {
                 pendingTakeover = tk;
                 break;
             }
+            if (i == 0 && settle != null && settle.recheckRefs && targetsRef(s) && cur != null && cur.find(s.id) != null) {
+                // ★ stable-screen：模型思考的这几秒里界面可能自己变了（加载完、弹窗、列表刷新）。执行前重读一次，
+                // 编号还在就按新位置执行；不在了 / 分不清 → 明确报 REF_STALE，把新界面交回模型，不点旧坐标。
+                UiTree fresh = mD.observe(mIds);
+                if (fresh != null) {
+                    String stale = StableRead.checkRef(s.id, cur, fresh);
+                    UiTree.El was = cur.find(s.id), now = fresh.find(s.id);
+                    cur = fresh;
+                    if (stale != null) {
+                        refStale++;
+                        res.trace.add("ref stale [" + s.id + "]");
+                        rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(stale).append("\n");
+                        break;
+                    }
+                    if (was != null && now != null && (was.cx() != now.cx() || was.cy() != now.cy())) {
+                        refMoved++;
+                        res.trace.add("ref moved [" + s.id + "] " + was.cx() + "," + was.cy() + "→" + now.cx() + "," + now.cy());
+                    }
+                }
+            }
             String bad = PhonePlan.validate(s, cur);
             if (bad != null) {
                 rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(bad).append("\n");
@@ -308,7 +336,15 @@ public final class PhoneAgent {
                     rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 被用户拒绝（").append(sens).append("），别再尝试这一步。\n");
                     break;
                 }
+                UiTree asked = cur;
                 cur = mD.observe(mIds);   // 用户可能动过
+                String staleAfterAsk = settle != null && settle.recheckRefs && targetsRef(s) ? StableRead.checkRef(s.id, asked, cur) : null;
+                if (staleAfterAsk != null) {   // ★ stable-screen：确认期间编号失效（换了位置且有同名元素）
+                    refStale++;
+                    res.trace.add("ref stale after confirm [" + s.id + "]");
+                    rep.append("用户确认期间界面变了，第 ").append(i + 1).append(" 步没执行：").append(staleAfterAsk).append("\n");
+                    break;
+                }
                 if (PhonePlan.validate(s, cur) != null) {
                     rep.append("用户确认期间界面变了，第 ").append(i + 1).append(" 步没执行。\n");
                     break;
@@ -330,6 +366,7 @@ public final class PhoneAgent {
             if (paceSite != null) mika.paceDone(paceSite, mD.now());
             UiTree after;
             String wait;
+            mLastUnstable = false;
             if (s.hasCondition() || s.waitStable || s.op.equals("wait")) {
                 Object[] w = waitFor(s, cur);
                 after = (UiTree) w[0];
@@ -339,9 +376,11 @@ public final class PhoneAgent {
                 wait = "";
             } else {
                 mD.waitIdle(250, 1500);
-                after = mD.observe(mIds);
+                after = observeAfterAction(s.op);
                 wait = "";
             }
+            if (mLastUnstable && settle != null)
+                wait = wait.length() == 0 ? "界面仍在变化（等了 " + settle.maxWaitMs + "ms 没稳定，读的是最后一次）" : wait + "，界面仍在变化";
             boolean changed = after != null && cur != null && !after.signature().equals(cur.signature());
             budget.onAction(s.sig(), changed);
             done++;
@@ -424,16 +463,22 @@ public final class PhoneAgent {
                 && ((s.expect.length() > 0 && before.hasText(s.expect)) || (s.expectApp.length() > 0 && s.expectApp.equals(before.pkg)));
         String beforeSig = before == null ? null : before.signature();
         boolean changedOnce = false;
+        // ★ stable-screen：条件看起来成立时，再确认画面已稳定（读到的不是转场半截），稳定后的那屏仍满足才算数；
+        //   waitStable 自己就要求两次一致，wait 步骤之前没有动作，这两种不再额外确认
+        boolean confirmStable = settle != null && !s.waitStable && !s.op.equals("wait");
         while (true) {
             mD.waitIdle(s.waitStable ? 500 : 250, 1500);
             t = mD.observe(mIds);
-            boolean ok = t != null;
             if (t != null && beforeSig != null && !t.signature().equals(beforeSig)) changedOnce = true;
-            if (ok && preMet && !changedOnce) ok = false;
-            // 条件文字本来就在屏上：要求它出现在一个「新」元素里（「连接 · Wi-Fi， 蓝牙」不算，新页面的「蓝牙」开关才算）
-            if (ok && s.expect.length() > 0) ok = preMet ? t.hasNewText(s.expect, before) : t.hasText(s.expect);
-            if (ok && s.expectGone.length() > 0) ok = !t.hasText(s.expectGone);
-            if (ok && s.expectApp.length() > 0) ok = s.expectApp.equals(t.pkg);
+            boolean ok = condMet(s, t, before, preMet, changedOnce);
+            if (ok && confirmStable) {
+                StableRead.Result<UiTree> sr = settleFrom(t, Math.max(1, end - mD.now()));
+                if (sr.value != null) {
+                    t = sr.value;
+                    if (beforeSig != null && !t.signature().equals(beforeSig)) changedOnce = true;
+                }
+                ok = condMet(s, t, before, preMet, changedOnce);   // 超时没稳定也按最后一次判（已记 unstable），不拖到条件超时
+            }
             if (ok && s.waitStable) {
                 String sig = t.signature();
                 stable = sig.equals(lastSig) ? stable + 1 : 0;
@@ -445,6 +490,77 @@ public final class PhoneAgent {
             mD.sleep(120);
         }
         return new Object[]{t, "没等到" + cond(s) + "（等了 " + (mD.now() - w0) + "ms）"};
+    }
+
+    /** waitFor 的条件判断（拆出来给「稳定后再判一次」复用）。 */
+    static boolean condMet(PhonePlan.Step s, UiTree t, UiTree before, boolean preMet, boolean changedOnce) {
+        boolean ok = t != null;
+        if (ok && preMet && !changedOnce) ok = false;
+        // 条件文字本来就在屏上：要求它出现在一个「新」元素里（「连接 · Wi-Fi， 蓝牙」不算，新页面的「蓝牙」开关才算）
+        if (ok && s.expect.length() > 0) ok = preMet ? t.hasNewText(s.expect, before) : t.hasText(s.expect);
+        if (ok && s.expectGone.length() > 0) ok = !t.hasText(s.expectGone);
+        if (ok && s.expectApp.length() > 0) ok = s.expectApp.equals(t.pkg);
+        return ok;
+    }
+
+    // ------------------------------------------------------------------ ★ stable-screen
+
+    private Result mRes;
+    /** 最近一次 observeAfterAction 超时没稳定。 */
+    private boolean mLastUnstable;
+
+    static boolean targetsRef(PhonePlan.Step s) {
+        return s.id >= 0 && (s.op.equals("tap") || s.op.equals("long") || s.op.equals("type") || s.op.equals("scroll"));
+    }
+
+    private final StableRead.Clock mClock = new StableRead.Clock() {
+        @Override public long now() {
+            return mD.now();
+        }
+
+        @Override public void sleep(long ms) {
+            if (ms > 0) mD.sleep(ms);
+        }
+    };
+
+    private final StableRead.Source<UiTree> mSource = new StableRead.Source<UiTree>() {
+        @Override public UiTree read() {
+            return mD.observe(mIds);
+        }
+
+        @Override public String fingerprint(UiTree t) {
+            return t.settleFingerprint();
+        }
+    };
+
+    /** 动作之后的读屏：settle 关 = 读一次（原行为）；开 = 等到连续两次指纹一致，最长 maxWaitMs，超时用最后一次并记 unstable。 */
+    UiTree observeAfterAction(String what) {
+        mLastUnstable = false;
+        if (settle == null) return mD.observe(mIds);
+        StableRead.Result<UiTree> r = StableRead.await(mClock, mSource, settle);
+        noteSettle(r, what, Math.max(0, r.reads - 1));
+        return r.value;
+    }
+
+    private StableRead.Result<UiTree> settleFrom(UiTree seed, long capMs) {
+        mLastUnstable = false;
+        StableRead.Result<UiTree> r = StableRead.await(mClock, mSource, seed, true, settle, capMs);
+        noteSettle(r, "wait", r.reads);
+        return r;
+    }
+
+    private void noteSettle(StableRead.Result<UiTree> r, String what, int extraReads) {
+        settleReads += extraReads;
+        if (r.stable) return;
+        settleUnstable++;
+        mLastUnstable = true;
+        String line = "settle unstable " + what + " " + r.waitedMs + "ms reads=" + r.reads;
+        if (mRes != null) mRes.trace.add(line);
+        try {
+            android.util.Log.w("PhoneAgent", "[PHONE] 读屏 unstable：" + what + " 等了 " + r.waitedMs + "ms、读了 " + r.reads
+                    + " 次指纹仍不一致，用最后一次结果");
+        } catch (Throwable ignored) {   // JVM 测试没有 Log 时不影响逻辑
+        }
     }
 
     static String cond(PhonePlan.Step s) {
@@ -495,7 +611,7 @@ public final class PhoneAgent {
             boolean moved = mD.scroll(list, 1);
             budget.onAction("collect:scroll", true);
             mD.waitIdle(300, 1500);
-            t = mD.observe(mIds);
+            t = observeAfterAction("collect");
             p++;
             if (!moved || t == null || t.signature().equals(before)) {
                 why = "到底了";

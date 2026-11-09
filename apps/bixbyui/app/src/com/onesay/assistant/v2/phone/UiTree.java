@@ -344,6 +344,37 @@ public final class UiTree {
         return Integer.toHexString(b.toString().hashCode()) + ":" + els.size();
     }
 
+    /**
+     * ★ stable-screen：画面稳定判定用的指纹（结构 + 文字 + 位置 + 状态，不含编号）。和 {@link #signature} 不同：
+     * 这里带边界，转场 / 滑入动画里元素在动也算没稳定；编号不进指纹，同一画面重读两次指纹一定相同。
+     */
+    public String settleFingerprint() {
+        long h = 0xcbf29ce484222325L;
+        h = fnv(h, pkg);
+        h = fnv(h, activity);
+        h = fnv(h, ime ? "I" : "-");
+        for (El e : els) {
+            h = fnv(h, e.cls);
+            h = fnv(h, e.rid);
+            h = fnv(h, e.label);
+            h = fnv(h, e.l + "," + e.t + "," + e.r + "," + e.b);
+            h = fnv(h, (e.click ? "c" : "") + (e.edit ? "e" : "") + (e.scroll ? "s" : "") + (e.check ? (e.checked ? "+" : "-") : "")
+                    + (e.selected ? "S" : "") + (e.focused ? "F" : "") + (e.enabled ? "" : "x"));
+        }
+        return Long.toHexString(h) + ":" + els.size();
+    }
+
+    private static long fnv(long h, String s) {
+        String v = s == null ? "" : s;
+        for (int i = 0; i < v.length(); i++) {
+            h ^= v.charAt(i);
+            h *= 0x100000001b3L;
+        }
+        h ^= 0x1f;   // 字段分隔
+        h *= 0x100000001b3L;
+        return h;
+    }
+
     /** 动作前后的差异（给模型，≤ maxItems 项）。 */
     public static String diff(UiTree before, UiTree after, int maxItems) {
         if (after == null) return "（动作后读不到界面）";

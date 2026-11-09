@@ -26,6 +26,16 @@ public final class PhoneHooks {
         return ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true);
     }
 
+    /** ★ stable-screen：动作后等画面稳定再读（默认开）。 */
+    public static final String KEY_SETTLE = "settle_after_action";
+
+    public static boolean settleEnabled(Context ctx) {
+        return ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_SETTLE, true);
+    }
+
+    /** 最近一次任务的稳定读屏统计（dump 用）。 */
+    private static volatile String sSettleStats = "";
+
     public static boolean busy() {
         return sBusy;
     }
@@ -66,6 +76,7 @@ public final class PhoneHooks {
             return res;
         }
         sBusy = true;
+        sSettleStats = "";
         FastScreenDriver drv = new FastScreenDriver(app);
         LlmPhonePlanner planner = new LlmPhonePlanner(com.onesay.assistant.v2.errand.ErrandHooks.llmFor(app));
         final ExecModeController exec = execMode ? new ExecModeController(app, PhoneAgent.clip(goal, 16), pkg) : null;
@@ -96,8 +107,14 @@ public final class PhoneHooks {
             }
             if (script != null) Log.i(TAG, "[PHONE] 用脚本化 planner（debug 直测，不调大模型）");
             agent.legacyOneStep = legacy;
+            if (settleEnabled(app)) {   // ★ stable-screen：动作后等画面稳定再读 + 执行前核对编号（偏好里可关，排查用）
+                agent.settle = StableRead.Params.defaults();
+                Log.i(TAG, "[PHONE] 画面稳定再读：" + agent.settle);
+            }
             Log.i(TAG, "[PHONE] 开始：" + goal + " pkg=" + pkg + (legacy ? "（改前口径：单步 + 8 步上限）" : ""));
             res = agent.run(goal, pkg);
+            sSettleStats = "settle=" + (agent.settle != null) + " settleReads=" + agent.settleReads + " unstable=" + agent.settleUnstable
+                    + " refStale=" + agent.refStale + " refMoved=" + agent.refMoved;
             Log.i(TAG, "[PHONE] 结束 " + res.status + " 模型 " + res.modelCalls + " 次 动作 " + res.actions + " 个 " + res.ms + "ms："
                     + (res.answer.length() > 0 ? res.answer : res.reason));
             if (exec != null) exec.finish(res.status == PhoneAgent.Status.DONE, res.status == PhoneAgent.Status.DONE ? res.answer : res.reason);
@@ -125,6 +142,7 @@ public final class PhoneHooks {
                     .append(" maxMs=").append(d.observeMsMax).append(" a11yClicks=").append(d.a11yClicks).append(" injectedTaps=")
                     .append(d.injectedTaps).append(" setTexts=").append(d.setTexts).append(" pastes=").append(d.pastes).append('\n');
             b.append("modelMs=").append(p.callMs).append('\n');
+            b.append(sSettleStats).append('\n');
             if (e != null) {
                 b.append("stray=").append(e.state.strayTouches).append(" navBack=").append(e.navBack).append(" navHome=").append(e.navHome)
                         .append(" confirms=").append(e.confirms).append('\n');
