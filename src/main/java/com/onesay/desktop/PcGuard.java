@@ -18,7 +18,8 @@ import java.util.function.Consumer;
 
 /**
  * link-v2 · 电脑作为被控端：手机（或任何配对设备）发来的每条指令先过这里 —— 执行级别（{@link LinkPolicy}，电脑用严格矩阵）
- * + 网址 / 剪贴板信任检查 + 工作区沙箱。结论：直接执行 / 先在电脑上确认（30 秒不点算拒绝）/ 拒绝 / 只在工作区 scripts/ 生成脚本。
+ * + 网址 / 剪贴板信任检查 + 工作区沙箱。结论：直接执行 / 先在电脑上确认（只认本机鼠标 / 键盘点击；0.7 秒后才能点「允许」；
+ * 30 秒不点、失焦没人点、关窗口、Esc、出错都算拒绝，见 {@link ConfirmGate}）/ 拒绝 / 只在工作区 scripts/ 生成脚本。
  *
  * <p>电脑端已有的能力（截图、音量、关机、快捷指令…）和以后新增的都必须在 {@link LinkPolicy#pcCat} 里登记类别，没登记的一律拒绝。
  * A 类（注册表、网络配置、服务 / 驱动）与工作区以外的写入：任何级别都只生成 .ps1 脚本，永远不执行；给自己授权同样只生成脚本。
@@ -43,11 +44,36 @@ public final class PcGuard {
         }
     }
 
-    /** 界面轮询用的待确认列表。 */
+    /**
+     * 界面轮询用的待确认列表。每条带一个 {@link ConfirmGate}：确认框在界面上显示出来约 0.7 秒后「允许」才算数（失焦再回来重新等），
+     * 「允许」只认本机鼠标 / 键盘点击；超时、失焦后没人点、界面没动静、窗口关闭、出错都按拒绝。时钟可注入（测试用）。
+     */
     public static final class Confirms implements Confirmer {
-        private final Map<Integer, Object[]> pending = new ConcurrentHashMap<>();
+        private static final int PENDING = Integer.MIN_VALUE;
+
+        private static final class Pending {
+            final CountDownLatch latch = new CountDownLatch(1);
+            final AtomicInteger res = new AtomicInteger(PENDING);
+            final Map<String, Object> info;
+            final ConfirmGate gate;
+
+            Pending(Map<String, Object> info, ConfirmGate gate) {
+                this.info = info;
+                this.gate = gate;
+            }
+        }
+
+        private final Map<Integer, Pending> pending = new ConcurrentHashMap<>();
         private final AtomicInteger seq = new AtomicInteger(1);
         volatile Consumer<String> onNew = s -> { };
+        /** 时钟（毫秒）；测试换成假时钟。 */
+        public volatile java.util.function.LongSupplier clock = System::currentTimeMillis;
+        /** 等待时多久看一次失焦 / 界面没动静。 */
+        volatile long tickMs = 100;
+        /** 界面最近报的窗口焦点（新弹出的请求按这个起步）。 */
+        private volatile boolean windowFocused;
+
+        private long now() { return clock.getAsLong(); }
 
         @Override public int ask(String from, String cmd, String detail, long timeoutMs) {
             return ask(from, cmd, detail, timeoutMs, false);
@@ -55,46 +81,114 @@ public final class PcGuard {
 
         @Override public int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways) {
             int id = seq.getAndIncrement();
-            CountDownLatch l = new CountDownLatch(1);
-            int[] res = {TIMEOUT};
+            long t0 = now();
             Map<String, Object> info = new TreeMap<>();
             info.put("id", (long) id);
             info.put("from", from);
             info.put("cmd", cmd);
             info.put("detail", detail);
-            info.put("deadline", System.currentTimeMillis() + timeoutMs);
+            info.put("deadline", t0 + timeoutMs);
             info.put("always", offerAlways);
-            pending.put(id, new Object[]{l, res, info});
-            try { onNew.accept(detail); } catch (Exception ignored) { }
+            info.put("arm_ms", ConfirmGate.ARM_MS);
+            Pending p = new Pending(info, new ConfirmGate(t0, timeoutMs));
+            pending.put(id, p);
             try {
-                l.await(timeoutMs, TimeUnit.MILLISECONDS);
+                try { onNew.accept(detail); } catch (Throwable ignored) { } // 通知失败不影响：照样等本机点击，等不到就拒
+                while (p.res.get() == PENDING) {
+                    if (p.latch.await(Math.max(1, tickMs), TimeUnit.MILLISECONDS)) break;
+                    String end = p.gate.expired(now());
+                    if (end != null) {
+                        // 窗口关了 = 拒绝；超时 / 失焦没人点 / 界面没动静 = 没人确认（也是拒绝）
+                        p.res.compareAndSet(PENDING, ConfirmGate.END_CLOSED.equals(end) ? DENY : TIMEOUT);
+                        break;
+                    }
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                p.res.compareAndSet(PENDING, TIMEOUT);
+            } catch (Throwable t) {
+                p.res.compareAndSet(PENDING, DENY); // 出错 = 拒绝
             } finally {
+                p.res.compareAndSet(PENDING, TIMEOUT);
+                p.gate.close();
                 pending.remove(id);
             }
-            return res[0];
+            return p.res.get();
         }
 
+        /** 本机鼠标点击（旧调用口）：同 {@link #answer}(id, allow, false, MOUSE)。 */
         public boolean resolve(int id, boolean allow) {
             return resolve(id, allow, false);
         }
 
-        /** always 只在这条请求给了「以后直接执行」时才算数，否则当「允许一次」。 */
-        @SuppressWarnings("unchecked")
+        /** 本机鼠标点击（旧调用口）。always 只在这条请求给了「以后直接执行」时才算数，否则当「允许一次」。 */
         public boolean resolve(int id, boolean allow, boolean always) {
-            Object[] p = pending.remove(id);
+            return answer(id, allow, always, ConfirmGate.Input.MOUSE) == ConfirmGate.Answer.ACCEPTED;
+        }
+
+        /**
+         * 回答一条请求。拒绝从哪来都收；允许要本机鼠标 / 键盘、确认框已显示且已解锁（{@link ConfirmGate#check}）。
+         * 没收的回答不改变请求：它照旧等本机点击（等不到就拒）。
+         */
+        public ConfirmGate.Answer answer(int id, boolean allow, boolean always, ConfirmGate.Input in) {
+            Pending p = pending.get(id);
+            if (p == null) return ConfirmGate.Answer.GONE;
+            ConfirmGate.Answer a = p.gate.check(now(), allow, in);
+            if (a != ConfirmGate.Answer.ACCEPTED) return a;
+            boolean offered = Boolean.TRUE.equals(p.info.get("always"));
+            int v = allow ? (always && offered ? ALWAYS : ALLOW) : DENY;
+            if (!p.res.compareAndSet(PENDING, v)) return ConfirmGate.Answer.GONE;
+            pending.remove(id);
+            p.latch.countDown();
+            return ConfirmGate.Answer.ACCEPTED;
+        }
+
+        /** 界面：这条确认框画出来了（focused = 窗口当时有没有焦点）。没有这条返回 false。 */
+        public boolean seen(int id, boolean focused) {
+            Pending p = pending.get(id);
             if (p == null) return false;
-            boolean offered = Boolean.TRUE.equals(((Map<String, Object>) p[2]).get("always"));
-            ((int[]) p[1])[0] = allow ? (always && offered ? ALWAYS : ALLOW) : DENY;
-            ((CountDownLatch) p[0]).countDown();
+            windowFocused = focused;
+            p.gate.seen(now(), focused);
             return true;
         }
 
-        @SuppressWarnings("unchecked")
+        /** 界面：窗口拿到 / 失去焦点（含最小化、切到别的程序）。 */
+        public void window(boolean focused) {
+            windowFocused = focused;
+            long t = now();
+            for (Pending p : pending.values()) p.gate.window(t, focused);
+        }
+
+        /** 界面还活着（每次刷新状态都报）。 */
+        public void uiAlive() {
+            long t = now();
+            for (Pending p : pending.values()) p.gate.uiAlive(t);
+        }
+
+        /** 窗口关闭：所有在等的请求按拒绝结束。返回结束了几条。 */
+        public int closeAll() {
+            int n = 0;
+            for (Map.Entry<Integer, Pending> e : pending.entrySet()) {
+                Pending p = e.getValue();
+                p.gate.close();
+                if (p.res.compareAndSet(PENDING, DENY)) n++;
+                pending.remove(e.getKey());
+                p.latch.countDown();
+            }
+            return n;
+        }
+
+        public boolean windowFocused() { return windowFocused; }
+
         public List<Object> list() {
             List<Object> out = new ArrayList<>();
-            for (Object[] p : pending.values()) out.add(new TreeMap<>((Map<String, Object>) p[2]));
+            long t = now();
+            for (Pending p : pending.values()) {
+                Map<String, Object> m = new TreeMap<>(p.info);
+                m.put("seen", p.gate.seen());
+                m.put("armed", p.gate.armed(t));
+                out.add(m);
+            }
             return out;
         }
     }
@@ -233,7 +327,12 @@ public final class PcGuard {
                 String detail = from + " 请求：" + detail(cmd, a, d.text);
                 Confirmer c = confirmer;
                 boolean offer = sc != null;
-                int r = c == null ? TIMEOUT : c.ask(from, cmd, detail, CONFIRM_MS, offer);
+                int r;
+                try {
+                    r = c == null ? TIMEOUT : c.ask(from, cmd, detail, CONFIRM_MS, offer);
+                } catch (Throwable t) {
+                    r = DENY; // 确认框出错 = 拒绝，绝不放行
+                }
                 if (offer) {
                     // 快捷指令：没批准下来时原因码是 shortcut_needs_approval / shortcut_changed，确认结果另放 confirm_result
                     Map<String, Object> x = new TreeMap<>();
@@ -243,14 +342,14 @@ public final class PcGuard {
                         try { notify.accept("已批准快捷指令「" + sc.name + "」以后从手机直接执行（可在快捷指令页撤销）"); } catch (Exception ignored) { }
                     } else if (r == TIMEOUT) {
                         x.put("confirm_result", LinkPolicy.R_CONFIRM_TIMEOUT);
-                        o.reply = result(false, "电脑上 30 秒没人确认，没执行快捷指令「" + sc.name + "」", d.reason, x);
+                        o.reply = result(false, "电脑上没人确认，没执行快捷指令「" + sc.name + "」", d.reason, x);
                     } else if (r != ALLOW) {
                         x.put("confirm_result", LinkPolicy.R_CONFIRM_DENIED);
                         o.reply = result(false, "电脑上拒绝了快捷指令「" + sc.name + "」", d.reason, x);
                     }
                     return o;
                 }
-                if (r == TIMEOUT) o.reply = result(false, "电脑上 30 秒没人确认，已拒绝", LinkPolicy.R_CONFIRM_TIMEOUT, null);
+                if (r == TIMEOUT) o.reply = result(false, "电脑上没人确认（30 秒到了，或确认框被切走 / 界面没响应），已拒绝", LinkPolicy.R_CONFIRM_TIMEOUT, null);
                 else if (r != ALLOW && r != ALWAYS) o.reply = result(false, "电脑上拒绝了", LinkPolicy.R_CONFIRM_DENIED, null);
                 return o;
             }

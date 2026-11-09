@@ -197,6 +197,7 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 | `plugin_blocked` | 安全插件拦下了（提权 / 看不出内容 / 沙箱断网 / .git 等只读 / 插件出错） |
 | `needs_admin_script` | 这件事要管理员，已生成脚本，需你自己用管理员身份执行 |
 | `self_grant_blocked` | 远程不能改 OneSay 自己的设置 |
+| `voice_approval_blocked` | 确认只认本机鼠标 / 键盘点击，语音和远程消息不能批准 |
 
 第二轮起电脑作被控端不再回 `script_generated`（工作区可写档改成确认后执行；要管理员的回 `needs_admin_script`）；这个码只剩手机作被控端「给 App 授权的命令只生成脚本」时用。没有新增 exfil / credential / destructive 这类为普通用户行为加的码。
 
@@ -231,3 +232,12 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 - 可用走云端（百炼 qwen3-asr-flash，和以前一样）；不可用回落本机离线识别（Windows 自带 System.Speech 中文听写，`asr-local.ps1`，录音写成临时 WAV 识别完即删，不联网）。「自动」下云端识别出错也当场回落本机，并把云端记成不可用。
 - 仅云端：不探测、不回落，没填 Key 时不抢空格；仅本机：从不联网。
 - 界面：设置 › 说话 显示「识别方式」三选一和「现在用的是：云端 / 本机离线 / 没有可用的识别」+ 原因；按住说话的提示行和浮条（「识别中…（云端）」）也显示。`/api/state` 带 `asr_pref` / `asr_engine` / `asr_engine_zh` / `asr_why`。
+
+## 确认框加固（2026-11-09，分支 feat/approval-guard）
+
+思路参考 Haris（MIT，https://github.com/TENMATECH-DIGITAL-SOLUTIONS/haris）的审批卡，代码自己写的；规则在 `ConfirmGate`（纯逻辑、可注入时钟），界面照着画、以电脑端判定为准。
+
+1. **防误点**：确认框在界面上显示出来（界面报 `seen`）后约 **0.7 秒**「允许 / 以后直接执行」才可点（鼠标、回车、空格都一样）；窗口失焦立刻锁住，切回来重新等 0.7 秒；窗口没焦点时「允许」不算。焦点默认在「拒绝」，误按回车 / 空格 = 拒绝；按住回车的连发不算。
+2. **默认拒绝**：30 秒不点、按 **Esc**、**关窗口**（`pagehide` 报 `closed`）、显示后拿过焦点又**失焦 10 秒**没人点、界面 **8 秒**没报到（窗口关了 / 卡了）、确认框或通知**出错**、回了看不懂的结果 —— 都按拒绝。拒绝从哪来都收；没收的「允许」（太早 / 失焦 / 来源不对）不结束请求，请求照旧等本机点击。
+3. **说话和远程消息不能批准**：「允许」只认电脑本机的鼠标 / 键盘点击（界面带 `input`=`mouse`/`keyboard` 且浏览器标记为真实输入 `isTrusted`），其余回 `voice_approval_blocked`。手机 / 任何配对设备发 `confirm`、`approve`、`allow`、`voice_approve` 等「回答确认框」的指令一律 `voice_approval_blocked`（任何档位，LinkPolicy 三份同步，类别 `REMOTE_APPROVAL`）。电脑上有确认框在等时，按住空格说「允许 / 同意 / 好的 / 以后直接执行」这类话不执行、不转对话，提示要在电脑上点。手机带来的 `confirm=true`（手机上点过确认）不能代替电脑上的确认。
+

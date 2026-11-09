@@ -336,7 +336,7 @@ public class ShortcutGuardTest {
                 for (int i = 0; i < 200 && cf.list().isEmpty(); i++) try { Thread.sleep(10); } catch (InterruptedException ignored) { }
                 Map<?, ?> x = (Map<?, ?>) cf.list().get(0);
                 assertEquals(offer, x.get("always"));
-                cf.resolve(((Number) x.get("id")).intValue(), true, true);
+                ApprovalGuardTest.click(cf, ((Number) x.get("id")).intValue(), true, true); // [确认框防误点] 改：显示 + 等 0.7 秒后再点
             });
             t.start();
             assertEquals(offer ? PcGuard.ALWAYS : PcGuard.ALLOW, cf.ask("phone", "shortcut_run", "运行快捷指令", 5000, offer));
@@ -384,7 +384,7 @@ public class ShortcutGuardTest {
             new Thread(() -> {
                 for (int i = 0; i < 200 && agent.confirms.list().isEmpty(); i++) try { Thread.sleep(10); } catch (InterruptedException ignored) { }
                 Map<?, ?> x = (Map<?, ?>) agent.confirms.list().get(0);
-                agent.confirms.resolve(((Number) x.get("id")).intValue(), mode.get() != 0, mode.get() == 2);
+                ApprovalGuardTest.click(agent.confirms, ((Number) x.get("id")).intValue(), mode.get() != 0, mode.get() == 2); // [确认框防误点] 改：显示 + 等 0.7 秒后再点
             }).start();
         };
         agent.start();

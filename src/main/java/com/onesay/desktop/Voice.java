@@ -44,6 +44,8 @@ public final class Voice {
     public volatile String status = "未开启";
     /** 认不出指令时交给「对话」（大模型），返回回复文字；null = 不转。 */
     public volatile java.util.function.Function<String, String> fallback;
+    /** 电脑上有没有确认框在等（有的话，「允许 / 同意 / 好的」这类话不执行、不转对话：确认框只认鼠标 / 键盘点击）。 */
+    public volatile java.util.function.BooleanSupplier approvalPending = () -> false;
 
     /** 选识别（云端 / 本机离线）；App 里和界面共用一个。 */
     public final AsrRoute asr;
@@ -150,6 +152,12 @@ public final class Voice {
             return;
         }
         log.accept("听到（" + asr.current.zh + "）：" + text);
+        String blocked = spokenApprovalBlocked(text, approvalPending);
+        if (blocked != null) {
+            log.accept("语音不能批准确认框：" + LinkPolicy.R_VOICE_APPROVAL_BLOCKED);
+            show("「" + text + "」 " + blocked, false);
+            return;
+        }
         Intent it = Intent.parse(text, cfg.appMap(), shortcutNames());
         if (it.cmd == null) {
             java.util.function.Function<String, String> fb = fallback;
@@ -170,6 +178,17 @@ public final class Voice {
         } catch (Exception e) {
             show("「" + text + "」 出错：" + e.getClass().getSimpleName(), false);
         }
+    }
+
+    /** 有确认框在等、又是一句口头批准：返回要显示的话（不执行、不转对话）；否则 null。判断出错按「拦下」处理。 */
+    static String spokenApprovalBlocked(String text, java.util.function.BooleanSupplier pending) {
+        try {
+            if (!ConfirmGate.spokenApproval(text)) return null;
+            if (pending != null && !pending.getAsBoolean()) return null;
+        } catch (Throwable t) {
+            // 出错：宁可不执行这一句
+        }
+        return "确认框只认电脑上的鼠标 / 键盘点击，说话不算批准";
     }
 
     private List<String> shortcutNames() {

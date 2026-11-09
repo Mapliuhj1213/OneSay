@@ -493,13 +493,32 @@ async function setPlugin(on){if(on){setv('plugin_enabled',true);return}
   const r=await api('settings',{plugin_enabled:false,plugin_off_confirm:true});snack(r.text);refresh()}
 const levelSeg=v=>`<div class="seg">${[['read_only','只读'],['auto','自动'],['full','完全访问']].map(([k,l])=>`<span class="${k===(v||'auto')?'on':''}" onclick="setLevel('${k}')">${l}</span>`).join('')}</div>`;
 function setLevel(k){if(k==='full'&&!confirm('打开「完全访问」？\n\n手机发来的指令将可以：运行电脑工作区 scripts/ 里已有的脚本（每次仍要你确认）、操作第三方程序。\n\n仍然只生成脚本、不会执行的：注册表、网络配置、服务驱动、工作区以外的文件、任何授权。\n\n只在你信任这台手机时打开。'))return;setv('pc_level',k)}
-let cfShown='';
+// 确认框（思路参考 Haris 审批卡，MIT：0.7 秒后才能点「允许」、Esc / 关窗口 / 超时即拒、说话不算批准；代码自己写的）
+// 规则以电脑端 ConfirmGate 为准：这里只是照着画，「允许」要等程序回了 seen 之后再计 0.7 秒；窗口切走马上锁住，切回来重新计。
+let cfShown='',cfArmT=0,cfArmMs=700,cfId=0;
+function cfLock(){clearTimeout(cfArmT);document.querySelectorAll('#cfbox .cfallow').forEach(b=>b.disabled=true);const h=$('cfhint');if(h)h.textContent='「允许」稍后可点（防误点）'}
+function cfArm(){clearTimeout(cfArmT);if(!cfId||!document.hasFocus())return;
+  cfArmT=setTimeout(()=>{if(!document.hasFocus())return;document.querySelectorAll('#cfbox .cfallow').forEach(b=>b.disabled=false);const h=$('cfhint');if(h)h.textContent='只认鼠标 / 键盘点击；30 秒不点、关窗口、按 Esc 都算拒绝'},cfArmMs)}
 function confirmBar(){const c=(S&&S.confirms)||[];const box=$('cfbox');if(!box)return;
-  if(!c.length){box.style.display='none';cfShown='';return}
-  const x=c[0],key=String(x.id);if(cfShown===key)return;cfShown=key;
-  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px">手机请求，需要你确认</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div><div class="note" style="margin:0 0 10px">30 秒不点就自动拒绝</div><button class="btn sm" onclick="cfAns(${x.id},true)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm" onclick="cfAns(${x.id},true,true)">以后直接执行</button> `:''}<button class="btn ghost sm" onclick="cfAns(${x.id},false)">拒绝</button>`;
-  box.style.display=''}
-async function cfAns(id,allow,always){const r=await api('confirm',{id,allow,always:!!always});cfShown='';snack(r.text);refresh()}
+  if(!c.length){box.style.display='none';cfShown='';cfId=0;clearTimeout(cfArmT);return}
+  const x=c[0],key=String(x.id);if(cfShown===key)return;cfShown=key;cfId=x.id;
+  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px">手机请求，需要你确认</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div><div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
+  box.style.display='';const d=$('cfdeny');if(d)d.focus(); // 焦点默认在「拒绝」：误按回车 / 空格 = 拒绝
+  if(!LIVE){cfArm();return}
+  api('confirm',{op:'seen',id:x.id,focused:document.hasFocus()}).then(r=>{if(r&&r.arm_ms)cfArmMs=r.arm_ms;if(cfId===x.id)cfArm()}).catch(()=>{})}
+async function cfAns(id,allow,always,ev){
+  const trusted=!!(ev&&ev.isTrusted),input=ev&&ev.detail===0?'keyboard':'mouse';
+  if(allow&&!trusted)return; // 不是真实的鼠标 / 键盘输入：不算
+  let r;try{r=await api('confirm',{id,allow,always:!!always,input,trusted})}catch(e){r={ok:false,text:'没连上 OneSay'}}
+  if(r&&r.reason==='not_armed'){snack(r.text);cfLock();cfArm();return}
+  cfShown='';cfId=0;clearTimeout(cfArmT);snack(r.text);refresh()}
+function cfWindow(f){if(!cfId)return;if(!f)cfLock();if(LIVE)api('confirm',{op:'window',focused:f}).catch(()=>{});if(f){cfLock();cfArm()}}
+window.addEventListener('blur',()=>cfWindow(false));
+window.addEventListener('focus',()=>cfWindow(true));
+document.addEventListener('visibilitychange',()=>cfWindow(document.visibilityState==='visible'&&document.hasFocus()));
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&cfId){e.preventDefault();e.stopPropagation();cfAns(cfId,false,false,e)}},true);
+// 窗口关闭：在等的请求按拒绝（程序那边界面 8 秒没动静也会按拒绝）
+window.addEventListener('pagehide',()=>{if(!LIVE||!cfId)return;try{fetch('/api/confirm',{method:'POST',keepalive:true,headers:{'X-OneSay-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify({op:'closed'})})}catch(e){}});
 async function setv(k,v){if(!LIVE){S.settings[k]=v;if(k==='llm_key'||k==='asr_key')S.settings[k+'_set']=!!v;render();return}
   const r=await api('settings',{[k]:v});snack(r.text);if(r.settings)S.settings=r.settings;render()}
 async function testLlm(){snack('测试中…');const r=await api('test_llm',{});snack(r.text)}

@@ -118,7 +118,7 @@ public final class App {
             Map<String, Object> m = store.mergeMemory(a.get("text") == null ? null : String.valueOf(a.get("text")), at instanceof Number ? ((Number) at).longValue() : 0L);
             return Actions.Result.ok("记忆已同步", m);
         });
-        agent.confirms.onNew = d -> notify.post("pc", "手机请求，需要你确认", d + "（在 OneSay 窗口里点允许 / 拒绝，30 秒不点就拒绝）", "");
+        agent.confirms.onNew = d -> notify.post("pc", "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点允许或拒绝；30 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
         agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
@@ -126,6 +126,7 @@ public final class App {
         asr.warmUp(); // 启动时先看云端能不能用（后台，不阻塞）
         voice = new Voice(cfg, actions, log, asr);
         voice.fallback = text -> String.valueOf(chat.send(text, "voice").get("text"));
+        voice.approvalPending = () -> !agent.confirms.list().isEmpty();
         voice.start();
         ui = new UiServer();
         routes();
@@ -238,6 +239,7 @@ public final class App {
 
     void routes() {
         ui.on("state", b -> {
+            agent.confirms.uiAlive(); // 界面还活着：确认框显示后界面 8 秒没动静按拒绝
             Map<String, Object> s = store.snapshot();
             s.put("version", Main.VERSION);
             s.put("device", cfg.deviceId);
@@ -336,15 +338,7 @@ public final class App {
             if (r.data != null) m.put("data", new TreeMap<String, Object>(r.data));
             return m;
         });
-        ui.on("confirm", b -> {
-            Object id = b.get("id");
-            if (!(id instanceof Number)) return fail("没有这条请求");
-            boolean allow = Boolean.TRUE.equals(b.get("allow"));
-            boolean always = allow && Boolean.TRUE.equals(b.get("always"));
-            if (!agent.confirms.resolve(((Number) id).intValue(), allow, always)) return fail("请求已经过期");
-            log.accept((allow ? (always ? "允许（以后直接执行）" : "允许") : "拒绝") + "了一条远程请求");
-            return ok(allow ? (always ? "已允许，以后直接执行" : "已允许一次") : "已拒绝");
-        });
+        ui.on("confirm", b -> confirmApi(agent.confirms, b, log));
         // 快捷指令批准表：看 / 撤销（批准只能在手机触发时的确认里点「以后直接执行」）
         ui.on("shortcuts", b -> {
             String op = str(b, "op", "list");
@@ -429,6 +423,7 @@ public final class App {
                 voice.stop();
                 Voice nv = new Voice(cfg, actions, log, asr);
                 nv.fallback = voice.fallback;
+                nv.approvalPending = voice.approvalPending;
                 voice = nv;
                 voice.start();
                 asr.warmUp();
@@ -437,6 +432,64 @@ public final class App {
             m.put("settings", settingsView());
             return m;
         });
+    }
+
+    /**
+     * 界面的确认框接口（本机口令保护）。op：
+     * <ul>
+     *   <li>seen {id, focused}：确认框画出来了（从这时起算 0.7 秒防误点）；</li>
+     *   <li>window {focused}：窗口拿到 / 失去焦点（失焦后没人点按拒绝；拿回焦点重新等 0.7 秒）；</li>
+     *   <li>closed：窗口要关了 —— 所有在等的请求按拒绝；</li>
+     *   <li>默认（回答）{id, allow, always, input, trusted}：允许只认本机鼠标 / 键盘（input = mouse / keyboard 且 trusted = true，
+     *       即浏览器标记的真实用户输入），其余回 voice_approval_blocked 且请求照旧等；拒绝从哪来都收。</li>
+     * </ul>
+     */
+    static Map<String, Object> confirmApi(PcGuard.Confirms cf, Map<String, Object> b, java.util.function.Consumer<String> log) {
+        String op = str(b, "op", "answer");
+        Object id = b.get("id");
+        switch (op) {
+            case "seen":
+                if (!(id instanceof Number) || !cf.seen(((Number) id).intValue(), Boolean.TRUE.equals(b.get("focused")))) return fail("请求已经过期");
+                Map<String, Object> m = ok("");
+                m.put("arm_ms", ConfirmGate.ARM_MS);
+                return m;
+            case "window":
+                cf.window(Boolean.TRUE.equals(b.get("focused")));
+                return ok("");
+            case "closed": {
+                int n = cf.closeAll();
+                if (n > 0) log.accept("确认窗口关了，" + n + " 条远程请求按拒绝处理");
+                return ok(n > 0 ? "已拒绝" : "");
+            }
+            case "answer":
+                break;
+            default:
+                return fail("不认识的操作");
+        }
+        if (!(id instanceof Number)) return fail("没有这条请求");
+        boolean allow = Boolean.TRUE.equals(b.get("allow"));
+        boolean always = allow && Boolean.TRUE.equals(b.get("always"));
+        ConfirmGate.Input in = Boolean.TRUE.equals(b.get("trusted")) ? ConfirmGate.Input.of(b.get("input")) : ConfirmGate.Input.UNKNOWN;
+        ConfirmGate.Answer a = cf.answer(((Number) id).intValue(), allow, always, in);
+        switch (a) {
+            case ACCEPTED:
+                log.accept((allow ? (always ? "允许（以后直接执行）" : "允许") : "拒绝") + "了一条远程请求（" + (in.local() ? (in == ConfirmGate.Input.KEYBOARD ? "键盘" : "鼠标") : "界面") + "）");
+                return ok(allow ? (always ? "已允许，以后直接执行" : "已允许一次") : "已拒绝");
+            case NOT_LOCAL: {
+                log.accept("一条不是本机鼠标 / 键盘的「允许」没算数：" + LinkPolicy.R_VOICE_APPROVAL_BLOCKED);
+                Map<String, Object> f = fail(LinkPolicy.reasonZh(LinkPolicy.R_VOICE_APPROVAL_BLOCKED));
+                f.put("reason", LinkPolicy.R_VOICE_APPROVAL_BLOCKED);
+                return f;
+            }
+            case NOT_SHOWN:
+            case TOO_EARLY: {
+                Map<String, Object> f = fail("「允许」还没解锁（确认框出现 / 窗口切回来后要等一下），再点一次");
+                f.put("reason", "not_armed");
+                return f;
+            }
+            default:
+                return fail("请求已经过期");
+        }
     }
 
     /**

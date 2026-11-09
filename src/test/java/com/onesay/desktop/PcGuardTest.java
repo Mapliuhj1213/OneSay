@@ -259,7 +259,8 @@ public class PcGuardTest {
             for (int i = 0; i < 100 && cf.list().isEmpty(); i++) try { Thread.sleep(10); } catch (InterruptedException ignored) { }
             Map<?, ?> x = (Map<?, ?>) cf.list().get(0);
             assertEquals("调音量", x.get("detail"));
-            cf.resolve(((Number) x.get("id")).intValue(), true);
+            // [确认框防误点] 改：先让界面报「已显示」并等过 0.7 秒再点（只改点击方式，断言不变）
+            ApprovalGuardTest.click(cf, ((Number) x.get("id")).intValue(), true, false);
         });
         t.start();
         assertEquals(PcGuard.ALLOW, cf.ask("phone", "volume", "调音量", 5000));

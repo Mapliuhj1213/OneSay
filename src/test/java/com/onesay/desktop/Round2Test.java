@@ -212,7 +212,7 @@ public class Round2Test {
             new Thread(() -> {
                 for (int i = 0; i < 200 && agent.confirms.list().isEmpty(); i++) try { Thread.sleep(10); } catch (InterruptedException ignored) { }
                 Map<?, ?> x = (Map<?, ?>) agent.confirms.list().get(0);
-                agent.confirms.resolve(((Number) x.get("id")).intValue(), allow.get() == 1);
+                ApprovalGuardTest.click(agent.confirms, ((Number) x.get("id")).intValue(), allow.get() == 1, false); // [确认框防误点] 改：显示 + 等 0.7 秒后再点
             }).start();
         };
         agent.start();

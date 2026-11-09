@@ -3,3 +3,8 @@ Copyright 2026 Mapliuhj1213
 
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 The bundled Java runtime (Eclipse Temurin) is licensed under GPLv2 with the Classpath Exception; see runtime/legal in the installed app.
+
+The confirmation-dialog hardening (allow button armed after ~0.7 s, Esc / close / timeout deny,
+no spoken or remote approval) follows the approach of the approval card in Haris
+(https://github.com/TENMATECH-DIGITAL-SOLUTIONS/haris), MIT License,
+Copyright (c) 2026 TENMATECH Digital Solutions L.L.C. Only the idea was borrowed; the code is OneSay's own.
