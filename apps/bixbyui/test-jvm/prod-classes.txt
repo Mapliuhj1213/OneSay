@@ -396,6 +396,7 @@ com/onesay/assistant/v2/phone/SensitiveGuard.java
 com/onesay/assistant/v2/phone/PhonePrompt.java
 com/onesay/assistant/v2/phone/PhoneAgent.java
 com/onesay/assistant/v2/phone/StableRead.java
+com/onesay/assistant/v2/phone/SmartReplay.java
 com/onesay/assistant/v2/exec/ExecState.java
 com/onesay/assistant/v2/ui/ime/ImeGeometry.java
 com/onesay/assistant/v2/ui/ime/KbLockPolicy.java

@@ -122,6 +122,15 @@ public final class PhoneAgent {
     public StableRead.Params settle;
     /** ★ stable-screen 统计：等稳定多读的次数、超时没稳定的次数、编号失效拦下的步数、核对时发现元素挪了位置的次数。 */
     public int settleReads, settleUnstable, refStale, refMoved;
+    /**
+     * ★ smart-replay：成功路径回放（{@link SmartReplay}）。null = 关（原行为：不录、不放，读屏 / 模型调用与改前一致）；
+     * 真机入口 {@link PhoneHooks} 按开关给。
+     */
+    public SmartReplay.Store replay;
+    /** ★ smart-replay 统计（本次任务）：命中（整条回放完）、降级（回放失败交还模型）、作废、按计划交还（不存原文的输入 / 用户拒绝 / 接手）、新录、回放了几步。 */
+    public int replayHit, replayFallback, replayVoided, replayHandoff, replayRecorded, replaySteps;
+    /** ★ smart-replay：本次任务的回放 / 录制说明（phone_last.txt 用）。 */
+    public String replayNote = "";
 
     private final Driver mD;
     private final Planner mP;
@@ -149,6 +158,29 @@ public final class PhoneAgent {
         String lastBatchReport = "";
         boolean wantShot = false;
         int stepNo = 0;
+        mRec = null;
+        if (replay != null) {   // ★ smart-replay：有记住的成功路径就先回放（不问模型），否则这次边做边录
+            String keyPkg = startPkg != null && startPkg.length() > 0 ? startPkg : screen != null ? screen.pkg : "";
+            String skip = legacyOneStep ? "改前口径" : mika != null && (mika.f.screen || mika.f.dosteps) ? "Mika 读屏 / 写法插件开着" : SmartReplay.skipReason(goal, keyPkg);
+            if (skip != null) {
+                replayNote = "不录不放：" + skip;
+                res.trace.add("replay skip " + skip);
+            } else {
+                String key = SmartReplay.key(goal, keyPkg);
+                SmartReplay.Path path = replay.get(key);
+                if (path == null) {
+                    mRec = new SmartReplay.Recorder(key, keyPkg);
+                    mRec.onScreen(screen);
+                } else {
+                    ReplayOut ro = replayPath(path, screen, budget, stepNo, res);
+                    stepNo = ro.stepNo;
+                    screen = ro.screen;
+                    if (ro.stopAll) return finish(res, Status.STOPPED, "", "已停止", budget, t0);
+                    history.add(ro.history);
+                    lastBatchReport = ro.report;
+                }
+            }
+        }
         while (true) {
             if (mH.stopRequested()) return finish(res, Status.STOPPED, "", "已停止", budget, t0);
             // ① 用户接手（批内 / 收集时先取走的接手请求在这里补上）
@@ -160,6 +192,7 @@ public final class PhoneAgent {
                 Resume r = mH.awaitResume(tk, sup);
                 budget.pausedMs += mD.now() - w0;
                 if (r == Resume.STOP) return finish(res, Status.STOPPED, "", "用户停止", budget, t0);
+                if (mRec != null) mRec.taint("用户接手过（中间的手动操作没记下来）");
                 history.add("用户接手（" + tk + "）后点了继续" + (sup[0] != null && sup[0].length() > 0 ? "，补充：" + sup[0] : ""));
                 budget.resetProgress();
                 screen = mD.observe(mIds);
@@ -208,6 +241,7 @@ public final class PhoneAgent {
                 case NOT_DONE:   // ★ mika-plug（mika.dosteps）：模型如实放弃
                     return finish(res, Status.FAILED, "", plan.answer.length() > 0 ? plan.answer : "没有完成", budget, t0);
                 case ASK: {
+                    if (mRec != null) mRec.taint("中途问过用户（回放会悄悄沿用当时的决定）");
                     long w0 = mD.now();
                     String[] ans = new String[1];
                     boolean ok = mH.confirm("需要你决定", plan.answer, ans);
@@ -224,6 +258,7 @@ public final class PhoneAgent {
                     lastBatchReport = "（下一轮附屏幕的视觉描述）";
                     continue;
                 case COLLECT: {
+                    if (mRec != null) mRec.taint("收集列表的步骤不回放");
                     mH.onStep("收集列表", ++stepNo);
                     String got = collect(screen, plan.collectUntil, plan.collectPages, budget);
                     UiTree after = mD.observe(mIds);
@@ -274,6 +309,10 @@ public final class PhoneAgent {
         String summary = "";
         int stepNo;
         boolean stopAll;
+        /** ★ smart-replay：执行了几步、有没有被用户拒绝、最后一步的结果说法、条件没等到。 */
+        int executed;
+        boolean refused, condFailed;
+        String lastEffect = "";
     }
 
     /** 逐步执行；条件不满足 / 界面意外变化（弹窗、换了 App）/ 用户接手 → 提前停，剩下的步交回模型。 */
@@ -296,7 +335,7 @@ public final class PhoneAgent {
                 pendingTakeover = tk;
                 break;
             }
-            if (i == 0 && settle != null && settle.recheckRefs && targetsRef(s) && cur != null && cur.find(s.id) != null) {
+            if (i == 0 && !mReplaying && settle != null && settle.recheckRefs && targetsRef(s) && cur != null && cur.find(s.id) != null) {
                 // ★ stable-screen：模型思考的这几秒里界面可能自己变了（加载完、弹窗、列表刷新）。执行前重读一次，
                 // 编号还在就按新位置执行；不在了 / 分不清 → 明确报 REF_STALE，把新界面交回模型，不点旧坐标。
                 UiTree fresh = mD.observe(mIds);
@@ -326,6 +365,8 @@ public final class PhoneAgent {
                 String extra = mika.consent(s, cur, sens);
                 if (extra != null) sens = extra;
             }
+            if (sens == null && mForceSens != null) sens = mForceSens;   // ★ smart-replay：录制时判过敏感的步骤，回放时照样确认
+            if (mRec != null && sens != null) mRec.onSensitive(sens);
             if (sens != null) {
                 long w0 = mD.now();
                 String[] ans = new String[1];
@@ -333,6 +374,7 @@ public final class PhoneAgent {
                 budget.pausedMs += mD.now() - w0;
                 res.trace.add("sensitive " + sens + " → " + (ok ? "允许" : "拒绝"));
                 if (!ok) {
+                    br.refused = true;
                     rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 被用户拒绝（").append(sens).append("），别再尝试这一步。\n");
                     break;
                 }
@@ -384,6 +426,12 @@ public final class PhoneAgent {
             boolean changed = after != null && cur != null && !after.signature().equals(cur.signature());
             budget.onAction(s.sig(), changed);
             done++;
+            br.lastEffect = effect;
+            br.condFailed = wait.startsWith("没等到");
+            if (mRec != null) {   // ★ smart-replay：边做边录（cur = 动作前那屏）
+                mRec.onExecuted(s, cur, effect, wait, sens);
+                mRec.onScreen(after);
+            }
             String mk = mika != null ? mika.afterStep(s, cur, after, effect) : "";   // ★ mika-plug：effect + 守卫阶梯 + 卡住建议
             String line = "第 " + (i + 1) + " 步 " + s + " → " + effect + (wait.length() > 0 ? "，" + wait : "") + "（" + (mD.now() - a0) + "ms）" + mk;
             rep.append(line).append('\n');
@@ -409,6 +457,7 @@ public final class PhoneAgent {
             pendingTakeover = null;
         }
         br.after = cur != null ? cur : mD.observe(mIds);
+        br.executed = done;
         br.report = "执行了 " + done + "/" + plan.steps.size() + " 步：\n" + rep;
         br.summary = sum.length() > 0 ? clip(sum.toString(), 160) : "没有执行";
         br.stepNo = stepNo;
@@ -501,6 +550,154 @@ public final class PhoneAgent {
         if (ok && s.expectGone.length() > 0) ok = !t.hasText(s.expectGone);
         if (ok && s.expectApp.length() > 0) ok = s.expectApp.equals(t.pkg);
         return ok;
+    }
+
+    // ------------------------------------------------------------------ ★ smart-replay
+
+    /** 这次任务的录制器（null = 不录：开关关 / 走了回放 / 不录不放）。 */
+    private SmartReplay.Recorder mRec;
+    /** 正在回放：一批里第一步前不再额外重读核对编号（回放刚读过稳定画面并按特征重新定位过）。 */
+    private boolean mReplaying;
+    /** 回放的这一步录制时判过敏感：现判不敏感也照样确认。 */
+    private String mForceSens;
+
+    static final class ReplayOut {
+        UiTree screen;
+        String report = "", history = "";
+        int stepNo;
+        boolean stopAll;
+    }
+
+    /**
+     * 逐步回放：读稳定画面（StableRead）→ 有没有弹窗 → 比回放指纹 → 按特征重新定位节点 → 走和模型步骤同一个执行口
+     * （{@link #runBatch}：校验、敏感确认、代码侧等待）。任何一步不对就停，交还模型（降级）并记一次失败；
+     * 按计划停下（输入内容没存原文）或用户拒绝 / 接手不算失败。
+     */
+    ReplayOut replayPath(SmartReplay.Path path, UiTree screen, TaskBudget budget, int stepNo, Result res) {
+        ReplayOut out = new ReplayOut();
+        out.stepNo = stepNo;
+        UiTree cur = screen;
+        boolean stable = settle != null && cur != null;   // 开局那屏：settle 开时已是稳定读到的
+        int n = path.steps.size(), k = 0;
+        String why = null;
+        boolean planned = false, secret = false;
+        String extra = "";
+        StringBuilder done = new StringBuilder();
+        res.trace.add("replay start " + n + " steps");
+        for (; k < n; k++) {
+            SmartReplay.RStep r = path.steps.get(k);
+            if (mH.stopRequested()) {
+                out.stopAll = true;
+                replayHandoff++;
+                replay.handedOff();
+                replayNote = "回放中用户停止";
+                return out;
+            }
+            if (!stable || cur == null) cur = replayRead(res);
+            stable = false;
+            String pop = SmartReplay.popup(r.before, cur);
+            if (pop != null) {
+                why = pop;
+                break;
+            }
+            String mis = SmartReplay.mismatch(r.before, cur);
+            if (mis != null) {
+                why = "画面对不上：" + mis;
+                break;
+            }
+            if (r.secret) {
+                why = "这一步要输入的内容没有保存（验证码 / 密码 / 个人信息），需要你来填";
+                planned = secret = true;
+                break;
+            }
+            int id = -1;
+            if (r.target != null) {
+                SmartReplay.Found f = SmartReplay.locate(r.target, cur);
+                if (f.el == null) {
+                    why = f.error;
+                    break;
+                }
+                id = f.el.id;
+            }
+            PhonePlan plan = new PhonePlan();
+            plan.kind = PhonePlan.Kind.STEPS;
+            plan.steps.add(r.toStep(id));
+            BatchResult br;
+            mReplaying = true;
+            mForceSens = r.sens;
+            try {
+                br = runBatch(plan, cur, budget, out.stepNo, res);
+            } finally {
+                mReplaying = false;
+                mForceSens = null;
+            }
+            out.stepNo = br.stepNo;
+            if (br.after != null) cur = br.after;
+            if (br.stopAll) {
+                out.stopAll = true;
+                replayHandoff++;
+                replay.handedOff();
+                replayNote = "回放中用户停止";
+                return out;
+            }
+            if (reinjectTakeover != null) {
+                why = "用户接手";
+                planned = true;
+                break;
+            }
+            if (br.refused) {
+                why = "用户拒绝了这一步";
+                extra = br.report;
+                planned = true;
+                break;
+            }
+            if (br.executed == 0 || SmartReplay.failedEffect(br.lastEffect) || br.condFailed) {
+                why = "这一步没做成";
+                extra = br.report;
+                break;
+            }
+            done.append(k + 1).append(". ").append(r).append(" → ").append(br.lastEffect).append('\n');
+            stable = settle != null;
+        }
+        replaySteps = k;
+        out.screen = cur;
+        if (why == null) {
+            replayHit++;
+            replay.succeeded(path.key, true);
+            replayNote = "命中：回放了全部 " + n + " 步";
+            res.trace.add("replay hit " + n);
+            out.history = "按记住的成功步骤回放了全部 " + n + " 步（没有问模型）";
+            out.report = "【回放】已按上次成功完成这件事的步骤做完 " + n + " 步：\n" + done
+                    + "请看当前界面确认：任务已完成就输出 done（写给用户的结果）；还差什么就接着做。";
+            return out;
+        }
+        if (planned) {
+            replayHandoff++;
+            if (secret) replay.succeeded(path.key, false);
+            else replay.handedOff();
+            replayNote = "交还模型（第 " + (k + 1) + " 步：" + why + "）";
+            res.trace.add("replay handoff @" + (k + 1) + " " + why);
+        } else {
+            replayFallback++;
+            boolean voided = replay.failed(path.key);
+            if (voided) replayVoided++;
+            replayNote = "降级（第 " + (k + 1) + " 步：" + why + "）" + (voided ? "，连续失败 " + SmartReplay.MAX_FAILS + " 次，路径已作废" : "");
+            res.trace.add("replay fallback @" + (k + 1) + " " + why + (voided ? " voided" : ""));
+        }
+        out.history = "按记住的步骤回放了 " + k + " 步，第 " + (k + 1) + " 步停下（" + clip(why, 60) + "）";
+        out.report = "【回放】按上次成功的步骤回放到第 " + (k + 1) + " 步停下：" + why + "。\n"
+                + (k > 0 ? "已经做完的（不要重复）：\n" + done : "还没有做任何一步。\n")
+                + (extra.length() > 0 ? extra + "\n" : "")
+                + "请从当前界面接着完成任务。";
+        return out;
+    }
+
+    /** 回放读屏一律用稳定读（settle 关时用默认参数），不稳定也用最后一次（指纹比对会兜住）。 */
+    private UiTree replayRead(Result res) {
+        StableRead.Params p = settle != null ? settle : StableRead.Params.defaults();
+        StableRead.Result<UiTree> r = StableRead.await(mClock, mSource, p);
+        if (!r.stable) res.trace.add("replay read unstable " + r.waitedMs + "ms");
+        return r.value;
     }
 
     // ------------------------------------------------------------------ ★ stable-screen
@@ -648,6 +845,21 @@ public final class PhoneAgent {
     }
 
     private Result finish(Result r, Status st, String answer, String reason, TaskBudget b, long t0) {
+        if (mRec != null && replay != null) {   // ★ smart-replay：成功才存；不能存的写明原因
+            if (st == Status.DONE) {
+                SmartReplay.Path p = mRec.finish(mD.now());
+                if (p != null) {
+                    replay.put(p);
+                    replayRecorded++;
+                    replayNote = "已记下 " + p.steps.size() + " 步";
+                    r.trace.add("replay recorded " + p.steps.size() + " steps");
+                } else {
+                    replayNote = "没记：" + mRec.taint;
+                    r.trace.add("replay not recorded: " + mRec.taint);
+                }
+            } else replayNote = "没记：任务没成功";
+            mRec = null;
+        }
         r.status = st;
         r.answer = answer == null ? "" : answer;
         r.reason = reason == null ? "" : reason;
