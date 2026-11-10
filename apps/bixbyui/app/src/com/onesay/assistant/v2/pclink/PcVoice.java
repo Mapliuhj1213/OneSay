@@ -10,11 +10,12 @@ import java.util.regex.Pattern;
  *   <li>截图：「电脑截图」「让电脑截个图」「截一下电脑屏幕」；</li>
  *   <li>在线：「电脑在线吗」「电脑连上了吗」；</li>
  *   <li>关机 / 睡眠：只回一句「去控制台点，要二次确认」，不执行。</li>
+ *   <li>[approve-not-block] 有确认卡在等时说「允许 / 好的 / 批准…」：不算批准（{@link Kind#APPROVAL}），只回一句「要在屏幕上点」。</li>
  * </ul>
  */
 public final class PcVoice {
 
-    public enum Kind { NONE, LOCK, SHOT, STATUS, POWER }
+    public enum Kind { NONE, LOCK, SHOT, STATUS, POWER, APPROVAL }
 
     private PcVoice() {}
 
@@ -28,6 +29,7 @@ public final class PcVoice {
         if (q == null) return Kind.NONE;
         String s = q.trim().replaceAll("[，。！？,.!?\\s]+$", "").replaceAll("\\s+", "");
         if (s.length() == 0 || s.length() > 20) return Kind.NONE;
+        if (PcConfirm.anyPending() && PcConfirm.spokenApproval(s)) return Kind.APPROVAL; // 说话不算批准
         if (LOCK.matcher(s).matches()) return Kind.LOCK;
         if (SHOT.matcher(s).matches()) return Kind.SHOT;
         if (STATUS.matcher(s).matches()) return Kind.STATUS;

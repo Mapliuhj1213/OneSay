@@ -360,6 +360,14 @@ public final class PhoneAgent {
                 rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(bad).append("\n");
                 break;
             }
+            String mustTap = SensitiveGuard.userMustTap(s, cur);
+            if (mustTap != null) {   // ★ approve-not-block 硬规则 ①：最终付款按钮机器人不点，批了也不点
+                res.trace.add("pay_final_user_tap");
+                if (mRec != null) mRec.onSensitive(mustTap);   // 含付款的任务照旧不记成可回放
+                rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(mustTap)
+                        .append("。我停在这里，你自己点一下就完成了（这一步批了也不会替你点）。\n");
+                break;
+            }
             String sens = SensitiveGuard.check(s, cur);
             if (mika != null) {   // ★ mika-plug（mika.actgate）：RiskGate 补 SensitiveGuard 没拦的发送 / 提交 / 付款 / 删除，屏上有金额按付款问
                 String extra = mika.consent(s, cur, sens);

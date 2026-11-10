@@ -52,6 +52,28 @@ public final class PcRx {
         String script(String cmd, Map<String, Object> args, String why);
     }
 
+    /**
+     * [approve-not-block] 手机上的确认卡和「以后这类不用问」（Android 侧 {@code PcRxAndroid} 实现；没实现时用 {@link PcConfirm} 的界面，
+     * 没有界面 = 没人确认 = 拒绝）。Java 7 没有默认方法，所以单独一个接口，不改 {@link Guard}。
+     */
+    public interface Asker {
+        /** 在手机上弹确认卡（阻塞，最多 60 秒）：返回 {@link PcConfirm#ALLOW} / {@link PcConfirm#DENY} / {@link PcConfirm#TIMEOUT} / {@link PcConfirm#REMEMBER}。 */
+        int ask(String title, String detail, String rememberKind);
+
+        /** 记住的动作类型（只有 phone.* 的在手机上记）。 */
+        java.util.Collection<String> rememberedKinds();
+
+        void remember(String kind);
+
+        /** 敏感内容写进剪贴板后 60 秒清除（可选，默认关）。 */
+        boolean clipAutoClear();
+    }
+
+    /** 往电脑发一帧（常连通道上的 ws.sendText）。 */
+    public interface Out {
+        void send(String text) throws IOException;
+    }
+
     /** 常连循环需要的环境（Android：开关、Wi-Fi、组播锁、配对信息）。 */
     public interface Env {
         boolean wanted();
@@ -76,7 +98,10 @@ public final class PcRx {
 
     // ================================================================== 单条指令
 
-    /** 处理一条已验签的指令：ping / caps 总是可用；其他看开关、参数和红线（没有执行级别、不在手机上确认）。 */
+    /**
+     * 处理一条已验签的指令：ping / caps 总是可用；其他看开关、参数和规则（没有执行级别）。三条硬规则直接拒 / 只生成脚本；
+     * 原来拒的（支付 / 系统 App、带账号或疑似仿冒的网址）在手机上弹确认卡，可能阻塞到 60 秒（{@link #serve} 每条指令单独一个线程）。
+     */
     public static PcLanClient.Result handle(Handler h, String cmd, Map<String, Object> args) {
         if ("ping".equals(cmd)) return new PcLanClient.Result(true, "在线", null, "");
         if ("caps".equals(cmd)) {
@@ -100,18 +125,22 @@ public final class PcRx {
         Guard g = h instanceof Guard ? (Guard) h : null;
         LinkPolicy.Cat cat = category(g, cmd, a);
         LinkPolicy.Facts f = facts(g, cmd, a);
-        // 红线（LinkPolicy.phoneLegacy）：不分档、不确认
-        LinkPolicy.Decision d = LinkPolicy.decide(LinkPolicy.Target.PHONE, LinkPolicy.Mode.DEFAULT, cat, f);
+        // 规则（LinkPolicy.phoneLegacy）：不分档；硬规则拒 / 只生成脚本，原来拒的改成手机上确认
+        Asker k = h instanceof Asker ? (Asker) h : null;
+        LinkPolicy.Decision d = remembered(k, LinkPolicy.decide(LinkPolicy.Target.PHONE, LinkPolicy.Mode.DEFAULT, cat, f));
         if (d.verdict == LinkPolicy.Verdict.DENY) return withReason(false, d.text, d.reason, null);
-        if (PcRxPolicy.SYS_EXEC.equals(cmd) && d.verdict == LinkPolicy.Verdict.ALLOW) {
-            // 系统命令里用 pm 卸载 / 停用 / 清数据某个 App：同样不碰系统 App 和支付 / 银行 / 钱包类
+        List<LinkPolicy.Decision> asks = new ArrayList<LinkPolicy.Decision>();
+        if (d.verdict == LinkPolicy.Verdict.CONFIRM) asks.add(d);
+        if (PcRxPolicy.SYS_EXEC.equals(cmd) && d.verdict != LinkPolicy.Verdict.SCRIPT) {
+            // 系统命令里用 pm 卸载 / 停用 / 清数据某个 App：OneSay 自己不行（硬规则），系统 App 和支付 / 银行 / 钱包类先问你
             java.util.regex.Matcher pm = PM_APP_OP.matcher(PcRxPolicy.str(a, "command"));
             while (pm.find()) {
                 Map<String, Object> pa = new TreeMap<String, Object>();
                 pa.put("package", pm.group(3));
                 LinkPolicy.Facts pf = facts(g, PcRxPolicy.UNINSTALL, pa);
-                LinkPolicy.Decision pd = LinkPolicy.decide(LinkPolicy.Target.PHONE, LinkPolicy.Mode.DEFAULT, LinkPolicy.Cat.UNINSTALL_APP, pf);
+                LinkPolicy.Decision pd = remembered(k, LinkPolicy.decide(LinkPolicy.Target.PHONE, LinkPolicy.Mode.DEFAULT, LinkPolicy.Cat.UNINSTALL_APP, pf));
                 if (pd.verdict == LinkPolicy.Verdict.DENY) return withReason(false, pd.text, pd.reason, null);
+                if (pd.verdict == LinkPolicy.Verdict.CONFIRM) asks.add(pd);
             }
         }
         if (d.verdict == LinkPolicy.Verdict.SCRIPT) {
@@ -132,13 +161,39 @@ public final class PcRx {
                 return withReason(false, "脚本里有给 App 授权的命令，OneSay 不替你运行，需你自己执行：scripts/" + PcRxPolicy.str(a, "name"), LinkPolicy.R_SCRIPT_GENERATED, x);
             }
         }
-        if (PcRxPolicy.CLIPBOARD.equals(cmd) && f.clip != null && f.clip.verdict == LinkPolicy.ClipCheck.SENSITIVE) a.put("_sensitive", Boolean.TRUE);
+        for (LinkPolicy.Decision ad : asks) {
+            // 在手机上弹确认卡：真人在屏幕上点「允许」才做（60 秒没人点 / 拒绝 / 返回 = 不做）
+            String rk = ad.rememberable() ? ad.kind : "";
+            int r;
+            try {
+                r = k != null ? k.ask("电脑请求：" + PcRxPolicy.label(cmd), ad.text, rk) : PcConfirm.ask("电脑请求：" + PcRxPolicy.label(cmd), ad.text, rk, LinkPolicy.CONFIRM_TIMEOUT_MS);
+            } catch (Throwable t) {
+                r = PcConfirm.DENY; // 确认卡出错 = 拒绝
+            }
+            if (r == PcConfirm.TIMEOUT) return withReason(false, "手机上没人确认（60 秒到了），没做：" + ad.text, LinkPolicy.R_CONFIRM_TIMEOUT, null);
+            if (r != PcConfirm.ALLOW && r != PcConfirm.REMEMBER) return withReason(false, "手机上拒绝了：" + ad.text, LinkPolicy.R_CONFIRM_DENIED, null);
+            if (r == PcConfirm.REMEMBER && k != null && rk.length() > 0) k.remember(rk);
+        }
+        if (PcRxPolicy.CLIPBOARD.equals(cmd) && f.clip != null && f.clip.verdict == LinkPolicy.ClipCheck.SENSITIVE) {
+            a.put("_sensitive", Boolean.TRUE);
+            if (k != null && k.clipAutoClear()) a.put("_clear", Boolean.TRUE); // 60 秒清除：可选，默认关
+        }
         if (cat == LinkPolicy.Cat.OUTSIDE_WRITE) a.put("_outside", Boolean.TRUE);
         try {
             PcLanClient.Result r = h.run(cmd, a);
             return r == null ? new PcLanClient.Result(false, "没有结果", null, "") : r;
         } catch (Throwable t) {
             return new PcLanClient.Result(false, "手机上出错：" + t.getClass().getSimpleName(), null, "");
+        }
+    }
+
+    /** 「以后这类不用问」：手机上记住过的类型直接做（三条硬规则不是 CONFIRM，不受影响）。 */
+    static LinkPolicy.Decision remembered(Asker k, LinkPolicy.Decision d) {
+        if (k == null || d.verdict != LinkPolicy.Verdict.CONFIRM) return d;
+        try {
+            return LinkPolicy.remembered(d, k.rememberedKinds());
+        } catch (Throwable t) {
+            return d;
         }
     }
 
@@ -208,8 +263,13 @@ public final class PcRx {
     // ================================================================== 常连会话
 
     /** 收到一帧：是电脑来的指令就验签、执行、回结果。返回要发回的文本（不是指令返回 null）。 */
-    @SuppressWarnings("unchecked")
     static String onFrame(PcLanClient.Peer p, PcProtocol.ReplayGuard guard, Handler h, String text, long nowMs) {
+        return onFrame(p, guard, h, text, nowMs, null);
+    }
+
+    /** 同上；out 非空时也处理电脑发来的确认卡（confirm_offer / confirm_close），点完经 out 回 confirm_answer。 */
+    @SuppressWarnings("unchecked")
+    static String onFrame(final PcLanClient.Peer p, PcProtocol.ReplayGuard guard, Handler h, String text, long nowMs, final Out out) {
         Map<String, Object> f;
         try {
             f = PcJson.obj(text);
@@ -218,9 +278,32 @@ public final class PcRx {
         }
         if (!"msg".equals(f.get("type")) || !(f.get("body") instanceof Map)) return null;
         Map<String, Object> body = (Map<String, Object>) f.get("body");
-        if (!"cmd".equals(body.get("kind"))) return null;
         String from = String.valueOf(f.get("from")), id = String.valueOf(f.get("id"));
         if (!p.peer.equals(from)) return null; // 只听配对的那台电脑
+        Object kind = body.get("kind");
+        if ("confirm_offer".equals(kind) || "confirm_close".equals(kind)) {
+            if (PcProtocol.verify(p.key, id, from, p.me, body, nowMs, guard) != PcProtocol.Check.OK) return null;
+            Object cid = body.get("cid");
+            if (!(cid instanceof Number)) return null;
+            if ("confirm_close".equals(kind)) {
+                PcConfirm.closePc(from, ((Number) cid).longValue());
+                return null;
+            }
+            if (out == null) return null;
+            Object to = body.get("timeout_ms");
+            PcConfirm.offer(from, ((Number) cid).longValue(), PcRxPolicy.str(body, "token"), PcRxPolicy.str(body, "detail"), PcRxPolicy.str(body, "remember_kind"),
+                    Boolean.TRUE.equals(body.get("always")), to instanceof Number ? ((Number) to).longValue() : LinkPolicy.CONFIRM_TIMEOUT_MS, new PcConfirm.Reply() {
+                        @Override public void send(PcConfirm.Card c, boolean allow, boolean always, boolean remember, long shownMs) {
+                            try {
+                                out.send(answerFrame(p, c, allow, always, remember, shownMs, System.currentTimeMillis()));
+                            } catch (IOException ignored) {
+                                // 回不去：电脑等不到就按拒绝
+                            }
+                        }
+                    });
+            return null;
+        }
+        if (!"cmd".equals(kind)) return null;
         String cmd = String.valueOf(body.get("cmd"));
         PcProtocol.Check c = PcProtocol.verify(p.key, id, from, p.me, body, nowMs, guard);
         PcLanClient.Result r;
@@ -245,11 +328,41 @@ public final class PcRx {
         return PcJson.stringify(env);
     }
 
+    /**
+     * 手机确认卡上真人点完：签名的 confirm_answer（带电脑给的编号和一次性 token、手机上显示了多久、input = touch）。
+     * 只有 {@link PcConfirm#answer} 在真人触摸后才会走到这里；语音 / 机器人 / 远程指令都到不了。
+     */
+    static String answerFrame(PcLanClient.Peer p, PcConfirm.Card c, boolean allow, boolean always, boolean remember, long shownMs, long nowMs) {
+        Map<String, Object> b = new TreeMap<String, Object>();
+        b.put("kind", "confirm_answer");
+        b.put("cid", Long.valueOf(c.pcId));
+        b.put("token", c.pcToken);
+        b.put("allow", Boolean.valueOf(allow));
+        b.put("always", Boolean.valueOf(always));
+        b.put("remember", Boolean.valueOf(remember));
+        b.put("input", allow ? "touch" : "card");
+        b.put("shown_ms", Long.valueOf(shownMs));
+        String rid = PcProtocol.newId();
+        Map<String, Object> env = new TreeMap<String, Object>();
+        env.put("type", "msg");
+        env.put("to", p.peer);
+        env.put("id", rid);
+        env.put("body", PcProtocol.seal(p.key, rid, p.me, p.peer, b, nowMs));
+        return PcJson.stringify(env);
+    }
+
+    /** 同时在处理的指令最多几条（要确认的可能等 60 秒，每条一个线程，免得挡住后面的 ping / 找手机）。 */
+    static final int MAX_INFLIGHT = 6;
+
     /** 阻塞服务一条常连会话直到断开 / stop。每 25 秒发一次 ping（电脑端 95 秒没动静会断）。返回断开原因。 */
-    public static String serve(PcLanClient.Session s, Handler h, Stop stop) {
-        PcWs ws = s.ws();
-        PcLanClient.Peer p = s.peer();
-        PcProtocol.ReplayGuard guard = new PcProtocol.ReplayGuard();
+    public static String serve(PcLanClient.Session s, final Handler h, Stop stop) {
+        final PcWs ws = s.ws();
+        final PcLanClient.Peer p = s.peer();
+        final PcProtocol.ReplayGuard guard = new PcProtocol.ReplayGuard();
+        final Out out = new Out() {
+            @Override public void send(String text) throws IOException { ws.sendText(text); }
+        };
+        final java.util.concurrent.atomic.AtomicInteger inflight = new java.util.concurrent.atomic.AtomicInteger();
         long lastPing = System.currentTimeMillis();
         try {
             while (!stop.stopped()) {
@@ -266,8 +379,25 @@ public final class PcRx {
                 }
                 if (m == null) return "closed " + ws.closeCode;
                 if ("pong".equals(m)) continue;
-                String reply = onFrame(p, guard, h, m, System.currentTimeMillis());
-                if (reply != null) ws.sendText(reply);
+                if (inflight.get() >= MAX_INFLIGHT) {
+                    String reply = onFrame(p, guard, h, m, System.currentTimeMillis(), out);
+                    if (reply != null) ws.sendText(reply);
+                    continue;
+                }
+                final String frame = m;
+                inflight.incrementAndGet();
+                com.onesay.assistant.v2.util.Threads.start("pclink-rx-cmd", new Runnable() {
+                    @Override public void run() {
+                        try {
+                            String reply = onFrame(p, guard, h, frame, System.currentTimeMillis(), out);
+                            if (reply != null) ws.sendText(reply);
+                        } catch (Throwable ignored) {
+                            // 连接断了：电脑等不到就按超时
+                        } finally {
+                            inflight.decrementAndGet();
+                        }
+                    }
+                });
             }
             return "stopped";
         } catch (IOException e) {

