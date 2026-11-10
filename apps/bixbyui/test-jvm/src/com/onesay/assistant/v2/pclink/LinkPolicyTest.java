@@ -708,4 +708,29 @@ public class LinkPolicyTest {
         // 远程不能改 OneSay 自己的设置：没有这样的指令
         assertFalse(PcRx.handle(h, "settings", m("rx_enabled", "true")).ok);
     }
+
+    /** 确认框只认被控端本机的鼠标 / 键盘点击：远程 / 语音「回答确认框」的指令任何档位、两种被控端都拒绝（voice_approval_blocked）。 */
+    @Test public void remoteOrVoiceApprovalBlockedEverywhere() {
+        String[] names = {"confirm", "approve", "allow", "approval", "voice_approve", "voice_confirm", "confirm_allow", "Allow_Always"};
+        for (String n : names) {
+            assertTrue(n, LinkPolicy.isRemoteApproval(n));
+            assertEquals(n, Cat.REMOTE_APPROVAL, LinkPolicy.pcCat(n));
+            assertEquals(n, Cat.REMOTE_APPROVAL, LinkPolicy.phoneCat(n));
+        }
+        for (String n : new String[]{"shutdown", "sys_exec", "ping", "notify", null}) assertFalse(String.valueOf(n), LinkPolicy.isRemoteApproval(n));
+        for (Target t : Target.values())
+            for (LinkPolicy.Sandbox sb : LinkPolicy.Sandbox.values())
+                for (LinkPolicy.Approval ap : LinkPolicy.Approval.values()) {
+                    Decision d = LinkPolicy.decide(t, new LinkPolicy.Mode(sb, ap), Cat.REMOTE_APPROVAL, new Facts());
+                    assertEquals(t + "/" + sb + "/" + ap, D, d.verdict);
+                    assertEquals(LinkPolicy.R_VOICE_APPROVAL_BLOCKED, d.reason);
+                }
+        for (Level l : Level.values()) assertEquals(LinkPolicy.R_VOICE_APPROVAL_BLOCKED, LinkPolicy.decide(Target.PC, l, Cat.REMOTE_APPROVAL, null).reason);
+        assertEquals("voice_approval_blocked", LinkPolicy.R_VOICE_APPROVAL_BLOCKED);
+        assertFalse(LinkPolicy.reasonZh(LinkPolicy.R_VOICE_APPROVAL_BLOCKED).isEmpty());
+        // 原有指令的类别不受影响
+        assertEquals(Cat.POWER, LinkPolicy.pcCat("shutdown"));
+        assertEquals(Cat.SELF_AUTHORIZE, LinkPolicy.pcCat("shortcut_approve"));
+        assertEquals(Cat.UNKNOWN, LinkPolicy.phoneCat("whatever"));
+    }
 }

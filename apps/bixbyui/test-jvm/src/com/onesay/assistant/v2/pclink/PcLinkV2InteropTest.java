@@ -531,6 +531,56 @@ public class PcLinkV2InteropTest {
         }
     }
 
+    /** [确认框加固] 远程 / 语音不能批准电脑上的确认框：「回答确认框」类指令回 voice_approval_blocked；界面接口收到不是本机鼠标 / 键盘的「允许」也不算。 */
+    @Test public void remoteOrVoiceApprovalBlockedThroughDesktop() throws Exception {
+        Assume.assumeTrue("电脑端 jar 还没有确认框加固（ConfirmGate），跳过", hasClass("com.onesay.desktop.ConfirmGate"));
+        assertEquals(Boolean.TRUE, api("settings", mm("pc_sandbox", "workspace_write", "pc_approval", "untrusted")).get("ok"));
+        PcPairing pp = PcPairing.parse(pairing());
+        PcLanClient.Peer p = new PcLanClient.Peer("phone-ag", pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("phone-ag"));
+        InetSocketAddress addr = PcLanClient.locate(p, 3000, null);
+        assertNotNull(addr);
+        final PcLanClient.Session s = PcLanClient.Session.open(p, addr, 5000);
+        try {
+            assertTrue(s.tls());
+            for (String n : new String[]{"confirm", "approve", "allow", "voice_approve"}) {
+                PcLanClient.Result r = s.request(n, mm("id", 1, "allow", true, "always", true), 15000);
+                assertFalse(n, r.ok);
+                assertEquals(n, LinkPolicy.R_VOICE_APPROVAL_BLOCKED, r.data.get("reason"));
+                assertEquals(LinkPolicy.reasonZh(LinkPolicy.R_VOICE_APPROVAL_BLOCKED), r.data.get("reason_zh"));
+            }
+            final PcLanClient.Result[] held = new PcLanClient.Result[1];
+            Thread t = new Thread(new Runnable() {
+                @Override public void run() {
+                    try { held[0] = s.request("volume", mm("action", "up"), 40000); } catch (Exception ignored) { }
+                }
+            }, "phone-ag-volume");
+            t.setDaemon(true);
+            t.start();
+            Object id = null;
+            for (int i = 0; i < 100 && id == null; i++) {
+                List<?> c = (List<?>) api("state", null).get("confirms");
+                if (c != null && !c.isEmpty()) id = ((Map<?, ?>) c.get(0)).get("id");
+                else Thread.sleep(100);
+            }
+            assertNotNull("电脑上应该在等确认", id);
+            api("confirm", mm("op", "seen", "id", id, "focused", Boolean.TRUE));
+            Thread.sleep(900);
+            Map<String, Object> a = api("confirm", mm("id", id, "allow", Boolean.TRUE, "input", "voice", "trusted", Boolean.TRUE));
+            assertEquals(Boolean.FALSE, a.get("ok"));
+            assertEquals(LinkPolicy.R_VOICE_APPROVAL_BLOCKED, a.get("reason"));
+            a = api("confirm", mm("id", id, "allow", Boolean.TRUE)); // 没说来源（旧手机 / 远程转发）
+            assertEquals(LinkPolicy.R_VOICE_APPROVAL_BLOCKED, a.get("reason"));
+            assertEquals("没算数，照旧在等", 1, ((List<?>) api("state", null).get("confirms")).size());
+            assertEquals(Boolean.TRUE, api("confirm", mm("id", id, "allow", Boolean.FALSE, "input", "keyboard", "trusted", Boolean.TRUE)).get("ok"));
+            t.join(15000);
+            assertNotNull(held[0]);
+            assertFalse(held[0].ok);
+            assertEquals(LinkPolicy.R_CONFIRM_DENIED, held[0].data.get("reason"));
+        } finally {
+            s.close();
+        }
+    }
+
     // ------------------------------------------------------------------ 电脑快捷指令批准（手机 → 电脑）
 
     /** 后台等电脑界面上出现待确认，记下它，再按 allow / always 点掉（经电脑界面 API）。 */
@@ -546,6 +596,17 @@ public class PcLinkV2InteropTest {
                             seen.add(x);
                             Map<String, Object> b = new TreeMap<String, Object>();
                             b.put("id", x.get("id"));
+                            if (allow && hasClass("com.onesay.desktop.ConfirmGate")) {
+                                // [确认框加固] 改：电脑端确认框要先显示（界面报 seen）、等过约 0.7 秒，再用本机鼠标点「允许」才算数
+                                Map<String, Object> sb = new TreeMap<String, Object>();
+                                sb.put("op", "seen");
+                                sb.put("id", x.get("id"));
+                                sb.put("focused", Boolean.TRUE);
+                                api("confirm", sb);
+                                Thread.sleep(900);
+                                b.put("input", "mouse");
+                                b.put("trusted", Boolean.TRUE);
+                            }
                             b.put("allow", allow);
                             b.put("always", always);
                             api("confirm", b);

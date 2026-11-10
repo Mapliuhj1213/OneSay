@@ -41,6 +41,9 @@ import java.util.regex.Pattern;
  * <p>电脑上用户自己定义的快捷指令单独一类（{@link Cat#SHORTCUT}，不算「运行脚本」）：只认电脑快捷指令列表里有的、按稳定 id + 内容哈希对上；
  * 第一次从手机触发（或内容改过、哈希对不上）在电脑上问「允许 / 拒绝」（30 秒 = 拒绝），可选「以后直接执行」；这样批准过的在自动 / 完全访问下直接执行，
  * 只读拒绝。内容碰了严格规则（注册表 / 网络 / 服务 / 给自己授权，或看不出内容的编码命令）的快捷指令只能自己运行，不能批准远程直接执行。
+ *
+ * <p>确认框只认被控端本机的鼠标 / 键盘点击：远程消息或语音想回答确认框（{@link Cat#REMOTE_APPROVAL}：confirm / approve / allow /
+ * voice_approve…）任何档位都拒绝，原因码 {@link #R_VOICE_APPROVAL_BLOCKED}（思路参考 Haris 审批卡「不能用说话批准」，MIT；代码自己写的）。
  */
 public final class LinkPolicy {
 
@@ -173,7 +176,9 @@ public final class LinkPolicy {
             /** 需要管理员：不执行，只生成 .ps1 脚本，由用户自己用管理员身份运行。 */
             R_NEEDS_ADMIN_SCRIPT = "needs_admin_script",
             /** 远程想给自己放权（改 OneSay 的策略 / 配置 / 白名单 / 插件开关）。 */
-            R_SELF_GRANT_BLOCKED = "self_grant_blocked";
+            R_SELF_GRANT_BLOCKED = "self_grant_blocked",
+            /** 想用远程消息 / 语音回答确认框（批准只认电脑本机的鼠标 / 键盘点击）。 */
+            R_VOICE_APPROVAL_BLOCKED = "voice_approval_blocked";
 
     /** 指令的类别（决定矩阵行）。 */
     public enum Cat {
@@ -208,6 +213,8 @@ public final class LinkPolicy {
         SELF_AUTHORIZE,
         /** 改动系统 App（卸载 / 停用 / 清数据）。 */
         SYSTEM_APP_OP,
+        /** 远程 / 语音想回答被控端的确认框（允许 / 批准 / 以后直接执行）。任何档位都拒绝：批准只认被控端本机的点击。 */
+        REMOTE_APPROVAL,
         UNKNOWN
     }
 
@@ -275,6 +282,7 @@ public final class LinkPolicy {
         if (f == null) f = new Facts();
         if (mode == null) mode = Mode.DEFAULT;
         if (c == null) c = Cat.UNKNOWN;
+        if (c == Cat.REMOTE_APPROVAL) return denyRemoteApproval();
         if (t == Target.PHONE) return phoneLegacy(c, f);
 
         // ---- 安全插件：任何档位都先过它（插件自己出错时调用方传 pluginBlocked，这里一律拒）
@@ -378,6 +386,10 @@ public final class LinkPolicy {
         return ap == Approval.NEVER ? Decision.deny(reason, "审批策略是「从不询问」：" + text + "，已拒绝") : Decision.confirm(reason, text);
     }
 
+    static Decision denyRemoteApproval() {
+        return Decision.deny(R_VOICE_APPROVAL_BLOCKED, "确认框只认被控端本机的鼠标 / 键盘点击，远程消息和语音不能批准");
+    }
+
     static Decision denyNever(String what) {
         return Decision.deny(R_DENIED_BY_LEVEL, "审批策略是「从不询问」，需要确认的事直接拒绝：" + what);
     }
@@ -394,6 +406,7 @@ public final class LinkPolicy {
      * 没检查过的事实（url / clip 为 null）按「没有这项检查」处理。
      */
     static Decision phoneLegacy(Cat c, Facts f) {
+        if (c == Cat.REMOTE_APPROVAL) return denyRemoteApproval();
         if (c == Cat.SELF_AUTHORIZE) return Decision.deny(R_SELF_GRANT_BLOCKED, "远程不能改 OneSay 自己的设置");
         if (c == Cat.SELF_GRANT) return Decision.script("涉及授予权限，只生成脚本，需要你自己执行");
         if (c == Cat.UNKNOWN) return Decision.deny(R_UNKNOWN, "不认识的指令");
@@ -411,6 +424,7 @@ public final class LinkPolicy {
     /** 手机作为被控端：电脑发来的指令名 → 类别（shell 命令另走 {@link #classifyShell}）。 */
     public static Cat phoneCat(String cmd) {
         if (cmd == null) return Cat.UNKNOWN;
+        if (isRemoteApproval(cmd)) return Cat.REMOTE_APPROVAL;
         if (in(cmd, "ping", "caps", "status", "level")) return Cat.QUERY;
         if (in(cmd, "file_list", "script_list")) return Cat.READ_PRIVATE;
         if (in(cmd, "find_phone", "screen_on", "notify", "flashlight")) return Cat.HARMLESS;
@@ -428,6 +442,7 @@ public final class LinkPolicy {
     /** 电脑作为被控端：手机发来的指令名 → 类别（与 DesktopActions 的能力名对应）。新指令必须在这里登记，否则一律拒绝。 */
     public static Cat pcCat(String cmd) {
         if (cmd == null) return Cat.UNKNOWN;
+        if (isRemoteApproval(cmd)) return Cat.REMOTE_APPROVAL;
         if (in(cmd, "ping", "caps", "info", "shortcut_list", "level")) return Cat.QUERY;
         if (in(cmd, "screenshot", "clipboard_get", "file_get", "file_list", "script_list")) return Cat.READ_PRIVATE;
         if (in(cmd, "media", "lock", "notify", "memory_sync", "echo")) return Cat.HARMLESS;
@@ -446,6 +461,16 @@ public final class LinkPolicy {
         if (in(cmd, "settings", "settings_set", "config_set", "pc_level", "level_set", "set_level", "sandbox_set", "approval_set", "plugin_set", "plugin_off",
                 "trust_add", "trusted_add", "net_allow_add", "shortcut_approve", "policy_set")) return Cat.SELF_AUTHORIZE;
         return Cat.UNKNOWN;
+    }
+
+    /**
+     * 远程想回答确认框的指令名（确认 / 批准 / 允许 / 语音批准…）。确认框只认被控端本机的鼠标 / 键盘点击，这些一律
+     * {@link #R_VOICE_APPROVAL_BLOCKED}（思路参考 Haris 审批卡「不能用说话批准」，MIT；代码自己写的）。
+     */
+    public static boolean isRemoteApproval(String cmd) {
+        String c = cmd == null ? "" : cmd.trim().toLowerCase(Locale.ROOT);
+        return in(c, "confirm", "confirm_reply", "confirm_answer", "confirm_allow", "confirm_always", "answer_confirm", "approve", "approval",
+                "allow", "allow_once", "allow_always", "voice_confirm", "voice_approve", "voice_allow", "voice_approval", "always_allow");
     }
 
     /** 手机 setting_set 的 name：哪些算简单设置、哪些算网络 / 安全。 */
@@ -1572,6 +1597,7 @@ public final class LinkPolicy {
         if (R_PLUGIN_BLOCKED.equals(code)) return "安全插件拦下了（提权 / 看不出内容 / 沙箱断网）";
         if (R_NEEDS_ADMIN_SCRIPT.equals(code)) return "这件事要管理员，已生成脚本，需你自己用管理员身份执行";
         if (R_SELF_GRANT_BLOCKED.equals(code)) return "远程不能改 OneSay 自己的设置";
+        if (R_VOICE_APPROVAL_BLOCKED.equals(code)) return "确认只认本机鼠标 / 键盘点击，语音和远程消息不能批准";
         return "";
     }
 
