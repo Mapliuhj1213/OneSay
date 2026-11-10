@@ -355,6 +355,12 @@ function scPolicy(){const p=S.shortcut_policy||[],a=S.shortcut_approvals||[];
   sec('var(--green)','已批准直接执行',a.length+' 个')+
   (a.length?card(a.map(x=>{const t=SC_ST[x.status]||SC_ST.approved;return `<div class="item"><div class="tx"><div class="tt">${esc(x.name)}</div><div class="st">内容指纹 ${esc(x.hash)} · ${esc(t[1])}</div></div><button class="tag" onclick="scRevoke(${esc(JSON.stringify(x.id))})">撤销</button></div>`})):empty('还没有批准过'))+
   `<p class="note">只认快捷指令文件夹里的 .ps1 / .bat / .cmd，按文件名 + 内容指纹批准；改了内容或改了名都要重新批准。普通用户自己能做的（改自己的注册表、删自己的文件、开程序…）照常批准；需要管理员（机器级注册表、服务驱动、防火墙 / 网卡 / DNS、系统级计划任务、磁盘）、能影响提权（劫持 ms-settings 之类、改 windir / COR_PROFILER、Policies）、想提权，或用了看不出内容的编码命令的，只能你自己运行。注释里写到的词不算。只读档一律不执行。</p>`}
+function remPolicy(){const r=S.remembered||[];
+  return sec('var(--green)','以后这类不用问',r.length+' 类')+
+  (r.length?card(r.map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(x.zh)}</div><div class="st">${esc(x.kind)}</div></div><button class="tag" onclick="remRevoke(${esc(JSON.stringify(x.kind))})">撤销</button></div>`)):empty('还没有记住过'))+
+  `<p class="note">确认框上勾「以后这类不用问」并允许后，同一类动作直接执行（会弹通知提醒）。付款最后一下、改 OneSay 自己、提权 / 要管理员这三类不会弹确认，也记不住。只能在这台电脑上撤销。</p>`}
+async function remRevoke(k){if(!LIVE){S.remembered=(S.remembered||[]).filter(x=>x.kind!==k);render();return}
+  const r=await api('remembered',{op:'revoke',kind:k});snack(r.text);refresh()}
 async function scRevoke(id){if(!LIVE){S.shortcut_approvals=(S.shortcut_approvals||[]).filter(x=>x.id!==id);render();return}
   const r=await api('shortcuts',{op:'revoke',id});snack(r.text);refresh()}
 P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
@@ -429,8 +435,10 @@ P.settings=()=>{const s=S.settings;
   ${kv('安全插件','关掉要确认两次。关掉后下面三项仍然生效',plugSw(s.plugin_enabled!==false))}
   ${kv('永不提权','远程指令的子进程绝不 runas、不弹 UAC；OneSay 自己是管理员时远程子进程拒绝启动',`<span class="tag green">始终开</span>`)}
   ${kv('需要管理员 → 只生成脚本','机器级注册表、服务驱动、防火墙 / 网卡 / DNS / hosts、系统级计划任务、磁盘等：生成 .ps1 + 中文说明，由你自己用管理员身份运行',`<span class="tag green">始终开</span>`)}
-  ${kv('禁止自授权','远程指令不能改 OneSay 的档位、插件、信任列表、白名单、批准表',`<span class="tag green">始终开</span>`)}
-  ${kv('拦截编码 / 隐藏命令','powershell -enc、FromBase64String、iex 这类看不出内容的写法',s.plugin_enabled!==false?sw('plugin_encoded',s.plugin_encoded!==false):tag(false))}</div></div>
+  ${kv('禁止自授权 / 自批准','远程指令和机器人不能改 OneSay 的档位、插件、信任列表、白名单、批准表、记住的类型；语音和远程消息不能批准确认框',`<span class="tag green">始终开</span>`)}
+  ${kv('付款最后一下亲手点','付款 / 转账的最终按钮只能你自己点，批了也不行',`<span class="tag green">始终开</span>`)}
+  ${kv('拦截编码 / 隐藏命令','powershell -enc、FromBase64String、iex 这类看不出内容的写法',s.plugin_enabled!==false?sw('plugin_encoded',s.plugin_encoded!==false):tag(false))}</div>
+  ${remPolicy()}</div>
   <div>${sec('var(--accent)','配对手机')}<div class="card" style="padding:20px">
   <div style="display:flex;gap:18px;align-items:center"><div class="qr" id="qrbox" style="display:grid;place-items:center;color:var(--text3);font-size:12px;text-align:center">${pairShown?'':'点「显示」<br>生成二维码'}</div>
   <div style="font-size:13px;color:var(--text2);line-height:1.7">用手机 OneSay 的「电脑联动」插件扫码配对。<br>这个码就是钥匙，别截图发给别人。<br><button class="btn ghost sm" style="margin-top:8px" onclick="showPair()">${pairShown?'隐藏':'显示'}</button> <button class="btn ghost sm" style="color:var(--red)" onclick="rekey()">换一把钥匙</button><br>本机证书指纹 <b>${esc(S.tls_fp||'')}</b>（手机上显示的应一致） <button class="btn ghost sm" onclick="unpin()">忘掉手机证书</button></div></div>
@@ -498,18 +506,19 @@ function setLevel(k){if(k==='full'&&!confirm('打开「完全访问」？\n\n手
 let cfShown='',cfArmT=0,cfArmMs=700,cfId=0;
 function cfLock(){clearTimeout(cfArmT);document.querySelectorAll('#cfbox .cfallow').forEach(b=>b.disabled=true);const h=$('cfhint');if(h)h.textContent='「允许」稍后可点（防误点）'}
 function cfArm(){clearTimeout(cfArmT);if(!cfId||!document.hasFocus())return;
-  cfArmT=setTimeout(()=>{if(!document.hasFocus())return;document.querySelectorAll('#cfbox .cfallow').forEach(b=>b.disabled=false);const h=$('cfhint');if(h)h.textContent='只认鼠标 / 键盘点击；30 秒不点、关窗口、按 Esc 都算拒绝'},cfArmMs)}
+  cfArmT=setTimeout(()=>{if(!document.hasFocus())return;document.querySelectorAll('#cfbox .cfallow').forEach(b=>b.disabled=false);const h=$('cfhint');if(h)h.textContent='只认鼠标 / 键盘点击（或手机屏幕上的确认卡）；60 秒不点、关窗口、按 Esc 都算拒绝'},cfArmMs)}
 function confirmBar(){const c=(S&&S.confirms)||[];const box=$('cfbox');if(!box)return;
   if(!c.length){box.style.display='none';cfShown='';cfId=0;clearTimeout(cfArmT);return}
   const x=c[0],key=String(x.id);if(cfShown===key)return;cfShown=key;cfId=x.id;
-  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px">手机请求，需要你确认</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div><div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
+  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px">手机请求，需要你确认</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div>${x.remember_kind?`<label class="note" style="display:block;margin:0 0 8px"><input type="checkbox" id="cfrem"> 以后这类不用问（${esc(x.remember_zh||x.remember_kind)}，可在设置里撤销）</label>`:''}${x.phone?'<div class="note" style="margin:0 0 6px">已同时发到手机，手机屏幕上点也行</div>':''}<div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
   box.style.display='';const d=$('cfdeny');if(d)d.focus(); // 焦点默认在「拒绝」：误按回车 / 空格 = 拒绝
   if(!LIVE){cfArm();return}
   api('confirm',{op:'seen',id:x.id,focused:document.hasFocus()}).then(r=>{if(r&&r.arm_ms)cfArmMs=r.arm_ms;if(cfId===x.id)cfArm()}).catch(()=>{})}
 async function cfAns(id,allow,always,ev){
   const trusted=!!(ev&&ev.isTrusted),input=ev&&ev.detail===0?'keyboard':'mouse';
   if(allow&&!trusted)return; // 不是真实的鼠标 / 键盘输入：不算
-  let r;try{r=await api('confirm',{id,allow,always:!!always,input,trusted})}catch(e){r={ok:false,text:'没连上 OneSay'}}
+  const rb=$('cfrem'),remember=!!(allow&&!always&&rb&&rb.checked);
+  let r;try{r=await api('confirm',{id,allow,always:!!always,remember,input,trusted})}catch(e){r={ok:false,text:'没连上 OneSay'}}
   if(r&&r.reason==='not_armed'){snack(r.text);cfLock();cfArm();return}
   cfShown='';cfId=0;clearTimeout(cfArmT);snack(r.text);refresh()}
 function cfWindow(f){if(!cfId)return;if(!f)cfLock();if(LIVE)api('confirm',{op:'window',focused:f}).catch(()=>{});if(f){cfLock();cfArm()}}

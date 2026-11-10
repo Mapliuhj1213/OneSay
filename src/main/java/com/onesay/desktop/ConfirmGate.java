@@ -11,8 +11,12 @@ import java.util.Locale;
  *       窗口失焦后再拿回焦点，重新等 {@link #ARM_MS}（点一下把窗口切到前台的那一下不会顺手批准）。窗口没焦点时「允许」也不算数。</li>
  *   <li><b>默认拒绝</b>：超时、确认框显示后窗口拿过焦点又失焦 {@link #BLUR_DENY_MS} 毫秒没人点、界面 {@link #UI_GONE_MS} 毫秒没动静（窗口关了 /
  *       卡死）、窗口关闭 / Esc（界面直接报拒绝或 closed）——都算拒绝。</li>
- *   <li><b>只认本机点击</b>：「允许」只接受电脑本机的鼠标 / 键盘点击（{@link Input#MOUSE} / {@link Input#KEYBOARD}）；语音、远程消息、来源不明的一律
- *       不算批准（{@link Answer#NOT_LOCAL}，原因码 {@link LinkPolicy#R_VOICE_APPROVAL_BLOCKED}），请求照旧等本机点击。「拒绝」从哪来都收（拒绝总是安全的）。</li>
+ *   <li><b>只认真人点击</b>：「允许」只接受电脑本机的鼠标 / 键盘点击（{@link Input#MOUSE} / {@link Input#KEYBOARD}），或（2026-11-10 起）
+ *       已配对手机屏幕上确认卡的真人触摸（{@link Input#PHONE_TOUCH}，见 {@link #checkPhone}）；语音、远程消息、机器人、来源不明的一律
+ *       不算批准（{@link Answer#NOT_LOCAL}，原因码 {@link LinkPolicy#R_VOICE_APPROVAL_BLOCKED}），请求照旧等真人点击。「拒绝」从哪来都收（拒绝总是安全的）。</li>
+ *   <li><b>手机确认卡</b>：电脑把这条确认发给配对手机（一次性 token，签名通道）；手机回的批准要带同一个 token、来自同一台手机、
+ *       是手机界面上的真人触摸、手机上显示满 {@link #ARM_MS} 才点、离电脑发出也满 {@link #ARM_MS}。手机卡在等时，电脑窗口的失焦 / 没动静不再按拒绝
+ *       （人可能不在电脑前）；超时、关窗口、Esc 照旧拒绝。</li>
  * </ul>
  *
  * <p>思路来源：Haris（MIT License，Copyright (c) 2026 TENMATECH Digital Solutions L.L.C.，
@@ -22,7 +26,7 @@ import java.util.Locale;
 public final class ConfirmGate {
 
     /** 「允许」解锁前的等待（毫秒）。 */
-    public static final long ARM_MS = 700;
+    public static final long ARM_MS = LinkPolicy.CONFIRM_ARM_MS;
     /** 确认框显示后窗口拿过焦点、又失焦这么久没人点 = 拒绝。 */
     public static final long BLUR_DENY_MS = 10_000;
     /** 确认框显示后界面这么久没报到（界面每 2.5 秒刷新一次）= 窗口关了 / 卡了 = 拒绝。 */
@@ -30,9 +34,12 @@ public final class ConfirmGate {
 
     /** 一次回答从哪来。 */
     public enum Input {
-        MOUSE, KEYBOARD, VOICE, REMOTE, UNKNOWN;
+        MOUSE, KEYBOARD,
+        /** 已配对手机屏幕上确认卡的真人触摸（只从签名的 confirm_answer 来，电脑界面接口给不出这个）。 */
+        PHONE_TOUCH,
+        VOICE, REMOTE, UNKNOWN;
 
-        /** 界面传来的 input 字段：只认 "mouse" / "keyboard"，其余（含没传、语音、远程）都不是本机点击。 */
+        /** 界面传来的 input 字段：只认 "mouse" / "keyboard"，其余（含没传、语音、远程、"phone_touch"）都不是本机点击。 */
         public static Input of(Object o) {
             String s = o == null ? "" : String.valueOf(o).trim().toLowerCase(Locale.ROOT);
             switch (s) {
@@ -67,6 +74,9 @@ public final class ConfirmGate {
     private long seenAt = -1, armAt = Long.MAX_VALUE, blurSince = -1, lastUi = -1;
     private boolean focused, focusedSinceSeen;
     private String ended;
+    /** 发给手机的确认卡：哪台手机、一次性 token、什么时候发出的（-1 = 没发）。 */
+    private String phoneDevice, phoneToken;
+    private long phoneAt = -1;
 
     public ConfirmGate(long now, long timeoutMs) {
         this.deadline = now + Math.max(0, timeoutMs);
@@ -122,13 +132,42 @@ public final class ConfirmGate {
         return Math.max(0, armAt - now);
     }
 
-    /** 请求是不是该按拒绝结束了；null = 继续等。 */
+    /** 请求是不是该按拒绝结束了；null = 继续等。手机卡在等时，电脑窗口失焦 / 界面没动静不算（人可能拿着手机）。 */
     public synchronized String expired(long now) {
         if (ended != null) return ended;
         if (now >= deadline) return END_TIMEOUT;
+        if (phoneAt >= 0) return null;
         if (blurSince >= 0 && now - blurSince >= BLUR_DENY_MS) return END_BLUR;
         if (seenAt >= 0 && lastUi >= 0 && now - lastUi >= UI_GONE_MS) return END_UI_GONE;
         return null;
+    }
+
+    /** 这条确认已经发到了手机 device（token 是这一次的一次性口令）。只记第一次。 */
+    public synchronized void phoneOffered(long now, String device, String token) {
+        if (phoneAt >= 0 || device == null || token == null || token.length() < 16) return;
+        phoneDevice = device;
+        phoneToken = token;
+        phoneAt = now;
+    }
+
+    public synchronized boolean phoneOffered() { return phoneAt >= 0; }
+
+    /**
+     * 判一次从手机来的回答（签名已经验过）。要：发过手机卡、同一台手机、同一个 token；拒绝到这里就收；
+     * 允许还要是手机界面上的真人触摸（{@link Input#PHONE_TOUCH}）、手机上显示满 {@link #ARM_MS}（shownMs）、离发出也满 {@link #ARM_MS}。
+     */
+    public synchronized Answer checkPhone(long now, boolean allow, String device, String token, Input in, long shownMs) {
+        if (ended != null || now >= deadline) return Answer.GONE;
+        if (phoneAt < 0 || device == null || !device.equals(phoneDevice) || !same(token, phoneToken)) return Answer.NOT_LOCAL;
+        if (!allow) return Answer.ACCEPTED;
+        if (in != Input.PHONE_TOUCH) return Answer.NOT_LOCAL;
+        if (shownMs < ARM_MS || now - phoneAt < ARM_MS) return Answer.TOO_EARLY;
+        return Answer.ACCEPTED;
+    }
+
+    private static boolean same(String a, String b) {
+        if (a == null || b == null) return false;
+        return java.security.MessageDigest.isEqual(a.getBytes(java.nio.charset.StandardCharsets.UTF_8), b.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     /** 判一次回答能不能收：拒绝总收；允许要本机点击 + 已显示 + 已解锁。 */

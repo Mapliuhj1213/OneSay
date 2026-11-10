@@ -148,7 +148,7 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 | auto 自动（默认） | 工作区可写 · 分类 |
 | full 完全访问 | 完全访问 · 按需 |
 
-### 矩阵（A 直接做 / C 电脑上确认，30 秒不点 = 拒 / D 拒绝 / S 只生成 .ps1 脚本，从不执行）
+### 矩阵（A 直接做 / C 电脑上确认，60 秒不点 = 拒（2026-11-10 起，原 30 秒） / D 拒绝 / S 只生成 .ps1 脚本，从不执行）
 
 | 类别 | 只读（任一审批） | 工作区可写：分类 / 按需 / 从不 | 完全访问：分类 / 按需 / 从不 |
 |---|---|---|---|
@@ -241,3 +241,54 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 2. **默认拒绝**：30 秒不点、按 **Esc**、**关窗口**（`pagehide` 报 `closed`）、显示后拿过焦点又**失焦 10 秒**没人点、界面 **8 秒**没报到（窗口关了 / 卡了）、确认框或通知**出错**、回了看不懂的结果 —— 都按拒绝。拒绝从哪来都收；没收的「允许」（太早 / 失焦 / 来源不对）不结束请求，请求照旧等本机点击。
 3. **说话和远程消息不能批准**：「允许」只认电脑本机的鼠标 / 键盘点击（界面带 `input`=`mouse`/`keyboard` 且浏览器标记为真实输入 `isTrusted`），其余回 `voice_approval_blocked`。手机 / 任何配对设备发 `confirm`、`approve`、`allow`、`voice_approve` 等「回答确认框」的指令一律 `voice_approval_blocked`（任何档位，LinkPolicy 三份同步，类别 `REMOTE_APPROVAL`）。电脑上有确认框在等时，按住空格说「允许 / 同意 / 好的 / 以后直接执行」这类话不执行、不转对话，提示要在电脑上点。手机带来的 `confirm=true`（手机上点过确认）不能代替电脑上的确认。
 
+
+## 能批就不拦（2026-11-10，分支 feat/approve-not-block）
+
+> 这一节**覆盖**上面各节里「关不掉 / 一律拒」的说法。原则：除了下面三条硬规则，原来直接拒的都改成**问你**；你批了就做，还能勾「以后这类不用问」。
+
+### 1. 硬拒只剩三条（批了也不行，「以后这类不用问」也绕不过，根本不弹确认）
+
+| # | 规则 | 原因码 | 两端 |
+|---|---|---|---|
+| ① | **付款 / 转账的最后一下必须你亲手点**：远程付款类指令（`pay`、`pay_confirm`、`transfer`、`checkout`、`place_order`…）一律拒；手机上的机器人遇到「确认支付 / 立即付款 / 确认转账 / 提交订单并支付 / 免密支付 / 支付¥28 / Pay now…」这类最终按钮停下、不问、你允许了也不点（`SensitiveGuard.userMustTap`），前面的步骤照常 | `pay_user_tap` | 电脑 / 手机 |
+| ② | **机器人 / 远程不能改 OneSay 自己的权限，也不能自己批准**：改档位 / 插件 / 信任列表 / 白名单 / 批准表 / 记住的类型（含 `approve_kinds` 配置项、`remember_type` 等指令名）、远程卸载 / 停用 / 结束 OneSay 自己、给 App 授权（`pm grant` / `appops` / 无障碍 / 设备管理员…只生成脚本）；「回答确认框」类指令（`confirm` / `approve` / `allow`…）和语音都批不了 | `self_grant_blocked` / `script_generated` / `voice_approval_blocked` | 电脑 / 手机 |
+| ③ | **电脑不提权**：子进程永不 runas、不弹 UAC；要管理员的只生成 `.ps1` | `plugin_blocked`（想提权）/ `needs_admin_script` | 电脑 |
+
+### 2. 原来拒的，改成问你
+
+| 原来 | 现在（`untrusted` / `on_request`） | `never` 从不询问 |
+|---|---|---|
+| 系统程序（explorer、winlogon…）、支付 / 银行 / 密码 / 钱包 / 商店类程序：打开 / 卸载 / 操作 | 电脑上确认（操作第三方程序仍只在完全访问档；只读档照旧不做） | 照旧拒（`system_app` / `blocked_app`） |
+| 网址里是 IP / 内网 / 带账号密码 / 疑似仿冒域名 | 电脑上确认，确认框写明是哪一种（格式不对的网址、非 http(s) 照旧直接拒） | 照旧拒（`untrusted_url`） |
+| 剪贴板像命令 / 含坏链接（`clipboard_rejected`） | 电脑上确认（完全访问也问） | 照旧拒 |
+| 工作区里的 `.git` / `.codex` / `.agents`（`plugin_blocked`） | 电脑上确认后写 | 照旧拒 |
+| 远程卸载 / 停用 / 结束 OneSay 自己 | **不变：硬规则 ②** | — |
+| 永不提权、要管理员只生成脚本、编码命令（可关）、沙箱断网 | **不变** | — |
+
+**手机作为被控端（电脑 → 手机），回到分档之前（round2 之前）**：
+- 网址里的 IP / 内网地址（家里 NAS、路由器）**不再拒**，直接开；带账号密码、疑似仿冒的在**手机上弹确认卡**；格式不对的照旧拒。
+- 剪贴板**去掉 10 KB 上限**（只保留 10 万字防内存的上限）和「像命令就拒」；敏感内容（验证码 / 卡号 / 密码…）照旧标敏感，**60 秒清除改成可选设置，默认关**（手机控制台「电脑联动」页「敏感内容 60 秒后自动清除」；开源版同样默认关）。
+- 打开 / 卸载支付类与系统 App、`sys_exec` 里 `pm uninstall / disable…` 这类 App → **手机上弹确认卡**（原来 `blocked_app` / `system_app` 拒）。OneSay 自己：打开照常，卸载 / 停用是硬规则 ②。
+- 「分档指令」（改系统设置、运行脚本、系统命令、写文件…，即第二轮加回来的 8 项）：开关照旧，个人版默认开、**开源版默认关**；内容碰到上面那几类时弹卡。
+
+### 3. 「以后这类不用问」
+
+- 确认框（电脑上 / 手机确认卡上）带一个勾选：勾上再点「允许」= 以后**同一类动作**直接执行（电脑会弹一条通知提醒）。
+- 按动作类型记：`pc.setting` 电脑设置、`pc.power` 关机 / 睡眠、`pc.uninstall` 卸载程序、`pc.script_run` 运行工作区脚本、`pc.shell_exec` 执行命令、`pc.outside_write` 写工作区以外、`pc.url` / `pc.url.risky` 网址、`pc.clipboard*` 剪贴板、`pc.blocked_app.*` 支付类程序、`pc.system_app` 系统程序、`pc.workspace.protected` 工作区只读目录；手机侧 `phone.blocked_app.open` / `phone.blocked_app.uninstall` / `phone.system_app` / `phone.url.risky`。不认识的类型不收、不给勾选。
+- 快捷指令照旧按「文件名 + 内容哈希」批准（不按类型）；三条硬规则根本不弹确认，也就记不了。
+- 查看 / 撤销：电脑设置页「以后这类不用问」、手机控制台「电脑联动」页同名分组。只能在本机界面上改（电脑 `/api/remembered` 要本机口令；配置键 `approve_kinds`，远程碰这个词就是 `self_grant_blocked`）。
+
+### 4. 审批更顺手
+
+- **手机屏幕确认卡可以批准电脑上的确认**：电脑要确认时，把签名的 `confirm_offer`（编号 `cid`、一次性 `token`、内容、可记住的类型、剩余时间）发到这台手机的常连通道；手机弹卡（`PcConfirmActivity`），真人手指点「允许」后回签名的 `confirm_answer`（`cid`、`token`、`allow`、`remember`、`input=touch`、`shown_ms`）。电脑端 `ConfirmGate.checkPhone` 只在**同一台配对手机 + 签名对 + token 对 + 手机上显示满 0.7 秒 + 离发出也满 0.7 秒 + input=touch** 时收；电脑那边结束（别处点了 / 超时）会发 `confirm_close` 收卡。手机卡在等时，电脑窗口失焦 / 界面没动静不再按拒绝（手机可能在批）；超时照旧。
+- **手机卡只认真人手指**：按钮只在手指按下又在按钮里抬起时算数；被别的窗口遮住（`FLAG_WINDOW_IS_OBSCURED` / `PARTIALLY_OBSCURED`）、无障碍代点（`ACTION_CLICK`、`performClick`、带无障碍标记的注入事件）、OneSay 自己的机器人刚注入过手势（1.5 秒内）都不算；窗口 `FLAG_SECURE`（截屏看不到）；焦点默认在「拒绝」；60 秒不点、返回键、关掉 = 拒绝。
+- **语音 / 远程指令 / 机器人自身仍批不了**：`voice_approval_blocked` 保留；`confirm` / `approve` 类远程指令全拒；有卡在等时对手机说「允许 / 好的」只回一句「要在屏幕上点」。
+- **超时 30 秒 → 60 秒**（`LinkPolicy.CONFIRM_TIMEOUT_MS`，电脑和手机同一个数）。手机 → 电脑可能要确认的指令手机等 75 秒；电脑 → 手机可能在手机上弹卡的（`open_url` / `open_app` / `uninstall_app` / `sys_exec`）电脑多等 65 秒。
+- **完全访问 + 从不询问**照旧直接执行（不问）。
+- **审批在执行层强制**：`PcGuard.check` 放行时发一张一次性 `Pass`（绑定这次的指令和参数），`Agent` 执行前核对，参数换了 / 用过一次 / 没有凭证 = 不执行。思路借鉴 DIYgod/pinky（Apache-2.0，https://github.com/DIYgod/pinky）的「审批在网关执行层强制」，代码是自己写的。
+
+### 5. 原因码（新增）
+
+| 码 | 中文 |
+|---|---|
+| `pay_user_tap` | 付款 / 转账的最后一下要你自己点，远程和机器人都不能代点 |

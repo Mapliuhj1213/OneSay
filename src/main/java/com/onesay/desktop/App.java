@@ -118,7 +118,7 @@ public final class App {
             Map<String, Object> m = store.mergeMemory(a.get("text") == null ? null : String.valueOf(a.get("text")), at instanceof Number ? ((Number) at).longValue() : 0L);
             return Actions.Result.ok("记忆已同步", m);
         });
-        agent.confirms.onNew = d -> notify.post("pc", "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点允许或拒绝；30 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
+        agent.confirms.onNew = d -> notify.post("pc", "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点，或在已配对手机屏幕上的确认卡上点；60 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
         agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
@@ -265,6 +265,7 @@ public final class App {
             s.put("confirms", agent.confirms.list());
             s.put("shortcut_policy", agent.guard.shortcutView());
             s.put("shortcut_approvals", agent.guard.approvalView());
+            s.put("remembered", agent.guard.rememberedView());
             s.put("workspace", cfg.workspace().toString());
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
@@ -339,6 +340,18 @@ public final class App {
             return m;
         });
         ui.on("confirm", b -> confirmApi(agent.confirms, b, log));
+        // 「以后这类不用问」记住的动作类型：看 / 撤销（只能在电脑界面上；远程改不了）
+        ui.on("remembered", b -> {
+            String op = str(b, "op", "list");
+            if (op.equals("revoke")) {
+                String k = str(b, "kind", "");
+                if (!agent.guard.forget(k)) return fail("没有这一类");
+                log.accept("撤销了「以后这类不用问」：" + k);
+            } else if (!op.equals("list")) return fail("不认识的操作");
+            Map<String, Object> m = ok(op.equals("revoke") ? "已撤销，下次这类会再问你" : "记住的类型");
+            m.put("remembered", agent.guard.rememberedView());
+            return m;
+        });
         // 快捷指令批准表：看 / 撤销（批准只能在手机触发时的确认里点「以后直接执行」）
         ui.on("shortcuts", b -> {
             String op = str(b, "op", "list");
@@ -440,7 +453,7 @@ public final class App {
      *   <li>seen {id, focused}：确认框画出来了（从这时起算 0.7 秒防误点）；</li>
      *   <li>window {focused}：窗口拿到 / 失去焦点（失焦后没人点按拒绝；拿回焦点重新等 0.7 秒）；</li>
      *   <li>closed：窗口要关了 —— 所有在等的请求按拒绝；</li>
-     *   <li>默认（回答）{id, allow, always, input, trusted}：允许只认本机鼠标 / 键盘（input = mouse / keyboard 且 trusted = true，
+     *   <li>默认（回答）{id, allow, always, remember, input, trusted}：remember = 勾了「以后这类不用问」；允许只认本机鼠标 / 键盘（input = mouse / keyboard 且 trusted = true，
      *       即浏览器标记的真实用户输入），其余回 voice_approval_blocked 且请求照旧等；拒绝从哪来都收。</li>
      * </ul>
      */
@@ -469,12 +482,13 @@ public final class App {
         if (!(id instanceof Number)) return fail("没有这条请求");
         boolean allow = Boolean.TRUE.equals(b.get("allow"));
         boolean always = allow && Boolean.TRUE.equals(b.get("always"));
+        boolean remember = allow && !always && Boolean.TRUE.equals(b.get("remember"));
         ConfirmGate.Input in = Boolean.TRUE.equals(b.get("trusted")) ? ConfirmGate.Input.of(b.get("input")) : ConfirmGate.Input.UNKNOWN;
-        ConfirmGate.Answer a = cf.answer(((Number) id).intValue(), allow, always, in);
+        ConfirmGate.Answer a = cf.answer(((Number) id).intValue(), allow, always, remember, in);
         switch (a) {
             case ACCEPTED:
-                log.accept((allow ? (always ? "允许（以后直接执行）" : "允许") : "拒绝") + "了一条远程请求（" + (in.local() ? (in == ConfirmGate.Input.KEYBOARD ? "键盘" : "鼠标") : "界面") + "）");
-                return ok(allow ? (always ? "已允许，以后直接执行" : "已允许一次") : "已拒绝");
+                log.accept((allow ? (always ? "允许（以后直接执行）" : remember ? "允许（以后这类不用问）" : "允许") : "拒绝") + "了一条远程请求（" + (in.local() ? (in == ConfirmGate.Input.KEYBOARD ? "键盘" : "鼠标") : "界面") + "）");
+                return ok(allow ? (always ? "已允许，以后直接执行" : remember ? "已允许，以后这类不用问" : "已允许一次") : "已拒绝");
             case NOT_LOCAL: {
                 log.accept("一条不是本机鼠标 / 键盘的「允许」没算数：" + LinkPolicy.R_VOICE_APPROVAL_BLOCKED);
                 Map<String, Object> f = fail(LinkPolicy.reasonZh(LinkPolicy.R_VOICE_APPROVAL_BLOCKED));

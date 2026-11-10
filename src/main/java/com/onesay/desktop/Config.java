@@ -56,6 +56,8 @@ public final class Config {
     public boolean pluginEnabled = true; // 安全插件（默认开）：关掉只关可关项；永不提权 / 需管理员只生成脚本 / 禁止自授权三项关不掉
     public boolean pluginEncoded = true; // 插件里的「编码 / 隐藏命令（-enc、FromBase64String、iex）」拦截，单独一项
     public String netAllow = "";      // 沙箱默认断网：命令可以访问的域名白名单，逗号分隔
+    /** 确认框勾了「以后这类不用问」的动作类型（LinkPolicy.parseKinds）：只在电脑界面上能看 / 撤销，远程改不了（SELF_CFG 拦 approve_kinds）。 */
+    public String approveKinds = "";
     public String shortcutApprovals = ""; // 手机触发快捷指令「以后直接执行」的批准表：id=内容哈希,...（LinkPolicy.parseApprovals）
     public String trusted = "";       // 手机让电脑打开网址时的信任域名，逗号分隔
     public String workspaceDir = "";  // 空 = %USERPROFILE%\OneSay\workspace（中文用户名退到 %ProgramData%\OneSay\workspace）
@@ -120,6 +122,7 @@ public final class Config {
         c.netAllow = String.join(",", LinkPolicy.parseDomains(p.getProperty("net_allow", "")));
         c.trusted = p.getProperty("trusted_domains", "").trim();
         c.shortcutApprovals = LinkPolicy.formatApprovals(LinkPolicy.parseApprovals(p.getProperty("shortcut_approvals", "")));
+        c.approveKinds = LinkPolicy.formatKinds(LinkPolicy.parseKinds(p.getProperty("approve_kinds", "")));
         c.workspaceDir = p.getProperty("workspace_dir", "").trim();
         return c;
     }
@@ -153,6 +156,7 @@ public final class Config {
         p.setProperty("net_allow", netAllow);
         p.setProperty("trusted_domains", trusted);
         p.setProperty("shortcut_approvals", shortcutApprovals);
+        p.setProperty("approve_kinds", approveKinds);
         p.setProperty("workspace_dir", workspaceDir);
         p.setProperty("llm_provider", llmProvider);
         p.setProperty("llm_key", llmKey);

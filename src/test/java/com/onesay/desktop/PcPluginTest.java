@@ -78,7 +78,8 @@ public class PcPluginTest {
                 {LinkPolicy.Cat.SELF_GRANT, S, S, S, S, S, S, S, S, S},
                 // 远程改 OneSay 自己的设置 / 系统程序 / 没登记的指令：任何一格都拒
                 {LinkPolicy.Cat.SELF_AUTHORIZE, D, D, D, D, D, D, D, D, D},
-                {LinkPolicy.Cat.SYSTEM_APP_OP, D, D, D, D, D, D, D, D, D},
+                // [approve-not-block] 改：系统程序从「任何一格都拒」改成「问你」（只读档、从不询问照旧拒）（方案 1/3）
+                {LinkPolicy.Cat.SYSTEM_APP_OP, D, D, D, C, C, D, C, C, D},
                 {LinkPolicy.Cat.UNKNOWN, D, D, D, D, D, D, D, D, D}};
         for (Object[] r : rows) {
             int i = 1;
@@ -259,7 +260,8 @@ public class PcPluginTest {
         Config c = cfg(WS, UN);
         PcGuard g = new PcGuard(c, new PcGuardTest.Stub());
         PcGuard.Outcome o = g.check("phone", "file_write", m("path", ".git/config", "text", "x"));
-        assertEquals(LinkPolicy.R_PLUGIN_BLOCKED, reason(o));
+        // [approve-not-block] 改：从 plugin_blocked 直接拒改成「问你」（桩不点 = needs_confirm_timeout）；没批准的 builtin 照旧不写（方案 1）
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(o));
         assertFalse(g.builtin("file_write", m("path", ".git/config", "text", "x")).ok);
         assertFalse(Files.exists(Path.of(c.workspaceDir, ".git", "config")));
         assertNull("工作区里别的地方照写", g.check("phone", "file_write", m("path", "notes/a.txt", "text", "x")).reply);

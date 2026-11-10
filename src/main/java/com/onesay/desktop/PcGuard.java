@@ -18,8 +18,14 @@ import java.util.function.Consumer;
 
 /**
  * link-v2 · 电脑作为被控端：手机（或任何配对设备）发来的每条指令先过这里 —— 执行级别（{@link LinkPolicy}，电脑用严格矩阵）
- * + 网址 / 剪贴板信任检查 + 工作区沙箱。结论：直接执行 / 先在电脑上确认（只认本机鼠标 / 键盘点击；0.7 秒后才能点「允许」；
- * 30 秒不点、失焦没人点、关窗口、Esc、出错都算拒绝，见 {@link ConfirmGate}）/ 拒绝 / 只在工作区 scripts/ 生成脚本。
+ * + 网址 / 剪贴板信任检查 + 工作区沙箱。结论：直接执行 / 先确认（电脑本机鼠标 / 键盘，或已配对手机屏幕上确认卡的真人触摸；0.7 秒后才能点「允许」；
+ * 60 秒不点、失焦没人点、关窗口、Esc、出错都算拒绝，见 {@link ConfirmGate}）/ 拒绝 / 只在工作区 scripts/ 生成脚本。
+ *
+ * <p>能批就不拦（2026-11-10）：批了也不行的只有三条硬规则（付款最后一下、自授权 / 自批准、不提权），其余原来关不掉的拦截走确认；
+ * 确认框可勾「以后这类不用问」，按动作类型记在配置 approve_kinds（设置页能看、能撤销；远程改不了它）。
+ *
+ * <p>审批在执行层强制（思路借鉴 DIYgod/pinky，Apache-2.0：审批放在网关 / 执行层，Agent 绕不过；只借思路，代码自己写的）：
+ * {@link #check} 放行时才发一张一次性的 {@link Pass}（绑定指令名 + 参数），{@link Agent} 执行前必须用掉它；没有 / 用过 / 对不上的一律不执行。
  *
  * <p>电脑端已有的能力（截图、音量、关机、快捷指令…）和以后新增的都必须在 {@link LinkPolicy#pcCat} 里登记类别，没登记的一律拒绝。
  * A 类（注册表、网络配置、服务 / 驱动）与工作区以外的写入：任何级别都只生成 .ps1 脚本，永远不执行；给自己授权同样只生成脚本。
@@ -29,8 +35,9 @@ import java.util.function.Consumer;
  */
 public final class PcGuard {
 
-    public static final long CONFIRM_MS = 30_000;
-    public static final int ALLOW = 1, DENY = 0, TIMEOUT = -1, ALWAYS = 2;
+    public static final long CONFIRM_MS = LinkPolicy.CONFIRM_TIMEOUT_MS;
+    /** 确认结果：ALWAYS = 快捷指令「以后直接执行」；REMEMBER = 允许并「以后这类不用问」（按动作类型）。 */
+    public static final int ALLOW = 1, DENY = 0, TIMEOUT = -1, ALWAYS = 2, REMEMBER = 3;
     /** 快捷指令文件太大就不认（正常的快捷指令只有几 KB）。 */
     public static final long SHORTCUT_MAX = 256 * 1024;
 
@@ -41,6 +48,47 @@ public final class PcGuard {
         /** offerAlways：多给一个「以后直接执行」（快捷指令用），选了返回 {@link #ALWAYS}。 */
         default int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways) {
             return ask(from, cmd, detail, timeoutMs);
+        }
+
+        /** rememberKind 非空：确认框多一个「以后这类不用问」勾选，勾了并允许返回 {@link #REMEMBER}。 */
+        default int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways, String rememberKind) {
+            return ask(from, cmd, detail, timeoutMs, offerAlways);
+        }
+    }
+
+    /** 发到手机的确认卡（电脑上的这条确认，手机屏幕上也能批）。 */
+    public static final class PhoneOffer {
+        public final int id;
+        public final String from, cmd, detail, token, rememberKind;
+        public final boolean always;
+        public final long deadline;
+
+        PhoneOffer(int id, String from, String cmd, String detail, String token, boolean always, String rememberKind, long deadline) {
+            this.id = id;
+            this.from = from;
+            this.cmd = cmd;
+            this.detail = detail;
+            this.token = token;
+            this.always = always;
+            this.rememberKind = rememberKind == null ? "" : rememberKind;
+            this.deadline = deadline;
+        }
+    }
+
+    /** 一次性执行凭证：只有 {@link #check} 放行时发；绑定指令名 + 参数，用一次就作废。 */
+    public static final class Pass {
+        private final String cmd;
+        private final Map<String, Object> args;
+        private final java.util.concurrent.atomic.AtomicBoolean used = new java.util.concurrent.atomic.AtomicBoolean();
+
+        private Pass(String cmd, Map<String, Object> args) {
+            this.cmd = cmd;
+            this.args = args;
+        }
+
+        /** 用掉它：指令名对得上、参数还是判定时那一份（同一个对象，没被换掉）、没用过。 */
+        public boolean consume(String c, Map<String, Object> a) {
+            return cmd.equals(c) && args == a && used.compareAndSet(false, true);
         }
     }
 
@@ -66,6 +114,11 @@ public final class PcGuard {
         private final Map<Integer, Pending> pending = new ConcurrentHashMap<>();
         private final AtomicInteger seq = new AtomicInteger(1);
         volatile Consumer<String> onNew = s -> { };
+        /** 把这条确认也发到手机（Agent 接上：发到发令的那台手机的常连通道）；发出去了返回 true。 */
+        public volatile java.util.function.Predicate<PhoneOffer> phoneOffer = o -> false;
+        /** 这条确认结束了（手机上那张卡可以收起）。 */
+        public volatile Consumer<PhoneOffer> phoneClose = o -> { };
+        private static final java.security.SecureRandom RNG = new java.security.SecureRandom();
         /** 时钟（毫秒）；测试换成假时钟。 */
         public volatile java.util.function.LongSupplier clock = System::currentTimeMillis;
         /** 等待时多久看一次失焦 / 界面没动静。 */
@@ -80,8 +133,13 @@ public final class PcGuard {
         }
 
         @Override public int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways) {
+            return ask(from, cmd, detail, timeoutMs, offerAlways, "");
+        }
+
+        @Override public int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways, String rememberKind) {
             int id = seq.getAndIncrement();
             long t0 = now();
+            String rk = rememberKind != null && LinkPolicy.knownKind(rememberKind) ? rememberKind : "";
             Map<String, Object> info = new TreeMap<>();
             info.put("id", (long) id);
             info.put("from", from);
@@ -90,10 +148,23 @@ public final class PcGuard {
             info.put("deadline", t0 + timeoutMs);
             info.put("always", offerAlways);
             info.put("arm_ms", ConfirmGate.ARM_MS);
+            info.put("remember_kind", rk);
+            info.put("remember_zh", rk.isEmpty() ? "" : LinkPolicy.kindZh(rk));
             Pending p = new Pending(info, new ConfirmGate(t0, timeoutMs));
             pending.put(id, p);
+            byte[] tk = new byte[18];
+            RNG.nextBytes(tk);
+            PhoneOffer offer = new PhoneOffer(id, from, cmd, detail, java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(tk), offerAlways, rk, t0 + timeoutMs);
+            boolean offered = false;
             try {
-                try { onNew.accept(detail); } catch (Throwable ignored) { } // 通知失败不影响：照样等本机点击，等不到就拒
+                try { onNew.accept(detail); } catch (Throwable ignored) { } // 通知失败不影响：照样等真人点击，等不到就拒
+                try {
+                    if (phoneOffer.test(offer)) {
+                        p.gate.phoneOffered(now(), from, offer.token);
+                        offered = true;
+                        info.put("phone", true);
+                    }
+                } catch (Throwable ignored) { } // 发不到手机：照样只在电脑上等
                 while (p.res.get() == PENDING) {
                     if (p.latch.await(Math.max(1, tickMs), TimeUnit.MILLISECONDS)) break;
                     String end = p.gate.expired(now());
@@ -112,6 +183,7 @@ public final class PcGuard {
                 p.res.compareAndSet(PENDING, TIMEOUT);
                 p.gate.close();
                 pending.remove(id);
+                if (offered) try { phoneClose.accept(offer); } catch (Throwable ignored) { }
             }
             return p.res.get();
         }
@@ -131,12 +203,35 @@ public final class PcGuard {
          * 没收的回答不改变请求：它照旧等本机点击（等不到就拒）。
          */
         public ConfirmGate.Answer answer(int id, boolean allow, boolean always, ConfirmGate.Input in) {
+            return answer(id, allow, always, false, in);
+        }
+
+        /** 同上；remember = 勾了「以后这类不用问」（只在这条给了这个勾选、且是允许时算数）。 */
+        public ConfirmGate.Answer answer(int id, boolean allow, boolean always, boolean remember, ConfirmGate.Input in) {
             Pending p = pending.get(id);
             if (p == null) return ConfirmGate.Answer.GONE;
             ConfirmGate.Answer a = p.gate.check(now(), allow, in);
             if (a != ConfirmGate.Answer.ACCEPTED) return a;
+            return finish(id, p, allow, always, remember);
+        }
+
+        /**
+         * 手机屏幕上的确认卡回来的回答（签名、配对设备已经由 Agent 验过）。规则见 {@link ConfirmGate#checkPhone}：同一台手机、同一个一次性 token、
+         * 手机界面的真人触摸（input = "touch"）、显示满 0.7 秒。语音 / 机器人 / 别的来源回 NOT_LOCAL，请求照旧等。
+         */
+        public ConfirmGate.Answer answerPhone(String device, int id, String token, boolean allow, boolean always, boolean remember, String input, long shownMs) {
+            Pending p = pending.get(id);
+            if (p == null) return ConfirmGate.Answer.GONE;
+            ConfirmGate.Input in = "touch".equals(input) ? ConfirmGate.Input.PHONE_TOUCH : ConfirmGate.Input.of(input);
+            ConfirmGate.Answer a = p.gate.checkPhone(now(), allow, device, token, in, shownMs);
+            if (a != ConfirmGate.Answer.ACCEPTED) return a;
+            return finish(id, p, allow, always, remember);
+        }
+
+        private ConfirmGate.Answer finish(int id, Pending p, boolean allow, boolean always, boolean remember) {
             boolean offered = Boolean.TRUE.equals(p.info.get("always"));
-            int v = allow ? (always && offered ? ALWAYS : ALLOW) : DENY;
+            boolean canRemember = !String.valueOf(p.info.get("remember_kind")).isEmpty() && p.info.get("remember_kind") != null;
+            int v = allow ? (always && offered ? ALWAYS : remember && canRemember ? REMEMBER : ALLOW) : DENY;
             if (!p.res.compareAndSet(PENDING, v)) return ConfirmGate.Answer.GONE;
             pending.remove(id);
             p.latch.countDown();
@@ -187,6 +282,7 @@ public final class PcGuard {
                 Map<String, Object> m = new TreeMap<>(p.info);
                 m.put("seen", p.gate.seen());
                 m.put("armed", p.gate.armed(t));
+                m.put("phone", p.gate.phoneOffered());
                 out.add(m);
             }
             return out;
@@ -200,6 +296,10 @@ public final class PcGuard {
         public LinkPolicy.Cat cat;
         public boolean headsUp;
         public String headsText = "";
+        /** 放行时才有（reply == null）：执行前用掉。 */
+        public Pass pass;
+        /** 这条是按「以后这类不用问」直接执行的类型；空 = 不是。 */
+        public String rememberedKind = "";
     }
 
     private final Config cfg;
@@ -286,7 +386,9 @@ public final class PcGuard {
             String name = str(a, "name"), pkg = str(a, "package"), path = str(a, "path");
             f.appBlocked = LinkPolicy.blockedApp(pkg, name) || LinkPolicy.blockedApp(path.replaceAll(".*[\\\\/]", "").replaceAll("(?i)\\.exe$", ""), name);
             String low = (name + " " + path).toLowerCase(java.util.Locale.ROOT);
-            f.appSystem = low.contains("\\windows\\") || low.contains("explorer") || low.contains("taskmgr") || low.contains("regedit") || low.contains("onesay");
+            f.appSelf = low.contains("onesay");
+            f.appSystem = low.contains("\\windows\\") || low.contains("explorer") || low.contains("taskmgr") || low.contains("regedit");
+            f.appLabel = name.isEmpty() ? path.replaceAll(".*[\\\\/]", "") : name;
         }
         if (cat == LinkPolicy.Cat.WORKSPACE_WRITE) f.protectedPath = LinkPolicy.protectedWorkspacePath(str(a, "path"));
         if (cat == LinkPolicy.Cat.OUTSIDE_WRITE) a.put("_outside", Boolean.TRUE); // 判定过的工作区外写入（手机自己带的 _ 参数上面已经丢掉）
@@ -301,7 +403,8 @@ public final class PcGuard {
             f.pluginBlocked = hit.text;
             f.pluginReason = hit.code;
         }
-        LinkPolicy.Decision d = LinkPolicy.decide(LinkPolicy.Target.PC, cfg.mode(), cat, f);
+        LinkPolicy.Decision d = LinkPolicy.remembered(LinkPolicy.decide(LinkPolicy.Target.PC, cfg.mode(), cat, f), rememberedKinds());
+        if (d.remembered) o.rememberedKind = d.kind;
         switch (d.verdict) {
             case DENY:
                 o.reply = result(false, d.text, d.reason, null);
@@ -327,12 +430,14 @@ public final class PcGuard {
                 String detail = from + " 请求：" + detail(cmd, a, d.text);
                 Confirmer c = confirmer;
                 boolean offer = sc != null;
+                String rk = d.rememberable() ? d.kind : "";
                 int r;
                 try {
-                    r = c == null ? TIMEOUT : c.ask(from, cmd, detail, CONFIRM_MS, offer);
+                    r = c == null ? TIMEOUT : rk.isEmpty() ? c.ask(from, cmd, detail, CONFIRM_MS, offer) : c.ask(from, cmd, detail, CONFIRM_MS, offer, rk);
                 } catch (Throwable t) {
                     r = DENY; // 确认框出错 = 拒绝，绝不放行
                 }
+                if (r == REMEMBER && rk.isEmpty()) r = ALLOW; // 这条没给「以后这类不用问」：只算允许一次
                 if (offer) {
                     // 快捷指令：没批准下来时原因码是 shortcut_needs_approval / shortcut_changed，确认结果另放 confirm_result
                     Map<String, Object> x = new TreeMap<>();
@@ -347,10 +452,19 @@ public final class PcGuard {
                         x.put("confirm_result", LinkPolicy.R_CONFIRM_DENIED);
                         o.reply = result(false, "电脑上拒绝了快捷指令「" + sc.name + "」", d.reason, x);
                     }
+                    if (o.reply == null) o.pass = new Pass(cmd, a);
                     return o;
                 }
-                if (r == TIMEOUT) o.reply = result(false, "电脑上没人确认（30 秒到了，或确认框被切走 / 界面没响应），已拒绝", LinkPolicy.R_CONFIRM_TIMEOUT, null);
-                else if (r != ALLOW && r != ALWAYS) o.reply = result(false, "电脑上拒绝了", LinkPolicy.R_CONFIRM_DENIED, null);
+                if (r == TIMEOUT) o.reply = result(false, "没人确认（60 秒到了，或确认框被切走 / 界面没响应），已拒绝", LinkPolicy.R_CONFIRM_TIMEOUT, null);
+                else if (r != ALLOW && r != ALWAYS && r != REMEMBER) o.reply = result(false, "电脑上拒绝了", LinkPolicy.R_CONFIRM_DENIED, null);
+                else {
+                    if (r == REMEMBER) {
+                        remember(rk);
+                        try { notify.accept("以后「" + LinkPolicy.kindZh(rk) + "」不用再问（可在设置页撤销）"); } catch (Exception ignored) { }
+                    }
+                    if (f.protectedPath) a.put("_protected_ok", Boolean.TRUE);
+                    o.pass = new Pass(cmd, a);
+                }
                 return o;
             }
             default:
@@ -359,6 +473,8 @@ public final class PcGuard {
                     o.headsText = d.text;
                     try { notify.accept(from + "：" + d.text); } catch (Exception ignored) { }
                 }
+                if (f.protectedPath && d.remembered) a.put("_protected_ok", Boolean.TRUE);
+                o.pass = new Pass(cmd, a);
                 return o;
         }
     }
@@ -469,6 +585,44 @@ public final class PcGuard {
         try { cfg.save(); } catch (Exception ignored) { } // 测试里配置可能没有文件路径；内存里的批准表照样生效
     }
 
+    // ------------------------------------------------------------------ 「以后这类不用问」
+
+    /** 记住的动作类型（配置 approve_kinds）。 */
+    public synchronized List<String> rememberedKinds() {
+        return LinkPolicy.parseKinds(cfg.approveKinds);
+    }
+
+    /** 记下一类（只收认识的类型；硬规则根本不会走到确认，记不了）。 */
+    public synchronized boolean remember(String kind) {
+        if (!LinkPolicy.knownKind(kind)) return false;
+        List<String> k = rememberedKinds();
+        if (!k.contains(kind)) k.add(kind);
+        cfg.approveKinds = LinkPolicy.formatKinds(k);
+        save();
+        return true;
+    }
+
+    /** 撤销一类；没有返回 false。 */
+    public synchronized boolean forget(String kind) {
+        List<String> k = rememberedKinds();
+        if (!k.remove(kind)) return false;
+        cfg.approveKinds = LinkPolicy.formatKinds(k);
+        save();
+        return true;
+    }
+
+    /** 设置页用：每类 {kind, zh}。 */
+    public List<Object> rememberedView() {
+        List<Object> out = new ArrayList<>();
+        for (String k : rememberedKinds()) {
+            Map<String, Object> m = new TreeMap<>();
+            m.put("kind", k);
+            m.put("zh", LinkPolicy.kindZh(k));
+            out.add(m);
+        }
+        return out;
+    }
+
     /** 界面用：每个快捷指令的状态 approved（以后直接执行）/ changed（改过，要重新批准）/ new（还没批准）/ blocked（不能批准，带原因）。 */
     public List<Object> shortcutView() {
         List<Object> out = new ArrayList<>();
@@ -542,7 +696,8 @@ public final class PcGuard {
                 case "file_write": {
                     String t = a.get("text") == null ? "" : String.valueOf(a.get("text"));
                     if (t.length() > 256 * 1024) return Actions.Result.fail("文件太大（超过 256 KB）");
-                    if (LinkPolicy.protectedWorkspacePath(str(a, "path"))) return Actions.Result.fail("工作区里的 .git / .codex / .agents 是只读的");
+                    // .git / .codex / .agents：只有确认过（check 放行时打的内部标记）才写
+                    if (LinkPolicy.protectedWorkspacePath(str(a, "path")) && !Boolean.TRUE.equals(a.get("_protected_ok"))) return Actions.Result.fail("工作区里的 .git / .codex / .agents 是只读的（要你确认后才写）");
                     if (Boolean.TRUE.equals(a.get("_outside"))) return writeOutside(str(a, "path"), t);
                     File f = LinkPolicy.writeInside(ws, str(a, "path"), t.getBytes(StandardCharsets.UTF_8));
                     return f == null ? Actions.Result.fail("只能写工作区里的文件") : Actions.Result.ok("已写入电脑工作区 " + str(a, "path"));
