@@ -128,6 +128,12 @@ public final class PcLinkUi {
         host.actionRow(a, "在电脑上打开网址", "只打开 http / https 网址", "打开", new Runnable() {
             @Override public void run() { openUrlDialog(host, act); }
         });
+        host.actionRow(a, "把链接下到电脑", "视频 / 音频链接交给电脑下载（电脑上用 yt-dlp），通知栏看进度；也可以在别的 App 里点分享 → 「下到电脑」", "下载", new Runnable() {
+            @Override public void run() {
+                String clip = clipText(act).trim();
+                PcMediaAndroid.chooser(act, PcMedia.tidy(clip), null);
+            }
+        });
         host.actionRow(a, "睡眠", "让电脑睡眠（会先问你确认）", "睡眠", new Runnable() {
             @Override public void run() {
                 host.confirm("让电脑睡眠？", "电脑会立刻进入睡眠，没保存的东西不会丢，但正在跑的任务会暂停。", "睡眠", new Runnable() {
@@ -320,7 +326,8 @@ public final class PcLinkUi {
         LinkPolicy.Cat cat = LinkPolicy.pcCat(cmd);
         boolean mayConfirm = cat == LinkPolicy.Cat.SIMPLE_SETTING || cat == LinkPolicy.Cat.POWER || cat == LinkPolicy.Cat.OPEN_URL
                 || cat == LinkPolicy.Cat.CLIPBOARD_WRITE || cat == LinkPolicy.Cat.RUN_WS_SCRIPT || cat == LinkPolicy.Cat.SHORTCUT
-                || cat == LinkPolicy.Cat.SHELL_EXEC || cat == LinkPolicy.Cat.UNINSTALL_APP || cat == LinkPolicy.Cat.APP_OPERATE || cat == LinkPolicy.Cat.OPEN_APP;
+                || cat == LinkPolicy.Cat.SHELL_EXEC || cat == LinkPolicy.Cat.UNINSTALL_APP || cat == LinkPolicy.Cat.APP_OPERATE || cat == LinkPolicy.Cat.OPEN_APP
+                || cat == LinkPolicy.Cat.MEDIA_DOWNLOAD;
         host.toast(mayConfirm ? pending + "（可能要确认：电脑上或这台手机弹出的确认卡上点）" : pending);
         PcLink.run(host.activity(), cmd, args, mayConfirm ? MAY_CONFIRM_WAIT_MS : 15000, new PcLink.Done() {
             @Override public void done(PcLanClient.Result r) {
@@ -380,7 +387,7 @@ public final class PcLinkUi {
         b.show();
     }
 
-    static String clipText(Context c) {
+    public static String clipText(Context c) {
         try {
             ClipboardManager cm = (ClipboardManager) c.getSystemService(Context.CLIPBOARD_SERVICE);
             ClipData d = cm == null ? null : cm.getPrimaryClip();

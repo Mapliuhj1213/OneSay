@@ -25,6 +25,7 @@ OneSay 自身以 Apache License 2.0 发布（见 `LICENSE`、`NOTICE`）。下�
 | LocalSend 协议文档（github.com/localsend/protocol） | 无许可证 | 只阅读，未拷贝 | — |
 | OpenAI Codex CLI（github.com/openai/codex） | Apache-2.0 | 沙箱档 × 审批策略两轴与 workspace-write 沙箱的思路（手机端现已不分档，只在电脑端用） | `pclink/LinkPolicy`、`PcRx`（执行级别） |
 | Home Assistant Companion for Android（github.com/home-assistant/android） | Apache-2.0 | 电脑→手机指令集（亮屏 / 音量 / 打开 App / 打开网址）、闹钟流最大音量找手机 | `pclink/PcRxPolicy`、`PcRxAndroid` |
+| omniget（github.com/OpenSelena/omniget） | GPL-3.0 | 只读思路：链接 → 预览 → 下载队列 → 进度、引擎按需下载（思路参考 omniget，代码自写，没有拷贝或改写任何代码）；手机端只发链接给电脑，不跑 yt-dlp | `pclink/PcMedia`、`PcMediaAndroid`、`PcShareActivity` |
 | KDE Connect、Sefirah | GPL | 只参考产品形态，没有阅读或使用代码 | — |
 
 ## 只在测试时使用

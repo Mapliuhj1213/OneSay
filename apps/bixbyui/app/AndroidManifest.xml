@@ -213,6 +213,22 @@
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
             android:label="扫码配对电脑" />
 
+        <!-- ★ media-get 链接下载：系统分享菜单里的「下到电脑」。只收分享来的文字 / 链接，弹选择框，要你点「下载」才发给已配对的电脑；
+             没配对 / 电脑不在只提示。要出现在别的 App 的分享菜单里，所以必须导出（不带任何权限、不自动执行）。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.pclink.PcShareActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:label="下到电脑">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- ★ approve-not-block：手机屏幕上的确认卡（电脑发来的指令要你确认 / 电脑上的确认也能在手机上批）。只认真人手指，不导出 -->
         <activity
             android:name="com.onesay.assistant.v2.pclink.PcConfirmActivity"
