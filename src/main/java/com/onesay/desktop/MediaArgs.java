@@ -11,8 +11,10 @@ import java.util.regex.Pattern;
  * 链接下载 · yt-dlp 的参数：只按固定白名单拼，不接受用户自由参数（思路参考 omniget「只把链接交给下载引擎、参数由程序决定」，代码自写）。
  *
  * <ul>
- *   <li>链接只收 http / https，拒绝空格、控制字符和 ; &amp; | ` $ &lt; &gt; " ' \ 这类会被 shell 解释的字符（我们本来就不经 shell，用 ProcessBuilder
- *       逐个传参，这一层是多加一道）；不能以 - 开头（防被当成选项），参数表里链接前面还有一个 {@code --}。</li>
+ *   <li>链接只收 http / https，拒绝空格、控制字符和 ; | ` $ &lt; &gt; " ' \ { } ^ 这类会被 shell 解释的字符（我们本来就不经 shell，用 ProcessBuilder
+ *       逐个传参，这一层是多加一道）；不能以 - 开头（防被当成选项），参数表里链接前面还有一个 {@code --}。
+ *       查询参数里正常的 &amp; = % 放行（2026-11-11 用户同意）：链接在参数数组里永远是单独一个元素，&amp; 不会变成额外参数；
+ *       yt-dlp 必须是直接启动的可执行文件（.bat / .cmd 会经 cmd.exe 解释 &amp;，{@link #base} 拒绝）。</li>
  *   <li>清晰度只有 best / 1080 / 720；仅音频只有 m4a / mp3。别的值一律回落默认或拒绝。</li>
  *   <li>yt-dlp 不读任何配置文件（--ignore-config）、不加载插件目录（--no-plugin-dirs），不带 --exec。</li>
  *   <li>记进日志的命令行里 Cookie 文件路径打码（{@link #masked}）。</li>
@@ -45,7 +47,7 @@ public final class MediaArgs {
         return null;
     }
 
-    private static final Pattern BAD = Pattern.compile("[\\s;&|`$<>\"'\\\\\\x00-\\x1f\\x7f{}^]");
+    private static final Pattern BAD = Pattern.compile("[\\s;|`$<>\"'\\\\\\x00-\\x1f\\x7f{}^]");
 
     /** 链接检查：没问题返回 null，否则返回给人看的原因。 */
     public static String checkUrl(String raw) {
@@ -56,7 +58,7 @@ public final class MediaArgs {
         if (m.find()) {
             char c = raw.charAt(m.start());
             String what = Character.isWhitespace(c) ? "空格 / 换行" : c < 0x20 || c == 0x7f ? "控制字符" : "「" + c + "」";
-            return "链接里有" + what + "，为防注入不接受" + (c == '&' ? "（可以去掉 & 后面的参数再试）" : "");
+            return "链接里有" + what + "，为防注入不接受";
         }
         String low = raw.toLowerCase(Locale.ROOT);
         if (!low.startsWith("http://") && !low.startsWith("https://")) return "只接受 http / https 链接";
@@ -73,8 +75,9 @@ public final class MediaArgs {
     }
 
     /**
-     * 分享文字 / 语音 / 输入框里拿到的一段文字 → 第一个 http(s) 链接，并去掉 # 片段和第一个 &amp; 之后的参数（多是来源跟踪参数），
-     * 方便过 {@link #checkUrl}。这是界面上的整理，整理后的链接会显示给你看；下载端照样按 {@link #checkUrl} 严格检查。没有返回 null。
+     * 分享文字 / 语音 / 输入框里拿到的一段文字 → 第一个 http(s) 链接，去掉 # 片段（只在浏览器里用，不发给网站）和明显的来源跟踪参数
+     * （utm_*、spm、spm_id_from、fbclid、gclid、igshid），其余查询参数（如 YouTube 的 &amp;t=10、&amp;list=）原样保留，再过 {@link #checkUrl}。
+     * 这是界面上的整理，整理后的链接会显示给你看；下载端照样按 {@link #checkUrl} 严格检查。没有返回 null。
      */
     public static String tidy(String text) {
         if (text == null) return null;
@@ -83,10 +86,30 @@ public final class MediaArgs {
         String u = m.group();
         int hash = u.indexOf('#');
         if (hash >= 0) u = u.substring(0, hash);
-        int amp = u.indexOf('&');
-        if (amp >= 0) u = u.substring(0, amp);
-        while (u.endsWith("?") || u.endsWith(".") || u.endsWith(",")) u = u.substring(0, u.length() - 1);
+        u = dropTracking(u);
+        while (u.endsWith("?") || u.endsWith("&") || u.endsWith(".") || u.endsWith(",")) u = u.substring(0, u.length() - 1);
         return u.isEmpty() ? null : u;
+    }
+
+    /** 明显的来源跟踪参数（整理时去掉；名字不分大小写，utm_ 开头的都算）。 */
+    static boolean tracking(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        return n.startsWith("utm_") || n.equals("spm") || n.equals("spm_id_from") || n.equals("fbclid") || n.equals("gclid") || n.equals("igshid");
+    }
+
+    /** 去掉查询串里的跟踪参数，其余参数和顺序不变；空参数（&amp;&amp;）顺手去掉。 */
+    static String dropTracking(String u) {
+        int q = u.indexOf('?');
+        if (q < 0) return u;
+        StringBuilder b = new StringBuilder();
+        for (String kv : u.substring(q + 1).split("&")) {
+            if (kv.isEmpty()) continue;
+            int eq = kv.indexOf('=');
+            if (tracking(eq < 0 ? kv : kv.substring(0, eq))) continue;
+            if (b.length() > 0) b.append('&');
+            b.append(kv);
+        }
+        return b.length() == 0 ? u.substring(0, q) : u.substring(0, q + 1) + b;
     }
 
     /** yt-dlp 的格式选择（白名单）。没有 FFmpeg 时只选不用合并的单文件。 */
@@ -99,6 +122,9 @@ public final class MediaArgs {
 
     /** 两种调用都有的固定前缀。 */
     static List<String> base(String ytdlp) {
+        String low = ytdlp == null ? "" : ytdlp.toLowerCase(Locale.ROOT);
+        // .bat / .cmd 在 Windows 上会经 cmd.exe 启动，链接里的 & 会被当成命令分隔：只认直接启动的可执行文件
+        if (low.endsWith(".bat") || low.endsWith(".cmd")) throw new IllegalArgumentException("下载工具必须是可执行文件，不能是 .bat / .cmd");
         List<String> a = new ArrayList<>();
         a.add(ytdlp);
         a.add("--ignore-config");

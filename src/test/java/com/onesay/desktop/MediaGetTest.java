@@ -41,19 +41,38 @@ public class MediaGetTest {
     // ================================================================== 1. 参数白名单 / 注入拦截
 
     @Test public void urlWhitelistBlocksInjection() {
-        for (String ok : new String[]{URL, "https://www.bilibili.com/video/BV1xx411c7mD/?p=2", "http://example.com/a%20b.mp4", "https://youtu.be/abc_DEF-123"})
+        for (String ok : new String[]{URL, "https://www.bilibili.com/video/BV1xx411c7mD/?p=2", "http://example.com/a%20b.mp4", "https://youtu.be/abc_DEF-123",
+                "https://a.com/watch?v=1&t=2", "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10&list=PL1"})
             assertNull(ok, MediaArgs.checkUrl(ok));
-        String[] bad = {"https://a.com/x;rm -rf /", "https://a.com/watch?v=1&t=2", "https://a.com/x|calc", "https://a.com/x y", "file:///etc/passwd",
+        String[] bad = {"https://a.com/x;rm -rf /", "https://a.com/x|calc", "https://a.com/x y", "file:///etc/passwd",
                 "--exec=calc https://a.com/", "-o /tmp/x", "javascript:alert(1)", "ftp://a.com/x", "https://a.com/x\nrm", "https://a.com/`id`",
                 "https://a.com/$(id)", "https://a.com/x>y", "https://user:pw@a.com/x", "https:///nohost", "", "https://a.com/x\"y", "https://a.com/x'y",
                 "https://a.com/x\\y", "https://a.com/\u0000"};
         for (String b : bad) assertNotNull("应拒：" + b, MediaArgs.checkUrl(b));
-        assertTrue(MediaArgs.checkUrl("https://a.com/watch?v=1&t=2").contains("&"));
+        // 2026-11-11 用户同意：查询参数里的 & 放行（链接在参数数组里永远是单独一个元素，不经 shell）
+        assertNull(MediaArgs.checkUrl("https://a.com/watch?v=1&t=2"));
+        assertNotNull("& 放行不等于 & 后面能带空格 / 分号", MediaArgs.checkUrl("https://a.com/watch?v=1& calc"));
+        assertNotNull(MediaArgs.checkUrl("https://a.com/watch?v=1&;calc"));
         assertTrue(MediaArgs.checkUrl("x".repeat(10) + "https://a.com/" + "y".repeat(2100)).contains("太长"));
-        // 整理：分享文字里挑出链接、去掉 # 和第一个 & 之后的参数（显示给你看），然后照样严格检查
-        assertEquals("https://www.bilibili.com/video/BV1xx/?share_source=copy", MediaArgs.tidy("【标题】 https://www.bilibili.com/video/BV1xx/?share_source=copy&vd_source=abc#t=1 复制打开"));
+        // 整理：分享文字里挑出链接、去掉 # 片段和明显的跟踪参数（utm_* / spm …），其余参数保留（显示给你看），然后照样严格检查
+        assertEquals("https://www.bilibili.com/video/BV1xx/?share_source=copy&vd_source=abc", MediaArgs.tidy("【标题】 https://www.bilibili.com/video/BV1xx/?share_source=copy&vd_source=abc#t=1 复制打开"));
         assertEquals("https://v.douyin.com/abc/", MediaArgs.tidy("7.99 复制打开抖音 https://v.douyin.com/abc/ 看看"));
         assertNull(MediaArgs.tidy("没有链接 file:///x"));
+        // YouTube 带 &t=10：完整保留，并且过检查
+        String yt = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10";
+        assertEquals(yt, MediaArgs.tidy("看这个 " + yt + " 从第 10 秒"));
+        assertNull(MediaArgs.checkUrl(MediaArgs.tidy(yt)));
+        assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10&list=PL1",
+                MediaArgs.tidy("https://www.youtube.com/watch?utm_source=share&v=dQw4w9WgXcQ&t=10&UTM_Medium=x&&spm=a.b&list=PL1&fbclid=Zz#comments"));
+        assertEquals("https://a.com/v", MediaArgs.tidy("https://a.com/v?utm_source=x&spm_id_from=1&gclid=2&igshid=3"));
+        assertEquals("https://a.com/v?a=1", MediaArgs.tidy("https://a.com/v?a=1&"));
+        // yt-dlp 只认直接启动的可执行文件：.bat / .cmd 会经 cmd.exe 解释 &，拒绝
+        for (String exe : new String[]{"C:\\t\\yt-dlp.bat", "C:\\t\\YT-DLP.CMD"}) {
+            try {
+                MediaArgs.download(exe, yt, "best", "", null, "/out", null);
+                fail("拒绝 " + exe);
+            } catch (IllegalArgumentException expected) { }
+        }
         // 参数：白名单拼装，链接永远在最后、前面是 --；不认识的清晰度回落最佳；仅音频只有 m4a / mp3
         assertEquals("best", MediaArgs.quality("; rm -rf"));
         assertEquals("1080", MediaArgs.quality("1080p"));
@@ -244,6 +263,38 @@ public class MediaGetTest {
         r.media.shutdown();
         r2.media.shutdown();
         r3.media.shutdown();
+    }
+
+    @Test public void ampersandUrlStaysOneArgv() throws Exception {
+        // 2026-11-11：& 放行后，假 yt-dlp 收到的 argv 里链接必须是单独一个参数，& 后面像选项的东西也只是链接的一部分
+        String plain = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        String[] amps = {plain + "&t=10", plain + "&t=10&--exec=calc&-o=/tmp/pwn&--cookies=/etc/passwd", plain + "&a=%26b%3D1&x="};
+        Rig r = new Rig();
+        r.media.preview(plain, "best", "");
+        int previewArgc = r.args().size();
+        Media.Task t0 = r.media.enqueue(plain, "best", "", "", false, info());
+        await(t0, 15000);
+        int downloadArgc = r.args().size();
+        for (String u : amps) {
+            assertNull(u, MediaArgs.checkUrl(u));
+            r.media.preview(u, "best", "");
+            List<String> a = r.args();
+            assertEquals("预览参数个数不变：" + a, previewArgc, a.size());
+            assertEquals(u, a.get(a.size() - 1));
+            assertEquals("--", a.get(a.size() - 2));
+            Media.Task t = r.media.enqueue(u, "best", "", "", false, info());
+            await(t, 15000);
+            assertEquals(t.error, Media.State.DONE, t.state);
+            a = r.args();
+            assertEquals("下载参数个数不变：" + a, downloadArgc, a.size());
+            assertEquals(u, a.get(a.size() - 1));
+            assertEquals("--", a.get(a.size() - 2));
+            assertEquals(1, a.stream().filter("--"::equals).count());
+            assertEquals("链接只出现一次", 1, a.stream().filter(x -> x.contains("&")).count());
+            assertFalse(a.stream().anyMatch(x -> x.startsWith("--exec") || x.startsWith("-o=") || x.startsWith("--cookies=")));
+            assertFalse("没有带 Cookie", a.contains("--cookies"));
+        }
+        r.media.shutdown();
     }
 
     static Media.Info info() {
