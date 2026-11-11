@@ -28,7 +28,7 @@ import static org.junit.Assert.*;
 /**
  * [media-get] 手机 ↔ 电脑链接下载往返互通（真进程、真 socket + TLS）：电脑端用假的 yt-dlp 脚本（输出模拟进度行）。
  * <ol>
- *   <li>坏链接（; &amp; 空格 file:// -- 开头）→ 电脑直接拒（untrusted_url），不弹确认卡；</li>
+ *   <li>坏链接（; 空格 file:// -- 开头）→ 电脑直接拒（untrusted_url），不弹确认卡；带 &amp; 的正常查询参数放行，假 yt-dlp 收到的链接是单独一个参数；</li>
  *   <li>media_get → 电脑上弹确认卡（动作类型 pc.media_download，卡上写着链接）→ 本机鼠标「允许」并勾「以后这类不用问」→ 排队；</li>
  *   <li>手机轮询 media_status 看进度直到完成 → media_fetch 传回手机（≤ 5 MB）；</li>
  *   <li>再发一次：记住了，不再弹卡；电脑设置页能看到记住的类型。</li>
@@ -170,7 +170,7 @@ public class PcMediaInteropTest {
     @Test public void phoneToPcMediaRoundTrip() throws Exception {
         final PcLanClient.Peer p = peer();
         // 1. 坏链接：直接拒，不弹卡
-        for (String bad : new String[]{"https://a.com/x;calc", "https://a.com/?a=1&b=2", "https://a.com/a b", "file:///etc/passwd", "--exec=calc"}) {
+        for (String bad : new String[]{"https://a.com/x;calc", "https://a.com/a b", "file:///etc/passwd", "--exec=calc"}) {
             PcLanClient.Result r = PcLanClient.once(p, PcMedia.GET, mm("url", bad), 1500, 15000, null, null);
             assertFalse(bad, r.ok);
             assertEquals(bad, LinkPolicy.R_UNTRUSTED_URL, r.data.get("reason"));
@@ -241,5 +241,37 @@ public class PcMediaInteropTest {
         Map<?, ?> media = (Map<?, ?>) api("state", null).get("media");
         assertTrue(String.valueOf(media.get("tasks")), String.valueOf(media.get("tasks")).contains("phone-media"));
         assertFalse("日志里没有 Cookie", out().contains("--cookies /"));
+
+        // 5. 带 & 的链接（2026-11-11 放行）：等前一个任务完，再发；假 yt-dlp 收到的 argv 里链接是单独一个参数、个数不变
+        int againId = ((Number) again.data.get("id")).intValue();
+        followQuiet(p, againId);
+        String before = new String(Files.readAllBytes(dir.resolve("tools").resolve("last.args")), StandardCharsets.UTF_8);
+        String amp = URL_OK + "?t=10&--exec=calc&-o=/tmp/pwn";
+        PcLanClient.Result r5 = PcLanClient.once(p, PcMedia.GET, PcMedia.args(amp, "best", ""), 1500, 15000, null, null);
+        assertTrue(r5.text, r5.ok);
+        assertTrue("记住了，不弹卡", confirms() == null || confirms().isEmpty());
+        String d5 = followQuiet(p, ((Number) r5.data.get("id")).intValue());
+        assertTrue(d5, d5.contains("已下载到电脑"));
+        String a5 = new String(Files.readAllBytes(dir.resolve("tools").resolve("last.args")), StandardCharsets.UTF_8);
+        assertTrue(a5, a5.trim().endsWith("--\n" + amp));
+        assertEquals("参数个数不变", before.trim().split("\n").length, a5.trim().split("\n").length);
+        assertFalse(a5, a5.contains("\n--exec") || a5.contains("\n-o=/tmp/pwn"));
+    }
+
+    /** 跟完一个任务（不传回手机），返回结果文字。 */
+    static String followQuiet(final PcLanClient.Peer p, int id) throws Exception {
+        return PcMedia.follow(new PcMedia.Caller() {
+            @Override public PcLanClient.Result call(String cmd, Map<String, Object> args, int timeoutMs) {
+                return PcLanClient.once(p, cmd, args, 1500, timeoutMs, null, null);
+            }
+        }, new PcMedia.Sink() {
+            @Override public void progress(int i, String title, int percent, String line) { }
+
+            @Override public void done(int i, String title, boolean ok, String text) { }
+        }, new PcMedia.Saver() {
+            @Override public String save(String name, byte[] data, boolean audio) { return name; }
+        }, id, false, 60000, 300, new PcMedia.Sleeper() {
+            @Override public void sleep(long ms) throws InterruptedException { Thread.sleep(ms); }
+        });
     }
 }
