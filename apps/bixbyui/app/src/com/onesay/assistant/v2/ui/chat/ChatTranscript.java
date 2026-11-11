@@ -29,6 +29,8 @@ public final class ChatTranscript {
         /** 执行类结果卡快照（Android 位图，不透明）。 */
         public final List<Object> cards = new ArrayList<Object>();
         public final List<String> suggestions = new ArrayList<String>();
+        /** ★ feat/api-first：这一轮的执行时间轴（没有工具调用 → null）；冻结后随历史显示成折叠的一行。 */
+        public com.onesay.assistant.v2.timeline.ExecTimeline timeline;
 
         Round(int seq) {
             this.seq = seq;

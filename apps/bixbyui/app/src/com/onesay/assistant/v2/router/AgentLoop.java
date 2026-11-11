@@ -265,8 +265,8 @@ public class AgentLoop {
         String askUser(String id, String question, java.util.List<String> options, int timeoutSec);
     }
 
-    /** FloatingSheetService 用：预算问 + 结构化事件（账本 / ask_user）。 */
-    public interface LoopAwareCallback extends BudgetAskingCallback, LoopEvents, StepEvents, PhaseEvents {
+    /** FloatingSheetService 用：预算问 + 结构化事件（账本 / ask_user）+ ★ feat/api-first 每步成败（执行时间轴）。 */
+    public interface LoopAwareCallback extends BudgetAskingCallback, LoopEvents, StepEvents, PhaseEvents, StepResultEvents {
     }
 
     /**
@@ -1922,6 +1922,7 @@ public class AgentLoop {
         String sign = cap.sign == null ? "" : cap.sign;
         if (sign.startsWith("vision.")) return true;                       // 识屏/读屏
         if (com.onesay.assistant.v2.agent.LoopTools.isWebSign(sign)) return true;   // ★ arch/agent-loop：网页 / 搜索 / 调研结果
+        if ("route.open".equals(sign)) return true;   // ★ feat/api-first [api-first]：路由工具可能带回搜索 / 商品接口的外部文字，保守按不可信
         if (sign.startsWith("mail.") && !sign.startsWith("mail.draft")) return true;   // 读信
         return "mail".equals(cap.domain) && !sign.startsWith("mail.draft");
     }
@@ -2032,7 +2033,28 @@ public class AgentLoop {
         emitStep(cb, stepText);   // ★ 11-04 ①：每次工具调用开始就上岛（含循环内执行的 web.* / 本地工具）
         ExecutionResult r = exec0(cb, cap, args, token, tainted);
         if (r == null || !r.ok) emitNote(cb, com.onesay.assistant.v2.island.IslandStepText.failed(stepText));   // 失败如实显示
+        emitStepResult(cb, cap, r);   // ★ feat/api-first [api-first]：执行时间轴要每步的成败与原因
         return r;
+    }
+
+    /**
+     * ★ feat/api-first [api-first]：宿主可选实现 —— 每次工具调用结束时的成败与原因（失败 = 用户能看懂的原因），
+     * 给对话里的执行时间轴用（✓ 已调用 X / ✗ 带原因）。和 {@link StepEvents} 分开，旧宿主 / 测试回调不用改。
+     */
+    public interface StepResultEvents {
+        void onToolResult(String sign, boolean ok, String reasonOrDetail);
+    }
+
+    static void emitStepResult(Callback cb, Capability cap, ExecutionResult r) {
+        if (!(cb instanceof StepResultEvents) || cap == null) return;
+        try {
+            boolean ok = r != null && r.ok;
+            String why = r == null ? "没有结果" : ok ? ("route.open".equals(cap.sign) && r.detail != null ? r.detail : "")
+                    : (r.userMessage != null && r.userMessage.length() > 0 ? r.userMessage : (r.code == null ? "" : r.code.name()));
+            ((StepResultEvents) cb).onToolResult(cap.sign, ok, ok && why.length() > 60 ? "" : why);
+        } catch (Throwable t) {
+            Log.w(TAG, "[AGENT-LOOP] onToolResult 异常: " + t.getMessage());
+        }
     }
 
     private ExecutionResult exec0(Callback cb, Capability cap, JSONObject args,

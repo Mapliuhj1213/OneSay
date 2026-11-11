@@ -22,11 +22,21 @@ public final class ChatMarkdown {
         /** 标题行区间（Android 侧可稍放大）。 */
         public final List<int[]> headings;
 
+        /** ★ feat/api-first：可点追问短语区间（含 ↵）与对应要发送的文字（同下标）。 */
+        public final List<int[]> followups;
+        public final List<String> followupText;
+
         Doc(String text, List<int[]> bold, List<int[]> bullets, List<int[]> headings) {
+            this(text, bold, bullets, headings, new ArrayList<int[]>(), new ArrayList<String>());
+        }
+
+        Doc(String text, List<int[]> bold, List<int[]> bullets, List<int[]> headings, List<int[]> followups, List<String> followupText) {
             this.text = text;
             this.bold = bold;
             this.bullets = bullets;
             this.headings = headings;
+            this.followups = followups;
+            this.followupText = followupText;
         }
     }
 
@@ -79,7 +89,23 @@ public final class ChatMarkdown {
         clip(bold, n);
         clip(bullets, n);
         clip(heads, n);
-        return new Doc(out.toString(), bold, bullets, heads);
+        String text = out.toString();
+        if (!com.onesay.assistant.v2.util.FollowupMarks.has(text)) return new Doc(text, bold, bullets, heads);
+        // ★ feat/api-first：[[追问短语]] → 「短语↵」（可点），已算好的区间跟着挪
+        com.onesay.assistant.v2.util.FollowupMarks.Rewrite rw = com.onesay.assistant.v2.util.FollowupMarks.rewrite(text);
+        remap(bold, rw.map);
+        remap(bullets, rw.map);
+        remap(heads, rw.map);
+        return new Doc(rw.text, bold, bullets, heads, rw.ranges, rw.phrases);
+    }
+
+    private static void remap(List<int[]> l, int[] map) {
+        for (int k = l.size() - 1; k >= 0; k--) {
+            int[] r = l.get(k);
+            r[0] = map[Math.min(r[0], map.length - 1)];
+            r[1] = map[Math.min(r[1], map.length - 1)];
+            if (r[0] >= r[1]) l.remove(k);
+        }
     }
 
     /** 行内：**粗体** / __粗体__ / `代码`；没配对的标记（流式中途）不显示。 */
@@ -136,7 +162,7 @@ public final class ChatMarkdown {
 
     /** 纯文字（复制 / 分享 / 朗读用）：Markdown 标记去掉、保留换行与圆点。 */
     public static String plain(String md) {
-        Doc d = parse(md);
+        Doc d = parse(com.onesay.assistant.v2.util.FollowupMarks.plain(md));   // ★ feat/api-first：复制 / 朗读不带 [[ ]] 和 ↵
         if (d.bullets.isEmpty()) return d.text;
         StringBuilder sb = new StringBuilder(d.text);
         for (int k = d.bullets.size() - 1; k >= 0; k--) sb.insert(d.bullets.get(k)[0], "• ");

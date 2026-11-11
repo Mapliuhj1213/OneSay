@@ -796,6 +796,12 @@ public class TestRunReceiver extends BroadcastReceiver {
             Log.i(TAG, "[SEARCH] 博查 Key 已写入");
             return;
         }
+        String setHaina = intent.getStringExtra("sethaina");   // ★ feat/api-first：--es sethaina <海纳 key>（只存设备、加密；日志不打 key）
+        if (setHaina != null && setHaina.length() > 0) {
+            searchCfg.setHainaKey(setHaina);
+            Log.i(TAG, "[SEARCH] 海纳 Key 已写入（长度 " + setHaina.trim().length() + "）");
+            return;
+        }
         String setProvider = intent.getStringExtra("setsearchprovider");
         if (setProvider != null && setProvider.length() > 0) {
             searchCfg.setProvider(setProvider);

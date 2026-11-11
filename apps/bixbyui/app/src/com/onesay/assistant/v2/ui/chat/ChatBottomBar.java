@@ -195,6 +195,12 @@ public final class ChatBottomBar extends LinearLayout {
         mSendIcon = new ChatIcons(ChatIcons.SEND, GLYPH).setCutColor(OUTER);
         mMic.setOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
+                // ★ feat/api-first：任务执行中且没打字 = 停止键（真中断当前任务）
+                if (com.onesay.assistant.v2.ui.widget.SendMicPolicy.mode(mEdit.getText(), hasAttachment(), false, mRunning)
+                        == com.onesay.assistant.v2.ui.widget.SendMicPolicy.Mode.STOP) {
+                    if (mStopAction != null) mStopAction.run();
+                    return;
+                }
                 // 有字 / 附图 = 发送（键盘上的发送键也可以），空 = 麦克风
                 if (com.onesay.assistant.v2.ui.widget.SendMicPolicy.onTap(mEdit.getText(), hasAttachment(), false)
                         == com.onesay.assistant.v2.ui.widget.SendMicPolicy.Mode.SEND) {
@@ -297,13 +303,38 @@ public final class ChatBottomBar extends LinearLayout {
     /** 右侧按钮：有字 / 附图 → 圆形发送箭头，空 → 麦克风（只在模式变化时换图，不每个字都重设）。 */
     void refreshSendMic() {
         if (mMic == null || mSendIcon == null) return;
-        com.onesay.assistant.v2.ui.widget.SendMicPolicy.Mode m = com.onesay.assistant.v2.ui.widget.SendMicPolicy.mode(mEdit.getText(), hasAttachment(), false);
+        com.onesay.assistant.v2.ui.widget.SendMicPolicy.Mode m = com.onesay.assistant.v2.ui.widget.SendMicPolicy.mode(mEdit.getText(), hasAttachment(), false, mRunning);
         if (m == mSendMic) return;
         mSendMic = m;
         boolean send = m == com.onesay.assistant.v2.ui.widget.SendMicPolicy.Mode.SEND;
-        mMic.setImageDrawable(send ? mSendIcon : mMicIcon);
-        mMic.setPadding(send ? dp(6) : dp(8), send ? dp(6) : dp(8), send ? dp(6) : dp(8), send ? dp(6) : dp(8));
+        boolean stop = m == com.onesay.assistant.v2.ui.widget.SendMicPolicy.Mode.STOP;   // ★ feat/api-first
+        if (stop && mStopIcon == null) mStopIcon = new ChatIcons(ChatIcons.STOP, GLYPH);
+        mMic.setImageDrawable(send ? mSendIcon : stop ? mStopIcon : mMicIcon);
+        int pad = send || stop ? dp(6) : dp(8);
+        mMic.setPadding(pad, pad, pad, pad);
         mMic.setContentDescription(com.onesay.assistant.v2.ui.widget.SendMicPolicy.desc(m));
+    }
+
+    // ------------------------------------------------------------------ ★ feat/api-first：执行中停止键
+
+    private boolean mRunning;
+    private ChatIcons mStopIcon;
+    private Runnable mStopAction;
+
+    /** 任务执行中 → 空输入时右侧按钮变停止键（打了字仍是发送；录音中仍是波点）。主线程。 */
+    public void setRunning(boolean on) {
+        if (mRunning == on) return;
+        mRunning = on;
+        refreshSendMic();
+    }
+
+    public boolean running() {
+        return mRunning;
+    }
+
+    /** 点停止键时执行（宿主交给服务取消当前任务）。 */
+    public void setStopAction(Runnable r) {
+        mStopAction = r;
     }
 
     /** 测试 / 自检用：右侧按钮当前模式。 */

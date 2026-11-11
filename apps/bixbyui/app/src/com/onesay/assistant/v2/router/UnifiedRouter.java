@@ -353,8 +353,15 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
     /** 用户取消令牌：面板被收起时置位，流式读取循环会在下一行退出。 */
     public static final class Cancel implements SseStream.Cancel {
         private volatile boolean mCancelled;
-        public void cancel() { mCancelled = true; }
+        /** ★ feat/api-first [api-first]：停止键真中断的范围（网络连接 / 点屏代理的中断钩子登记在这里）。 */
+        private final com.onesay.assistant.v2.net.StopScope mScope = new com.onesay.assistant.v2.net.StopScope("task");
+        public void cancel() {
+            mCancelled = true;
+            mScope.stop("cancel");   // [api-first] 置标志之后立刻断开登记的连接、停掉点屏代理
+        }
         @Override public boolean isCancelled() { return mCancelled; }
+        /** [api-first] 任务线程开始时 StopScope.bind(cancel.scope())。 */
+        public com.onesay.assistant.v2.net.StopScope scope() { return mScope; }
     }
 
     /**
