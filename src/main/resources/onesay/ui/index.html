@@ -355,6 +355,44 @@ function scPolicy(){const p=S.shortcut_policy||[],a=S.shortcut_approvals||[];
   sec('var(--green)','已批准直接执行',a.length+' 个')+
   (a.length?card(a.map(x=>{const t=SC_ST[x.status]||SC_ST.approved;return `<div class="item"><div class="tx"><div class="tt">${esc(x.name)}</div><div class="st">内容指纹 ${esc(x.hash)} · ${esc(t[1])}</div></div><button class="tag" onclick="scRevoke(${esc(JSON.stringify(x.id))})">撤销</button></div>`})):empty('还没有批准过'))+
   `<p class="note">只认快捷指令文件夹里的 .ps1 / .bat / .cmd，按文件名 + 内容指纹批准；改了内容或改了名都要重新批准。普通用户自己能做的（改自己的注册表、删自己的文件、开程序…）照常批准；需要管理员（机器级注册表、服务驱动、防火墙 / 网卡 / DNS、系统级计划任务、磁盘）、能影响提权（劫持 ms-settings 之类、改 windir / COR_PROFILER、Policies）、想提权，或用了看不出内容的编码命令的，只能你自己运行。注释里写到的词不算。只读档一律不执行。</p>`}
+// ---------- 链接下载（思路参考 omniget，代码自写；引擎 yt-dlp） ----------
+let mdInfo=null,mdAsked=false,mdQ=null,mdA='';
+const MD_ST={queued:'',installing:'',preview:'',downloading:'',done:'green',failed:'red',canceled:''};
+function mdPanel(){const m=S.media||{tools:{},tasks:[],cookies:[],dir:'',quality:'best',install:''};
+  if(LIVE&&!mdAsked){mdAsked=true;api('media',{op:'tools'}).then(()=>refresh())}
+  const t=m.tools||{},y=t['yt-dlp']||{},f=t.ffmpeg||{},q=mdQ||m.quality||'best';
+  const st=x=>x.installed?`<span class="tag ${x.ok?'green':'red'}">${x.ok?'已校验':'校验不过'}</span>`:`<span class="tag">${x.auto===false?'需自己安装':'未安装'}</span>`;
+  const tk=(m.tasks||[]).slice(0,8).map(k=>`<div class="item"><div class="tx"><div class="tt">${esc(k.title||k.url)}</div><div class="st">${esc(k.state_zh)}${k.state==='downloading'?' '+k.percent+'%'+(k.speed?' · '+esc(k.speed):'')+(k.eta?' · 剩 '+esc(k.eta):''):''}${k.duration?' · '+esc(k.duration):''}${k.size?' · 约 '+esc(k.size):''}${k.error?' · '+esc(k.error):''}${k.from?' · 来自 '+esc(k.from):''}</div></div>${k.state==='done'?`<button class="tag green" onclick="mdReveal(${k.id})">打开位置</button>`:['queued','installing','preview','downloading'].includes(k.state)?`<button class="tag" onclick="mdCancel(${k.id})">取消</button>`:`<span class="tag ${MD_ST[k.state]||''}">${esc(k.state_zh)}</span>`}</div>`).join('');
+  return sec('var(--accent)','下载','把视频 / 音频链接下到这台电脑；引擎 yt-dlp')+`<div class="card">
+  ${kv('yt-dlp',(y.version?esc(y.version)+' · ':'')+'Unlicense'+(y.why?' · '+esc(y.why):''),st(y))}
+  ${kv('FFmpeg',(f.version?esc(f.version)+' · ':'')+esc(f.license||'LGPL 构建')+(f.why?' · '+esc(f.why):''),st(f))}
+  ${kv('下载工具','不随安装包附带。点安装才从官方发布页下载，核对官方 SHA-256 后才运行，放在 '+esc(t.dir||'%LOCALAPPDATA%\\OneSay\\tools')+(m.install?'<br>'+esc(m.install):''),`<button class="btn ghost sm" onclick="mdInstall(false)">安装</button> <button class="btn ghost sm" onclick="mdInstall(true)">更新</button> <button class="btn ghost sm" onclick="mdCheck()">检查更新</button>`)}
+  ${kv('默认清晰度','手机发来的下载没指定时用这个',seg('media_quality',(S.settings.media_quality||'best'),[['best','最佳'],['1080','1080p'],['720','720p']]))}
+  ${kv('下载文件夹',esc(m.dir||''),`<button class="btn ghost sm" onclick="mdOpen()">打开</button>`)}
+  <div class="kv"><div class="k"><div>链接</div><p>先取标题 / 时长 / 大小，再下载。只收 http / https 链接</p></div><input class="field" id="md-url" style="min-width:260px" placeholder="https://…"></div>
+  ${kv('格式',mdInfo?'《'+esc(mdInfo.title)+'》'+(mdInfo.duration?' · '+esc(mdInfo.duration):'')+(mdInfo.size?' · 约 '+esc(mdInfo.size):''):'清晰度或仅音频',`<div class="seg">${[['best','最佳'],['1080','1080p'],['720','720p']].map(([v,l])=>`<span class="${!mdA&&v===q?'on':''}" onclick="mdQ='${v}';mdA='';mdInfo=null;render()">${l}</span>`).join('')}${[['m4a','仅音频 m4a'],['mp3','mp3']].map(([v,l])=>`<span class="${mdA===v?'on':''}" onclick="mdA='${v}';mdInfo=null;render()">${l}</span>`).join('')}</div>`)}
+  ${kv('',mdInfo?'确认是这个再下载':'',`<button class="btn ghost sm" onclick="mdPreview()">预览</button> <button class="btn sm" onclick="mdDownload()" ${mdInfo?'':'disabled'}>下载</button>`)}
+  ${tk?`<div style="margin-top:6px">${tk}</div>`:''}
+  <div class="kv"><div class="k"><div>登录内容（可选）</div><p>导入你自己从浏览器导出的 cookies.txt（Netscape 格式），按站点存在配置目录，只有这个账户能读。OneSay 不读浏览器 Cookie、不破解 DRM</p></div><input class="field" id="md-site" style="min-width:120px" placeholder="bilibili.com"> <input type="file" id="md-file" accept=".txt" style="width:150px;font-size:12px"> <button class="btn ghost sm" onclick="mdCookie()">导入</button></div>
+  ${(m.cookies||[]).map(c=>kv(esc(c.site),(c.count||0)+' 条 Cookie',`<button class="tag" onclick="mdCookieDel(${esc(JSON.stringify(c.site))})">删除</button>`)).join('')}</div>
+  <p class="note">手机上说「下载这个视频」或在分享菜单里选 OneSay，会把链接发到这台电脑：第一次要你确认（可勾「以后这类不用问」）；完全访问 + 从不询问时直接下载。下载不了带 DRM 的内容。</p>`}
+async function mdInstall(force){if(!LIVE){snack('演示模式');return}
+  if(!confirm((force?'重新下载最新版':'安装')+'下载工具？\n\n· yt-dlp（Unlicense）：github.com/yt-dlp/yt-dlp 官方发布页\n· FFmpeg（LGPL 构建）：github.com/FFmpeg-Builds 官方发布页，约 100 MB\n\n下载后核对官方 SHA-256，对上才运行。'))return;
+  const r=await api('media',{op:'install',force});snack(r.text);refresh()}
+async function mdCheck(){snack('正在看发布页…');const r=await api('media',{op:'check_update'});if(!r.ok){snack(r.text);return}
+  const u=r.updates||{};snack(Object.keys(u).map(k=>k+'：'+(u[k].error?u[k].error:u[k].update?'有新版 '+u[k].latest:'已是最新')).join('；'))}
+async function mdPreview(){const url=$('md-url').value.trim();if(!url){snack('先粘贴链接');return}snack('正在取信息…');
+  const r=await api('media',{op:'preview',url,quality:mdQ||(S.settings.media_quality||'best'),audio:mdA});if(r.url)$('md-url').value=r.url;
+  if(!r.ok){mdInfo=null;snack(r.text);render();return}mdInfo={url:r.url,title:r.title,duration:r.duration,seconds:r.seconds,size:r.size,bytes:r.bytes};render()}
+async function mdDownload(){if(!mdInfo)return;const r=await api('media',{op:'download',url:mdInfo.url,quality:mdQ||(S.settings.media_quality||'best'),audio:mdA,title:mdInfo.title,seconds:mdInfo.seconds,bytes:mdInfo.bytes});
+  snack(r.text);if(r.ok){mdInfo=null;$('md-url').value=''}refresh()}
+async function mdCancel(id){const r=await api('media',{op:'cancel',id});snack(r.text);refresh()}
+async function mdReveal(id){const r=await api('media',{op:'reveal',id});if(!r.ok)snack(r.text)}
+async function mdOpen(){const r=await api('media',{op:'open_dir'});if(!r.ok)snack(r.text)}
+async function mdCookie(){const site=$('md-site').value.trim(),f=$('md-file').files[0];if(!site||!f){snack('写上站点并选文件');return}
+  if(f.size>200*1024){snack('文件太大：请只导出这个网站的 Cookie');return}
+  const text=await f.text();const r=await api('media',{op:'cookie_import',site,text});snack(r.text);$('md-file').value='';refresh()}
+async function mdCookieDel(site){if(!confirm('删除 '+site+' 的 Cookie？'))return;const r=await api('media',{op:'cookie_delete',site});snack(r.text);refresh()}
 function remPolicy(){const r=S.remembered||[];
   return sec('var(--green)','以后这类不用问',r.length+' 类')+
   (r.length?card(r.map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(x.zh)}</div><div class="st">${esc(x.kind)}</div></div><button class="tag" onclick="remRevoke(${esc(JSON.stringify(x.kind))})">撤销</button></div>`)):empty('还没有记住过'))+
@@ -426,6 +464,7 @@ P.settings=()=>{const s=S.settings;
   ${kv('共享给手机的文件夹','留空 = 不开',inp('files_dir',s.files_dir,'D:\\共享'))}
   ${kv('快捷指令文件夹','放 .ps1 / .bat / .cmd',inp('scripts_dir',s.scripts_dir,'D:\\OneSay\\快捷指令'))}
   ${kv('开机自动启动','启动后只在托盘',sw('autostart',s.autostart))}</div>
+  ${mdPanel()}
   ${sec('var(--accent)','手机→电脑：沙箱档 × 审批策略','照搬 Codex 的两轴；只能在这台电脑上改，手机改不了')}<div class="card">
   ${kv('沙箱档','只读：只回答状态；工作区可写（默认）：只往工作区里写，工作区外要你确认，命令默认断网；完全访问：按这台电脑当前用户的权限来（仍不提权）',seg2('pc_sandbox',s.pc_sandbox||'workspace_write',[['read_only','只读'],['workspace_write','工作区可写'],['full_access','完全访问']]))}
   ${kv('审批策略','分类（默认）：只有查询、无害动作、工作区内写不问，其余都问；按需：沙箱以内的直接做，超出沙箱或有破坏性的（关机、卸载、跑脚本、执行命令）才问；从不：永不弹确认，要确认的直接拒绝（只有完全访问下照做）',seg2('pc_approval',s.pc_approval||'untrusted',[['untrusted','分类'],['on_request','按需'],['never','从不']]))}

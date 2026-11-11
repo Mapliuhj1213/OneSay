@@ -304,6 +304,8 @@ public final class PcGuard {
 
     private final Config cfg;
     public volatile Confirmer confirmer;
+    /** 链接下载：电脑上的下载工具缺不缺（App 接上 {@link Media}；没接 = 不缺）。 */
+    public volatile java.util.function.BooleanSupplier mediaToolsMissing = () -> false;
     /** 告诉电脑前的人（生成脚本、完全访问下的提醒）。 */
     public volatile Consumer<String> notify = s -> { };
 
@@ -390,6 +392,12 @@ public final class PcGuard {
             f.appSystem = low.contains("\\windows\\") || low.contains("explorer") || low.contains("taskmgr") || low.contains("regedit");
             f.appLabel = name.isEmpty() ? path.replaceAll(".*[\\\\/]", "") : name;
         }
+        if (cat == LinkPolicy.Cat.MEDIA_DOWNLOAD) {
+            String bad = MediaArgs.checkUrl(str(a, "url"));
+            if (bad == null && MediaArgs.audio(a.get("audio")) == null) bad = "仅音频只能是 m4a / mp3";
+            f.mediaBad = bad == null ? "" : bad;
+            try { f.mediaToolsMissing = mediaToolsMissing.getAsBoolean(); } catch (Throwable t) { f.mediaToolsMissing = true; } // 判断不了 = 当缺（多问一次）
+        }
         if (cat == LinkPolicy.Cat.WORKSPACE_WRITE) f.protectedPath = LinkPolicy.protectedWorkspacePath(str(a, "path"));
         if (cat == LinkPolicy.Cat.OUTSIDE_WRITE) a.put("_outside", Boolean.TRUE); // 判定过的工作区外写入（手机自己带的 _ 参数上面已经丢掉）
         Shortcut sc = null;
@@ -463,6 +471,7 @@ public final class PcGuard {
                         try { notify.accept("以后「" + LinkPolicy.kindZh(rk) + "」不用再问（可在设置页撤销）"); } catch (Exception ignored) { }
                     }
                     if (f.protectedPath) a.put("_protected_ok", Boolean.TRUE);
+                    if (f.mediaToolsMissing) a.put("_media_install_ok", Boolean.TRUE); // 这张卡批的是「先装工具再下载」
                     o.pass = new Pass(cmd, a);
                 }
                 return o;
@@ -474,6 +483,7 @@ public final class PcGuard {
                     try { notify.accept(from + "：" + d.text); } catch (Exception ignored) { }
                 }
                 if (f.protectedPath && d.remembered) a.put("_protected_ok", Boolean.TRUE);
+                if (f.mediaToolsMissing && cat == LinkPolicy.Cat.MEDIA_DOWNLOAD) a.put("_media_install_ok", Boolean.TRUE); // 完全访问 + 从不询问 / 记住过「安装下载工具」
                 o.pass = new Pass(cmd, a);
                 return o;
         }
@@ -489,6 +499,11 @@ public final class PcGuard {
             case "volume": return "调音量（" + str(a, "action") + "）";
             case "shutdown": return "关机";
             case "sleep": return "睡眠";
+            case "media_get": {
+                String au = MediaArgs.audio(a.get("audio"));
+                String q = au != null && !au.isEmpty() ? "仅音频 " + au : "清晰度 " + ("best".equals(MediaArgs.quality(a.get("quality"))) ? "最佳" : MediaArgs.quality(a.get("quality")) + "p");
+                return why + "：" + LinkPolicy.oneLine(str(a, "url")) + "（" + q + "）";
+            }
             default: return why;
         }
     }

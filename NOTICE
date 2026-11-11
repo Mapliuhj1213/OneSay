@@ -8,3 +8,10 @@ The confirmation-dialog hardening (allow button armed after ~0.7 s, Esc / close 
 no spoken or remote approval) follows the approach of the approval card in Haris
 (https://github.com/TENMATECH-DIGITAL-SOLUTIONS/haris), MIT License,
 Copyright (c) 2026 TENMATECH Digital Solutions L.L.C. Only the idea was borrowed; the code is OneSay's own.
+
+Link download (media_get): the flow (link -> preview -> queue -> progress, engine downloaded on demand)
+follows the idea of omniget (https://github.com/OpenSelena/omniget), GPL-3.0. Only the idea was
+borrowed (思路参考 omniget，代码自写); no omniget code was copied or adapted.
+The engines are not bundled: yt-dlp (Unlicense) and an LGPL build of FFmpeg (FFmpeg-Builds, LGPL-3.0)
+are downloaded at the user's request from their official release pages and verified against the
+official SHA-256 checksums before they are run. See THIRD_PARTY_NOTICES.md.
