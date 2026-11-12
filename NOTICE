@@ -55,3 +55,16 @@ Design references (no code copied) for the PC-link protocol v2 (link-v2):
     launch app, open URL) and "ring at max alarm-stream volume" to find the phone.
   KDE Connect / Sefirah (GPL): product-level ideas only; code neither read nor used.
   Implementation is original: com.onesay.assistant.v2.pclink.{PcTls,PcRx,PcRxPolicy,PcRxAndroid}.
+
+Design references (no code copied) for the Clock and Plan apps (2026-11-12):
+  TaoSheng  https://github.com/0xCoach/TaoSheng  (MIT License): strong to-do
+    reminders that ring like an alarm with a full-screen page (volume key =
+    snooze, power key = stop) and "mark the reminded to-do done" by voice.
+    Implementation is original: apps/plan com.onesay.plan.{core.StrongAlert,
+    core.RemindLink, remind.StrongRingService, ui.StrongAlertActivity, data.RemindCalls}.
+  Wake Me / WeckMich  https://github.com/anka1981/WeckMich  (GPL-3.0-only):
+    idea source only (feature descriptions were read; no code read into or
+    copied from it): repeat rules with preview, pause instead of delete,
+    reliability self-check and missed-alarm notice.
+    Implementation is original: apps/clock com.onesay.clock.core.{RepeatRule,
+    Pause,Missed,Health}, com.onesay.clock.ui.{CheckActivity,RuleUi}.

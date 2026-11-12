@@ -225,6 +225,8 @@ public final class PlanProvider extends ContentProvider {
         Context c = getContext();
         Bundle out = new Bundle();
         try {
+            // [borrow-1112] 给助手的提醒接口（listRemindedTasks / completeRemindedTask，见 core/RemindLink）：门卫已放行（本 App / signature 权限 / 同证书）
+            if (com.onesay.plan.core.RemindLink.isRemindMethod(method)) return RemindCalls.call(c, method, extras);
             if (Contract.M_PING.equals(method)) {
                 out.putInt("schema", Contract.SCHEMA_VERSION);
                 out.putString("version", Settings.versionName(c));

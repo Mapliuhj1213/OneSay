@@ -1,5 +1,14 @@
 # 变更记录（OneSay Clock com.onesay.clock）
 
+## 未发布（feat/borrow-1112-companion，2026-11-12，版本号未改）
+社区借鉴：思路来源 Wake Me（WeckMich，GPL-3.0，https://github.com/anka1981/WeckMich）——只读功能说明，代码全部自写，未复制任何源码（见仓库根 NOTICE / THIRD_PARTY_NOTICES.md）。
+- 重复规则（core/RepeatRule）：大小周（两周交替）、每月第 n 个周几（含「最后一个周五」）、每隔 N 天；编辑页预览接下来 5 次。时钟没有节假日 / 调休表，预览不标注节假日。
+- 暂停而不删除（core/Pause）：暂停到某天，或跳过接下来 N 次；编辑页列出会被跳过的日期，到期自动恢复。
+- 可靠性自检（core/Health + ui/CheckActivity）：精确闹钟权限、电池优化白名单、闹钟音量 0、勿扰挡闹钟、通知权限，一键跳设置。
+- 错过的闹钟（core/Missed）：开机 / 改时间 / 改时区 / 升级后补发「错过了 X 点的闹钟」通知，不补响。
+- 闹钟接口（AlarmApi）：ALARM_SET 只复用「每周几」规则的同时刻闹钟；dump 对新规则的闹钟附带 `rule` 文案（每周几的格式不变）。
+- 旧闹钟数据逐字节兼容（新字段只在非默认时写入）。
+
 ## 0.1.6（versionCode 8）— 首个开源版本
 
 - 闹钟：列表与编辑（时间、重复、名称、智能播报、稍后提醒、振动、铃声）；只用 `setAlarmClock` 排最早一次，开机 / 升级 / 改时间或时区后自动重排；响铃无人操作 N 分钟后自动停止。

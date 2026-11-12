@@ -172,7 +172,7 @@ public class ShortcutsTest {
     @Test public void schemaHasShortcutTables() {
         assertNotNull(Schema.table(Contract.T_SHORTCUTS));
         assertNotNull(Schema.table(Contract.T_SHORTCUT_RUNS));
-        assertEquals(3, Contract.SCHEMA_VERSION);
+        assertEquals(4, Contract.SCHEMA_VERSION);   // [borrow-1112] 原为 3：todos 加 strong 列（强提醒）升到 4
         assertTrue(Schema.SHORTCUTS.createSql().contains("triggers_json TEXT DEFAULT '{\"voice\":1"));
         // 执行记录里没有参数列（不存敏感参数）
         assertNull(Schema.SHORTCUT_RUNS.col("args"));

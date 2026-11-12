@@ -77,7 +77,8 @@ public final class AlarmApi {
             String lb = cleanLabel(label);
             for (Alarm a : as) {
                 if (AlarmMath.isDebugId(a.id)) continue;
-                if (a.hour == hour && a.minute == minute && a.days == days) {   // 同一时刻同一重复：打开它，不重复建
+                // [borrow-1112] 只认「每周几」规则的闹钟：大小周 / 每月 / 每隔 N 天的闹钟 days 含义不同，不能被当成同一个
+                if (a.rule == RepeatRule.WEEKLY && a.hour == hour && a.minute == minute && a.days == days) {   // 同一时刻同一重复：打开它，不重复建
                     a.on = true;
                     if (lb.length() > 0) a.label = lb;
                     return new Result(RC_OK, as, true, a.id);
@@ -134,6 +135,7 @@ public final class AlarmApi {
                 arr.put(new JSONObject().put("id", a.id).put("h", a.hour).put("m", a.minute).put("d", a.days & 0x7F)
                         .put("on", a.on).put("r", a.brief ? "smart" : "ring").put("next", AlarmMath.next(a, now, tz))
                         .put("label", a.label == null ? "" : a.label));
+                if (a.rule != RepeatRule.WEEKLY) arr.getJSONObject(arr.length() - 1).put("rule", RepeatRule.label(a));   // [borrow-1112] 只在新规则时附带
             }
             return new JSONObject().put("ts", now).put("count", arr.length()).put("lastId", lastId).put("alarms", arr).toString();
         } catch (Exception e) {

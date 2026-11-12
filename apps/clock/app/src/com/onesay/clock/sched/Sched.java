@@ -12,6 +12,8 @@ import com.onesay.clock.Prefs;
 import com.onesay.clock.core.Alarm;
 import com.onesay.clock.core.AlarmMath;
 import com.onesay.clock.core.Flags;
+import com.onesay.clock.core.Missed;
+import com.onesay.clock.core.Pause;
 import com.onesay.clock.core.SnoozeBook;
 import com.onesay.clock.gen.GenService;
 import com.onesay.clock.ui.MainActivity;
@@ -61,11 +63,13 @@ public final class Sched {
         TimeZone tz = TimeZone.getDefault();
         SnoozeBook b = p.snoozes();
         if (b.purge(now) > 0) p.saveSnoozes(b);
+        prunePauses(c, p, now, tz);
         List<Alarm> as = p.alarms();
         AlarmMath.Event e = AlarmMath.earliest(as, b, now, tz);
         am.cancel(pi(c, A_FIRE, RC_FIRE, 0, 0, false));
         am.cancel(pi(c, A_PREGEN, RC_PREGEN, 0, 0, false));
         am.cancel(pi(c, A_RETRY, RC_RETRY, 0, 0, false));
+        p.setSchedMark(e == null ? null : new Missed.Mark(e.alarmId, e.at, e.snooze));   // [borrow-1112] 开机后对账用
         if (e == null) { L.i(c, "SCHED none (" + reason + ")"); return null; }
         am.setAlarmClock(new AlarmManager.AlarmClockInfo(e.at, show(c)), pi(c, A_FIRE, RC_FIRE, e.alarmId, e.at, e.snooze));
         boolean brief = false;
@@ -110,6 +114,7 @@ public final class Sched {
     /** 到点后的记账：贪睡移除记录；非贪睡记「当天已响」、单次闹钟关掉。返回这次是否该播报。 */
     public static boolean onFired(Context c, int id, long at, boolean snooze) {
         Prefs p = new Prefs(c);
+        p.setFiredMark(new Missed.Mark(id, at, snooze));   // [borrow-1112] 记下响过的那一次（错过对账用）
         boolean brief = false;
         if (snooze) {
             SnoozeBook b = p.snoozes();
@@ -125,5 +130,40 @@ public final class Sched {
         }
         rescheduleNow(c, "fired");
         return brief;
+    }
+
+    /** [borrow-1112] 过期的暂停记录清掉（到期本来就自动恢复，这里只是不让旧日期越积越多）。 */
+    static void prunePauses(Context c, Prefs p, long now, TimeZone tz) {
+        int today = AlarmMath.dayKey(now, tz);
+        for (Alarm a : p.alarms()) {
+            if (a.hasPause() && Pause.prune(a, today)) { p.put(a); L.i(c, "PAUSE 到期清理 id=" + a.id); }
+        }
+    }
+
+    public static final int NOTI_MISSED = 7301;
+
+    /**
+     * [borrow-1112] 开机 / 改时间 / 改时区 / 升级后、重排之前调用：上次排上的那一次到点了却没响 → 发一条「错过了 X 点的闹钟」通知。
+     * 只发通知，不补响；发完清掉记录（同一次不重复报）。没有记录（刚从旧版本升上来）→ 什么都不做。
+     */
+    public static synchronized void checkMissed(Context c, String action) {
+        try {
+            Prefs p = new Prefs(c);
+            long now = System.currentTimeMillis();
+            TimeZone tz = TimeZone.getDefault();
+            List<Missed.Item> l = Missed.find(p.schedMark(), p.firedMark(), p.alarms(), now, tz);
+            if (l.isEmpty()) return;
+            p.setSchedMark(null);
+            String title = Missed.title(l, now, tz), text = Missed.text(l, Missed.reason(action));
+            L.i(c, "MISSED " + l + " (" + action + ")");
+            android.app.Notification.Builder nb = android.os.Build.VERSION.SDK_INT >= 26
+                    ? new android.app.Notification.Builder(c, com.onesay.clock.App.CH_MISSED) : new android.app.Notification.Builder(c);
+            nb.setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle(title).setContentText(text)
+                    .setStyle(new android.app.Notification.BigTextStyle().bigText(text)).setAutoCancel(true).setShowWhen(true)
+                    .setWhen(l.get(0).at).setCategory(android.app.Notification.CATEGORY_REMINDER).setContentIntent(show(c));
+            ((android.app.NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE)).notify(NOTI_MISSED, nb.build());
+        } catch (Throwable t) {
+            L.i(c, "MISSED 检查失败 " + t);
+        }
     }
 }

@@ -79,6 +79,15 @@ public final class Prefs {
 
     public void saveSnoozes(SnoozeBook b) { synchronized (LOCK) { sp.edit().putString("snoozes", b.serialize()).commit(); } }
 
+    // ---- [borrow-1112] 错过的闹钟：上次排上的那一次 / 上次真响了的那一次（core/Missed.Mark 串）
+    public com.onesay.clock.core.Missed.Mark schedMark() { return com.onesay.clock.core.Missed.Mark.parse(sp.getString("schedMark", "")); }
+
+    public void setSchedMark(com.onesay.clock.core.Missed.Mark m) { sp.edit().putString("schedMark", m == null ? "" : m.serialize()).commit(); }
+
+    public com.onesay.clock.core.Missed.Mark firedMark() { return com.onesay.clock.core.Missed.Mark.parse(sp.getString("firedMark", "")); }
+
+    public void setFiredMark(com.onesay.clock.core.Missed.Mark m) { sp.edit().putString("firedMark", m == null ? "" : m.serialize()).commit(); }
+
     public int lastFiredDay() { return sp.getInt("lastFiredDay", 0); }
 
     public void setLastFiredDay(int d) { sp.edit().putInt("lastFiredDay", d).commit(); }

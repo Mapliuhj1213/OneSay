@@ -40,6 +40,15 @@ public final class Settings {
         sp(c).edit().putString("ticket_leads", s).apply();
     }
 
+    /** [borrow-1112] 强提醒「稍后」几分钟（默认 10，1–60）。 */
+    public static int strongSnoozeMin(Context c) {
+        return com.onesay.plan.core.StrongAlert.snoozeMin(sp(c).getInt("strong_snooze_min", com.onesay.plan.core.StrongAlert.DEFAULT_SNOOZE_MIN));
+    }
+
+    public static void setStrongSnoozeMin(Context c, int m) {
+        sp(c).edit().putInt("strong_snooze_min", com.onesay.plan.core.StrongAlert.snoozeMin(m)).apply();
+    }
+
     public static long lastCheck(Context c) {
         return sp(c).getLong("remind_last_check", 0);
     }

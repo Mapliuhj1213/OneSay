@@ -11,6 +11,8 @@ public final class AlarmMath {
     /** 严格晚于 now 的下次响铃（毫秒，秒归零）；关着的闹钟返回 0。 */
     public static long next(Alarm a, long now, TimeZone tz) {
         if (a == null || !a.on) return 0;
+        // [borrow-1112] 新规则 / 有暂停的走 RepeatRule；原来的每周几且没暂停的，下面原路径一行不改
+        if (a.rule != RepeatRule.WEEKLY || a.hasPause()) return RepeatRule.next(a, now, tz);
         Calendar c = Calendar.getInstance(tz);
         c.setTimeInMillis(now);
         c.set(Calendar.SECOND, 0);

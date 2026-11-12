@@ -49,6 +49,8 @@
         <activity android:name=".ui.KeysActivity" android:screenOrientation="portrait" android:exported="false"
             android:excludeFromRecents="true" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ui.OnboardActivity" android:screenOrientation="portrait" android:exported="false" />
+        <!-- [borrow-1112] 闹钟可靠性检查（不导出） -->
+        <activity android:name=".ui.CheckActivity" android:screenOrientation="portrait" android:exported="false" />
         <activity android:name=".ring.RingActivity" android:theme="@style/RingTheme" android:screenOrientation="portrait"
             android:launchMode="singleInstance" android:excludeFromRecents="true" android:taskAffinity="com.onesay.clock.ring"
             android:showWhenLocked="true" android:turnScreenOn="true" android:exported="false" />
