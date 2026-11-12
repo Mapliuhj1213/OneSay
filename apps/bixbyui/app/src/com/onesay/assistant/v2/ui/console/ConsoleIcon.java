@@ -15,6 +15,7 @@ public final class ConsoleIcon extends View {
 
     public static final int NOTE = 1, MEMORY = 2, SLIDERS = 3, ISLAND = 4, MIC = 5, GEAR = 6, INFO = 7, STATUS = 8, PLAN = 9, BACK = 20,
             /* 控制台整理第二步 */ SPEAKER = 10, BULB = 11, SHIELD = 12, LOCK = 13, CODE = 14,
+            /* ★ console-align */ LINK = 15, HAND = 16, DOWNLOAD = 17, PUZZLE = 18,
             CHEVRON = 21;
 
     private final int mKind;
@@ -178,6 +179,40 @@ public final class ConsoleIcon extends View {
                 c.drawLine(cx + 10 * d, cy, cx + 4 * d, cy + 6 * d, mFg);
                 c.drawLine(cx + 2 * d, cy - 8 * d, cx - 2 * d, cy + 8 * d, mFg);
                 break;
+            case LINK: {   // ★ console-align：连接（两台设备 + 双向箭头）
+                mR.set(cx - 10 * d, cy - 7 * d, cx - 3 * d, cy + 7 * d);
+                c.drawRoundRect(mR, 2 * d, 2 * d, mFg);
+                mR.set(cx + 2 * d, cy - 5 * d, cx + 10 * d, cy + 5 * d);
+                c.drawRoundRect(mR, 1.5f * d, 1.5f * d, mFg);
+                c.drawLine(cx - 1.5f * d, cy, cx + 0.5f * d, cy, mFg);
+                break;
+            }
+            case HAND: {   // ★ console-align：替你操作（指针箭头）
+                mPath.reset();
+                mPath.moveTo(cx - 6 * d, cy - 9 * d);
+                mPath.lineTo(cx + 7 * d, cy + 1 * d);
+                mPath.lineTo(cx + 1 * d, cy + 2 * d);
+                mPath.lineTo(cx + 4 * d, cy + 9 * d);
+                mPath.lineTo(cx + 1 * d, cy + 10 * d);
+                mPath.lineTo(cx - 2 * d, cy + 3 * d);
+                mPath.lineTo(cx - 6 * d, cy + 7 * d);
+                mPath.close();
+                c.drawPath(mPath, mFg);
+                break;
+            }
+            case DOWNLOAD:   // ★ console-align：下载（向下箭头 + 托盘）
+                c.drawLine(cx, cy - 9 * d, cx, cy + 4 * d, mFg);
+                c.drawLine(cx - 5 * d, cy - 1 * d, cx, cy + 4 * d, mFg);
+                c.drawLine(cx + 5 * d, cy - 1 * d, cx, cy + 4 * d, mFg);
+                c.drawLine(cx - 9 * d, cy + 9 * d, cx + 9 * d, cy + 9 * d, mFg);
+                break;
+            case PUZZLE: {   // ★ console-align：插件（方块 + 凸起）
+                mR.set(cx - 8 * d, cy - 5 * d, cx + 6 * d, cy + 9 * d);
+                c.drawRoundRect(mR, 2 * d, 2 * d, mFg);
+                c.drawCircle(cx - 1 * d, cy - 7.5f * d, 2.5f * d, mFg);
+                c.drawCircle(cx + 8.5f * d, cy + 2 * d, 2.5f * d, mFg);
+                break;
+            }
             default:
                 break;
         }

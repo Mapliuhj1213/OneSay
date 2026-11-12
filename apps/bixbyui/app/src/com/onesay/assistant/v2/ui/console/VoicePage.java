@@ -20,7 +20,7 @@ final class VoicePage extends Console.BuiltPage {
     private ConsoleKit.RowImpl mVpRow;
     private ConsoleKit.RowImpl mVpCancel;
 
-    static final int MODE_WAKE = 0, MODE_READ = 1;
+    static final int MODE_WAKE = 0, MODE_READ = 1, MODE_ALL = 2;   // ★ console-align：MODE_ALL =「设置 › 语音」一页（唤醒 + 朗读）
     final int mode;
 
     /** 语音唤醒（声纹入口、提醒条「去录制」、状态页声纹行都进这一页）。 */
@@ -29,8 +29,13 @@ final class VoicePage extends Console.BuiltPage {
     }
 
     VoicePage(Console c, int mode) {
-        super(c, mode == MODE_READ ? "朗读" : "语音唤醒");
+        super(c, mode == MODE_READ ? "朗读" : mode == MODE_ALL ? "语音" : "语音唤醒");
         this.mode = mode;
+    }
+
+    /** ★ console-align：「设置 › 语音」一页（唤醒 + 朗读）。 */
+    static VoicePage all(Console c) {
+        return new VoicePage(c, MODE_ALL);
     }
 
     /** 朗读页。 */
@@ -136,13 +141,14 @@ final class VoicePage extends Console.BuiltPage {
             }
         });
         k.footer(col, "声纹只存在本机，永不上传。录制时跟着念 4 句话，约 1 分钟；录制期间唤醒会暂停。");
+        if (mode == MODE_ALL) buildRead(col);   // ★ console-align：首页「语音」= 唤醒 + 朗读一页（电脑端「语音」同名）
     }
 
     /** 朗读页：原「语音 › 回应」五个开关原样搬来。 */
     private void buildRead(LinearLayout col) {
         final ConsoleKit k = c.kit;
         final WakeTuning tuning = WakeTuning.get(c.act);
-        LinearLayout gReply = k.group(col, "回应");
+        LinearLayout gReply = k.group(col, "朗读");   // ★ console-align：组名「回应」→「朗读」
         // ★ r2/sysux P1-3：语音问就语音答（默认开）；原「语音回复」开关改管文字发起的回合
         k.switchRow(gReply, "语音问就语音答", "用嘴问的问题，用一句短提示回应（答案在卡片上）", TtsSpeaker.isVoiceTurnReplyEnabled(c.act), new ConsoleHost.Toggle() {
             @Override public void onToggle(boolean on) {

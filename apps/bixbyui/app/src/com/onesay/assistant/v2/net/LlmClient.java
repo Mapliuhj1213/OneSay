@@ -102,7 +102,15 @@ public final class LlmClient {
         return new LlmClient(mUrl, mKey, mConnectTimeoutMs, mReadTimeoutMs, mTag, totalMs);
     }
 
-    public String url() { return mUrl; }
+    /**
+     * 实际请求的地址。★ console-align：用 {@link #DEEPSEEK_URL} 建的客户端 = 「主模型」，请求时现取
+     * {@link MainModelEndpoint#chatUrl()}（设置里改了马上生效；没改过就是原来的 DeepSeek 地址）。别的地址原样。
+     */
+    public String url() { return effectiveUrl(mUrl); }
+
+    static String effectiveUrl(String url) {
+        return DEEPSEEK_URL.equals(url) ? MainModelEndpoint.chatUrl() : url;
+    }
 
     public String apiKey() {
         String k = mKey != null ? mKey.apiKey() : null;
@@ -194,9 +202,9 @@ public final class LlmClient {
     private LlmResponse maybeFallback(String jsonBody, LlmResponse r) {
         if (!LlmFallback.shouldSwitch(r)) return r;
         LlmFallback.Backup bk = LlmFallback.current();
-        if (bk == null || LlmFallback.same(mUrl, LlmModels.prepareJson(jsonBody), bk)) return r;
+        if (bk == null || LlmFallback.same(url(), LlmModels.prepareJson(jsonBody), bk)) return r;
         String why = LlmFallback.why(r);
-        trace("[LLM] " + mTag + " " + why + " → 切到备用模型 " + bk.label);
+        trace("[LLM] " + mTag + " " + why + " → 切到备用模型 " + bk.label + "（主模型 host=" + MainModelEndpoint.host(url()) + "）");   // ★ console-align：只记主机名
         LlmClient c2 = new LlmClient(bk.url, bk.key, mConnectTimeoutMs, mReadTimeoutMs, mTag + "-backup", mTotalMs, true);
         LlmResponse r2 = c2.post(LlmFallback.rewrite(LlmModels.prepareJson(jsonBody), bk));
         com.onesay.assistant.v2.timeline.TimelineNotes.post(LlmFallback.NOTE + "（" + bk.label + "，" + why + "）" + (r2.ok() ? "" : "，备用也没成功"));
@@ -373,7 +381,7 @@ public final class LlmClient {
     private HttpURLConnection connection() throws Exception {
         // ★ feat/api-first [api-first]：停止键真中断 —— 已停就不发；连接登记进当前停止范围（任务结束时范围整体丢弃）
         if (StopScope.currentStopped()) throw new java.io.InterruptedIOException("已停止");
-        final HttpURLConnection c = (HttpURLConnection) new URL(mUrl).openConnection();
+        final HttpURLConnection c = (HttpURLConnection) new URL(url()).openConnection();
         StopScope.onStop(new Runnable() {
             @Override public void run() {
                 c.disconnect();
@@ -390,7 +398,9 @@ public final class LlmClient {
             conn.setRequestProperty("Accept", "text/event-stream");
             conn.setRequestProperty("Cache-Control", "no-cache");
         }
-        if (!LlmEndpoints.keyAllowedFor(mUrl)) throw new java.io.IOException("拒绝：大模型 Key 只发往已配置的 https 主机");
+        // ★ console-align：主模型按「主模型 › 接口地址」现取后核对；备用模型的地址由 LlmFallback.Backup.usable() 核过（https），
+        //   原来备用也走这道核对，自定义备用主机会被拒（2026-11-12 发现，一并修）
+        if (!mBackup && !LlmEndpoints.keyAllowedFor(url())) throw new java.io.IOException("拒绝：大模型 Key 只发往已配置的 https 主机");
         conn.setRequestProperty("Authorization", "Bearer " + apiKey());
         conn.setConnectTimeout(mConnectTimeoutMs);
         conn.setReadTimeout(mReadTimeoutMs);

@@ -850,7 +850,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         String what = q.matches(".*(微信|qq|QQ|钉钉|飞书|发消息|发条消息|发个消息).*") ? "发微信这类要我一步步操作手机的事"
                 : q.matches(".*(买|下单|购物车|淘宝|京东|拼多多).*") ? "购物这类要我一步步操作手机的事"
                 : "这件事要我一步步操作手机";
-        return what + "，需要先配置大模型密钥（设置 › 模型与密钥 › API 密钥 › DeepSeek）。"
+        return what + "，需要先配置大模型密钥（设置 › 模型与密钥 › 主模型 › API Key）。"
                 + "打开应用、闹钟、音量、亮度、记一记这类本地指令现在就能用。";
     }
 

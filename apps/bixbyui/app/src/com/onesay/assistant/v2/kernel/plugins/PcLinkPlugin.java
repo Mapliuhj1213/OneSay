@@ -83,7 +83,7 @@ public final class PcLinkPlugin extends FeaturePlugin {
         if (k == PcVoice.Kind.APPROVAL) {
             text = "确认卡只认手指在屏幕上点，说话不算批准。要允许请在确认卡上点「允许」。";   // approve-not-block：语音批不了
         } else if (k == PcVoice.Kind.POWER) {
-            text = "关机和睡眠要在控制台「设置 › 功能 › 电脑联动」里点，会先让你确认一次。";
+            text = "关机和睡眠要在控制台「设置 › 连接 › 电脑联动」里点，会先让你确认一次。";
         } else if (Looper.myLooper() == Looper.getMainLooper()) {
             text = "现在没法等电脑回话，请在控制台「电脑联动」页里点。";   // 路由正常在后台线程；万一在主线程不做网络
         } else if (k == PcVoice.Kind.MEDIA) {
@@ -132,7 +132,7 @@ public final class PcLinkPlugin extends FeaturePlugin {
 
     // ------------------------------------------------------------------ 控制台
 
-    @Override public String consoleCard() { return "设置 › 功能 › 电脑联动（细项页 pclink）"; }
+    @Override public String consoleCard() { return "设置 › 连接 › 电脑联动（细项页 pclink）"; }
     @Override public boolean consoleV2() { return true; }
 
     @Override public String consoleSummary(Context ctx) {

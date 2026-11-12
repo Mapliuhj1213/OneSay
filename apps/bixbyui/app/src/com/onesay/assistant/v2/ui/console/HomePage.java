@@ -14,8 +14,8 @@ import java.util.List;
 /**
  * [console R12 → 计划区整理 2026-11-05] 首页：状态 Hero（总开关 + 4 个真实状态胶囊）→ 只在出问题时出现的提醒条（≤2）→ 记一记 / 记忆两张大卡
  * →「计划」（打开计划 + 直达页签，跳计划 App 对应页；没装 / 开关关 → 本机计划页）
- * →「设置」分组（控制台整理第二步，{@link ConsoleGroups}）：模型 · 功能 · 语音唤醒 · 朗读 · 灵动岛 · 主动建议 · 权限保活 · 隐私
- * → 关于 →「开发者」（放最下，默认折叠：诊断与摘要 · 功能插件 · 调试工具）。见 bixby-plan/docs/控制台整理.md。
+ * →「设置」分组（★ console-align 2026-11-12，{@link ConsoleGroups}，与电脑端设置页同名同序）：连接 · 权限与审批 · 模型与密钥 · 语音
+ * · 替你操作 · 功能 · 下载 · 插件 → 关于 →「开发者」（放最下，默认折叠：诊断与摘要 · 调试工具）。见 bixby-plan/docs/控制台整理.md。
  */
 final class HomePage extends ConsoleNav.Page {
 
@@ -28,7 +28,7 @@ final class HomePage extends ConsoleNav.Page {
     private FlowLayout mPills;
     private LinearLayout mBanners;
     private ConsoleKit.Tile mNoteTile, mMemTile;
-    private ConsoleKit.RowImpl mIslandRow, mVoiceRow, mReadRow, mAboutRow, mPlanRow, mDevHead;
+    private ConsoleKit.RowImpl mVoiceRow, mAboutRow, mPlanRow, mDevHead;
     private LinearLayout mDevBody;
     private boolean mDevExpanded = ConsoleGroups.DEV_EXPANDED_BY_DEFAULT;
     private boolean mDevBuiltFor;
@@ -86,11 +86,32 @@ final class HomePage extends ConsoleNav.Page {
         }
         gp.addView(tabs, k.lpMatch(0, 0));
 
-        // ---- 设置（控制台整理第二步）：模型 · 功能 · 语音唤醒 · 朗读 · 灵动岛 · 主动建议 · 权限保活 · 隐私（ConsoleGroups.GROUPS 的顺序）
+        // ---- 设置（★ console-align 2026-11-12，ConsoleGroups.GROUPS 的顺序 = 电脑端设置页的顺序）：
+        //      连接 · 权限与审批 · 模型与密钥 · 语音 · 替你操作 · 功能 · 下载 · 插件
         LinearLayout g1 = k.group(col, "设置");
-        k.linkRow(g1, "模型", ConsoleGroups.defaultSub(ConsoleGroups.MODEL), ConsoleIcon.GEAR, new Runnable() {
+        k.linkRow(g1, "连接", ConsoleGroups.defaultSub(ConsoleGroups.CONNECT), ConsoleIcon.LINK, new Runnable() {
+            @Override public void run() {
+                c.push(new GroupPages.ConnectPage(c));
+            }
+        });
+        k.linkRow(g1, "权限与审批", ConsoleGroups.defaultSub(ConsoleGroups.PERM), ConsoleIcon.SHIELD, new Runnable() {
+            @Override public void run() {
+                c.push(new GroupPages.PermPage(c));
+            }
+        });
+        k.linkRow(g1, "模型与密钥", ConsoleGroups.defaultSub(ConsoleGroups.MODEL), ConsoleIcon.GEAR, new Runnable() {
             @Override public void run() {
                 c.push(new AdvancedPage(c));
+            }
+        });
+        mVoiceRow = k.linkRow(g1, "语音", ConsoleGroups.defaultSub(ConsoleGroups.VOICE), ConsoleIcon.MIC, new Runnable() {
+            @Override public void run() {
+                c.push(VoicePage.all(c));
+            }
+        });
+        k.linkRow(g1, "替你操作", ConsoleGroups.defaultSub(ConsoleGroups.ACT), ConsoleIcon.HAND, new Runnable() {
+            @Override public void run() {
+                c.push(new GroupPages.ActPage(c));
             }
         });
         k.linkRow(g1, "功能", ConsoleGroups.defaultSub(ConsoleGroups.FEATURES), ConsoleIcon.SLIDERS, new Runnable() {
@@ -98,34 +119,14 @@ final class HomePage extends ConsoleNav.Page {
                 c.push(new FeaturesPage(c));
             }
         });
-        mVoiceRow = k.linkRow(g1, "语音唤醒", ConsoleGroups.defaultSub(ConsoleGroups.WAKE), ConsoleIcon.MIC, new Runnable() {
+        k.linkRow(g1, "下载", ConsoleGroups.defaultSub(ConsoleGroups.DOWNLOAD), ConsoleIcon.DOWNLOAD, new Runnable() {
             @Override public void run() {
-                c.push(new VoicePage(c));
+                c.push(new GroupPages.DownloadPage(c));
             }
         });
-        mReadRow = k.linkRow(g1, "朗读", ConsoleGroups.defaultSub(ConsoleGroups.READ), ConsoleIcon.SPEAKER, new Runnable() {
+        k.linkRow(g1, "插件", ConsoleGroups.defaultSub(ConsoleGroups.PLUGINS), ConsoleIcon.PUZZLE, new Runnable() {
             @Override public void run() {
-                c.push(VoicePage.read(c));
-            }
-        });
-        mIslandRow = k.linkRow(g1, "灵动岛", ConsoleGroups.defaultSub(ConsoleGroups.ISLAND), ConsoleIcon.ISLAND, new Runnable() {
-            @Override public void run() {
-                c.openPage(com.onesay.assistant.v2.kernel.ConsoleHost.PAGE_ISLAND, "灵动岛");
-            }
-        });
-        k.linkRow(g1, "主动建议", ConsoleGroups.defaultSub(ConsoleGroups.SUGGEST), ConsoleIcon.BULB, new Runnable() {
-            @Override public void run() {
-                c.push(new GroupPages.SuggestPage(c));
-            }
-        });
-        k.linkRow(g1, "权限保活", ConsoleGroups.defaultSub(ConsoleGroups.PERM), ConsoleIcon.SHIELD, new Runnable() {
-            @Override public void run() {
-                c.push(new GroupPages.PermPage(c));
-            }
-        });
-        k.linkRow(g1, "隐私", ConsoleGroups.defaultSub(ConsoleGroups.PRIVACY), ConsoleIcon.LOCK, new Runnable() {
-            @Override public void run() {
-                c.push(new GroupPages.PrivacyPage(c));
+                c.push(new AdvancedPage.PluginsPage(c));
             }
         });
 
@@ -136,7 +137,7 @@ final class HomePage extends ConsoleNav.Page {
             }
         });
 
-        // ---- 开发者（放最下，默认折叠）：诊断与摘要 · 功能插件 · 调试工具（开发者模式开着才有，与之前一样）
+        // ---- 开发者（放最下，默认折叠）：诊断与摘要 · 调试工具（开发者模式开着才有，与之前一样）
         LinearLayout gd = k.group(col, null);
         mDevHead = k.linkRow(gd, ConsoleGroups.DEV_TITLE, ConsoleGroups.DEV_SUB_COLLAPSED, ConsoleIcon.CODE, new Runnable() {
             @Override public void run() {
@@ -217,11 +218,7 @@ final class HomePage extends ConsoleNav.Page {
                 c.push(new GroupPages.DevFeaturesPage(c));
             }
         });
-        k.linkRow(mDevBody, "功能插件", "每个插件的状态（只读）", 0, new Runnable() {
-            @Override public void run() {
-                c.push(new AdvancedPage.PluginsPage(c));
-            }
-        });
+        // ★ console-align：「功能插件」搬到设置区「插件」
         if (mDevBuiltFor) {
             k.linkRow(mDevBody, "调试工具", "调试按钮 · 自测 · 关停文件 · 阈值 · 日志", 0, new Runnable() {
                 @Override public void run() {
@@ -326,11 +323,13 @@ final class HomePage extends ConsoleNav.Page {
     }
 
     private String mTtsOff;
+    private boolean mFullAnswer;
 
     private void updateVoiceRow() {
         if (mVoiceRow == null || mSnap == null) return;
         String vp = mSnap.voiceprint == null ? "声纹 未知" : (mSnap.voiceprint ? "声纹已注册" : "声纹未注册");
-        mVoiceRow.setSub(vp + " · 唤醒手感 · 提示音");   // 语音回复的开关搬到「朗读」，副标题不再带它
+        // ★ console-align：「语音」= 唤醒 + 朗读一页，副标题两样都带
+        mVoiceRow.setSub(vp + " · 唤醒手感 · 提示音" + (mTtsOff != null ? " · " + mTtsOff + " · 朗读完整回答" + (mFullAnswer ? "开" : "关") : " · 朗读"));
     }
 
     /** 重新探测状态 + 刷新大卡 / 入口行副标题。 */
@@ -345,7 +344,6 @@ final class HomePage extends ConsoleNav.Page {
             @Override public void run() {
                 final String[] note = FeatureKernel.get().consoleTile(app, "quicknote");
                 final String[] mem = FeatureKernel.get().consoleTile(app, "s2");
-                final String island = FeatureKernel.get().consoleSummary(app, "island");
                 com.onesay.assistant.v2.kernel.FeaturePlugin qn = FeatureKernel.get().find("quicknote");
                 final boolean qnOn = qn != null && qn.enabled(app);
                 final String tts = com.onesay.assistant.v2.ui.TtsSpeaker.isEnabled(app) ? "语音回复开" : "语音回复关";
@@ -357,10 +355,9 @@ final class HomePage extends ConsoleNav.Page {
                         if (view == null) return;
                         fillTile(mNoteTile, note);
                         fillTile(mMemTile, mem);
-                        mIslandRow.setSub(island != null ? island : "未知");
                         mPlanRow.setSub(plan);
                         mTtsOff = tts;
-                        mReadRow.setSub(tts + " · 朗读完整回答" + (fullAnswer ? "开" : "关"));
+                        mFullAnswer = fullAnswer;
                         if (mDevBuiltFor != c.devMode()) fillDev();
                         mQuickNoteOn = qnOn;
                         if (mSnap != null) mHint.setText(ConsoleStatus.heroHint(mSnap.paused, qnOn));

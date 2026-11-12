@@ -60,6 +60,27 @@ public final class PcLinkUi {
         return "已配对 " + PcLink.pcName(c) + " · 点进去看在线状态、让电脑做事";
     }
 
+    // ================================================================== ★ console-align：设置 › 下载
+
+    /** 「设置 › 下载」一页：把链接下到电脑（原在电脑联动细项页「让电脑做事」里，搬家不改行为）。 */
+    public static void addDownloadRows(final ConsoleHost host, LinearLayout root) {
+        final Activity act = host.activity();
+        LinearLayout g = host.group(root, "下载");
+        boolean ready = PcLink.SWITCH.on(act) && PcLink.paired(act) && !PcLink.keyLost(act);
+        if (!ready) {
+            host.valueRow(g, "把链接下到电脑", "先在「设置 › 连接 › 电脑联动」扫码配对电脑", PcLink.SWITCH.on(act) ? "未配对" : "电脑联动已关", ConsoleHost.TONE_MUTED);
+        } else {
+            host.actionRow(g, "把链接下到电脑", "视频 / 音频链接交给电脑下载（电脑上用 yt-dlp），通知栏看进度；也可以在别的 App 里点分享 → 「下到电脑」", "下载", new Runnable() {
+                @Override public void run() {
+                    String clip = clipText(act).trim();
+                    PcMediaAndroid.chooser(act, PcMedia.tidy(clip), null);
+                }
+            });
+        }
+        host.footer(root, "下载在电脑上做，文件存在电脑的下载文件夹；下载工具、默认清晰度、登录内容（cookies）在电脑端「设置 › 下载」里管。"
+                + "第一次会在电脑上问你确认，下载不了带 DRM 的内容。");
+    }
+
     // ================================================================== 细项页
 
     public static void buildPage(final ConsoleHost host, final LinearLayout root) {
@@ -128,12 +149,7 @@ public final class PcLinkUi {
         host.actionRow(a, "在电脑上打开网址", "只打开 http / https 网址", "打开", new Runnable() {
             @Override public void run() { openUrlDialog(host, act); }
         });
-        host.actionRow(a, "把链接下到电脑", "视频 / 音频链接交给电脑下载（电脑上用 yt-dlp），通知栏看进度；也可以在别的 App 里点分享 → 「下到电脑」", "下载", new Runnable() {
-            @Override public void run() {
-                String clip = clipText(act).trim();
-                PcMediaAndroid.chooser(act, PcMedia.tidy(clip), null);
-            }
-        });
+        // ★ console-align：「把链接下到电脑」搬到「设置 › 下载」（与电脑端「下载」同名同位，见 addDownloadRows）
         host.actionRow(a, "睡眠", "让电脑睡眠（会先问你确认）", "睡眠", new Runnable() {
             @Override public void run() {
                 host.confirm("让电脑睡眠？", "电脑会立刻进入睡眠，没保存的东西不会丢，但正在跑的任务会暂停。", "睡眠", new Runnable() {

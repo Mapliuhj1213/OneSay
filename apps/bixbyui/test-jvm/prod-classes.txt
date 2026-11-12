@@ -681,3 +681,6 @@ com/onesay/assistant/v2/planner/TodoVoiceDone.java
 com/onesay/assistant/v2/planner/TodoVoiceFlow.java
 com/onesay/assistant/v2/planner/RecentReminds.java
 com/onesay/assistant/v2/planner/TodoDoneLink.java
+# ★ console-align：主模型地址可改 + 控制台两端对齐
+com/onesay/assistant/v2/net/MainModelEndpoint.java
+com/onesay/assistant/v2/ui/console/ConsoleStyle.java

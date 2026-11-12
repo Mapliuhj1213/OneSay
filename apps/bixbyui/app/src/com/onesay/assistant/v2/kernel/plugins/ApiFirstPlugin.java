@@ -45,7 +45,7 @@ public final class ApiFirstPlugin extends FeaturePlugin {
 
     // ------------------------------------------------------------------ 控制台（v2：设置 › 功能）
 
-    @Override public String consoleCard() { return "设置 › 功能 › 接口优先"; }
+    @Override public String consoleCard() { return "设置 › 替你操作 › 接口优先"; }
     @Override public boolean consoleV2() { return true; }
 
     @Override public String consoleSummary(Context ctx) {

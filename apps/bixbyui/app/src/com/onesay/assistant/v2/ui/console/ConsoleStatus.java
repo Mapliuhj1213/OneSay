@@ -135,7 +135,7 @@ public final class ConsoleStatus {
         } else if (Boolean.TRUE.equals(s.asrKeyInvalid)) {
             out.add(new Banner("语音识别 Key 失效（鉴权失败），说话听不懂", "去配置", Banner.ACT_ASR_KEY, Level.BAD));
         }
-        if (Boolean.FALSE.equals(s.llmConfigured)) out.add(new Banner("还没配 DeepSeek Key，复杂问题答不了", "去配置", Banner.ACT_KEY, Level.WARN));
+        if (Boolean.FALSE.equals(s.llmConfigured)) out.add(new Banner("还没配主模型 API Key，复杂问题答不了", "去配置", Banner.ACT_KEY, Level.WARN));
         if (s.islandEnabled && Boolean.FALSE.equals(s.overlayOk)) out.add(new Banner("灵动岛缺悬浮窗权限，显示不了", "去授权", Banner.ACT_OVERLAY, Level.WARN));
         if (Boolean.FALSE.equals(s.batteryWhitelisted)) out.add(new Banner("不在电池白名单，熄屏久了定时任务会晚", "加入", Banner.ACT_BATTERY, Level.WARN));
         if (Boolean.FALSE.equals(s.voiceprint)) out.add(new Banner("还没录声纹，别人说唤醒词也会唤醒", "去录制", Banner.ACT_VOICEPRINT, Level.WARN));
