@@ -17,7 +17,9 @@ import java.util.Map;
  * <ul>
  *   <li>强提醒的待办（todos.strong=1）到点：持续响铃 + 整屏页面；音量键 = 稍后（默认 {@link #DEFAULT_SNOOZE_MIN} 分钟），
  *       电源键或「停止」= 停止，「完成」= 勾掉待办。</li>
- *   <li>没人管：响 {@link #RING_TIMEOUT_MS} 后自动稍后，最多 {@link #MAX_AUTO_SNOOZE} 次，之后停止并留一条通知（不会无限循环）。</li>
+ *   <li>没人管：响 {@link #RING_TIMEOUT_MS} 后自动稍后，最多 {@link #MAX_AUTO_SNOOZE} 次，之后停止并留一条通知（不会无限循环）；每条各自计时、各自计次。</li>
+ *   <li>并表同时提醒（2026-11-12 用户决定）：同一时刻多条到点、或一条在响时另一条到点，合并成一次响铃，整屏页列出所有在响的，
+ *       每条有自己的「完成」；音量键 = 全部稍后，电源键 / 停止 = 全部停止；全部完成后自动停铃，没完成的继续响。</li>
  *   <li>普通待办提醒发通知时也记一笔（state=notified），这样助手问「刚才提醒的是哪条」时两种都能找到。</li>
  * </ul>
  * 记录本只存 id / 标题 / 时刻 / 状态，存在计划 App 私有设置里；最多 {@link #MAX_ENTRIES} 条、只留 {@link #KEEP_MS} 内的。
@@ -137,10 +139,68 @@ public final class StrongAlert {
             return e;
         }
 
-        /** 现在正在响的那条（没有返回 null）。 */
+        /** 现在正在响的那条（有多条时取最早到点的；没有返回 null）。 */
         public Entry ringing() {
-            for (Entry e : entries) if (RINGING.equals(e.state)) return e;
-            return null;
+            List<Entry> l = ringingAll();
+            return l.isEmpty() ? null : l.get(0);
+        }
+
+        /**
+         * [borrow-1112] 并表同时提醒：所有正在响的（同一次响铃、同一个整屏页），按到点（开始响）时刻先后排，同一时刻按截止时间、再按 id。
+         */
+        public List<Entry> ringingAll() {
+            List<Entry> l = new ArrayList<Entry>();
+            for (Entry e : entries) if (RINGING.equals(e.state)) l.add(e);
+            Collections.sort(l, BY_RING_TIME);
+            return l;
+        }
+
+        /** 还有没有正在响的（没有了就停铃、关整屏页）。 */
+        public boolean anyRinging() {
+            for (Entry e : entries) if (RINGING.equals(e.state)) return true;
+            return false;
+        }
+
+        /** 整屏页上某一条的「完成」：只停这一条，其余继续响。返回剩下还在响的。 */
+        public List<Entry> complete(long id, long now) {
+            Entry e = get(id);
+            if (e != null && RINGING.equals(e.state)) stop(id, now, DONE);
+            return ringingAll();
+        }
+
+        /** 音量键 / 「稍后」：正在响的全部稍后（auto = 没人管自动稍后，每条各自计次）。返回被稍后的。 */
+        public List<Entry> snoozeAll(long now, int minutes, boolean auto) {
+            List<Entry> l = ringingAll();
+            for (Entry e : l) snooze(e.todoId, now, minutes, auto);
+            return l;
+        }
+
+        /** 电源键 / 「停止」：正在响的全部停止。返回被停的。 */
+        public List<Entry> stopAll(long now, String state) {
+            List<Entry> l = ringingAll();
+            for (Entry e : l) stop(e.todoId, now, state);
+            return l;
+        }
+
+        /** 每条各自的「没人管」计时：开始响之后 {@link #RING_TIMEOUT_MS} 到了的那几条（其余继续响）。 */
+        public List<Entry> timedOut(long now) {
+            List<Entry> l = new ArrayList<Entry>();
+            for (Entry e : ringingAll()) if (e.remindedAt + RING_TIMEOUT_MS <= now) l.add(e);
+            return l;
+        }
+
+        /** 下一条「没人管」到时的时刻；没有在响的返回 -1。 */
+        public long nextTimeoutAt() {
+            long best = -1;
+            for (Entry e : entries) if (RINGING.equals(e.state) && (best < 0 || e.remindedAt + RING_TIMEOUT_MS < best)) best = e.remindedAt + RING_TIMEOUT_MS;
+            return best;
+        }
+
+        /** 进程被杀后留在记录本里的「正在响」（不在 live 里）记为已停止，免得助手看到一堆假的 ringing。返回改了几条。 */
+        public int clearStaleRinging(java.util.Collection<Long> live, long now) {
+            int n = 0;
+            for (Entry e : entries) if (RINGING.equals(e.state) && (live == null || !live.contains(e.todoId))) { stop(e.todoId, now, STOPPED); n++; }
+            return n;
         }
 
         /** 稍后到点：(from, to] 内该再响的。 */
@@ -195,6 +255,30 @@ public final class StrongAlert {
         }
     }
 
+    /** 正在响的排序：开始响的时刻先后 → 截止时间 → id。 */
+    static final Comparator<Entry> BY_RING_TIME = new Comparator<Entry>() {
+        @Override public int compare(Entry x, Entry y) {
+            if (x.remindedAt != y.remindedAt) return x.remindedAt < y.remindedAt ? -1 : 1;
+            if (x.dueAt != y.dueAt) return x.dueAt < y.dueAt ? -1 : 1;
+            return x.todoId < y.todoId ? -1 : x.todoId > y.todoId ? 1 : 0;
+        }
+    };
+
+    /** [borrow-1112] 合并后的通知标题：一条 = 待办标题；多条 = 「N 条待办到点了」。 */
+    public static String ringTitle(List<Entry> ringing) {
+        if (ringing == null || ringing.isEmpty()) return "";
+        if (ringing.size() == 1) return ringing.get(0).title;
+        return ringing.size() + " 条待办到点了";
+    }
+
+    /** 合并后的通知正文：一条 = 操作说明；多条 = 各条标题用「、」连起来。 */
+    public static String ringText(List<Entry> ringing) {
+        if (ringing == null || ringing.size() <= 1) return "强提醒 · 音量键稍后，电源键停止";
+        StringBuilder sb = new StringBuilder();
+        for (Entry e : ringing) { if (sb.length() > 0) sb.append("、"); sb.append(e.title); }
+        return sb.toString();
+    }
+
     /** 响铃超时（没人管）怎么办。 */
     public enum Timeout { SNOOZE, STOP }
 
@@ -222,7 +306,8 @@ public final class StrongAlert {
 
     /**
      * 「当前正在提醒 / 最近 windowMs 内提醒过」的待办（助手 listRemindedTasks 用）。
-     * todos：id → 当前行（已删的不在 map 里）；已完成的、已删的不返回。正在响的排最前，其余按最近提醒时刻倒序。
+     * todos：id → 当前行（已删的不在 map 里）；已完成的、已删的不返回。正在响的排最前（可能有多条，按到点先后），其余按最近提醒时刻倒序。
+     * 多条同时在响时都返回 state=ringing，助手听到「做完了」对得上不止一条就会追问是哪一条。
      */
     public static List<Entry> recent(Book b, Map<Long, Row> todos, long now, long windowMs) {
         List<Entry> l = new ArrayList<Entry>();
@@ -235,6 +320,7 @@ public final class StrongAlert {
             @Override public int compare(Entry x, Entry y) {
                 int rx = RINGING.equals(x.state) ? 0 : 1, ry = RINGING.equals(y.state) ? 0 : 1;
                 if (rx != ry) return rx - ry;
+                if (rx == 0) return BY_RING_TIME.compare(x, y);
                 return x.remindedAt > y.remindedAt ? -1 : x.remindedAt < y.remindedAt ? 1 : 0;
             }
         });

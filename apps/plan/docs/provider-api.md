@@ -230,5 +230,5 @@ adb shell、`su -c content …` 等方式会收到 `SecurityException: 计划 Ap
 | `listRemindedTasks` | `window_min` int，默认 30，限 1–120 | `code` / `ok` / `count` / `data`（JSON 数组，每项 `id` `title` `due_at` `state` `reminded_at` `first_at` `strong` `snooze_until`） |
 | `completeRemindedTask` | `id` long（必填）、`window_min` 同上 | `code` / `ok` / `id` / `already_done`；`id` 不在上面列表里 → code 3 |
 
-- `state`：`ringing` / `snoozed` / `notified` / `stopped` / `missed`；只含未完成、未删除的待办，正在响的排最前。
+- `state`：`ringing` / `snoozed` / `notified` / `stopped` / `missed`；只含未完成、未删除的待办，正在响的排最前；多条同时在响时每条都是 `ringing`，按到点先后排（同一时刻按截止时间），调用方对得上不止一条时应追问是哪一条。
 - 结果码：1 成功 / 2 参数不对 / 3 找不到（或不在最近提醒里）/ 4 不认识。

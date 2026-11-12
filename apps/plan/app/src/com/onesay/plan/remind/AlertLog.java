@@ -47,6 +47,18 @@ public final class AlertLog {
         }
     }
 
+    /** 读-改-写一次，返回多条（并表同时提醒：全部稍后 / 全部停止 / 单条完成后剩下的）。 */
+    public interface EditAll { List<StrongAlert.Entry> apply(StrongAlert.Book b); }
+
+    public static List<StrongAlert.Entry> editAll(Context c, EditAll e) {
+        synchronized (LOCK) {
+            StrongAlert.Book b = load(c);
+            List<StrongAlert.Entry> r = e.apply(b);
+            save(c, b);
+            return r;
+        }
+    }
+
     /** 记录本里提到的待办的当前行（id → 行；已删的不在里面）。 */
     public static Map<Long, Row> todos(Context c, StrongAlert.Book b) {
         Map<Long, Row> m = new HashMap<Long, Row>();
