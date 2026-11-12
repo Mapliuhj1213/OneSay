@@ -132,6 +132,7 @@ public final class PhoneHooks {
         FastScreenDriver drv = new FastScreenDriver(app);
         LlmPhonePlanner planner = new LlmPhonePlanner(com.onesay.assistant.v2.errand.ErrandHooks.llmFor(app));
         final ExecModeController exec = execMode ? new ExecModeController(app, PhoneAgent.clip(goal, 16), pkg) : null;
+        final com.onesay.assistant.v2.privacy.Redactor[] redactorRef = new com.onesay.assistant.v2.privacy.Redactor[1];
         try {
             if (script == null && !planner.ready()) {
                 res = new PhoneAgent.Result();
@@ -164,6 +165,18 @@ public final class PhoneHooks {
                 Log.i(TAG, "[PHONE] 画面稳定再读：" + agent.settle);
             }
             if (replayEnabled(app) && !legacy) agent.replay = replayStore(app);   // ★ smart-replay：开关关 = null，原行为
+            // ★ borrow-1112：发给模型前本地脱敏（默认开；映射只在这次任务的内存里）、本轮污染标记、等待期间画面变化进时间轴
+            if (com.onesay.assistant.v2.privacy.PrivacySettings.REDACT.on(app)) agent.redactor = new com.onesay.assistant.v2.privacy.Redactor();
+            if (RiskLabel.taskTainted()) {
+                agent.tainted = true;
+                agent.taintedBy = "本轮任务读过外部内容";
+            }
+            agent.meanwhile = new PhoneAgent.Meanwhile() {
+                @Override public void onChange(String line) {
+                    com.onesay.assistant.v2.timeline.TimelineNotes.post(line);
+                }
+            };
+            redactorRef[0] = agent.redactor;
             Log.i(TAG, "[PHONE] 开始：" + goal + " pkg=" + pkg + (legacy ? "（改前口径：单步 + 8 步上限）" : ""));
             res = agent.run(goal, pkg);
             sSettleStats = "settle=" + (agent.settle != null) + " settleReads=" + agent.settleReads + " unstable=" + agent.settleUnstable
@@ -173,6 +186,9 @@ public final class PhoneHooks {
                     + " replayedSteps=" + agent.replaySteps + (agent.replayNote.length() > 0 ? " note=" + agent.replayNote : "")
                     + (agent.replay != null ? " | " + agent.replay.stats() : "");
             if (agent.replay != null) Log.i(TAG, "[PHONE] 回放：" + sReplayStats);
+            if (agent.riskTightened > 0 || agent.taintConfirms > 0 || agent.tainted)
+                Log.i(TAG, "[PHONE] 风险：模型标高多问 " + agent.riskTightened + " 次，污染后发送类多问 " + agent.taintConfirms + " 次" + (agent.tainted ? "（" + agent.taintedBy + "）" : ""));
+            if (agent.redactor != null && agent.redactor.size() > 0) Log.i(TAG, "[PHONE] 脱敏：" + agent.redactor.kindsSummary());   // 只记类别和个数，不记值
             Log.i(TAG, "[PHONE] 结束 " + res.status + " 模型 " + res.modelCalls + " 次 动作 " + res.actions + " 个 " + res.ms + "ms："
                     + (res.answer.length() > 0 ? res.answer : res.reason));
             if (exec != null) exec.finish(res.status == PhoneAgent.Status.DONE, res.status == PhoneAgent.Status.DONE ? res.answer : res.reason);
@@ -185,6 +201,7 @@ public final class PhoneHooks {
             res.reason = String.valueOf(t);
             return res;
         } finally {
+            if (redactorRef[0] != null) redactorRef[0].clear();   // ★ borrow-1112：映射只活到任务结束
             sBusy = false;
             sLast = goal;
             dump(app, goal, drv, planner, exec);

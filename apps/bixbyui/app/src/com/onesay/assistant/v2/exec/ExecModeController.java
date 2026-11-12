@@ -130,6 +130,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
             }
         });
         driver.setShield(mShield);
+        setWho(ControlColor.Who.AGENT);
         // ④ 导航键观察（返回 / 主页 = 紧急接管）
         String w = FastScreen.get(mApp).backWatch();
         ev("导航键观察：" + w);
@@ -153,7 +154,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
                         String which = b > 0 ? "按了返回键" : "按了主页键";
                         if (state.navKey(which)) {
                             ev("导航键紧急接管：" + which);
-                            applyPaused(which);
+                            applyPaused(which, true);
                         } else ev("导航键（" + which + "）：当前状态 " + state.state() + "，不叠加接手");
                     }
                 }
@@ -176,6 +177,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
     /** 结束：撤掉一切覆盖层、岛显示完成 / 没完成 + 结果卡、播模板短句。 */
     public void finish(final boolean ok, final String resultText) {
         state.end();
+        clearWho();
         if (mNavPoll != null) mNavPoll.interrupt();
         FastScreen.get(mApp).backWatchOff();
         ExecBridge.detach(mId);
@@ -195,6 +197,33 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
         // ★ arch/voice-sync：AgentLoop 里的点界面（phone.operate）收尾不单独说 —— 任务结局统一说一次，免得「好了」连说两遍
         if (!S1Hooks.voiceSyncOwnsOutcome()) ExecVoice.play(mApp, ExecVoice.forResult(ok, state.stopped()));
         ev("结束 ok=" + ok + " 误触=" + state.strayTouches + " 导航接手=" + state.navTakeovers + " 结果=" + resultText);
+    }
+
+    // ------------------------------------------------------------------ ★ borrow-1112：谁在控屏（边框 / 岛描边颜色）
+
+    private volatile ControlColor.Who mWho;
+
+    public ControlColor.Who who() {
+        return mWho;
+    }
+
+    void setWho(ControlColor.Who w) {
+        mWho = w;
+        boolean on;
+        try {
+            on = ControlColor.SWITCH.on(mApp);
+        } catch (Throwable t) {
+            on = ControlColor.DEFAULT_ON;
+        }
+        ShieldOverlay sh = mShield;
+        if (sh != null) sh.setTint(on ? ControlColor.rgb(w) : -1);
+        IslandView.setControlRing(ControlColor.islandRing(w, on));
+        ev("控屏：" + (w == null ? "-" : w.zh));
+    }
+
+    private void clearWho() {
+        mWho = null;
+        IslandView.setControlRing(0);
     }
 
     // ------------------------------------------------------------------ PhoneAgent.Host
@@ -220,6 +249,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
         }
         confirms++;
         mConfirmAnswer = null;
+        setWho(ControlColor.Who.WAIT_USER);
         ev("敏感步骤暂停：" + detail);
         IslandController isl = S1Hooks.island();
         if (isl != null) isl.bgConfirm(OWNER, mId, title, detail);
@@ -236,6 +266,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
         }
         boolean ok = Boolean.TRUE.equals(mConfirmAnswer);
         state.confirmEnd();
+        if (!state.stopped() && !state.paused()) setWho(ControlColor.Who.AGENT);
         if (isl != null) isl.bgConfirmResolved(OWNER, mId);
         ev("确认结果：" + (mConfirmAnswer == null ? "超时 / 停止" : ok ? "允许（单次）" : "拒绝"));
         return ok && !state.stopped();
@@ -257,7 +288,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
             // 卡住 / 预算到了：代理主动请求暂停
             state.takeover(why);
             state.takePendingTakeover();
-            applyPaused(why);
+            applyPaused(why, false);
         }
         ev("暂停等待继续：" + why);
         synchronized (mWait) {
@@ -286,7 +317,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
         if (IslandView.A_EXEC_TAKEOVER.equals(action)) {
             if (state.takeover("你点了接管")) {
                 ev("岛上点了接管");
-                applyPaused("你在操作，好了点继续");
+                applyPaused("你在操作，好了点继续", true);
             }
         } else if (IslandView.A_EXEC_RESUME.equals(action)) {
             if (state.resume()) {
@@ -299,7 +330,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
         } else if (IslandView.A_EXEC_SUPPLEMENT.equals(action)) {
             if (state.supplement()) {
                 ev("岛上点了补充");
-                applyPaused("补充说明中");
+                applyPaused("补充说明中", true);
                 mMain.post(new Runnable() {
                     @Override public void run() {
                         showSupplement();
@@ -323,6 +354,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
     public void stop(String why) {
         ev("停止：" + why);
         state.stop();
+        setWho(ControlColor.Who.STOPPED);
         synchronized (mWait) {
             mWait.notifyAll();
         }
@@ -343,7 +375,8 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
     @Override public void onTodoCheck(String id) {
     }
 
-    private void applyPaused(final String why) {
+    private void applyPaused(final String why, boolean byUser) {
+        setWho(ControlColor.pausedWho(byUser));
         IslandController isl = S1Hooks.island();
         if (isl != null) isl.execPaused(mId, why);
         mMain.post(new Runnable() {
@@ -354,6 +387,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
     }
 
     private void applyResumed() {
+        setWho(ControlColor.Who.AGENT);
         IslandController isl = S1Hooks.island();
         if (isl != null) isl.execResumed(mId);
         runMainSync(new Runnable() {

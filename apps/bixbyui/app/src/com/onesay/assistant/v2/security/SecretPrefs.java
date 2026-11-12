@@ -38,6 +38,7 @@ public final class SecretPrefs {
             {"bixby_rain", "qweather_host"},   // ★ 私有 API Host（覆盖 local-config 里的默认值）
             {"bixby_pclink", "pair_key"},      // ★ feat/pclink 电脑联动配对密钥（32 字节，base64url）
             {"bixby_pclink", "tls_key"},       // ★ link-v2 电脑联动本机 TLS 私钥（PKCS8，base64url）
+            {"bixby_llm_backup", "backup_key"},   // ★ borrow-1112 备用模型 Key
     };
 
     private static volatile SecretCodec sCodec;

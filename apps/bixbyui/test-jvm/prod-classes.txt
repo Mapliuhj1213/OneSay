@@ -667,3 +667,17 @@ com/onesay/assistant/v2/apifirst/RouteTool.java
 com/onesay/assistant/v2/timeline/ExecTimeline.java
 com/onesay/assistant/v2/net/StopScope.java
 com/onesay/assistant/v2/util/FollowupMarks.java
+# ★ borrow-1112：社区借鉴（回执 / 风险标签 / 脱敏 / 备用模型 / 语音完成待办 / 控屏颜色）
+com/onesay/assistant/v2/phone/StepReceipt.java
+com/onesay/assistant/v2/phone/RiskLabel.java
+com/onesay/assistant/v2/privacy/Redactor.java
+com/onesay/assistant/v2/privacy/RedactingLlm.java
+com/onesay/assistant/v2/privacy/PrivacySettings.java
+com/onesay/assistant/v2/timeline/TimelineNotes.java
+com/onesay/assistant/v2/exec/ControlColor.java
+com/onesay/assistant/v2/net/LlmFallback.java
+com/onesay/assistant/v2/net/BackupModelConfig.java
+com/onesay/assistant/v2/planner/TodoVoiceDone.java
+com/onesay/assistant/v2/planner/TodoVoiceFlow.java
+com/onesay/assistant/v2/planner/RecentReminds.java
+com/onesay/assistant/v2/planner/TodoDoneLink.java

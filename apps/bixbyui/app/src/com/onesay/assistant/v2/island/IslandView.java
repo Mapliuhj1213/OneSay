@@ -552,6 +552,19 @@ public class IslandView extends View {
         out.set((int) Math.floor(cx - w / 2f), (int) Math.floor(top), (int) Math.ceil(cx + w / 2f), (int) Math.ceil(top + h));
     }
 
+    // ------------------------------------------------------------------ ★ borrow-1112：控屏状态描边
+
+    /** 0 = 不描边；否则 ARGB（{@link com.onesay.assistant.v2.exec.ControlColor#islandRing}）。 */
+    private static volatile int sControlRing;
+
+    public static void setControlRing(int argb) {
+        sControlRing = argb;
+    }
+
+    public static int controlRing() {
+        return sControlRing;
+    }
+
     // ------------------------------------------------------------------ 绘制
 
     @Override
@@ -603,6 +616,14 @@ public class IslandView extends View {
                 mRightRect.setEmpty();
                 c.drawRoundRect(mIslandRect, r, r, mFill);
             }
+        }
+
+        int ring = sControlRing;   // ★ borrow-1112：执行中按「谁在控屏」描一圈边（助手 / 等你 / 你接手）
+        if (ring != 0 && w > 0.5f && h > 0.5f && split <= 0.01f && mCur != null && mCur.exec) {
+            mStroke.setColor(ring);
+            mStroke.setStrokeWidth(1.6f * d);
+            mStroke.setAlpha(Math.round(230 * shapeA));
+            c.drawRoundRect(mIslandRect, r, r, mStroke);
         }
 
         c.save();

@@ -146,6 +146,7 @@ public class L2LLMCompiler implements IRouter {
             @Override public void line(String s) { Log.i("LlmClient", s); }
         });
         com.onesay.assistant.v2.soul.SoulHooks.attach(this.mContext);   // [soul] 人设 / 长期记忆注入与会话整理
+        com.onesay.assistant.v2.net.LlmFallback.setSource(new com.onesay.assistant.v2.net.BackupModelConfig(this.mContext));   // ★ borrow-1112：主模型超时 / 5xx / 限流 → 已配置的备用模型
     }
 
     /** 共用客户端（分诊 LLM 兜底等同端点调用复用它，不再各写一份 HTTP）。 */

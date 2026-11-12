@@ -40,6 +40,31 @@ This product includes sherpa-onnx (Java sources and prebuilt JNI)
   Copyright (c) Xiaomi Corporation and contributors
   Licensed under the Apache License, Version 2.0.
 
+Design references (no code copied) for the assistant, community borrowing 2026-11-12 (borrow-1112):
+  Agent-VScreen  https://github.com/kilolonion/agent-vscreen  (MIT License):
+    per-step structured receipts (ok / code / next, STALE_ELEMENT), "wait until"
+    conditions with a timeline of screen changes while waiting, and a border
+    colour that shows who is controlling the screen.
+    Implementation is original: com.onesay.assistant.v2.phone.StepReceipt,
+    PhoneAgent.waitUntil, com.onesay.assistant.v2.exec.ControlColor.
+  OpenPhoneUse  https://github.com/joungminsung/OpenPhoneUse  (MIT License):
+    model-declared risk on each action where keyword rules may only tighten it,
+    always confirming a send after external text was read, and reporting
+    unverifiable actions as "requested". Its "delete one named item without
+    confirmation" was not adopted.
+    Implementation is original: com.onesay.assistant.v2.phone.RiskLabel,
+    com.onesay.assistant.v2.executor.ToolGate (send under taint).
+  TaoSheng  https://github.com/0xCoach/TaoSheng  (MIT License): switching to a
+    configured backup model when the main model fails, and saying "done" to
+    mark the reminded to-do complete.
+    Implementation is original: com.onesay.assistant.v2.net.{LlmFallback,
+    BackupModelConfig}, com.onesay.assistant.v2.planner.{TodoVoiceDone,TodoVoiceFlow}.
+  android-remote-control-mcp  https://github.com/danielealbano/android-remote-control-mcp
+    (GPL-3.0-or-later): idea source only (its documentation was read; no code
+    read into or copied from it): replace personal data with stable placeholders
+    before text goes to the model, and swap them back locally when typing.
+    Implementation is original: com.onesay.assistant.v2.privacy.{Redactor,RedactingLlm}.
+
 Other third-party components (ONNX Runtime - MIT, Jakarta Mail/Activation -
 EPL-2.0 or GPL-2.0 with Classpath Exception, mermaid - MIT, Chart.js - MIT)
 are listed with their licenses in THIRD_PARTY_NOTICES.md.

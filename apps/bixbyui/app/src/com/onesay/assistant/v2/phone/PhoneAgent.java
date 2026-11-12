@@ -103,6 +103,13 @@ public final class PhoneAgent {
         public long ms;
         public int batches;
         public final List<String> trace = new ArrayList<String>();
+        /** ★ borrow-1112：每一步的结构化回执（执行了的和停下的那一步；按发生顺序）。 */
+        public final List<StepReceipt> receipts = new ArrayList<StepReceipt>();
+    }
+
+    /** ★ borrow-1112：等待期间画面变化的去处（真机 = 执行时间轴的一行说明）。 */
+    public interface Meanwhile {
+        void onChange(String line);
     }
 
     // ------------------------------------------------------------------ 配置
@@ -131,6 +138,19 @@ public final class PhoneAgent {
     public int replayHit, replayFallback, replayVoided, replayHandoff, replayRecorded, replaySteps;
     /** ★ smart-replay：本次任务的回放 / 录制说明（phone_last.txt 用）。 */
     public String replayNote = "";
+    /**
+     * ★ borrow-1112：本轮任务已经读过网页、通知、短信等外部文字（调用方 AgentLoop 传下来；代理自己读到浏览器 / 短信 / 邮件 / 通知栏界面时也置位）。
+     * 置位后任何发送 / 分享 / 提交类步骤一律先确认（{@link RiskLabel#taintedSendLike}）。
+     */
+    public boolean tainted;
+    /** 第一次被什么污染的（日志 / 统计用）。 */
+    public String taintedBy = "";
+    /** ★ borrow-1112：发给模型前本地脱敏（null = 不脱敏，原行为）。 */
+    public com.onesay.assistant.v2.privacy.Redactor redactor;
+    /** ★ borrow-1112：wait_until 等待期间画面上出现 / 消失的文字送去哪里（null = 只写进结果）。 */
+    public Meanwhile meanwhile;
+    /** ★ borrow-1112 统计：模型自报风险让本地多问了几次、污染后发送类多问了几次。 */
+    public int riskTightened, taintConfirms;
 
     private final Driver mD;
     private final Planner mP;
@@ -225,7 +245,9 @@ public final class PhoneAgent {
             String desc = null;
             if (screen != null && (wantShot || !UiTree.Q_OK.equals(screen.quality()))) desc = mD.describeScreen();
             wantShot = false;
+            noteTaint(screen, res);
             String user = PhonePrompt.user(goal, screen, desc, history, lastBatchReport, budget.info(mD.now()), maxElementLines);
+            if (redactor != null) user = redactor.redact(user);   // ★ borrow-1112：手机号 / 身份证 / 银行卡 / 邮箱 / 验证码换成占位符再发
             budget.onModelCall();
             mH.onStep("思考", stepNo);
             String sys = legacyOneStep ? PhonePrompt.systemLegacy() : PhonePrompt.system();
@@ -237,14 +259,14 @@ public final class PhoneAgent {
             res.trace.add("model#" + budget.calls + " " + plan.kind + (plan.error.length() > 0 ? " err=" + plan.error : "") + " " + clip(out, 300));
             switch (plan.kind) {
                 case DONE:
-                    return finish(res, Status.DONE, plan.answer, "", budget, t0);
+                    return finish(res, Status.DONE, restore(plan.answer), "", budget, t0);
                 case NOT_DONE:   // ★ mika-plug（mika.dosteps）：模型如实放弃
-                    return finish(res, Status.FAILED, "", plan.answer.length() > 0 ? plan.answer : "没有完成", budget, t0);
+                    return finish(res, Status.FAILED, "", plan.answer.length() > 0 ? restore(plan.answer) : "没有完成", budget, t0);
                 case ASK: {
                     if (mRec != null) mRec.taint("中途问过用户（回放会悄悄沿用当时的决定）");
                     long w0 = mD.now();
                     String[] ans = new String[1];
-                    boolean ok = mH.confirm("需要你决定", plan.answer, ans);
+                    boolean ok = mH.confirm("需要你决定", restore(plan.answer), ans);
                     budget.pausedMs += mD.now() - w0;
                     if (!ok) return finish(res, Status.STOPPED, "", "用户没有同意：" + plan.answer, budget, t0);
                     history.add("问用户「" + clip(plan.answer, 40) + "」→ " + (ans[0] != null && ans[0].length() > 0 ? ans[0] : "同意"));
@@ -327,11 +349,12 @@ public final class PhoneAgent {
             if (mH.stopRequested()) {
                 br.stopAll = true;
                 br.report = "已停止";
+                receipt(res, StepReceipt.Code.STOPPED);
                 break;
             }
             String tk = mH.takeoverRequested();
             if (tk != null) {
-                rep.append("第 ").append(i + 1).append(" 步前用户接手（").append(tk).append("），剩下的步没做。\n");
+                rep.append("第 ").append(i + 1).append(" 步前用户接手（").append(tk).append("），剩下的步没做。").append(receipt(res, StepReceipt.Code.USER_TAKEOVER)).append("\n");
                 pendingTakeover = tk;
                 break;
             }
@@ -346,7 +369,7 @@ public final class PhoneAgent {
                     if (stale != null) {
                         refStale++;
                         res.trace.add("ref stale [" + s.id + "]");
-                        rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(stale).append("\n");
+                        rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(stale).append(receipt(res, StepReceipt.Code.STALE_ELEMENT)).append("\n");
                         break;
                     }
                     if (was != null && now != null && (was.cx() != now.cx() || was.cy() != now.cy())) {
@@ -357,7 +380,7 @@ public final class PhoneAgent {
             }
             String bad = PhonePlan.validate(s, cur);
             if (bad != null) {
-                rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(bad).append("\n");
+                rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(bad).append(receipt(res, StepReceipt.ofValidate(bad))).append("\n");
                 break;
             }
             String mustTap = SensitiveGuard.userMustTap(s, cur);
@@ -365,13 +388,28 @@ public final class PhoneAgent {
                 res.trace.add("pay_final_user_tap");
                 if (mRec != null) mRec.onSensitive(mustTap);   // 含付款的任务照旧不记成可回放
                 rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(mustTap)
-                        .append("。我停在这里，你自己点一下就完成了（这一步批了也不会替你点）。\n");
+                        .append("。我停在这里，你自己点一下就完成了（这一步批了也不会替你点）。").append(receipt(res, StepReceipt.Code.NEEDS_USER_TAP)).append("\n");
                 break;
             }
             String sens = SensitiveGuard.check(s, cur);
             if (mika != null) {   // ★ mika-plug（mika.actgate）：RiskGate 补 SensitiveGuard 没拦的发送 / 提交 / 付款 / 删除，屏上有金额按付款问
                 String extra = mika.consent(s, cur, sens);
                 if (extra != null) sens = extra;
+            }
+            // ★ borrow-1112：模型自报的风险只能加严（本地判出的永远保留，模型标 none 放不松）
+            String merged = RiskLabel.merge(sens, s.risk);
+            if (sens == null && merged != null) {
+                riskTightened++;
+                res.trace.add("risk tightened by model: " + s.risk.id);
+            }
+            sens = merged;
+            if (tainted) {   // ★ borrow-1112：读过外部文字后，发送 / 分享 / 提交类一律确认（防提示注入；记住过、标了 none 都一样）
+                String ts = RiskLabel.taintedSendLike(s, cur);
+                if (ts != null) {
+                    taintConfirms++;
+                    res.trace.add("taint confirm (" + taintedBy + ")");
+                    sens = sens == null ? ts : sens + "；读过外部内容，发出去前再确认";
+                }
             }
             if (sens == null && mForceSens != null) sens = mForceSens;   // ★ smart-replay：录制时判过敏感的步骤，回放时照样确认
             if (mRec != null && sens != null) mRec.onSensitive(sens);
@@ -383,7 +421,7 @@ public final class PhoneAgent {
                 res.trace.add("sensitive " + sens + " → " + (ok ? "允许" : "拒绝"));
                 if (!ok) {
                     br.refused = true;
-                    rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 被用户拒绝（").append(sens).append("），别再尝试这一步。\n");
+                    rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 被用户拒绝（").append(sens).append("），别再尝试这一步。").append(receipt(res, StepReceipt.Code.USER_REFUSED)).append("\n");
                     break;
                 }
                 UiTree asked = cur;
@@ -392,11 +430,11 @@ public final class PhoneAgent {
                 if (staleAfterAsk != null) {   // ★ stable-screen：确认期间编号失效（换了位置且有同名元素）
                     refStale++;
                     res.trace.add("ref stale after confirm [" + s.id + "]");
-                    rep.append("用户确认期间界面变了，第 ").append(i + 1).append(" 步没执行：").append(staleAfterAsk).append("\n");
+                    rep.append("用户确认期间界面变了，第 ").append(i + 1).append(" 步没执行：").append(staleAfterAsk).append(receipt(res, StepReceipt.Code.STALE_ELEMENT)).append("\n");
                     break;
                 }
                 if (PhonePlan.validate(s, cur) != null) {
-                    rep.append("用户确认期间界面变了，第 ").append(i + 1).append(" 步没执行。\n");
+                    rep.append("用户确认期间界面变了，第 ").append(i + 1).append(" 步没执行。").append(receipt(res, StepReceipt.Code.STALE_ELEMENT)).append("\n");
                     break;
                 }
             }
@@ -417,7 +455,11 @@ public final class PhoneAgent {
             UiTree after;
             String wait;
             mLastUnstable = false;
-            if (s.hasCondition() || s.waitStable || s.op.equals("wait")) {
+            if (s.isWaitUntil()) {   // ★ borrow-1112：等到条件出现 / 消失（复用稳定读屏轮询，期间画面变化记进时间轴）
+                Object[] w = waitUntil(s, cur);
+                after = (UiTree) w[0];
+                wait = (String) w[1];
+            } else if (s.hasCondition() || s.waitStable || s.op.equals("wait")) {
                 Object[] w = waitFor(s, cur);
                 after = (UiTree) w[0];
                 wait = (String) w[1];
@@ -436,12 +478,16 @@ public final class PhoneAgent {
             done++;
             br.lastEffect = effect;
             br.condFailed = wait.startsWith("没等到");
+            if (mRec != null && com.onesay.assistant.v2.privacy.Redactor.hasPlaceholder(s.text))
+                mRec.taint("输入内容里有隐藏的个人信息（占位符），不记成可回放");
             if (mRec != null) {   // ★ smart-replay：边做边录（cur = 动作前那屏）
                 mRec.onExecuted(s, cur, effect, wait, sens);
                 mRec.onScreen(after);
             }
             String mk = mika != null ? mika.afterStep(s, cur, after, effect) : "";   // ★ mika-plug：effect + 守卫阶梯 + 卡住建议
-            String line = "第 " + (i + 1) + " 步 " + s + " → " + effect + (wait.length() > 0 ? "，" + wait : "") + "（" + (mD.now() - a0) + "ms）" + mk;
+            noteTaint(after, res);
+            String line = "第 " + (i + 1) + " 步 " + s + " → " + effect + (wait.length() > 0 ? "，" + wait : "") + "（" + (mD.now() - a0) + "ms）" + mk
+                    + receipt(res, StepReceipt.ofEffect(s.op, effect, wait, changed));
             rep.append(line).append('\n');
             res.trace.add(line);
             if (sum.length() > 0) sum.append("；");
@@ -454,7 +500,8 @@ public final class PhoneAgent {
             if (!last && after != null && prev != null) {
                 String why = unexpected(prev, after, s, plan.steps.get(i + 1));
                 if (why != null) {
-                    rep.append("界面意外变化（").append(why).append("），剩下 ").append(plan.steps.size() - i - 1).append(" 步交回给你重新安排。\n");
+                    rep.append("界面意外变化（").append(why).append("），剩下 ").append(plan.steps.size() - i - 1).append(" 步交回给你重新安排。")
+                            .append(receipt(res, StepReceipt.Code.UNEXPECTED_SCREEN)).append("\n");
                     break;
                 }
             }
@@ -466,7 +513,7 @@ public final class PhoneAgent {
         }
         br.after = cur != null ? cur : mD.observe(mIds);
         br.executed = done;
-        br.report = "执行了 " + done + "/" + plan.steps.size() + " 步：\n" + rep;
+        br.report = "执行了 " + done + "/" + plan.steps.size() + " 步" + (done < plan.steps.size() && !br.stopAll ? "（停在第 " + (done + 1) + " 步，这一批没做完）" : "") + "：\n" + rep;
         br.summary = sum.length() > 0 ? clip(sum.toString(), 160) : "没有执行";
         br.stepNo = stepNo;
         return br;
@@ -488,8 +535,9 @@ public final class PhoneAgent {
         if (s.op.equals("tap")) return mD.tap(e) ? "已点击" : "点击失败";
         if (s.op.equals("long")) return mD.longPress(e, s.holdMs) ? "已长按" : "长按失败";
         if (s.op.equals("type")) {
-            String got = mD.type(e, s.text);
-            String r = got == null ? "输入失败" : got.contains(s.text) ? "已输入" : "输入后读回「" + clip(got, 20) + "」";
+            String real = restore(s.text);   // ★ borrow-1112：占位符在本地换回真实值再输入（报告 / 轨迹里仍是占位符）
+            String got = mD.type(e, real);
+            String r = got == null ? "输入失败" : got.contains(real) ? "已输入" : "输入后读回「" + clip(redactor != null ? redactor.redact(got) : got, 20) + "」";
             if (got != null && s.enter) r += mD.key("enter") ? "，已回车" : "，回车失败";
             return r;
         }
@@ -503,7 +551,7 @@ public final class PhoneAgent {
             boolean ok = s.dir > 0 ? mD.swipe(w / 2, h * 70 / 100, w / 2, h * 30 / 100, 300) : mD.swipe(w / 2, h * 30 / 100, w / 2, h * 70 / 100, 300);
             return ok ? "已滑动" : "滑动失败";
         }
-        if (s.op.equals("wait")) return "等待";
+        if (s.op.equals("wait") || s.isWaitUntil()) return "等待";
         return "不支持";
     }
 
@@ -766,6 +814,138 @@ public final class PhoneAgent {
                     + " 次指纹仍不一致，用最后一次结果");
         } catch (Throwable ignored) {   // JVM 测试没有 Log 时不影响逻辑
         }
+    }
+
+    // ------------------------------------------------------------------ ★ borrow-1112：回执 / 污染 / 脱敏 / wait_until
+
+    /** 记一条回执，返回跟在中文说明后面的那一截。 */
+    private String receipt(Result res, StepReceipt.Code c) {
+        return receipt(res, StepReceipt.of(c));
+    }
+
+    private String receipt(Result res, StepReceipt r) {
+        if (res != null) res.receipts.add(r);
+        return r.tail();
+    }
+
+    /** 读到浏览器 / 短信 / 邮件 / 通知栏的界面 = 本轮读过外部文字。 */
+    private void noteTaint(UiTree t, Result res) {
+        if (tainted || t == null || !RiskLabel.externalTextPkg(t.pkg)) return;
+        tainted = true;
+        taintedBy = t.pkg;
+        if (res != null) res.trace.add("taint by screen " + t.pkg);
+    }
+
+    private String restore(String s) {
+        return redactor == null ? s : redactor.restore(s);
+    }
+
+    /** wait_until：轮询读屏（每次等画面稳定，复用 {@link StableRead}），直到条件成立或超时（上限 {@link PhonePlan#UNTIL_MAX_MS}）。 */
+    Object[] waitUntil(PhonePlan.Step s, UiTree before) {
+        long w0 = mD.now();
+        long end = w0 + Math.min(Math.max(500, s.timeoutMs), PhonePlan.UNTIL_MAX_MS);
+        StableRead.Params p = settle != null ? settle : StableRead.Params.defaults();
+        UiTree prev = before, t = before;
+        Set<String> appeared = new LinkedHashSet<String>(), gone = new LinkedHashSet<String>();
+        String stopWhy = null;
+        while (true) {
+            long left = end - mD.now();
+            if (left <= 0) break;
+            StableRead.Result<UiTree> r = StableRead.await(mClock, mSource, null, false, p, left);
+            settleReads += Math.max(0, r.reads - 1);
+            if (r.value != null) {
+                t = r.value;
+                String ch = meanwhileDiff(prev, t, appeared, gone);
+                if (ch != null && meanwhile != null) {
+                    try {
+                        meanwhile.onChange(ch);   // 本机时间轴给用户看，用真实内容（不发给模型）
+                    } catch (Throwable ignored) {
+                    }
+                }
+                prev = t;
+            }
+            if (untilMet(s, t)) return new Object[]{t, "条件已满足（等了 " + (mD.now() - w0) + "ms）" + meanwhileText(appeared, gone)};
+            if (mH.stopRequested()) {
+                stopWhy = "已停止";
+                break;
+            }
+            String tk = mH.takeoverRequested();
+            if (tk != null) {
+                pendingTakeover = tk;
+                stopWhy = "用户接手";
+                break;
+            }
+            if (mD.now() >= end) break;
+            mD.sleep(Math.min(250, Math.max(1, end - mD.now())));
+        }
+        return new Object[]{t, "没等到" + untilDesc(s) + "（" + (stopWhy != null ? stopWhy + "，" : "") + "等了 " + (mD.now() - w0) + "ms）" + meanwhileText(appeared, gone)};
+    }
+
+    static boolean untilMet(PhonePlan.Step s, UiTree t) {
+        if (t == null) return false;
+        if (s.untilText.length() > 0 && !t.hasText(s.untilText)) return false;
+        if (s.untilGone.length() > 0 && t.hasText(s.untilGone)) return false;
+        if (s.untilEl.length() > 0 && !hasEl(t, s.untilEl)) return false;
+        if (s.untilElGone.length() > 0 && hasEl(t, s.untilElGone)) return false;
+        return true;
+    }
+
+    /** 名字或资源 id（不分大小写）含这个词的元素。 */
+    static boolean hasEl(UiTree t, String w) {
+        String k = w.toLowerCase(java.util.Locale.ROOT);
+        for (UiTree.El e : t.els) {
+            if (e.label.toLowerCase(java.util.Locale.ROOT).contains(k)) return true;
+            if (e.rid != null && e.rid.toLowerCase(java.util.Locale.ROOT).contains(k)) return true;
+        }
+        return false;
+    }
+
+    static String untilDesc(PhonePlan.Step s) {
+        StringBuilder b = new StringBuilder();
+        if (s.untilText.length() > 0) b.append("「").append(s.untilText).append("」出现");
+        if (s.untilGone.length() > 0) b.append(b.length() > 0 ? "、" : "").append("「").append(s.untilGone).append("」消失");
+        if (s.untilEl.length() > 0) b.append(b.length() > 0 ? "、" : "").append("元素「").append(s.untilEl).append("」出现");
+        if (s.untilElGone.length() > 0) b.append(b.length() > 0 ? "、" : "").append("元素「").append(s.untilElGone).append("」消失");
+        return b.toString();
+    }
+
+    /** 两屏之间出现 / 消失的文字（记进 appeared / gone，各最多 {@link #MEANWHILE_MAX} 条）；有变化返回一句话，否则 null。 */
+    static String meanwhileDiff(UiTree prev, UiTree cur, Set<String> appeared, Set<String> gone) {
+        if (prev == null || cur == null) return null;
+        Set<String> a = labels(prev), b = labels(cur);
+        List<String> in = new ArrayList<String>(), out = new ArrayList<String>();
+        for (String x : b) if (!a.contains(x)) in.add(x);
+        for (String x : a) if (!b.contains(x)) out.add(x);
+        if (in.isEmpty() && out.isEmpty()) return null;
+        for (String x : in) if (appeared.size() < MEANWHILE_MAX) appeared.add(x);
+        for (String x : out) if (gone.size() < MEANWHILE_MAX) gone.add(x);
+        StringBuilder sb = new StringBuilder("等待中画面变化：");
+        if (!in.isEmpty()) sb.append("出现").append(quoteList(in, 3));
+        if (!out.isEmpty()) sb.append(in.isEmpty() ? "" : "，").append("消失").append(quoteList(out, 3));
+        return sb.toString();
+    }
+
+    static final int MEANWHILE_MAX = 8;
+
+    static Set<String> labels(UiTree t) {
+        Set<String> s = new LinkedHashSet<String>();
+        for (UiTree.El e : t.els) if (e.label.length() > 0 && e.label.length() <= 40) s.add(e.label);
+        return s;
+    }
+
+    static String quoteList(List<String> l, int max) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < l.size() && i < max; i++) b.append("「").append(clip(l.get(i), 16)).append("」");
+        if (l.size() > max) b.append("等 ").append(l.size()).append(" 处");
+        return b.toString();
+    }
+
+    static String meanwhileText(Set<String> appeared, Set<String> gone) {
+        if (appeared.isEmpty() && gone.isEmpty()) return "";
+        StringBuilder b = new StringBuilder("；期间画面");
+        if (!appeared.isEmpty()) b.append("出现过").append(quoteList(new ArrayList<String>(appeared), MEANWHILE_MAX));
+        if (!gone.isEmpty()) b.append(appeared.isEmpty() ? "" : "，").append("消失过").append(quoteList(new ArrayList<String>(gone), MEANWHILE_MAX));
+        return b.toString();
     }
 
     static String cond(PhonePlan.Step s) {

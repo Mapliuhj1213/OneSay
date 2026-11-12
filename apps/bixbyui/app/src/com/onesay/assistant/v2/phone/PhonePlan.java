@@ -16,8 +16,10 @@ import java.util.List;
  *    {"do":"scroll","dir":"down","id":5,"expect":"关于手机","timeout_s":6},
  *    {"do":"back","expect_gone":"弹窗标题"},
  *    {"do":"launch","app":"com.android.settings","expect_app":"com.android.settings"},
- *    {"do":"long","id":7}, {"do":"key","key":"enter"}, {"do":"wait","expect":"加载完成","timeout_s":8}
+ *    {"do":"long","id":7}, {"do":"key","key":"enter"}, {"do":"wait","expect":"加载完成","timeout_s":8},
+ *    {"do":"wait_until","text":"支付成功","timeout_s":20}, {"do":"wait_until","gone":"正在加载"}, {"do":"wait_until","el_gone":"loading"}
  * ], "note":"为什么这样排"}
+ * 每个动作可带 "risk"：none / money / security / delete / send / modify（★ borrow-1112，模型自报风险，本地规则只能加严，见 RiskLabel）。
  * {"collect":{"until":"关于手机","max_pages":8}}       逐屏下滑收集长列表（去重），直到看到 until 或到底
  * {"done":"给用户的结果"}      {"ask":"需要用户决定 / 确认的事"}      {"shot":true}（下一轮附视觉描述）
  * </pre>
@@ -45,6 +47,14 @@ public final class PhonePlan {
         /** ★ mika-plug（mika.dosteps）：0–999 坐标（-1 = 没给）与坐标点的说明。 */
         public int x = -1, y = -1;
         public String target = "";
+        /** ★ borrow-1112：模型自报的风险（没写 = NONE）。 */
+        public RiskLabel.Risk risk = RiskLabel.Risk.NONE;
+        /** ★ borrow-1112 wait_until：等这段文字出现 / 消失、等名字或资源 id 含这个词的元素出现 / 消失（至少一个）。 */
+        public String untilText = "", untilGone = "", untilEl = "", untilElGone = "";
+
+        public boolean isWaitUntil() {
+            return "wait_until".equals(op);
+        }
 
         public boolean hasCondition() {
             return expect.length() > 0 || expectGone.length() > 0 || expectApp.length() > 0;
@@ -63,6 +73,10 @@ public final class PhonePlan {
             if (op.equals("scroll")) b.append(dir > 0 ? " 下" : " 上");
             if (app.length() > 0) b.append(' ').append(app);
             if (key.length() > 0) b.append(' ').append(key);
+            if (untilText.length() > 0) b.append(" 等「").append(untilText).append("」出现");
+            if (untilGone.length() > 0) b.append(" 等「").append(untilGone).append("」消失");
+            if (untilEl.length() > 0) b.append(" 等元素「").append(untilEl).append("」出现");
+            if (untilElGone.length() > 0) b.append(" 等元素「").append(untilElGone).append("」消失");
             return b.toString();
         }
     }
@@ -75,7 +89,10 @@ public final class PhonePlan {
     public int collectPages = 8;
     public String error = "";
 
-    static final String[] OPS = {"tap", "long", "type", "scroll", "back", "home", "launch", "key", "wait", "swipe"};
+    static final String[] OPS = {"tap", "long", "type", "scroll", "back", "home", "launch", "key", "wait", "swipe", "wait_until"};
+
+    /** ★ borrow-1112 wait_until：默认等 10 秒，最多 30 秒（超过按 30 秒算）。 */
+    public static final int UNTIL_DEFAULT_MS = 10000, UNTIL_MAX_MS = 30000;
 
     public static PhonePlan parse(String content) {
         return parse(content, false);
@@ -184,6 +201,7 @@ public final class PhonePlan {
                 if (st.op.equals("input")) st.op = "type";
                 if (st.op.equals("open")) st.op = "launch";
                 if (st.op.equals("long_press")) st.op = "long";
+                if (st.op.equals("wait_for") || st.op.equals("until") || st.op.equals("waituntil")) st.op = "wait_until";
                 boolean known = false;
                 for (String k : OPS) known |= k.equals(st.op);
                 if (!known) {
@@ -219,6 +237,18 @@ public final class PhonePlan {
                 st.waitStable = x.optBoolean("wait_stable", false);
                 st.timeoutMs = (int) Math.max(500, Math.min(20000, x.optDouble("timeout_s", 5) * 1000));
                 st.holdMs = Math.max(300, Math.min(3000, x.optInt("hold_ms", 800)));
+                st.risk = RiskLabel.Risk.of(x.optString("risk", ""));
+                if (st.isWaitUntil()) {   // ★ borrow-1112：等到条件出现 / 消失（text 在这里是「等的文字」，不是要输入的字）
+                    JSONObject u = x.optJSONObject("until");
+                    JSONObject src = u != null ? u : x;
+                    st.untilText = src.optString("text", src.optString("appear", ""));
+                    st.untilGone = src.optString("gone", src.optString("text_gone", src.optString("disappear", "")));
+                    st.untilEl = src.optString("el", src.optString("element", ""));
+                    st.untilElGone = src.optString("el_gone", src.optString("element_gone", ""));
+                    st.text = "";
+                    double ts = x.has("timeout_s") ? x.optDouble("timeout_s", UNTIL_DEFAULT_MS / 1000.0) : UNTIL_DEFAULT_MS / 1000.0;
+                    st.timeoutMs = (int) Math.max(500, Math.min(UNTIL_MAX_MS, ts * 1000));
+                }
                 p.steps.add(st);
             }
             p.kind = p.steps.isEmpty() ? Kind.INVALID : Kind.STEPS;
@@ -248,6 +278,8 @@ public final class PhonePlan {
         if (s.op.equals("launch") && s.app.length() == 0) return "launch 缺少 app 包名";
         if (s.op.equals("key") && !(s.key.equals("enter") || s.key.equals("back") || s.key.equals("search") || s.key.equals("delete")))
             return "key 只支持 enter / back / search / delete";
+        if (s.isWaitUntil() && s.untilText.length() == 0 && s.untilGone.length() == 0 && s.untilEl.length() == 0 && s.untilElGone.length() == 0)
+            return "wait_until 至少要写 text / gone / el / el_gone 之一";
         return null;
     }
 }
