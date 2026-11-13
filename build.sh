@@ -15,5 +15,5 @@ if [ "$1" = test ]; then
   CP="$OUT/classes:$LIBS/junit-4.13.2.jar:$LIBS/hamcrest-core-1.3.jar"
   mkdir -p "$OUT/test-classes"
   javac --release 17 -encoding UTF-8 -cp "$CP" -d "$OUT/test-classes" $(find src/test/java -name '*.java')
-  java -Djava.awt.headless=true -cp "$CP:$OUT/test-classes" org.junit.runner.JUnitCore com.onesay.desktop.CoreTest com.onesay.desktop.LanTest com.onesay.desktop.VoiceTest com.onesay.desktop.AppTest com.onesay.desktop.LinkV2Test com.onesay.desktop.PcGuardTest com.onesay.desktop.ShortcutGuardTest com.onesay.desktop.PcPluginTest com.onesay.desktop.Round2Test com.onesay.desktop.ApprovalGuardTest com.onesay.desktop.ApproveNotBlockTest com.onesay.desktop.MediaGetTest
+  java -Djava.awt.headless=true -cp "$CP:$OUT/test-classes" org.junit.runner.JUnitCore com.onesay.desktop.CoreTest com.onesay.desktop.LanTest com.onesay.desktop.VoiceTest com.onesay.desktop.AppTest com.onesay.desktop.LinkV2Test com.onesay.desktop.PcGuardTest com.onesay.desktop.ShortcutGuardTest com.onesay.desktop.PcPluginTest com.onesay.desktop.Round2Test com.onesay.desktop.ApprovalGuardTest com.onesay.desktop.ApproveNotBlockTest com.onesay.desktop.MediaGetTest com.onesay.desktop.ConsoleAlignTest
 fi
