@@ -240,7 +240,19 @@ public class CompanionLinkConsistencyTest {
 
     @Test public void assistantManifestStillHasNoProvider() {
         String m = src("app/AndroidManifest.xml");
-        assertFalse("助手不放 provider（debug / release authority 会撞），反查走有序广播", m.contains("<provider"));
+        // [integ] 2026-11-13：priv-llm 合入后 Manifest 里有 Shizuku 官方库的 rikka.shizuku.ShizukuProvider（与伴侣连接无关），
+        //   原断言「整个 Manifest 不含 <provider」改成「除 ShizukuProvider 外不含 <provider」；
+        //   它的 authority 撞车由 build_linux.sh 在 debug 包改成 .debug.shizuku 解决，这里一并钉住。
+        String noShizuku = m;
+        int sp = noShizuku.indexOf("android:name=\"rikka.shizuku.ShizukuProvider\"");
+        if (sp > 0) {
+            int a = noShizuku.lastIndexOf("<provider", sp), b = noShizuku.indexOf("/>", sp);
+            assertTrue(a >= 0 && b > sp);
+            noShizuku = noShizuku.substring(0, a) + noShizuku.substring(b + 2);
+            assertTrue("debug 包要改 ShizukuProvider 的 authority（否则 debug / release 会撞）",
+                    src("build_linux.sh").contains("android:authorities=\"com.onesay.assistant.debug.shizuku\""));
+        }
+        assertFalse("助手不放 provider（debug / release authority 会撞），反查走有序广播", noShizuku.contains("<provider"));
         int i = m.indexOf("v2.companion.CompanionLinkReceiver");
         assertTrue(i > 0);
         assertTrue(m.substring(i, m.indexOf("</receiver>", i)).contains("<action android:name=\"" + CompanionContract.ACTION_QUERY + "\""));
