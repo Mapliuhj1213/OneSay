@@ -35,6 +35,10 @@ public class PillSearchBar extends LinearLayout {
     private SendMicPolicy.Mode mMode;
     private OnSubmitListener mListener;
     private OnMicListener mMicListener;
+    /** ★ feat/api-first：任务执行中（右侧空输入时变停止键）。 */
+    private boolean mRunning;
+    private final com.onesay.assistant.v2.ui.chat.ChatIcons mStopIcon;
+    private Runnable mStopAction;
 
     /** 空输入时点右侧麦克风。 */
     public interface OnMicListener {
@@ -93,14 +97,18 @@ public class PillSearchBar extends LinearLayout {
         mMicIcon = new com.onesay.assistant.v2.ui.chat.ChatIcons(com.onesay.assistant.v2.ui.chat.ChatIcons.MIC, Color.parseColor("#EDEBE7"));
         mSendIcon = new com.onesay.assistant.v2.ui.chat.ChatIcons(com.onesay.assistant.v2.ui.chat.ChatIcons.SEND, Color.parseColor("#EDEBE7"))
                 .setCutColor(Color.parseColor("#2C2C34"));
+        mStopIcon = new com.onesay.assistant.v2.ui.chat.ChatIcons(com.onesay.assistant.v2.ui.chat.ChatIcons.STOP, Color.parseColor("#EDEBE7"));
         mBtnSend.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
         LayoutParams sendLp = new LayoutParams(dp(38), dp(38));
         sendLp.leftMargin = dp(4);
         mBtnSend.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (SendMicPolicy.onTap(mInputEdit.getText(), false, false) == SendMicPolicy.Mode.SEND) {
+                SendMicPolicy.Mode tap = SendMicPolicy.mode(mInputEdit.getText(), false, false, mRunning);
+                if (tap == SendMicPolicy.Mode.SEND) {
                     triggerSubmit();
+                } else if (tap == SendMicPolicy.Mode.STOP) {   // ★ feat/api-first：执行中点停止 = 真中断当前任务
+                    if (mStopAction != null) mStopAction.run();
                 } else if (mMicListener != null) {
                     hideSoftKeyboard();
                     mMicListener.onMic();
@@ -138,13 +146,30 @@ public class PillSearchBar extends LinearLayout {
         return mMode;
     }
 
+    /** ★ feat/api-first：任务执行中 → 空输入时右侧按钮变停止键（打了字仍是发送）。主线程。 */
+    public void setRunning(boolean on) {
+        if (mRunning == on) return;
+        mRunning = on;
+        refreshSendMic();
+    }
+
+    public boolean running() {
+        return mRunning;
+    }
+
+    /** 点停止键时执行（宿主交给服务取消当前任务）。 */
+    public void setStopAction(Runnable r) {
+        mStopAction = r;
+    }
+
     private void refreshSendMic() {
-        SendMicPolicy.Mode m = SendMicPolicy.mode(mInputEdit.getText(), false, false);
+        SendMicPolicy.Mode m = SendMicPolicy.mode(mInputEdit.getText(), false, false, mRunning);
         if (m == mMode) return;
         mMode = m;
         boolean send = m == SendMicPolicy.Mode.SEND;
-        mBtnSend.setImageDrawable(send ? mSendIcon : mMicIcon);
-        int pad = send ? dp(5) : dp(8);
+        boolean stop = m == SendMicPolicy.Mode.STOP;
+        mBtnSend.setImageDrawable(send ? mSendIcon : stop ? mStopIcon : mMicIcon);
+        int pad = send ? dp(5) : stop ? dp(6) : dp(8);
         mBtnSend.setPadding(pad, pad, pad, pad);
         mBtnSend.setContentDescription(SendMicPolicy.desc(m));
     }

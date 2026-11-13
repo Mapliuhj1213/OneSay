@@ -35,6 +35,8 @@ public final class ChatAdapter {
         void onLike(ChatTranscript.Round r, int value, ImageView like, ImageView dislike);
         void onEditQuestion(ChatTranscript.Round r);
         void onSuggestion(int index, String label);
+        /** ★ feat/api-first：点了回答里的可点追问短语（[[x]] → 「x↵」）= 用户说了 x。 */
+        void onFollowup(String text);
     }
 
     public static final int T1 = 0xFFF0EEEA, T2 = 0xFFB2AFAA, T3 = 0xFF807E7A;
@@ -62,6 +64,11 @@ public final class ChatAdapter {
                     last = add(into, userBubble(it.round), dp(it.round.image instanceof Bitmap ? 8 : 18), true);
                     break;
                 case ANSWER:
+                    if (it.round.timeline != null && it.round.timeline.visible()) {   // ★ feat/api-first：历史里回答上方折叠的执行时间轴
+                        com.onesay.assistant.v2.ui.ExecTimelineView tv = new com.onesay.assistant.v2.ui.ExecTimelineView(mCtx);
+                        tv.bind(it.round.timeline);
+                        last = add(into, tv, dp(14), false);
+                    }
                     lastAnswer = answerView(it.round.answer);
                     last = add(into, lastAnswer, dp(16), false);
                     for (Object o : it.round.cards) {
@@ -128,7 +135,9 @@ public final class ChatAdapter {
         tv.setTextColor(T1);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16.5f);
         tv.setLineSpacing(dp(5), 1.12f);
-        tv.setText(styled(answer));
+        CharSequence body = styled(answer);
+        tv.setText(body);
+        armFollowups(tv, body);   // ★ feat/api-first
         return tv;
     }
 
@@ -142,7 +151,36 @@ public final class ChatAdapter {
             int end = Math.min(sb.length(), r[1] + 1 <= sb.length() ? r[1] + 1 : r[1]);
             sb.setSpan(new BulletSpan(dp(10), T1), r[0], end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+        // ★ feat/api-first：可点追问短语（蓝字「短语↵」，点了 = 用户说了这句）
+        for (int i = 0; i < d.followups.size() && i < d.followupText.size(); i++) {
+            final String say = d.followupText.get(i);
+            int[] r = d.followups.get(i);
+            if (r[0] < 0 || r[1] > sb.length() || r[0] >= r[1]) continue;
+            sb.setSpan(new android.text.style.ClickableSpan() {
+                @Override public void onClick(View w) {
+                    mActions.onFollowup(say);
+                }
+
+                @Override public void updateDrawState(android.text.TextPaint ds) {
+                    ds.setColor(FOLLOWUP);
+                    ds.setUnderlineText(false);
+                }
+            }, r[0], r[1], Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
         return sb;
+    }
+
+    /** 可点追问短语的颜色（与卡片模式同一蓝）。 */
+    public static final int FOLLOWUP = 0xFF5AA9FF;
+
+    /** 正文里有可点短语才让 TextView 接收点按（没有就不动，免得抢走选择文字手势）。 */
+    public static void armFollowups(TextView tv, CharSequence body) {
+        if (!(body instanceof Spanned)) return;
+        Spanned sp = (Spanned) body;
+        if (sp.getSpans(0, sp.length(), android.text.style.ClickableSpan.class).length == 0) return;
+        if (!(tv.getMovementMethod() instanceof android.text.method.LinkMovementMethod)) {
+            tv.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        }
     }
 
     /** 页脚：灰字免责 + 朗读 / 复制 / 选择文字 / 分享 / 详情 / 赞 / 踩；详情行默认收起。 */

@@ -66,6 +66,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     public static final String ACTION_LISTEN = "com.onesay.assistant.v2.action.LISTEN";
     /** [s3] 闹钟 / 开机 / 改时间后处理到期的定时任务（BootReceiver → 本服务；不导出，同 uid）。 */
     public static final String ACTION_S3_FIRE = "com.onesay.assistant.v2.action.S3_FIRE";
+    /** ★ feat/api-first：点「调用中：X」前台通知 → 安静地挂回面板（不清内容、不放唤醒水光）。 */
+    public static final String ACTION_OPEN_PANEL = "com.onesay.assistant.v2.action.OPEN_PANEL";
     public static final String EXTRA_QUERY = "query";
     public static final String EXTRA_PROMPT = "prompt";
 
@@ -973,6 +975,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         return mColdQueue.isReady();
     }
 
+    /** ★ feat/api-first：任务通知标题（与面板常驻通知同一个应用名）。 */
+    static final String PANEL_NOTIFY_TITLE = com.onesay.assistant.v2.BuildVariant.APP_TITLE_V2;
+
     private Notification buildServiceNotification() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel chan = new NotificationChannel(
@@ -1165,6 +1170,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 com.onesay.assistant.v2.kernel.FeatureKernel.get().onWake(this);
                 mNextListenIsWake = true;   // ★ R13：这一次是新唤醒（新界面清卡片、点亮边缘光）
                 setListeningPrompt(prompt);
+            } else if (ACTION_OPEN_PANEL.equals(action)) {
+                Log.i(TAG, "[TASK-NOTIFY] 点了任务通知 → 挂回面板");
+                s1AttachSheet();   // ★ feat/api-first：回到面板看时间轴（任务照跑）
             } else if (ACTION_SHOW.equals(action)) {
                 // 只有明确 ACTION_SHOW 才弹出面板（防止预启动/系统重启时意外弹出）
                 showSheet();
@@ -1437,6 +1445,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (mActiveAgent != null && com.onesay.assistant.v2.tts.VoiceSyncPolicy.isCancelPhrase(command)) {
             UnifiedRouter.Cancel running = mActiveAgent;
             running.cancel();
+            timelineStopped();   // ★ feat/api-first：时间轴记「已停止」、通知复原
             Log.i(TAG, "[VOICE-SYNC] 任务在跑时说「" + com.onesay.assistant.v2.util.LogText.u(command) + "」→ 停掉复合任务");
             if (mSheetView != null) mSheetView.updateState("已停止", Color.parseColor("#8E8E93"), com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED.text);
             TtsSpeaker.get(this).speakReplyTemplate(com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED);
@@ -1478,7 +1487,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         //   判据保守（L0 未命中 + 复合信号），L0/L1 快路径不受任何影响。
         // 分诊（TriageDecider，可能含一次 ≤1.5s 的 LLM 兜底分类）挪到后台线程，
         //   主线程只做 UI。ASK 永不进 AgentLoop（走 AskEngine → L1 → 流式问答）。
-        com.onesay.assistant.v2.util.Threads.start("RouteStream", new Runnable() {
+        com.onesay.assistant.v2.util.Threads.start("RouteStream", com.onesay.assistant.v2.net.StopScope.wrap(cancel.scope(), new Runnable() {   // ★ feat/api-first：停止键真中断
             @Override
             public void run() {
                 if (mRouter.shouldUseAgentLoop(command)) {
@@ -1556,7 +1565,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     }
                 }, cancel);
             }
-        });
+        }));
     }
 
     /**
@@ -1823,7 +1832,14 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         final Capability[] alarmCap = {null};
         final com.onesay.assistant.v2.executor.ExecutionResult[] alarmRes = {null};
 
-        com.onesay.assistant.v2.util.Threads.start("AgentLoop", new Runnable() {
+        // ★ feat/api-first：执行时间轴（回答上方「正在调用 X ▲」）+ 停止键真中断（取消 = 断开在途请求、停掉点屏代理）
+        final com.onesay.assistant.v2.timeline.ExecTimeline tl = mSheetView.timelineBegin();
+        cancel.scope().register(new Runnable() {
+            @Override public void run() {
+                stopGuiAgent("复合任务取消");
+            }
+        });
+        com.onesay.assistant.v2.util.Threads.start("AgentLoop", com.onesay.assistant.v2.net.StopScope.wrap(cancel.scope(), new Runnable() {
             @Override
             public void run() {
                 AgentLoop.Result result;
@@ -1841,6 +1857,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         public void onToolStep(final String text, boolean counts) {
                             if (counts) com.onesay.assistant.v2.s1.S1Hooks.onTaskStep(text);
                             else com.onesay.assistant.v2.s1.S1Hooks.onTaskNote(text);
+                            if (counts) tl.toolStart(text);   // ★ feat/api-first：时间轴一步
+                            else tl.note(text);
+                            timelineTouched(tl);
                             if (counts && mSheetView != null && agentOwnsCard(agentSeq)) mSheetView.progressStep(text);   // ★ 11-04 午：面板「执行中：步骤 · 计时」
                             mMainHandler.post(new Runnable() {
                                 @Override public void run() {
@@ -1855,6 +1874,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         @Override
                         public void onThinking(boolean on) {
                             com.onesay.assistant.v2.s1.S1Hooks.onThinking(on);
+                            tl.thinking(on);   // ★ feat/api-first
+                            timelineTouched(tl);
                             if (mSheetView != null && agentOwnsCard(agentSeq)) mSheetView.progressThinking(on);
                         }
 
@@ -1862,6 +1883,13 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         @Override
                         public String askUser(String id, String question, java.util.List<String> options, int timeoutSec) {
                             return askUserFromLoop(id, question, options, timeoutSec, cancel, agentSeq);
+                        }
+
+                        // ★ feat/api-first：每次工具调用结束的成败（失败带原因）→ 时间轴 ✓ / ✗
+                        @Override
+                        public void onToolResult(String sign, boolean ok, String reasonOrDetail) {
+                            tl.toolResult(ok, reasonOrDetail);
+                            timelineTouched(tl);
                         }
 
                         // [s1] 胶囊停止键 / ✕ / 新指令接管：循环据此在下一轮前收尾（ErrorCode.CANCELLED）
@@ -1959,6 +1987,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
                             final PendingLoopConfirm pending = new PendingLoopConfirm(cap, args);
                             synchronized (mConfirmLock) { mPendingLoopConfirm = pending; }
+                            tl.approval(cap.summary != null && cap.summary.length() > 0 ? cap.summary : cap.sign);   // ★ feat/api-first：确认卡也算一步
+                            timelineTouched(tl);
 
                             mMainHandler.post(new Runnable() {
                                 @Override public void run() {
@@ -1995,6 +2025,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 if (mPendingLoopConfirm == pending) mPendingLoopConfirm = null;
                             }
                             com.onesay.assistant.v2.s1.S1Hooks.onConfirmResolved();   // [s1]
+                            tl.approvalResolved(decided && pending.verdict == PendingLoopConfirm.VERDICT_ALLOW);   // ★ feat/api-first
+                            timelineTouched(tl);
                             if (!decided) {
                                 final boolean byCancel = cancel.isCancelled();
                                 Log.w(TAG, "[CONFIRM] 等待超时/取消，按未授权处理: " + cap.sign);
@@ -2040,6 +2072,10 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 fr == null ? "任务处理失败" : islandWhy, needsCard);   // [island]
                         com.onesay.assistant.v2.s1.S1Hooks.onTaskEnded(FloatingSheetService.this, cancel.isCancelled(), navExecuted[0]);
                         if (mActiveAgent == cancel) mActiveAgent = null;   // r2/fixes 14
+                        // ★ feat/api-first：时间轴收尾（取消 = 已停止；否则按结局折叠成「已完成 / 没完成」），通知复原
+                        if (cancel.isCancelled()) tl.stopped();
+                        else tl.finish(fr != null && fr.finished);
+                        timelineTouched(tl);
                         if (cancel.isCancelled()) {
                             Log.i(TAG, "[AGENT-LOOP] 面板已收起，丢弃循环结果");
                             return;
@@ -2145,7 +2181,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     }
                 });
             }
-        });
+        }));
     }
 
     /**
@@ -2360,11 +2396,29 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         mSheetView.progressStep(com.onesay.assistant.v2.island.IslandStepText.forTool(cap.sign, args, cap.summary));   // ★ 11-04 午：快路径单步「执行中：设闹钟 3:53」
         if (com.onesay.assistant.v2.executor.AlarmBridge.isAlarmSign(cap.sign)) mAlarmReqSeq = mRequestSeq;
 
-        com.onesay.assistant.v2.util.Threads.start("ExecSingle", new Runnable() {
+        // ★ feat/api-first：单步执行也有停止范围与时间轴（反悔开关 query=null：手指直接操作，不起时间轴）
+        final com.onesay.assistant.v2.net.StopScope execScope = new com.onesay.assistant.v2.net.StopScope("exec");
+        mExecScope = execScope;
+        final com.onesay.assistant.v2.timeline.ExecTimeline stl = query != null ? mSheetView.timelineBegin() : null;
+        if (stl != null) {
+            stl.toolStart(com.onesay.assistant.v2.island.IslandStepText.forTool(cap.sign, args, cap.summary));
+            timelineTouched(stl);
+        }
+
+        com.onesay.assistant.v2.util.Threads.start("ExecSingle", com.onesay.assistant.v2.net.StopScope.wrap(execScope, new Runnable() {
             @Override
             public void run() {
                 // 令牌入口（token=null 表示无需确认；需确认却无有效令牌 → RISK_GATED，不执行）
                 final ExecutionResult result = mExecutor.execute(cap, args, token, isTainted);
+                if (mExecScope == execScope) mExecScope = null;
+                if (stl != null) {   // ★ feat/api-first：单步结局写时间轴
+                    if (execScope.isStopped()) stl.stopped();
+                    else {
+                        stl.toolResult(result != null && result.ok, result == null ? "" : result.userMessage);
+                        stl.finish(result != null && result.ok);
+                    }
+                    timelineTouched(stl);
+                }
                 // 执行结果回报路由层 —— 技能缓存只在"执行成功之后"写入，
                 //   缓存回放失败计数/隔离也在这里结算（只用 ExecutionResult 的 ok/code/verified）。
                 if (query != null) mRouter.reportExecution(query, cap.sign, result);
@@ -2442,7 +2496,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     }
                 });
             }
-        });
+        }));
     }
 
     // =====================================================================
@@ -3674,6 +3728,131 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         } catch (Throwable t) {
             Log.e(TAG, "[S1] 挂回面板失败: " + t.getMessage());
         }
+    }
+
+    // ===================================================================== ★ feat/api-first：停止键 / 时间轴 / 任务通知
+
+    /** 单步执行（ExecSingle）的停止范围；没有在跑 → null。 */
+    private volatile com.onesay.assistant.v2.net.StopScope mExecScope;
+    private final Object mTaskNotifyLock = new Object();
+    private com.onesay.assistant.v2.timeline.ExecTimeline mNotifyTl;
+    private String mNotifyLine;
+
+    /**
+     * 停止键（输入条 / 对话窗底栏）：真中断当前任务 —— 取消复合任务与在途流式请求（停止范围里登记的连接立刻断开）、
+     * 停掉单步执行的范围与点屏代理、挂起的确认按未授权放行；时间轴记「已停止」，状态行「已停止」，前台通知复原。任意线程。
+     */
+    public void stopCurrentTask(final String why) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mMainHandler.post(new Runnable() {
+                @Override public void run() {
+                    stopCurrentTask(why);
+                }
+            });
+            return;
+        }
+        UnifiedRouter.Cancel agent = mActiveAgent;
+        UnifiedRouter.Cancel stream = mActiveStream;
+        com.onesay.assistant.v2.net.StopScope es = mExecScope;
+        boolean any = false;
+        if (agent != null && !agent.isCancelled()) {
+            agent.cancel();
+            any = true;
+        }
+        if (stream != null && stream != agent && !stream.isCancelled()) {
+            stream.cancel();
+            any = true;
+        }
+        if (es != null && !es.isStopped()) {
+            es.stop(why);
+            any = true;
+        }
+        if (stopGuiAgent(why)) any = true;
+        resolvePendingLoopConfirm(PendingLoopConfirm.VERDICT_DENY);
+        try {
+            ScreenVisionEngine.getInstance(this).cancelInFlight();
+        } catch (Throwable ignored) {
+        }
+        mActiveStream = null;
+        Log.i(TAG, "[STOP] 停止键（" + why + "）" + (any ? "：已中断当前任务" : "：没有在跑的任务"));
+        timelineStopped();
+        if (mSheetView != null) {
+            mSheetView.setTaskRunning(false);
+            mSheetView.updateState("已停止", Color.parseColor("#8E8E93"), com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED.text);
+            mSheetView.setDismissLabel("✕ 关闭");
+        }
+        cancelAutoHide();
+    }
+
+    /** 停掉正在点屏的执行模式（没有 / 已停 → false）。 */
+    private boolean stopGuiAgent(String why) {
+        try {
+            com.onesay.assistant.v2.exec.ExecModeController ex = com.onesay.assistant.v2.exec.ExecModeController.current();
+            if (ex == null || ex.state.stopped()) return false;
+            ex.stop(why == null ? "停止" : why);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "[STOP] 停点屏代理失败: " + t);
+            return false;
+        }
+    }
+
+    /** 屏上这一轮的时间轴（和通知跟着的那份）记「已停止」。 */
+    private void timelineStopped() {
+        com.onesay.assistant.v2.timeline.ExecTimeline tl = mSheetView == null ? null : mSheetView.timeline();
+        if (tl != null && tl.live()) tl.stopped();
+        com.onesay.assistant.v2.timeline.ExecTimeline n;
+        synchronized (mTaskNotifyLock) { n = mNotifyTl; }
+        if (n != null && n != tl && n.live()) n.stopped();
+        if (tl != null) timelineTouched(tl);
+        if (n != null && n != tl) timelineTouched(n);
+    }
+
+    /** 时间轴数据变了（任意线程）：面板重画（只画屏上那一份）+ 前台通知「调用中：X」。 */
+    private void timelineTouched(com.onesay.assistant.v2.timeline.ExecTimeline tl) {
+        if (tl == null) return;
+        FloatingSheetView v = mSheetView;
+        if (v != null && v.timeline() == tl) v.timelineChanged();
+        updateTaskNotification(tl);
+    }
+
+    /** 前台通知：任务在跑 →「调用中：X / 等你确认」，点了回面板；跑完 → 复原成常驻通知。只在文字变了时重发。 */
+    private void updateTaskNotification(com.onesay.assistant.v2.timeline.ExecTimeline tl) {
+        String line;
+        synchronized (mTaskNotifyLock) {
+            if (tl != null && tl.live()) {
+                mNotifyTl = tl;
+                line = tl.statusLine();
+            } else {
+                if (tl != null && mNotifyTl != null && mNotifyTl != tl) return;   // 别的任务的收尾，不动当前任务的通知
+                mNotifyTl = null;
+                line = null;
+            }
+            if (line == null ? mNotifyLine == null : line.equals(mNotifyLine)) return;
+            mNotifyLine = line;
+        }
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(2027, line == null ? buildServiceNotification() : buildTaskNotification(line));
+        } catch (Throwable t) {
+            Log.w(TAG, "[TASK-NOTIFY] 更新通知失败: " + t.getMessage());
+        }
+    }
+
+    private Notification buildTaskNotification(String line) {
+        Intent open = new Intent(this, FloatingSheetService.class);
+        open.setAction(ACTION_OPEN_PANEL);
+        android.app.PendingIntent pi = android.app.PendingIntent.getService(this, 2028, open,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, "bixby_sheet_channel") : new Notification.Builder(this);
+        return b.setContentTitle(PANEL_NOTIFY_TITLE)
+                .setContentText(line)
+                .setSmallIcon(getApplicationInfo().icon)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setContentIntent(pi)
+                .build();
     }
 
     /** [s1] 停止后台任务：与用户点 ✕ 同一个汇点（取消在途任务 + 结束会话）。 */

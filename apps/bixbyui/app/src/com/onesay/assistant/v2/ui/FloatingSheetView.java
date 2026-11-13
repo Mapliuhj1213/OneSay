@@ -372,6 +372,13 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         // =====================================================================
         // 4. 结果与智能问答呈现卡 (ResultCard)
         // =====================================================================
+        // ★ feat/api-first：回答上方一行可折叠的执行时间轴（执行中「正在调用 X ▲」，完成后折叠成「已完成 ▼」）
+        mTimelineView = new ExecTimelineView(context);
+        LayoutParams tlLp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlLp.bottomMargin = dp(6);
+        tlLp.leftMargin = dp(4);
+        mContentInner.addView(mTimelineView, tlLp);
+
         mResultCard = new FluidCardView(context);
         mResultCard.setCardStyle(Color.parseColor("#20202C"), Color.parseColor("#2430D158"));
         mResultCard.setVisibility(GONE);
@@ -573,6 +580,12 @@ public class FloatingSheetView extends CurvedEdgeContainer {
                     case STOP_STAY: mListener.onStopListening(); break;
                     default: break;
                 }
+            }
+        });
+        // ★ feat/api-first：任务执行中右侧空输入变停止键 → 真中断当前任务
+        mSearchBar.setStopAction(new Runnable() {
+            @Override public void run() {
+                requestStopTask("输入条停止键");
             }
         });
         LayoutParams searchLp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1431,7 +1444,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         mResultCard.setVisibility(VISIBLE);
         mResultCard.setCardStyle(Color.parseColor("#22232E"), Color.parseColor("#3364D2FF"));
         mResultText.setVisibility(VISIBLE);
-        mResultText.setText(answer);
+        mResultText.setText(withFollowups(answer, mResultText));   // ★ feat/api-first：[[追问短语]] 可点
         mLastSetBody = null;   // 别处改了正文 → v2Render 下次必须重设
         mResultText.setTextColor(Color.WHITE);
         mResultText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16.5f);
@@ -1571,7 +1584,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         mVerifyBadge.setVisibility(GONE);
         hideRich();   // [richout] 流式中只用一个 TextView（代码等宽、图占位），收尾再换富渲染
         CharSequence rs = richStream(textSoFar);
-        mResultText.setText(rs != null ? rs : (textSoFar != null ? textSoFar : ""));
+        mResultText.setText(rs != null ? rs : (textSoFar != null ? com.onesay.assistant.v2.util.FollowupMarks.display(com.onesay.assistant.v2.util.FollowupMarks.streaming(textSoFar)) : ""));   // ★ feat/api-first：半截 [[ 不上屏
         mLastSetBody = null;   // 别处改了正文 → v2Render 下次必须重设
     }
 
@@ -2237,12 +2250,146 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.WAKE);
     }
 
+    // ------------------------------------------------------------------ ★ feat/api-first：执行时间轴 / 停止键 / 可点追问
+
+    private ExecTimelineView mTimelineView;
+    private volatile com.onesay.assistant.v2.timeline.ExecTimeline mTimeline;
+    private volatile boolean mTaskRunning;
+
+    /** 新任务开始：换一份新的时间轴（任意线程；返回给调用方写事件）。 */
+    public com.onesay.assistant.v2.timeline.ExecTimeline timelineBegin() {
+        final com.onesay.assistant.v2.timeline.ExecTimeline t = new com.onesay.assistant.v2.timeline.ExecTimeline();
+        mTimeline = t;
+        setTaskRunning(true);
+        post(new Runnable() {
+            @Override public void run() {
+                if (mTimelineView != null && mTimeline == t) mTimelineView.bind(t);
+            }
+        });
+        return t;
+    }
+
+    /** 当前这一轮的时间轴（没有 → null）。 */
+    public com.onesay.assistant.v2.timeline.ExecTimeline timeline() {
+        return mTimeline;
+    }
+
+    /** 时间轴数据变了（任意线程）：重画；结束了顺手把输入框的停止键换回来。 */
+    public void timelineChanged() {
+        final com.onesay.assistant.v2.timeline.ExecTimeline t = mTimeline;
+        if (t != null && !t.live()) setTaskRunning(false);
+        post(new Runnable() {
+            @Override public void run() {
+                if (mTimelineView != null && mTimeline == t && t != null) mTimelineView.bind(t);
+            }
+        });
+    }
+
+    /** 新一轮开始：屏上的时间轴清掉（已冻结进对话历史的那份不动）。 */
+    public void timelineClear() {
+        mTimeline = null;
+        setTaskRunning(false);
+        post(new Runnable() {
+            @Override public void run() {
+                if (mTimelineView != null && mTimeline == null) mTimelineView.bind(null);
+            }
+        });
+    }
+
+    /** 输入框执行中变停止键（任意线程）。 */
+    public void setTaskRunning(final boolean on) {
+        if (mTaskRunning == on) return;
+        mTaskRunning = on;
+        post(new Runnable() {
+            @Override public void run() {
+                if (mSearchBar != null) mSearchBar.setRunning(mTaskRunning);
+                if (mChat != null) mChat.setTaskRunning(mTaskRunning);
+            }
+        });
+    }
+
+    public boolean taskRunning() {
+        return mTaskRunning;
+    }
+
+    /** 停止键：交给服务取消当前任务（GUI 代理 / 网络请求一并中断）。 */
+    void requestStopTask(String why) {
+        FloatingSheetService fs = FloatingSheetService.getInstance();
+        if (fs != null) fs.stopCurrentTask(why);
+    }
+
+    /** 回答正文 → 带可点追问短语（[[x]] → 蓝色「x↵」，点了等于发送 x）。没有标记原样返回。 */
+    CharSequence withFollowups(CharSequence body, TextView into) {
+        if (body == null) return null;
+        String src = body.toString();
+        if (!com.onesay.assistant.v2.util.FollowupMarks.has(src)) return body;
+        com.onesay.assistant.v2.util.FollowupMarks.Rewrite rw = com.onesay.assistant.v2.util.FollowupMarks.rewrite(src);
+        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(rw.text);
+        if (body instanceof android.text.Spanned) {   // 已有的样式（首行大字 / 灰字）按下标映射挪过去
+            android.text.Spanned sp = (android.text.Spanned) body;
+            for (Object o : sp.getSpans(0, sp.length(), Object.class)) {
+                int a = rw.map[Math.min(sp.getSpanStart(o), rw.map.length - 1)];
+                int b = rw.map[Math.min(sp.getSpanEnd(o), rw.map.length - 1)];
+                if (a < b) sb.setSpan(o, a, b, sp.getSpanFlags(o));
+            }
+        }
+        for (int i = 0; i < rw.ranges.size(); i++) {
+            final String phrase = rw.phrases.get(i);
+            int[] r = rw.ranges.get(i);
+            sb.setSpan(new android.text.style.ClickableSpan() {
+                @Override public void onClick(View w) {
+                    if (mListener != null) mListener.onSubmitCommand(phrase);   // 点一下 = 用户说了这句
+                }
+
+                @Override public void updateDrawState(android.text.TextPaint ds) {
+                    ds.setColor(FOLLOWUP_BLUE);
+                    ds.setUnderlineText(false);
+                }
+            }, r[0], r[1], android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        if (into != null && !(into.getMovementMethod() instanceof android.text.method.LinkMovementMethod)) {
+            into.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        }
+        return sb;
+    }
+
+    static final int FOLLOWUP_BLUE = 0xFF5AA9FF;
+    private static final String TAG_FOLLOWUP_ROW = "followup_row";
+
+    /** 富渲染（表格 / 图卡）末尾挂一行可点追问短语（没有标记 → 去掉旧行）。 */
+    private void addFollowupRow(String raw) {
+        View old = mRichBox.findViewWithTag(TAG_FOLLOWUP_ROW);
+        if (old != null) mRichBox.removeView(old);
+        java.util.List<String> chips = com.onesay.assistant.v2.util.FollowupMarks.chips(raw);
+        if (chips.isEmpty()) return;
+        StringBuilder sb = new StringBuilder();
+        for (String c : chips) sb.append(sb.length() > 0 ? "   " : "").append("[[").append(c).append("]]");
+        TextView tv = new TextView(getContext());
+        tv.setTag(TAG_FOLLOWUP_ROW);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
+        tv.setText(withFollowups(sb.toString(), tv));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(10);
+        mRichBox.addView(tv, lp);
+    }
+
+    /** 正文里有可点短语就让 TextView 接收点按（没有就不动，免得抢走滚动 / 选择手势）。 */
+    private void armLinks(TextView tv, CharSequence body) {
+        if (!(body instanceof android.text.Spanned)) return;
+        android.text.Spanned sp = (android.text.Spanned) body;
+        if (sp.getSpans(0, sp.length(), android.text.style.ClickableSpan.class).length == 0) return;
+        if (!(tv.getMovementMethod() instanceof android.text.method.LinkMovementMethod)) {
+            tv.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        }
+    }
+
     /**
      * ★ audit-J 5：新一轮输入入场 —— 清掉上一轮的结果卡 / 回执正文 / 开关 / 闹钟卡 / 富内容（本轮的转写与状态行不动）。
      * 只在服务层收到新 query 时调用，不在本轮执行中调用。
      */
     public void clearPreviousRound() {
         if (mV2) chatBoundary(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.Trigger.SUBMIT);   // ★ ui-K1（已在「正在解析」处冻结过则无事）
+        timelineClear();   // ★ feat/api-first：上一轮的时间轴已随这一轮冻结进对话历史
         if (mV2) {
             mV2Body = null;
             mV2Task = null;
@@ -2491,8 +2638,9 @@ public class FloatingSheetView extends CurvedEdgeContainer {
                 // 同一段文本的排版结果复用（进度 / 阶段 / 芯片触发的重排不再重做 Markdown）
                 body = mBodyMemo.get(mV2Body, chat ? 11 : 10, new com.onesay.assistant.v2.ui.wake.BodyMemo.Maker<CharSequence>() {
                     @Override public CharSequence make(String text) {
-                        CharSequence b = richStream(text);   // [richout] 插件关 / 纯文本 → null → 原排版
-                        if (b == null) b = chatF ? mChat.answerBody(text) : v2Body(text, false);   // ★ ui-K1：对话窗正文（简单 Markdown）
+                        text = com.onesay.assistant.v2.util.FollowupMarks.streaming(text);   // ★ feat/api-first：没写完的 [[ 先不上屏
+                        CharSequence b = richStream(com.onesay.assistant.v2.util.FollowupMarks.plain(text));   // [richout] 插件关 / 纯文本 → null → 原排版
+                        if (b == null) b = chatF ? mChat.answerBody(text) : v2Body(com.onesay.assistant.v2.util.FollowupMarks.display(text), false);   // ★ ui-K1：对话窗正文（简单 Markdown）
                         return b;
                     }
                 });
@@ -2506,7 +2654,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
                     final boolean chatF = chat;
                     body = mBodyMemo.get(mV2Body, chat ? 21 : 20, new com.onesay.assistant.v2.ui.wake.BodyMemo.Maker<CharSequence>() {
                         @Override public CharSequence make(String text) {
-                            return chatF ? mChat.answerBody(text) : v2Body(text, true);
+                            return chatF ? mChat.answerBody(text) : withFollowups(v2Body(text, true), null);   // ★ feat/api-first：可点追问
                         }
                     });
                 }
@@ -2533,6 +2681,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
                 // 正文没变就不 setText（每次 setText 都整段重新测量 / 排版 / requestLayout）
                 if (bodyChanged || body != mLastSetBody || mResultText.getVisibility() != VISIBLE) {
                     mResultText.setText(body);
+                    armLinks(mResultText, body);   // ★ feat/api-first：可点追问短语
                     mLastSetBody = body;
                 }
                 mResultText.setVisibility(VISIBLE);
@@ -2613,6 +2762,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
             hideRich();
             return false;
         }
+        final String rawWithMarks = text;
+        text = com.onesay.assistant.v2.util.FollowupMarks.plain(text);   // ★ feat/api-first：富渲染里不出现 [[ ]]，可点短语另起一行挂在末尾
         try {
             com.onesay.assistant.v2.router.MarketChart.Model chart = com.onesay.assistant.v2.router.MarketChart.match(text, System.currentTimeMillis());
             com.onesay.assistant.v2.router.ResearchVisuals.Model vis = chart != null ? null : com.onesay.assistant.v2.router.ResearchVisuals.match(text, System.currentTimeMillis());
@@ -2673,6 +2824,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
                         : com.onesay.assistant.plug.richout.host.RichRenderer.renderTablesOnly(getContext(), body, richStyle()));   // ★ 表格轮：只画表格（纯文本单元格、无 WebView）
                 mRichSrc = text;
             }
+            addFollowupRow(rawWithMarks);
             mResultText.setVisibility(GONE);
             mRichBox.setVisibility(VISIBLE);
             return true;
@@ -3208,6 +3360,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
                 View v = findViewWithTag(ActionChipsView.TAG_IN_SHEET);
                 return v instanceof ActionChipsView ? (ActionChipsView) v : null;
             }
+            @Override public com.onesay.assistant.v2.timeline.ExecTimeline liveTimeline() { return mTimeline; }   // ★ feat/api-first
+            @Override public void stopTask() { requestStopTask("对话窗停止键"); }
         });
         if (mChatSvc != null) mChat.setServiceHost(mChatSvc);
         mChatBg.setColor(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.BG);

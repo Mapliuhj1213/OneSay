@@ -52,7 +52,7 @@ public final class SpeechText {
     /** @return 适合播报的文本；没有可读内容返回空串 */
     public static String forSpeech(String text, int max) {
         if (text == null) return "";
-        String s = TextUtil.cleanMarkdown(com.onesay.assistant.v2.router.UntrustedTags.strip(text));   // ★ audit-J 6：不朗读 <不可信数据> 标签
+        String s = TextUtil.cleanMarkdown(com.onesay.assistant.v2.router.UntrustedTags.strip(FollowupMarks.plain(text)));   // ★ feat/api-first：[[追问短语]] 只念文字   // ★ audit-J 6：不朗读 <不可信数据> 标签
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);

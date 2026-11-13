@@ -76,6 +76,10 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         /** 插件后加到卡片根布局上的卡（安装卡 / 应用网格…），冻结时一起截图。 */
         List<View> pluginCards();
         com.onesay.assistant.v2.ui.ActionChipsView chips();
+        /** ★ feat/api-first：屏上这一轮的执行时间轴（没有 → null），冻结时随这一轮进历史。 */
+        com.onesay.assistant.v2.timeline.ExecTimeline liveTimeline();
+        /** ★ feat/api-first：底栏停止键（交给服务真中断当前任务）。 */
+        void stopTask();
     }
 
     /** 服务侧能力（FloatingSheetService 实现）。 */
@@ -137,6 +141,12 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         mBar = new ChatBottomBar(ctx);
         mBar.setVisibility(View.GONE);
         mBar.setListener(this);
+        mBar.setStopAction(new Runnable() {   // ★ feat/api-first：执行中右侧停止键
+            @Override public void run() {
+                Log.i(TAG, "[CHAT] 底栏停止键");
+                mHost.stopTask();
+            }
+        });
         com.onesay.assistant.v2.ui.ActionChipsView.sObserver = this;
     }
 
@@ -154,6 +164,11 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
 
     public ChatBottomBar bar() {
         return mBar;
+    }
+
+    /** ★ feat/api-first：任务执行中 → 底栏右侧空输入时变停止键。主线程。 */
+    public void setTaskRunning(boolean on) {
+        mBar.setRunning(on);
     }
 
     /**
@@ -266,6 +281,8 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         long ms = mReqAt > 0 ? android.os.SystemClock.elapsedRealtime() - mReqAt : 0L;
         ChatTranscript.Round r = mTranscript.upsert(question, answer, mRoute, ms);
         if (mLiveThumb != null) r.image = mLiveThumb;
+        com.onesay.assistant.v2.timeline.ExecTimeline tl = mHost.liveTimeline();   // ★ feat/api-first
+        if (tl != null && tl.visible()) r.timeline = tl;
         if (mActive) rebuildLiveFooter();
     }
 
@@ -283,6 +300,13 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
             Log.w(TAG, "[CHAT] 执行卡快照失败: " + t);
         }
         if (mLiveThumb != null && live.image == null) live.image = mLiveThumb;
+        if (live.timeline == null) {   // ★ feat/api-first：执行时间轴随这一轮冻结（历史里折叠显示）
+            com.onesay.assistant.v2.timeline.ExecTimeline tl = mHost.liveTimeline();
+            if (tl != null && tl.visible()) {
+                if (tl.expanded() && !tl.live()) tl.toggle();
+                live.timeline = tl;
+            }
+        }
         mLiveThumb = null;
         mLiveImage.setImageDrawable(null);
         mLiveImage.setVisibility(View.GONE);
@@ -629,6 +653,13 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         com.onesay.assistant.v2.ui.ActionChipsView chips = mHost.chips();
         if (chips != null && !labels.isEmpty()) chips.setVisibility(View.GONE);
         if (mTranscript.live() != null) rebuildLiveFooter();
+    }
+
+    @Override
+    public void onFollowup(String text) {   // ★ feat/api-first：可点追问短语 = 用户说了这句
+        if (text == null || text.trim().length() == 0) return;
+        Log.i(TAG, "[CHAT] 点了追问短语");
+        mHost.submit(text.trim());
     }
 
     @Override

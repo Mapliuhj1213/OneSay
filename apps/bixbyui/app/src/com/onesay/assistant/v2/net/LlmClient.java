@@ -347,7 +347,15 @@ public final class LlmClient {
     }
 
     private HttpURLConnection connection() throws Exception {
-        return (HttpURLConnection) new URL(mUrl).openConnection();
+        // ★ feat/api-first [api-first]：停止键真中断 —— 已停就不发；连接登记进当前停止范围（任务结束时范围整体丢弃）
+        if (StopScope.currentStopped()) throw new java.io.InterruptedIOException("已停止");
+        final HttpURLConnection c = (HttpURLConnection) new URL(mUrl).openConnection();
+        StopScope.onStop(new Runnable() {
+            @Override public void run() {
+                c.disconnect();
+            }
+        });
+        return c;
     }
 
     private void send(HttpURLConnection conn, String jsonBody, boolean stream) throws Exception {
