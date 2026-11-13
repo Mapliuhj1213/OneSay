@@ -718,3 +718,10 @@ com/onesay/assistant/v2/vyrse/VyrseAbilities.java
 com/onesay/assistant/v2/vyrse/VyrseLinkService.java
 com/onesay/assistant/v2/vyrse/VyrseUi.java
 com/onesay/assistant/v2/kernel/plugins/VyrsePlugin.java
+# [companion] 伴侣连接（纯 Java 部分）
+com/onesay/assistant/v2/companion/CompanionContract.java
+com/onesay/assistant/v2/companion/CompanionHandshake.java
+com/onesay/assistant/v2/companion/CompanionIntent.java
+com/onesay/assistant/v2/companion/CompanionRouter.java
+com/onesay/assistant/v2/companion/CompanionAlarm.java
+com/onesay/assistant/v2/companion/CompanionDescriptor.java

@@ -26,17 +26,32 @@ public class AlarmApiReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context c, Intent in) {
         String a = in == null ? null : in.getAction();
         if (!AlarmApi.known(a)) { setResultCode(AlarmApi.RC_UNKNOWN); return; }
+        Reply r = handle(c, a, in.getIntExtra(AlarmApi.X_ID, -1), in.getIntExtra(AlarmApi.X_HOUR, -1), in.getIntExtra(AlarmApi.X_MINUTE, -1),
+                in.getIntExtra(AlarmApi.X_DAYS, 0), in.getBooleanExtra(AlarmApi.X_ON, false), in.getStringExtra(AlarmApi.X_LABEL), "API");
+        if (isOrderedBroadcast()) {
+            setResultCode(r.code);
+            setResultData(r.data);
+        }
+    }
+
+    /** 一次调用的结果码 + 闹钟表 JSON。 */
+    public static final class Reply {
+        public final int code;
+        public final String data;
+        Reply(int code, String data) { this.code = code; this.data = data; }
+    }
+
+    /** 广播接口与伴侣连接（api/LinkProvider）共用的执行入口：同一把锁、同样落盘 / 撤贪睡 / 重排。 */
+    public static Reply handle(Context c, String a, int id, int hour, int minute, int days, boolean on, String label, String via) {
         int code;
         String data;
         synchronized (LOCK) {
             Prefs p = new Prefs(c);
             List<Alarm> before = p.alarms();
-            AlarmApi.Result r = AlarmApi.apply(before, a,
-                    in.getIntExtra(AlarmApi.X_ID, -1), in.getIntExtra(AlarmApi.X_HOUR, -1), in.getIntExtra(AlarmApi.X_MINUTE, -1),
-                    in.getIntExtra(AlarmApi.X_DAYS, 0), in.getBooleanExtra(AlarmApi.X_ON, false), in.getStringExtra(AlarmApi.X_LABEL));
+            AlarmApi.Result r = AlarmApi.apply(before, a, id, hour, minute, days, on, label);
             if (r.changed) {
                 p.saveAlarms(r.alarms);
-                if (AlarmApi.A_CANCEL.equals(a) || (AlarmApi.A_TOGGLE.equals(a) && !in.getBooleanExtra(AlarmApi.X_ON, false))) {
+                if (AlarmApi.A_CANCEL.equals(a) || (AlarmApi.A_TOGGLE.equals(a) && !on)) {
                     com.onesay.clock.core.SnoozeBook b = p.snoozes();   // 删掉 / 关掉的闹钟，挂着的贪睡一并撤（与界面一致）
                     if (b.remove(r.lastId)) p.saveSnoozes(b);
                 }
@@ -45,10 +60,7 @@ public class AlarmApiReceiver extends BroadcastReceiver {
             code = r.code;
             data = AlarmApi.dump(r.alarms, r.lastId, System.currentTimeMillis(), TimeZone.getDefault());
         }
-        L.i(c, "API " + a.substring(a.lastIndexOf('.') + 1) + " rc=" + code);
-        if (isOrderedBroadcast()) {
-            setResultCode(code);
-            setResultData(data);
-        }
+        L.i(c, via + " " + a.substring(a.lastIndexOf('.') + 1) + " rc=" + code);
+        return new Reply(code, data);
     }
 }

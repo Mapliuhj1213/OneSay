@@ -1241,6 +1241,8 @@ public class AgentLoop {
                     // phone.call / sms.send 的 number 是人名 → 本机通讯录解析：唯一号码就改写参数继续过闸（红 / 黄卡照旧）；
                     //   没找到 / 多个 → 观测里只说条数，不把联系人名或号码交给云端模型
                     if (srObs == null) srObs = com.onesay.assistant.v2.contacts.ContactMatcher.agentPrecheck(name, args);
+                    // [companion] 自家计划 / 时钟在场：不替待办 / 日程 / 闹钟意图去探测第三方 App、root 读 shell（11-08 真机：删待办探测第三方笔记）
+                    if (srObs == null) srObs = com.onesay.assistant.v2.companion.CompanionHooks.agentPrecheck(mContext, name, args);
                     // ★ fix/shop-research（R4）：同一只读工具、同样参数紧接着再调（probe.apps ×4）→ 不再执行，回上次结果
                     if (srObs == null) {
                         srObs = repeatObservation(steps, name, args);

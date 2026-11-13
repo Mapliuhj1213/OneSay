@@ -28,7 +28,12 @@ done
 rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/classes" "$OUT/dex"
 echo "[1/7] aapt2 compile"; "$AAPT2" compile --dir "$ROOT/app/res" -o "$OUT/res.zip"
 echo "[2/7] aapt2 link"
-"$AAPT2" link -o "$OUT/base.apk" -I "$PLATFORM" --manifest "$ROOT/app/AndroidManifest.xml" --java "$OUT/gen" \
+# 伴侣连接：Manifest 占位符 ${assistantAppId} → 配对的助手包名（ASSISTANT_APP_ID 可覆盖）
+ASSISTANT_APP_ID="${ASSISTANT_APP_ID:-com.onesay.assistant.debug}"
+mkdir -p "$OUT"; sed "s#\${assistantAppId}#$ASSISTANT_APP_ID#g" "$ROOT/app/AndroidManifest.xml" > "$OUT/AndroidManifest.xml"
+grep -q '\${' "$OUT/AndroidManifest.xml" && { echo "Manifest 里还有没填的占位符" >&2; exit 1; }
+echo "== 伴侣连接：助手 = $ASSISTANT_APP_ID"
+"$AAPT2" link -o "$OUT/base.apk" -I "$PLATFORM" --manifest "$OUT/AndroidManifest.xml" --java "$OUT/gen" \
   --min-sdk-version 23 --target-sdk-version 28 -A "$ROOT/app/assets" -0 ogg --auto-add-overlay "$OUT/res.zip"
 echo "[3/7] javac"
 find "$ROOT/app/src" "$ROOT/app/variant/debug" "$OUT/gen" -name "*.java" | sort > "$OUT/sources.txt"

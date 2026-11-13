@@ -52,8 +52,9 @@ public class BriefStateReceiver extends BroadcastReceiver {
             @Override public void run() {
                 try {
                     int uid = senderUid(app);
-                    String out = null;
-                    if (uid >= 0) {
+                    // [companion] 先经时钟伴侣连接取 state.json（signature 权限双向保护，不要 root）；连接不通再试 root 守护
+                    String out = uid >= 0 && !detail ? com.onesay.assistant.v2.companion.CompanionHooks.briefStateViaLink(app) : null;
+                    if (out == null && uid >= 0) {
                         com.onesay.assistant.v2.executor.ShellExecutor.ShellResponse r =
                                 new com.onesay.assistant.v2.executor.ShellExecutor(app).execute(BriefState.VERIFY_CMD);
                         if (r != null && r.isSuccess()) out = r.output;
