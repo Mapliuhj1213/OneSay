@@ -165,13 +165,20 @@ public final class PhonePlugin extends FeaturePlugin {
         }
         if (!PAGE.equals(page)) return;
         com.onesay.assistant.v2.kernel.ConsoleRows.detailPage(host, root, "使用替你操作 App", killed, mainPref(act),
-                new String[]{"记住成功的步骤，下次直接照做"},
-                new String[]{"同一句话、同一个 App 再说一次时先按上次的步骤做，画面对不上就交回模型；只存在本机"},
+                new String[]{"记住成功的步骤，下次直接照做", "控屏状态颜色"},
+                new String[]{"同一句话、同一个 App 再说一次时先按上次的步骤做，画面对不上就交回模型；只存在本机",
+                        "替你操作时屏幕边框和灵动岛描边按谁在控屏变色：蓝紫 = 助手在操作，琥珀 = 等你确认，绿 = 你接手了"},
                 new com.onesay.assistant.v2.kernel.ConsoleRows.Pref[]{new com.onesay.assistant.v2.kernel.ConsoleRows.Pref() {
                     @Override public boolean get() { return PhoneHooks.replayPref(act); }
                     @Override public void set(boolean on) { PhoneHooks.setReplay(act, on); }
+                }, new com.onesay.assistant.v2.kernel.ConsoleRows.Pref() {   // ★ borrow-1112
+                    @Override public boolean get() {
+                        return act.getSharedPreferences(com.onesay.assistant.v2.exec.ControlColor.PREF, Context.MODE_PRIVATE)
+                                .getBoolean(com.onesay.assistant.v2.exec.ControlColor.KEY, com.onesay.assistant.v2.exec.ControlColor.DEFAULT_ON);
+                    }
+                    @Override public void set(boolean on) { com.onesay.assistant.v2.exec.ControlColor.SWITCH.set(act, on); }
                 }},
-                new boolean[]{PhoneHooks.replayKilled(act)}, null);
+                new boolean[]{PhoneHooks.replayKilled(act), com.onesay.assistant.v2.exec.ControlColor.SWITCH.killed(act)}, null);
         android.widget.LinearLayout g = host.group(root, "记住的步骤");
         final com.onesay.assistant.v2.kernel.ConsoleHost.Row count = host.valueRow(g, "已记住", "最多 " + com.onesay.assistant.v2.phone.SmartReplay.MAX_PATHS
                 + " 条，久不用的先删", PhoneHooks.replayStore(act).size() + " 条", com.onesay.assistant.v2.kernel.ConsoleHost.TONE_NORMAL);

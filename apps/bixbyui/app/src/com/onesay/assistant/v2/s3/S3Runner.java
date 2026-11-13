@@ -185,6 +185,7 @@ public final class S3Runner implements com.onesay.assistant.v2.kernel.IslandHost
     private void remind(S3Engine.Fire f) {
         String id = "r" + f.task.id + "-" + f.plannedAt;
         mReminds.put(id, new String[] {f.task.title, String.valueOf(f.task.todoId)});
+        if (f.task.todoId > 0) com.onesay.assistant.v2.planner.RecentReminds.note(f.task.todoId, f.task.title, System.currentTimeMillis());   // ★ borrow-1112：给「说『做完了』勾待办」用
         Log.i(TAG, "[S3-FIRE] 提醒 " + id + " 「" + f.task.title + "」" + (f.lateMin > 0 ? " 晚了 " + f.lateMin + " 分钟" : ""));
         if (island().ready() && island().islandMode()) {
             island().remindFired(id, f.task.title, f.plannedAt, f.lateMin);
@@ -478,6 +479,7 @@ public final class S3Runner implements com.onesay.assistant.v2.kernel.IslandHost
         if (info == null) return;
         final long todoId = S3Engine.parseLong(info[1]);
         if (todoId > 0) {
+            com.onesay.assistant.v2.planner.RecentReminds.forget(todoId);   // ★ borrow-1112
             com.onesay.assistant.v2.util.Threads.start("s3-todo", new Runnable() {
                 @Override public void run() {
                     S3Hooks.engine(mCtx).todoCheck(todoId, System.currentTimeMillis());   // 待办派生的提醒点「完成」= 勾销这条待办
@@ -500,6 +502,7 @@ public final class S3Runner implements com.onesay.assistant.v2.kernel.IslandHost
     @Override public void onTodoCheck(final String id) {
         com.onesay.assistant.v2.util.Threads.start("s3-todo", new Runnable() {
             @Override public void run() {
+                com.onesay.assistant.v2.planner.RecentReminds.forget(S3Engine.parseLong(id));   // ★ borrow-1112
                 S3Engine.Exec x = S3Hooks.engine(mCtx).todoCheck(S3Engine.parseLong(id), System.currentTimeMillis());
                 Log.i(TAG, "[S3-TODO] 岛上勾销 " + id + " ok=" + x.ok);
             }

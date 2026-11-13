@@ -174,15 +174,25 @@ public final class ConsoleKit {
 
     // ------------------------------------------------------------------ 分组与行
 
-    /** 组标题（12 Medium、t3）+ 圆角 24 的分组容器。 */
+    /**
+     * 组标题 + 分组容器。★ console-align：与电脑端设置页同一写法——标题 13 中粗、次级字色，左边一条 4×14 的主色短条；卡片圆角 22
+     * （{@link ConsoleStyle#R_CARD}）。原来是 12 Medium、t3、圆角 24。
+     */
     public LinearLayout group(LinearLayout root, String title) {
         if (title != null) {
-            TextView h = text(title, ConsoleTheme.SP_LABEL + 1, t.text3, W_MEDIUM);
-            h.setPadding(dp(16), dp(ConsoleTheme.GAP_GROUP), dp(16), dp(8));
-            root.addView(h);
+            LinearLayout hr = rowLayout();
+            hr.setPadding(dp(8), dp(ConsoleTheme.GAP_GROUP + 2), dp(16), dp(8));
+            View bar = new View(act);
+            bar.setBackground(round(t.accent, 2));
+            LinearLayout.LayoutParams blp = lp(dp(4), dp(14));
+            blp.rightMargin = dp(8);
+            hr.addView(bar, blp);
+            TextView h = text(title, ConsoleTheme.SP_SUB, t.text2, W_MEDIUM);
+            hr.addView(h);
+            root.addView(hr);
         }
         LinearLayout g = column();
-        g.setBackground(round(t.surface, ConsoleTheme.R_CARD));
+        g.setBackground(round(t.surface, ConsoleStyle.R_CARD));
         g.setClipToOutline(true);
         LinearLayout.LayoutParams lp = lpMatch(title == null ? ConsoleTheme.GAP_CARD : 0, 0);
         root.addView(g, lp);
@@ -228,9 +238,10 @@ public final class ConsoleKit {
                 root.setTag("icon");
             }
             textCol = column();
-            title = text(titleText, ConsoleTheme.SP_ITEM + 1, t.text1, W_MEDIUM);
+            // ★ console-align：行标题 16 常规、说明 13 次级字色（电脑端 15 / 12.5 px 同比例）；原来 17 Medium / 14
+            title = text(titleText, ConsoleTheme.SP_ITEM, t.text1, W_REGULAR);
             textCol.addView(title);
-            sub = text(subText == null ? "" : subText, ConsoleTheme.SP_SUB + 1, t.text2, W_REGULAR);
+            sub = text(subText == null ? "" : subText, ConsoleTheme.SP_SUB, t.text2, W_REGULAR);
             sub.setPadding(0, dp(2), 0, 0);
             sub.setVisibility(subText == null ? View.GONE : View.VISIBLE);
             textCol.addView(sub);
@@ -386,6 +397,10 @@ public final class ConsoleKit {
     public RowImpl actionRow(LinearLayout group, String title, String sub, String action, final Runnable onAction) {
         RowImpl r = new RowImpl(title, sub, 0);
         r.button = pillButton(action, onAction);
+        if (ConsoleStyle.isDanger(action)) {   // ★ console-align：危险动作红字红底（两端同一张动词表）
+            r.button.setTextColor(t.danger);
+            r.button.setBackground(ripple(round(t.dangerContainer, 20)));
+        }
         LinearLayout.LayoutParams blp = lp(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40));
         blp.leftMargin = dp(12);
         r.root.addView(r.button, blp);
@@ -563,12 +578,35 @@ public final class ConsoleKit {
                 : android.R.style.Theme_DeviceDefault_Light_Dialog_Alert);
     }
 
+    /** 确认框：标题「X？」+ 一句后果 + 动词按钮 +「取消」。★ console-align：动词是危险动作时按钮写红色（与电脑端一致）。 */
     public void confirm(String title, String msg, String ok, final Runnable yes) {
-        dialog().setTitle(title).setMessage(msg)
+        AlertDialog d = dialog().setTitle(title).setMessage(msg)
                 .setPositiveButton(ok, new DialogInterface.OnClickListener() {
                     @Override public void onClick(DialogInterface d, int w) {
                         if (yes != null) yes.run();
                     }
                 }).setNegativeButton("取消", null).show();
+        if (ConsoleStyle.isDanger(ok)) {
+            try {
+                d.getButton(DialogInterface.BUTTON_POSITIVE).setTextColor(t.danger);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /** ★ console-align：状态徽标行（标题 + 说明 + 右侧彩色小胶囊，颜色 = 控屏颜色）。 */
+    public RowImpl badgeRow(LinearLayout group, String title, String sub, String label, int rgb) {
+        RowImpl r = new RowImpl(title, sub, 0);
+        TextView b = text(label, ConsoleTheme.SP_SUB, 0xFF000000 | rgb, W_MEDIUM);
+        b.setSingleLine(true);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(10), dp(3), dp(10), dp(3));
+        b.setBackground(round(ConsoleTheme.alpha(0xFF000000 | rgb, 0.16f), 12));
+        LinearLayout.LayoutParams blp = lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.leftMargin = dp(12);
+        r.root.addView(b, blp);
+        r.value = b;
+        addToGroup(group, r.root);
+        return r;
     }
 }

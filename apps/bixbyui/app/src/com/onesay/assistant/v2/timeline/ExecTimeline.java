@@ -32,15 +32,23 @@ public final class ExecTimeline {
         public String reason = "";
         public String detail = "";
         public final boolean approval;
+        /** ★ borrow-1112：说明行（等待期间画面上出现 / 消失了什么、已切换到备用模型），不是一次工具调用。 */
+        public final boolean info;
 
         Row(String label, State state, boolean approval) {
+            this(label, state, approval, false);
+        }
+
+        Row(String label, State state, boolean approval, boolean info) {
             this.label = label;
             this.state = state;
             this.approval = approval;
+            this.info = info;
         }
 
         /** 这一行的字（不含前面的 ✓ / ✗ / 灰点，那是图标）。 */
         public String text() {
+            if (info) return label;
             if (approval) {
                 if (state == State.WAITING) return "等你确认：" + label;
                 if (state == State.FAILED) return "没批准：" + label;
@@ -61,6 +69,7 @@ public final class ExecTimeline {
 
         /** 图标：✓ 已完成 / ✗ 失败 / ● 进行中（灰点）/ ? 等确认 / ■ 停止。 */
         public String icon() {
+            if (info) return "·";
             switch (state) {
                 case DONE: return "✓";
                 case FAILED: return "✗";
@@ -86,7 +95,7 @@ public final class ExecTimeline {
         Row cur = running();
         if (cur != null) cur.state = State.DONE;   // 上一步没报失败 = 成功
         Row last = last();
-        if (last != null && !last.approval && last.state == State.DONE && last.label.equals(label)) {
+        if (last != null && !last.approval && !last.info && last.state == State.DONE && last.label.equals(label)) {
             last.count++;
             last.state = State.RUNNING;
         } else {
@@ -150,10 +159,29 @@ public final class ExecTimeline {
         if (!terminal()) mPhase = Phase.RUNNING;
     }
 
+    /**
+     * ★ borrow-1112：补一行说明（「等待期间：出现「加载完成」」「已切换到备用模型」）。不改当前进行中的那一行，
+     * 连着两次一样的只记一次，一轮最多 {@link #MAX_INFO} 行（多了不再加，免得刷屏）。
+     */
+    public synchronized void info(String text) {
+        if (terminal() || text == null) return;
+        String t = shorten(text.trim(), 60);
+        if (t.length() == 0) return;
+        int n = 0;
+        for (Row r : mRows) if (r.info) n++;
+        if (n >= MAX_INFO) return;
+        Row last = last();
+        if (last != null && last.info && last.label.equals(t)) return;
+        mRows.add(new Row(t, State.DONE, false, true));
+        if (mPhase == Phase.IDLE) mPhase = Phase.RUNNING;
+    }
+
+    public static final int MAX_INFO = 12;
+
     /** 停止键：进行中的一律记成已停止，时间轴最后多一行「已停止」。 */
     public synchronized void stopped() {
         if (mPhase == Phase.STOPPED) return;
-        for (Row r : mRows) if (r.state == State.RUNNING || r.state == State.WAITING) r.state = State.STOPPED;
+        for (Row r : mRows) if (!r.info && (r.state == State.RUNNING || r.state == State.WAITING)) r.state = State.STOPPED;
         mPhase = Phase.STOPPED;
         if (!mUserToggled) mExpanded = false;
     }
@@ -247,7 +275,7 @@ public final class ExecTimeline {
     private Row running() {
         for (int i = mRows.size() - 1; i >= 0; i--) {
             Row r = mRows.get(i);
-            if (!r.approval && r.state == State.RUNNING) return r;
+            if (!r.approval && !r.info && r.state == State.RUNNING) return r;
         }
         return null;
     }

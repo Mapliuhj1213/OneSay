@@ -37,8 +37,13 @@ public final class LlmModels {
 
     /** 设对话模型（非法 / 空 / 旧名 → 回到缺省）。@return 生效的模型名 */
     public static String setChat(String model) {
-        String m = model == null ? "" : model.trim().toLowerCase(Locale.ROOT);
-        if (!m.matches("[a-z0-9][a-z0-9.\\-]{2,63}") || m.equals(LEGACY_CHAT) || m.equals(LEGACY_REASONER)) m = DEEPSEEK_DEFAULT;
+        String raw = model == null ? "" : model.trim();
+        String m = raw.toLowerCase(Locale.ROOT);
+        if (m.equals(LEGACY_CHAT) || m.equals(LEGACY_REASONER)) m = DEEPSEEK_DEFAULT;
+        else if (m.matches("[a-z0-9][a-z0-9.\\-]{2,63}")) { /* DeepSeek 式名字：统一小写（原规则） */ }
+        // ★ console-align：主模型地址可改成别家 OpenAI 兼容接口后，模型名可能带大写 / 斜杠（如 Qwen/Qwen2.5-7B-Instruct），原样保留
+        else if (raw.length() >= 2 && MainModelEndpoint.checkModel(raw) == null) m = raw;
+        else m = DEEPSEEK_DEFAULT;
         sChat = m;
         return m;
     }

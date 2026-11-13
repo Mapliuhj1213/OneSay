@@ -60,6 +60,8 @@ public final class ShieldOverlay extends View {
     private final Paint mGlow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mLine = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final float mD;
+    /** ★ borrow-1112：控屏状态颜色（0xRRGGBB；-1 = 原配色）。 */
+    private volatile int mTint = -1;
     /** 统计：孔开了几次 / 退回整窗不可触摸几次。 */
     public volatile int holes, fallbacks;
 
@@ -118,6 +120,16 @@ public final class ShieldOverlay extends View {
         }
         mAttached = false;
         Log.i(TAG, "[SHIELD] 护罩已撤掉");
+    }
+
+    /** ★ borrow-1112：换边框颜色（任意线程；-1 = 原配色）。 */
+    public void setTint(int rgb) {
+        mTint = rgb;
+        postInvalidate();
+    }
+
+    public int tint() {
+        return mTint;
     }
 
     public boolean attached() {
@@ -237,7 +249,7 @@ public final class ShieldOverlay extends View {
         if (w <= 0 || h <= 0) return;
         if (mThin) {
             mLine.setStrokeWidth(3f * mD);
-            mLine.setColor(0xCC8FB8FF);
+            mLine.setColor(0xCC000000 | (mTint >= 0 ? mTint : com.onesay.assistant.v2.exec.ControlColor.LEGACY_THIN));
             c.drawRect(1.5f * mD, 1.5f * mD, w - 1.5f * mD, h - 1.5f * mD, mLine);
             return;
         }
@@ -245,7 +257,8 @@ public final class ShieldOverlay extends View {
         float k = 0.55f + 0.45f * (float) (0.5 - 0.5 * Math.cos(2 * Math.PI * ((now % 2400L) / 2400.0)));
         float g = 22f * mD;
         int a = (int) (170 * k);
-        int c1 = (a << 24) | 0x6FA8FF, c0 = 0x006FA8FF;
+        int rgb = mTint >= 0 ? mTint : com.onesay.assistant.v2.exec.ControlColor.LEGACY_GLOW;
+        int c1 = (a << 24) | rgb, c0 = rgb;
         mGlow.setShader(new LinearGradient(0, 0, 0, g, c1, c0, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, g, mGlow);
         mGlow.setShader(new LinearGradient(0, h, 0, h - g, c1, c0, Shader.TileMode.CLAMP));

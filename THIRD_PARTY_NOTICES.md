@@ -18,6 +18,14 @@ OneSay 自身以 Apache License 2.0 发布（见 `LICENSE`、`NOTICE`）。下�
 | Chart.js | `apps/bixbyui/app/assets/richout_chart.umd.js` | 3.9.1，Copyright (c) 2014-2022 Chart.js Contributors | MIT | 同上 |
 | Poppins Bold（仅图标字形） | `apps/*/app/res/mipmap-*/ic_launcher*.png`、`apps/*/app/res/drawable-*/ic_launcher_fg*.png`（「One」桌面图标，字形渲染为位图；仓库与 APK 都不含字体文件） | Indian Type Foundry / Jonny Pinhorn | SIL OFL 1.1（不限制用其渲染出的图像） | https://openfontlicense.org |
 
+## 设计参考（社区借鉴 2026-11-12 · 助手，未拷贝代码）
+| 项目 | 许可 | 参考了什么 | 用在哪 |
+|---|---|---|---|
+| Agent-VScreen（github.com/kilolonion/agent-vscreen） | MIT | 每步回执 ok / code / next、STALE_ELEMENT、until 等待 + 等待期间画面变化时间轴、边框颜色表示谁在控屏（参考实现思路，代码自写） | `phone/StepReceipt`、`PhoneAgent.waitUntil`、`exec/ControlColor` |
+| OpenPhoneUse（github.com/joungminsung/OpenPhoneUse） | MIT | 模型自标风险、关键词只能加严、读过外部文字后发送一律确认、读不回回报「已请求」（未采用「点名单个删除免确认」） | `phone/RiskLabel`、`executor/ToolGate` |
+| 涛声 TaoSheng（github.com/0xCoach/TaoSheng） | MIT | 主模型出错换备用模型、说「发了」勾待办 | `net/LlmFallback`、`net/BackupModelConfig`、`planner/TodoVoiceDone`、`planner/TodoVoiceFlow` |
+| android-remote-control-mcp（github.com/danielealbano/android-remote-control-mcp） | GPL-3.0-or-later | **思路来源**：只读了说明文档（Privacy Mode：个人信息换稳定占位符、输入占位符时本地换回），没有阅读或使用任何代码 | `privacy/Redactor`、`privacy/RedactingLlm` |
+
 ## 设计参考（link-v2 电脑联动 v2，未拷贝代码）
 | 项目 | 许可 | 参考了什么 | 用在哪 |
 |---|---|---|---|

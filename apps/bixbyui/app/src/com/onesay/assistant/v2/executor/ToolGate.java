@@ -61,6 +61,12 @@ public class ToolGate {
                 return new GateResult(Decision.DENY, "安全拦截：不可信来源内容禁止触发最高系统权限");
             }
             
+            // ★ borrow-1112：读过网页 / 通知 / 短信等外部内容后，发送 / 分享 / 提交类（按工具名认）一律要确认（防提示注入）。
+            //   只加严：其余判断照旧；「始终允许」在污点下本来就不生效（ConsentPolicy.gate）。
+            if (com.onesay.assistant.v2.phone.RiskLabel.outboundSign(cap.sign)) {
+                return new GateResult(Decision.REQUIRE_CONFIRM, "安全拦截：本次任务读过外部内容，发送 / 分享 / 提交前必须确认");
+            }
+
             // 本机只读（读屏 / 查记忆 / 列表，risk 0、不需确认、不是远程 MCP 工具）在污点下也放行——
             //   读本身不改任何东西；真正外发（发送 / 写入 / 设备控制）的下一步仍在下面强制确认。避免「看一眼」弹确认卡。
             if (ConsentPolicy.isLocalReadOnly(cap)) {

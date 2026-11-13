@@ -134,14 +134,16 @@ public final class ApiFirstAndroid implements ApiFirstRouter.Env, ApiFirstRouter
                         .putExtra(AlarmClock.EXTRA_HOUR, hm[0]).putExtra(AlarmClock.EXTRA_MINUTES, hm[1])
                         .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
                 if (in.has("title")) i.putExtra(AlarmClock.EXTRA_MESSAGE, in.slot("title"));
-                return start(i, "已设 " + hm[0] + ":" + (hm[1] < 10 ? "0" : "") + hm[1] + " 的闹钟（系统闹钟接口）");
+                // ★ borrow-1112：系统闹钟接口发出去就没有回音（读不回闹钟列表），如实说「已请求」，不说「已设」
+                return start(i, com.onesay.assistant.v2.phone.RiskLabel.requested("已设 " + hm[0] + ":" + (hm[1] < 10 ? "0" : "") + hm[1] + " 的闹钟（系统闹钟接口）",
+                        ApiFirstRouter.UNVERIFIED_ALARM));
             }
             if (ApiIntent.TIMER_SET.equals(k)) {
                 int sec = RouteTool.timerSeconds(in.slot("minutes"));
                 if (sec <= 0) return ApiFirstRouter.Attempt.fail("缺少时长");
                 Intent i = new Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, sec)
                         .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
-                return start(i, "已开 " + (sec / 60) + " 分钟计时（系统闹钟接口）");
+                return start(i, com.onesay.assistant.v2.phone.RiskLabel.requested("已开 " + (sec / 60) + " 分钟计时（系统闹钟接口）", ApiFirstRouter.UNVERIFIED_TIMER));
             }
             if (ApiIntent.CALENDAR_ADD.equals(k)) {
                 long now = System.currentTimeMillis();

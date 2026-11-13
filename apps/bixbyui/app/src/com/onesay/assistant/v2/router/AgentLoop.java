@@ -415,13 +415,18 @@ public class AgentLoop {
     /** [screenref] 识屏指代挂钩用；JVM 单测构造为 null（挂钩全部短路为"不干预"）。 */
     private final Context mContext;
 
-    public AgentLoop(Context context, final L2LLMCompiler l2) {
-        this(context, CapabilityRegistry.getInstance(), new Llm() {
+    public AgentLoop(final Context context, final L2LLMCompiler l2) {
+        // ★ borrow-1112：发给云端前本地脱敏（手机号 / 身份证 / 银行卡 / 邮箱 / 验证码 → 占位符，回来的工具参数 / 答复换回真实值；开关默认开）
+        this(context, CapabilityRegistry.getInstance(), new com.onesay.assistant.v2.privacy.RedactingLlm(new Llm() {
             @Override public boolean hasApiKey() { return l2.hasApiKey(); }
             @Override public JSONObject call(JSONArray messages, JSONArray tools, int maxTokens) {
                 return l2.callWithMessages(messages, tools, maxTokens);
             }
-        });
+        }, new com.onesay.assistant.v2.privacy.RedactingLlm.Gate() {
+            @Override public boolean on() {
+                return com.onesay.assistant.v2.privacy.PrivacySettings.REDACT.on(context);
+            }
+        }));
     }
 
     /** 测试/自定义注入用。 */
@@ -2066,7 +2071,14 @@ public class AgentLoop {
             if (token != null) com.onesay.assistant.v2.executor.ExecutionGate.reject(token);
             return execWeb(cap, args);
         }
-        ExecutionResult local = com.onesay.assistant.v2.kernel.FeatureKernel.get().executeForAgent(mContext, cap, args);   // [kernel] [screenref] screen.* 本地工具 → [s2] memory.search（App 内只读）
+        // ★ borrow-1112：本任务是否已读过外部内容，同一线程传给本地工具（phone.operate 据此对发送 / 分享 / 提交类一律确认）
+        com.onesay.assistant.v2.phone.RiskLabel.setTaskTaint(tainted);
+        ExecutionResult local;
+        try {
+            local = com.onesay.assistant.v2.kernel.FeatureKernel.get().executeForAgent(mContext, cap, args);   // [kernel] [screenref] screen.* 本地工具 → [s2] memory.search（App 内只读）
+        } finally {
+            com.onesay.assistant.v2.phone.RiskLabel.clearTaskTaint();
+        }
         if (local != null) {
             if (token != null) com.onesay.assistant.v2.executor.ExecutionGate.reject(token);
             return local;

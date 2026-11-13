@@ -31,6 +31,9 @@ public final class ApiFirstRouter {
     public static final String CODE_PAY_USER_TAP = "pay_user_tap";
 
     // ---- ② 已配置接口的名字 ----
+    /** ★ borrow-1112：系统闹钟接口读不回结果，回报「已请求」时补的一句（去哪儿看）。 */
+    public static final String UNVERIFIED_ALARM = "闹钟 App 不回报结果，没法确认已经设上，可以打开闹钟看一眼";
+    public static final String UNVERIFIED_TIMER = "计时器 App 不回报结果，没法确认已经开始，可以打开时钟看一眼";
     public static final String API_QWEATHER = "qweather";
     public static final String API_TAVILY = "tavily";
     public static final String API_HAINA = "haina";

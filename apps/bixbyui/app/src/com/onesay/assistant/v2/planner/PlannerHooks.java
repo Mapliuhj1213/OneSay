@@ -53,6 +53,7 @@ public final class PlannerHooks {
 
     public static boolean claims(Context ctx, String q) {
         if (q == null) return false;
+        if (todoVoiceClaims(ctx, q)) return true;   // ★ borrow-1112：说「做完了」勾正在提醒的待办
         if (PlannerVoice.open(q)) return PlannerLink.installed(ctx);
         if (PlannerVoice.pickup(q) == null && PlannerVoice.pickupAsk(q) == null && !PlannerVoice.ticket(q) && !PlannerVoice.today(q)) return false;
         return PlannerLink.get(ctx).on();
@@ -62,6 +63,8 @@ public final class PlannerHooks {
     public static Invocation route(Context ctx, String q) {
         try {
             if (q == null) return null;
+            String tv = todoVoice(ctx, q);   // ★ borrow-1112：「发了」「做完了」「搞定 X」→ 勾正在提醒 / 最近提醒的待办；歧义时问一句
+            if (tv != null) return reply(q, tv);
             if (PlannerVoice.open(q)) {
                 if (!PlannerLink.installed(ctx)) return null;
                 PlannerLink.open(ctx, null);
@@ -89,6 +92,65 @@ public final class PlannerHooks {
             return reply(q, saveTicketFromScreen(ctx, b));
         } catch (Throwable t) {
             Log.w(TAG, "[PLANNER] 路由出错，交回原流程: " + t.getMessage());
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------ ★ borrow-1112：语音完成待办
+
+    private static volatile List<TodoVoiceDone.Cand> sPlannerCache;
+    private static volatile long sPlannerCacheAt;
+    private static final long PLANNER_CACHE_MS = 5000L;
+
+    static TodoVoiceFlow.Backend todoBackend(final Context ctx) {
+        final Context app = ctx.getApplicationContext();
+        return new TodoVoiceFlow.Backend() {
+            @Override public List<TodoVoiceDone.Cand> planner() {
+                long now = System.currentTimeMillis();
+                if (now - sPlannerCacheAt < PLANNER_CACHE_MS) return sPlannerCache;
+                List<TodoVoiceDone.Cand> l = TodoDoneLink.listReminded(app);
+                sPlannerCache = l;
+                sPlannerCacheAt = now;
+                return l;
+            }
+
+            @Override public List<TodoVoiceDone.Cand> local(long now) {
+                return RecentReminds.recent(now);
+            }
+
+            @Override public String completePlanner(long id) {
+                sPlannerCacheAt = 0;
+                return TodoDoneLink.complete(app, id);
+            }
+
+            @Override public String completeLocal(long id) {
+                try {
+                    com.onesay.assistant.v2.s3.S3Engine.Exec r = com.onesay.assistant.v2.s3.S3Hooks.engine(app).todoCheck(id, System.currentTimeMillis());
+                    return r.ok ? null : r.message;
+                } catch (Throwable t) {
+                    return "本地待办读写出错";
+                }
+            }
+        };
+    }
+
+    static boolean todoVoiceClaims(Context ctx, String q) {
+        try {
+            if (TodoVoiceDone.parse(q) == null && TodoVoiceFlow.PENDING.get(System.currentTimeMillis()) == null) return false;
+            return TodoVoiceFlow.wouldHandle(q, todoBackend(ctx), System.currentTimeMillis());
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    static String todoVoice(Context ctx, String q) {
+        try {
+            if (TodoVoiceDone.parse(q) == null && TodoVoiceFlow.PENDING.get(System.currentTimeMillis()) == null) return null;
+            String r = TodoVoiceFlow.handle(q, todoBackend(ctx), System.currentTimeMillis());
+            if (r != null) Log.i(TAG, "[TODO-VOICE] 「" + q + "」→ " + r);
+            return r;
+        } catch (Throwable t) {
+            Log.w(TAG, "[TODO-VOICE] 出错，交回原流程: " + t.getMessage());
             return null;
         }
     }

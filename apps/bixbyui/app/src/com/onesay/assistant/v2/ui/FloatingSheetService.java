@@ -859,6 +859,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         mCreatedAt = SystemClock.elapsedRealtime();
         sInstance = this;
         registerSystemDialogsReceiver();   // ★ r2/sysux P1-4：按 Home / 最近任务 → 收起面板
+        com.onesay.assistant.v2.timeline.TimelineNotes.add(mTimelineNotes);   // ★ borrow-1112：等待期间画面变化 / 已切换到备用模型 → 时间轴说明行
         com.onesay.assistant.v2.contacts.ContactSource.installFor(this);   // AgentLoop 的人名 → 号码（本机解析）
         com.onesay.assistant.plug.richout.host.RichOutHost.install(this);
         com.onesay.assistant.v2.router.ctx.ContextPrefs.apply(this);   // ★ int/1102：会话历史 token 预算 / 模型窗口覆盖（prefs bixby_conv）   // [richout] 富内容回答插件开关接上 prefs / kill 文件
@@ -3797,6 +3798,19 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         }
     }
 
+    /** ★ borrow-1112：别处补来的说明行（点屏代理等待期间画面变化、已切换到备用模型）写进正在跑的那份时间轴（屏上的，或通知跟着的）。 */
+    private final com.onesay.assistant.v2.timeline.TimelineNotes.Listener mTimelineNotes = new com.onesay.assistant.v2.timeline.TimelineNotes.Listener() {
+        @Override public void onNote(String text) {
+            com.onesay.assistant.v2.timeline.ExecTimeline tl = mSheetView == null ? null : mSheetView.timeline();
+            if (tl == null || !tl.live()) {
+                synchronized (mTaskNotifyLock) { tl = mNotifyTl; }
+            }
+            if (tl == null || !tl.live()) return;
+            tl.info(text);
+            timelineTouched(tl);
+        }
+    };
+
     /** 屏上这一轮的时间轴（和通知跟着的那份）记「已停止」。 */
     private void timelineStopped() {
         com.onesay.assistant.v2.timeline.ExecTimeline tl = mSheetView == null ? null : mSheetView.timeline();
@@ -4324,6 +4338,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     @Override
     public void onDestroy() {
+        com.onesay.assistant.v2.timeline.TimelineNotes.remove(mTimelineNotes);   // ★ borrow-1112
         // ★ BUG-I2b：先摘面板并同步报 panel(false)（岛在下面的 [s1] onServiceDestroy 里才拆，post 的回调等不到）
         cancelAutoHide();
         hideSheet(true);

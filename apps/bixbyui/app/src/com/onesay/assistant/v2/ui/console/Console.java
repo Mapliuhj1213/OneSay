@@ -270,7 +270,7 @@ public final class Console implements ConsoleHost {
         TextView cur = kit.text("当前：" + masked, ConsoleTheme.SP_SUB + 1, kit.t.text2, ConsoleKit.W_REGULAR);
         box.addView(cur);
         box.addView(et, kit.lpMatch(8, 0));
-        KeyMask.secure(kit.dialog().setTitle("DeepSeek API Key").setView(box)
+        KeyMask.secure(kit.dialog().setTitle("主模型 API Key").setView(box)
                 .setPositiveButton("保存", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         String k = et.getText().toString();
