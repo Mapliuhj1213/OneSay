@@ -42,8 +42,21 @@ import java.util.regex.Pattern;
  * 第一次从手机触发（或内容改过、哈希对不上）在电脑上问「允许 / 拒绝」（30 秒 = 拒绝），可选「以后直接执行」；这样批准过的在自动 / 完全访问下直接执行，
  * 只读拒绝。内容碰了严格规则（注册表 / 网络 / 服务 / 给自己授权，或看不出内容的编码命令）的快捷指令只能自己运行，不能批准远程直接执行。
  *
- * <p>确认框只认被控端本机的鼠标 / 键盘点击：远程消息或语音想回答确认框（{@link Cat#REMOTE_APPROVAL}：confirm / approve / allow /
- * voice_approve…）任何档位都拒绝，原因码 {@link #R_VOICE_APPROVAL_BLOCKED}（思路参考 Haris 审批卡「不能用说话批准」，MIT；代码自己写的）。
+ * <p>确认框只认真人点击：被控端本机的鼠标 / 键盘，或（2026-11-10 起）已配对手机屏幕上确认卡的真人触摸。远程消息或语音想回答确认框
+ * （{@link Cat#REMOTE_APPROVAL}：confirm / approve / allow / voice_approve…）任何档位都拒绝，原因码 {@link #R_VOICE_APPROVAL_BLOCKED}
+ * （思路参考 Haris 审批卡「不能用说话批准」，MIT；代码自己写的）。
+ *
+ * <p><b>能批就不拦（2026-11-10 用户决定）</b>：批了也不行的硬规则只剩三条 ——
+ * <ol>
+ *   <li>付款 / 转账的最后一下必须用户亲手点：远程指令和机器人不能代点最终支付按钮（{@link Cat#PAY_FINAL}，{@link #R_PAY_USER_TAP}）；</li>
+ *   <li>机器人不能改自己的权限、不能自己批自己：{@link Cat#SELF_AUTHORIZE}（{@link #R_SELF_GRANT_BLOCKED}）、{@link Cat#SELF_GRANT}
+ *       （只生成脚本）、远程 / 语音批准（{@link Cat#REMOTE_APPROVAL}）、远程卸载 / 关掉 OneSay 自己；</li>
+ *   <li>电脑不提权：要管理员的只生成 .ps1（{@link #R_NEEDS_ADMIN_SCRIPT}），想提权 / 绕 UAC 的拒绝（{@link #R_PLUGIN_BLOCKED}）。</li>
+ * </ol>
+ * 其余原来关不掉的拦截改成弹确认（{@link Verdict#CONFIRM}）：打开 / 卸载支付类与系统 App、有风险的网址（电脑上）、像命令的剪贴板（电脑上）、
+ * 改工作区里的 .git 等。确认卡可以勾「以后这类不用问」，按动作类型（{@link Decision#kind}）记住（{@link #remembered}）；
+ * 硬规则不是 CONFIRM，记住的类型绕不过去。手机作为被控端：网址里的 IP / 内网地址不再拒、剪贴板不再限 10 KB 和「像命令」、
+ * 敏感内容 60 秒自动清除改成可选（默认关）。可关的插件项（编码 / 隐藏命令、沙箱断网）照旧，用户自己能关。
  */
 public final class LinkPolicy {
 
@@ -178,7 +191,14 @@ public final class LinkPolicy {
             /** 远程想给自己放权（改 OneSay 的策略 / 配置 / 白名单 / 插件开关）。 */
             R_SELF_GRANT_BLOCKED = "self_grant_blocked",
             /** 想用远程消息 / 语音回答确认框（批准只认电脑本机的鼠标 / 键盘点击）。 */
-            R_VOICE_APPROVAL_BLOCKED = "voice_approval_blocked";
+            R_VOICE_APPROVAL_BLOCKED = "voice_approval_blocked",
+            /** 付款 / 转账的最后一下（最终支付按钮）只能用户亲手点：远程指令、机器人都不能代点，批了也不行。 */
+            R_PAY_USER_TAP = "pay_needs_user_tap";
+
+    /** 确认框多久没人点按拒绝（2026-11-10：30 秒 → 60 秒）；电脑和手机的确认卡同一个数。 */
+    public static final long CONFIRM_TIMEOUT_MS = 60000;
+    /** 确认框显示出来之后多久「允许」才算数（防误点）。 */
+    public static final long CONFIRM_ARM_MS = 700;
 
     /** 指令的类别（决定矩阵行）。 */
     public enum Cat {
@@ -215,6 +235,8 @@ public final class LinkPolicy {
         SYSTEM_APP_OP,
         /** 远程 / 语音想回答被控端的确认框（允许 / 批准 / 以后直接执行）。任何档位都拒绝：批准只认被控端本机的点击。 */
         REMOTE_APPROVAL,
+        /** 付款 / 转账的最后一下（最终支付 / 确认转账 / 提交订单并付款）。任何档位都拒绝，确认也不行：只能用户亲手点。 */
+        PAY_FINAL,
         UNKNOWN
     }
 
@@ -235,6 +257,8 @@ public final class LinkPolicy {
         public String pluginBlocked = "", pluginReason = "";
         /** 写的是工作区里的只读目录（.git / .codex / .agents）。 */
         public boolean protectedPath;
+        /** 要动的 App 就是 OneSay 自己（远程卸载 / 关掉 / 停用自己 = 改自己的权限，硬规则）。 */
+        public boolean appSelf;
     }
 
     public static final class Decision {
@@ -244,25 +268,97 @@ public final class LinkPolicy {
         public final String text;
         /** 完全访问下不确认、但要给用户提个醒（比如不在信任列表的网址）。 */
         public final boolean headsUp;
+        /**
+         * 动作类型（「以后这类不用问」按它记住）：只有 {@link Verdict#CONFIRM} 才有；空 = 这条不能记住（快捷指令另有按内容哈希的批准）。
+         * 写法 {@code pc.shell_exec}、{@code phone.blocked_app.open}…，见 {@link #kindZh}。
+         */
+        public final String kind;
+        /** 这条是因为「以后这类不用问」记住过才直接执行的。 */
+        public final boolean remembered;
 
         Decision(Verdict v, String reason, String text, boolean headsUp) {
+            this(v, reason, text, headsUp, "", false);
+        }
+
+        Decision(Verdict v, String reason, String text, boolean headsUp, String kind, boolean remembered) {
             this.verdict = v;
             this.reason = reason == null ? "" : reason;
             this.text = text == null ? "" : text;
             this.headsUp = headsUp;
+            this.kind = v == Verdict.CONFIRM || remembered ? (kind == null ? "" : kind) : "";
+            this.remembered = remembered;
         }
 
         static Decision allow() { return new Decision(Verdict.ALLOW, "", "", false); }
         static Decision heads(String text) { return new Decision(Verdict.ALLOW, "", text, true); }
         static Decision confirm(String text) { return new Decision(Verdict.CONFIRM, "", text, false); }
         static Decision confirm(String reason, String text) { return new Decision(Verdict.CONFIRM, reason, text, false); }
+        static Decision ask(String text, String kind) { return new Decision(Verdict.CONFIRM, "", text, false, kind, false); }
         static Decision deny(String reason, String text) { return new Decision(Verdict.DENY, reason, text, false); }
         static Decision script(String text) { return new Decision(Verdict.SCRIPT, R_SCRIPT_GENERATED, text, false); }
         static Decision script(String reason, String text) { return new Decision(Verdict.SCRIPT, reason, text, false); }
 
+        /** 确认卡上能不能给「以后这类不用问」：要确认、有动作类型。硬规则（拒绝 / 只生成脚本）永远不是。 */
+        public boolean rememberable() { return verdict == Verdict.CONFIRM && kind.length() > 0 && knownKind(kind); }
+
         @Override public String toString() {
-            return verdict + (reason.length() > 0 ? "/" + reason : "") + (headsUp ? "/heads-up" : "");
+            return verdict + (reason.length() > 0 ? "/" + reason : "") + (headsUp ? "/heads-up" : "") + (kind.length() > 0 ? "/" + kind : "")
+                    + (remembered ? "/remembered" : "");
         }
+    }
+
+    // ================================================================== 「以后这类不用问」
+
+    /** 能记住的动作类型（键 → 给人看的说法）。不在这里的不收（远程塞进来的乱写的类型也不收）。 */
+    private static final String[][] KINDS = {
+            {"pc.setting", "电脑：改音量 / 亮度 / 勿扰"}, {"pc.power", "电脑：关机 / 睡眠"}, {"pc.uninstall", "电脑：卸载程序"},
+            {"pc.script_run", "电脑：运行工作区脚本"}, {"pc.shell_exec", "电脑：执行命令"}, {"pc.outside_write", "电脑：写工作区以外的文件"},
+            {"pc.url", "电脑：打开不在信任列表的网址"}, {"pc.url.risky", "电脑：打开有风险的网址（IP / 内网 / 带账号 / 疑似仿冒）"},
+            {"pc.clipboard", "电脑：写剪贴板"}, {"pc.clipboard.command", "电脑：写像命令 / 带特殊链接的剪贴板"}, {"pc.clipboard.sensitive", "电脑：写敏感内容到剪贴板"},
+            {"pc.blocked_app.open", "电脑：打开支付 / 银行 / 密码 / 商店类程序"}, {"pc.blocked_app.uninstall", "电脑：卸载支付 / 银行 / 密码 / 商店类程序"},
+            {"pc.blocked_app.operate", "电脑：关掉支付 / 银行 / 密码 / 商店类程序"}, {"pc.system_app", "电脑：改动系统程序"},
+            {"pc.workspace.protected", "电脑：改工作区里的 .git / .codex / .agents"},
+            {"phone.blocked_app.open", "手机：打开支付 / 银行 / 钱包 / 商店类 App"}, {"phone.blocked_app.uninstall", "手机：卸载支付 / 银行 / 钱包 / 商店类 App"},
+            {"phone.system_app", "手机：卸载 / 停用系统 App"}, {"phone.url.risky", "手机：打开带账号密码 / 疑似仿冒的网址"}};
+
+    public static boolean knownKind(String k) {
+        if (k == null) return false;
+        for (String[] x : KINDS) if (x[0].equals(k)) return true;
+        return false;
+    }
+
+    public static String kindZh(String k) {
+        if (k != null) for (String[] x : KINDS) if (x[0].equals(k)) return x[1];
+        return k == null ? "" : k;
+    }
+
+    /** 记住的类型存成一行：逗号分隔；不认识的、重复的丢掉。 */
+    public static List<String> parseKinds(String text) {
+        List<String> out = new ArrayList<String>();
+        if (text == null) return out;
+        for (String p : text.split("[,，;；\\s]+")) {
+            String k = p.trim().toLowerCase(Locale.ROOT);
+            if (knownKind(k) && !out.contains(k)) out.add(k);
+        }
+        return out;
+    }
+
+    public static String formatKinds(java.util.Collection<String> kinds) {
+        StringBuilder b = new StringBuilder();
+        if (kinds != null) for (String k : parseKinds(join(new ArrayList<String>(kinds), ","))) {
+            if (b.length() > 0) b.append(',');
+            b.append(k);
+        }
+        return b.toString();
+    }
+
+    /**
+     * 「以后这类不用问」：要确认、且这类动作记住过 → 直接执行（带提醒）。其余原样返回 —— 拒绝 / 只生成脚本（三条硬规则）不是 CONFIRM，
+     * 所以记住什么都绕不过它们；快捷指令的确认没有类型（另按内容哈希批准），也不受影响。
+     */
+    public static Decision remembered(Decision d, java.util.Collection<String> kinds) {
+        if (d == null || !d.rememberable() || kinds == null || !kinds.contains(d.kind)) return d;
+        return new Decision(Verdict.ALLOW, "", "按「以后这类不用问」直接执行：" + d.text, true, d.kind, true);
     }
 
     // ================================================================== 矩阵
@@ -275,14 +371,17 @@ public final class LinkPolicy {
     /**
      * 核心判定：被控端 × （沙箱档 × 审批策略）× 类别（+ 信任检查与插件事实）→ 允许 / 先确认 / 拒绝 / 只生成脚本。
      *
-     * <p>顺序：插件结论 → 红线（自授权、需要管理员、系统 App、禁止类 App）→ 信任检查（网址 / 剪贴板）→ 快捷指令 → 两轴矩阵。
-     * 手机作为被控端不走两轴（见 {@link #phoneLegacy}：恢复成分档之前的语义，只看手机上的逐项开关）。
+     * <p>顺序：三条硬规则（付款最后一下、自授权 / 自批准、不提权）→ 插件结论 → 只读档 → 原来关不掉、现在走审批的（系统 App、禁止类 App、
+     * 有风险的网址、像命令的剪贴板、工作区只读目录）→ 快捷指令 → 两轴矩阵。
+     * 手机作为被控端不走两轴（见 {@link #phoneLegacy}：分档之前的语义，只看手机上的逐项开关，危险的弹手机确认卡）。
      */
     public static Decision decide(Target t, Mode mode, Cat c, Facts f) {
         if (f == null) f = new Facts();
         if (mode == null) mode = Mode.DEFAULT;
         if (c == null) c = Cat.UNKNOWN;
+        // ---- 硬规则 ①②：任何档位、两种被控端都一样，确认 / 记住都不行
         if (c == Cat.REMOTE_APPROVAL) return denyRemoteApproval();
+        if (c == Cat.PAY_FINAL) return denyPay();
         if (t == Target.PHONE) return phoneLegacy(c, f);
 
         // ---- 安全插件：任何档位都先过它（插件自己出错时调用方传 pluginBlocked，这里一律拒）
@@ -296,14 +395,12 @@ public final class LinkPolicy {
         Approval ap = mode.approval;
         boolean ro = sb == Sandbox.READ_ONLY, full = sb == Sandbox.FULL_ACCESS;
 
-        // ---- 红线：任何档位都一样
+        // ---- 硬规则 ②③：任何档位都一样（不是 CONFIRM，确认 / 「以后这类不用问」都绕不过）
         if (c == Cat.SELF_AUTHORIZE)
             return Decision.deny(R_SELF_GRANT_BLOCKED, "远程不能改 OneSay 自己的策略 / 配置 / 信任列表 / 插件开关，只能你在电脑上改");
         if (c == Cat.SELF_GRANT) return Decision.script(R_NEEDS_ADMIN_SCRIPT, "涉及授予权限，只生成脚本，需要你自己执行");
-        if (c == Cat.SYSTEM_APP_OP || ((c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appSystem))
-            return Decision.deny(R_SYSTEM_APP, "系统 App 不允许远程改动");
-        if ((c == Cat.OPEN_APP || c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appBlocked)
-            return Decision.deny(R_BLOCKED_APP, "支付 / 银行 / 密码 / 钱包 / 应用商店 / 安装器类 App 不允许远程操作");
+        if (f.appSelf && (c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE || c == Cat.SYSTEM_APP_OP))
+            return Decision.deny(R_SELF_GRANT_BLOCKED, "远程不能卸载 / 关掉 OneSay 自己");
         if (c == Cat.UNKNOWN) return Decision.deny(R_UNKNOWN, "不认识的指令");
         if (c == Cat.QUERY) return Decision.allow();
         // 需要管理员的（注册表 HKLM / 服务驱动 / 防火墙 / 系统级网络…）：任何档位都只生成脚本，从不执行
@@ -312,20 +409,33 @@ public final class LinkPolicy {
         // 只读档：查询以外一律不做（和以前一样回 denied_by_level，不管后面的信任检查）
         if (ro) return denyBySandbox(sb, "这条指令（只能查状态）");
 
+        // 操作第三方程序只在完全访问档（沙箱档是你自己选的，不是硬规则）
+        if (c == Cat.APP_OPERATE && !full) return Decision.deny(R_DENIED_BY_LEVEL, "沙箱档是「工作区可写」，不操作第三方程序（要完全访问）");
+
+        // ---- 原来关不掉、2026-11-10 起改成走审批的（「从不询问」下照旧拒绝，原因码不变）
+        if (c == Cat.SYSTEM_APP_OP || ((c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appSystem))
+            return askOrDenyCode(ap, R_SYSTEM_APP, "改动系统程序" + appName(f) + "（卸载 / 关掉）", "pc.system_app");
+        if ((c == Cat.OPEN_APP || c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appBlocked)
+            return askOrDenyCode(ap, R_BLOCKED_APP, (c == Cat.OPEN_APP ? "打开" : c == Cat.UNINSTALL_APP ? "卸载" : "关掉") + "支付 / 银行 / 密码 / 钱包 / 应用商店 / 安装器类程序"
+                    + appName(f) + "（付款最后一下仍要你亲手点）", c == Cat.OPEN_APP ? "pc.blocked_app.open" : c == Cat.UNINSTALL_APP ? "pc.blocked_app.uninstall" : "pc.blocked_app.operate");
+
         // ---- 信任检查（网址 / 剪贴板）
         if (c == Cat.OPEN_URL) {
             UrlCheck u = f.url;
-            if (u == null || !u.ok) return Decision.deny(R_UNTRUSTED_URL, u == null ? "网址没过检查" : u.why);
+            if (u == null || u.malformed) return Decision.deny(R_UNTRUSTED_URL, u == null ? "网址没过检查" : u.why);
+            if (!u.ok) return askOrDenyCode(ap, R_UNTRUSTED_URL, "打开有风险的网址：" + u.why, "pc.url.risky");
             if (u.trusted) return Decision.allow();
-            if (ap == Approval.UNTRUSTED) return Decision.confirm("打开网址：" + u.shown);
+            if (ap == Approval.UNTRUSTED) return Decision.ask("打开网址：" + u.shown, "pc.url");
             return Decision.heads("打开不在信任列表的网址：" + u.shown);
         }
         if (c == Cat.CLIPBOARD_WRITE) {
             ClipCheck k = f.clip;
             if (k == null || k.verdict == ClipCheck.REJECT) return Decision.deny(R_CLIPBOARD_REJECTED, k == null ? "剪贴板内容没过检查" : k.why);
             // 敏感内容任何档位都要人确认（「从不询问」下就是拒绝）
-            if (k.verdict == ClipCheck.SENSITIVE) return askOrDeny(ap, "写入敏感内容（" + k.why + "），60 秒后自动清除");
-            return ap == Approval.UNTRUSTED ? Decision.confirm("写剪贴板（" + k.chars + " 字）") : Decision.allow();
+            if (k.verdict == ClipCheck.SENSITIVE) return askOrDeny(ap, "写入敏感内容（" + k.why + "）", "pc.clipboard.sensitive");
+            // 像命令 / 带特殊链接的：以前直接拒，现在问你（「从不询问」下拒绝）
+            if (k.note.length() > 0) return askOrDenyCode(ap, R_CLIPBOARD_REJECTED, "写剪贴板（" + k.chars + " 字，" + k.note + "）", "pc.clipboard.command");
+            return ap == Approval.UNTRUSTED ? Decision.ask("写剪贴板（" + k.chars + " 字）", "pc.clipboard") : Decision.allow();
         }
 
         // ---- 快捷指令：列表里有 → 内容没碰严格规则 → 按 id + 哈希批准过就直接执行，否则先问（批准一定要人点，「从不询问」下拒绝）
@@ -345,11 +455,12 @@ public final class LinkPolicy {
             case OPEN_APP:
                 return Decision.allow();
             case WORKSPACE_WRITE:
-                if (f.protectedPath) return Decision.deny(R_PLUGIN_BLOCKED, "工作区里的 .git / .codex / .agents 是只读的");
+                // 工作区里的 .git / .codex / .agents：以前直接拒，现在问你（「从不询问」下拒绝）
+                if (f.protectedPath) return askOrDenyCode(ap, R_PLUGIN_BLOCKED, "改工作区里的 .git / .codex / .agents（平时只读）", "pc.workspace.protected");
                 return Decision.allow();
             case SIMPLE_SETTING:
                 // 音量 / 亮度这类看得见的改动：分类和按需都先问（和以前一样）；从不询问时只有完全访问照做
-                return needsApproval(sb, ap, "电脑设置改动需要确认");
+                return needsApproval(sb, ap, "电脑设置改动需要确认", "pc.setting");
             // 工作区可写档（2026-11-08 用户决定）：命令、跑工作区脚本、工作区外写入改成「确认后按你自己的权限执行」——
             // 你知道子进程关不进工作区（Windows 上 Java 做不了系统级沙箱），所以不再只生成脚本；审批策略照常：
             // 分类 / 按需 → 电脑上确认，从不询问 → 拒绝（不升级）。安全插件在这之前已经过了（提权 / 要管理员 / 自授权 / 编码 / 默认断网）。
@@ -357,29 +468,42 @@ public final class LinkPolicy {
             case APP_OPERATE:
                 return full ? Decision.allow() : Decision.deny(R_DENIED_BY_LEVEL, "沙箱档是「工作区可写」，不操作第三方程序（要完全访问）");
             case OUTSIDE_WRITE:
-                return full ? Decision.allow() : askOrDeny(ap, "写工作区以外的文件（按你自己的权限写，Windows 权限为准）");
+                return full ? Decision.allow() : askOrDeny(ap, "写工作区以外的文件（按你自己的权限写，Windows 权限为准）", "pc.outside_write");
             case POWER:
-                return needsApproval(sb, ap, "关机 / 睡眠需要确认");
+                return needsApproval(sb, ap, "关机 / 睡眠需要确认", "pc.power");
             case UNINSTALL_APP:
-                return needsApproval(sb, ap, "卸载程序需要确认");
+                return needsApproval(sb, ap, "卸载程序需要确认", "pc.uninstall");
             case RUN_WS_SCRIPT:
-                return needsApproval(sb, ap, "运行工作区脚本（每次都要确认，按你自己的权限执行）");
+                return needsApproval(sb, ap, "运行工作区脚本（每次都要确认，按你自己的权限执行）", "pc.script_run");
             case SHELL_EXEC:
-                return needsApproval(sb, ap, "执行命令（会显示完整命令，按你自己的权限执行）");
+                return needsApproval(sb, ap, "执行命令（会显示完整命令，按你自己的权限执行）", "pc.shell_exec");
             default:
                 return Decision.deny(R_UNKNOWN, "不认识的指令");
         }
     }
 
-    /** 要升级 / 要人确认的一条：「从不询问」直接拒（和 Codex 一样不升级），否则弹确认。 */
-    static Decision askOrDeny(Approval ap, String text) {
-        return ap == Approval.NEVER ? denyNever(text) : Decision.confirm(text);
+    /** 要升级 / 要人确认的一条：「从不询问」直接拒（和 Codex 一样不升级），否则弹确认（kind = 动作类型，可记住）。 */
+    static Decision askOrDeny(Approval ap, String text, String kind) {
+        return ap == Approval.NEVER ? denyNever(text) : Decision.ask(text, kind);
+    }
+
+    /** 同上，「从不询问」下拒绝时用原来的原因码（以前就是这个原因码直接拒的）。 */
+    static Decision askOrDenyCode(Approval ap, String code, String text, String kind) {
+        return ap == Approval.NEVER ? Decision.deny(code, "审批策略是「从不询问」，需要确认的事直接拒绝：" + text) : Decision.ask(text, kind);
     }
 
     /** 有破坏性 / 要每次确认的动作（关机、卸载、跑脚本、执行命令）：按需 / 分类 → 确认；从不询问 → 只有完全访问照做，其余拒。 */
-    static Decision needsApproval(Sandbox sb, Approval ap, String text) {
-        if (ap != Approval.NEVER) return Decision.confirm(text);
+    static Decision needsApproval(Sandbox sb, Approval ap, String text, String kind) {
+        if (ap != Approval.NEVER) return Decision.ask(text, kind);
         return sb == Sandbox.FULL_ACCESS ? Decision.allow() : denyNever(text);
+    }
+
+    static String appName(Facts f) {
+        return f.appLabel == null || f.appLabel.length() == 0 ? "" : "「" + oneLine(f.appLabel) + "」";
+    }
+
+    static Decision denyPay() {
+        return Decision.deny(R_PAY_USER_TAP, "付款 / 转账的最后一下只能你自己在屏幕上点，远程指令和机器人都不能代点（批了也不行）");
     }
 
     static Decision askReason(Approval ap, String reason, String text) {
@@ -399,22 +523,31 @@ public final class LinkPolicy {
     }
 
     /**
-     * 手机作为被控端：恢复成执行级别（三档 / 沙箱）之前的语义 —— 不分档、不在手机上确认，只看手机控制台里的逐项开关
-     * （个人版默认全开；开源版「接受电脑指令」总开关和新加的 8 项默认关）。保留和分档无关的红线：
-     * 不给任何 App 授权（只生成脚本）、远程不能改 OneSay 自己的设置、支付 / 银行 / 密码 / 钱包 / 商店 / 安装器类 App 不碰、
-     * 系统 App 不卸载 / 不改动、网址过不了检查不开、剪贴板内容过不了检查不写（敏感内容不确认，但标敏感并 60 秒后清除）。
+     * 手机作为被控端：分档之前的语义 —— 不分档，只看手机控制台里的逐项开关（个人版默认全开；开源版「接受电脑指令」总开关和加回来的 8 项默认关）。
+     * 硬规则（任何时候都不行）：付款最后一下、远程 / 语音批准（在 {@link #decide} 里先判）、远程改 OneSay 自己的设置、给 App 授权（只生成脚本）、
+     * 远程卸载 / 停用 OneSay 自己。2026-11-10 起原来拒绝的改成在手机上弹确认卡（{@link Verdict#CONFIRM}，可勾「以后这类不用问」）：
+     * 打开 / 卸载支付 / 银行 / 钱包 / 商店类 App、卸载 / 停用系统 App、带账号密码或疑似仿冒的网址。
+     * 回到分档之前（round2 之前）：网址里的 IP / 内网地址不拒；剪贴板不限 10 KB、不按「像命令」拒（敏感内容照旧标敏感，60 秒清除是可选项）。
      * 没检查过的事实（url / clip 为 null）按「没有这项检查」处理。
      */
     static Decision phoneLegacy(Cat c, Facts f) {
         if (c == Cat.REMOTE_APPROVAL) return denyRemoteApproval();
+        if (c == Cat.PAY_FINAL) return denyPay();
         if (c == Cat.SELF_AUTHORIZE) return Decision.deny(R_SELF_GRANT_BLOCKED, "远程不能改 OneSay 自己的设置");
         if (c == Cat.SELF_GRANT) return Decision.script("涉及授予权限，只生成脚本，需要你自己执行");
         if (c == Cat.UNKNOWN) return Decision.deny(R_UNKNOWN, "不认识的指令");
+        if (f.appSelf && (c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE || c == Cat.SYSTEM_APP_OP))
+            return Decision.deny(R_SELF_GRANT_BLOCKED, "远程不能卸载 / 停用 OneSay 自己");
         if (c == Cat.SYSTEM_APP_OP || ((c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appSystem))
-            return Decision.deny(R_SYSTEM_APP, "系统 App 不允许远程改动");
+            return Decision.ask("卸载 / 停用系统 App" + appName(f) + "，可能影响手机正常使用", "phone.system_app");
         if ((c == Cat.OPEN_APP || c == Cat.UNINSTALL_APP || c == Cat.APP_OPERATE) && f.appBlocked)
-            return Decision.deny(R_BLOCKED_APP, "支付 / 银行 / 密码 / 钱包 / 应用商店 / 安装器类 App 不允许远程操作");
-        if (c == Cat.OPEN_URL && f.url != null && !f.url.ok) return Decision.deny(R_UNTRUSTED_URL, f.url.why);
+            return Decision.ask((c == Cat.OPEN_APP ? "打开" : "卸载") + "支付 / 银行 / 钱包 / 商店类 App" + appName(f) + "（付款最后一下仍要你亲手点）",
+                    c == Cat.OPEN_APP ? "phone.blocked_app.open" : "phone.blocked_app.uninstall");
+        if (c == Cat.OPEN_URL && f.url != null && !f.url.ok) {
+            if (f.url.malformed) return Decision.deny(R_UNTRUSTED_URL, f.url.why);
+            if (UrlCheck.RISK_IP.equals(f.url.risk) || UrlCheck.RISK_PRIVATE.equals(f.url.risk)) return Decision.allow(); // 分档之前就不拦（家里 NAS、路由器）
+            return Decision.ask("打开网址：" + f.url.why, "phone.url.risky");
+        }
         if (c == Cat.CLIPBOARD_WRITE && f.clip != null && f.clip.verdict == ClipCheck.REJECT) return Decision.deny(R_CLIPBOARD_REJECTED, f.clip.why);
         return Decision.allow();
     }
@@ -425,6 +558,8 @@ public final class LinkPolicy {
     public static Cat phoneCat(String cmd) {
         if (cmd == null) return Cat.UNKNOWN;
         if (isRemoteApproval(cmd)) return Cat.REMOTE_APPROVAL;
+        if (isPayFinal(cmd)) return Cat.PAY_FINAL;
+        if (isSelfAuthorizeCmd(cmd)) return Cat.SELF_AUTHORIZE;
         if (in(cmd, "ping", "caps", "status", "level")) return Cat.QUERY;
         if (in(cmd, "file_list", "script_list")) return Cat.READ_PRIVATE;
         if (in(cmd, "find_phone", "screen_on", "notify", "flashlight")) return Cat.HARMLESS;
@@ -443,6 +578,7 @@ public final class LinkPolicy {
     public static Cat pcCat(String cmd) {
         if (cmd == null) return Cat.UNKNOWN;
         if (isRemoteApproval(cmd)) return Cat.REMOTE_APPROVAL;
+        if (isPayFinal(cmd)) return Cat.PAY_FINAL;
         if (in(cmd, "ping", "caps", "info", "shortcut_list", "level")) return Cat.QUERY;
         if (in(cmd, "screenshot", "clipboard_get", "file_get", "file_list", "script_list")) return Cat.READ_PRIVATE;
         if (in(cmd, "media", "lock", "notify", "memory_sync", "echo")) return Cat.HARMLESS;
@@ -458,10 +594,39 @@ public final class LinkPolicy {
         if ("shortcut_run".equals(cmd)) return Cat.SHORTCUT;
         if ("sys_exec".equals(cmd)) return Cat.SHELL_EXEC;
         // 远程想改电脑端自己的设置（档位 / 插件 / 信任列表 / 白名单 / 批准表）：一律 self_grant_blocked，只能在电脑界面上改
-        if (in(cmd, "settings", "settings_set", "config_set", "pc_level", "level_set", "set_level", "sandbox_set", "approval_set", "plugin_set", "plugin_off",
-                "trust_add", "trusted_add", "net_allow_add", "shortcut_approve", "policy_set")) return Cat.SELF_AUTHORIZE;
+        if (isSelfAuthorizeCmd(cmd)) return Cat.SELF_AUTHORIZE;
         return Cat.UNKNOWN;
     }
+
+    /** 远程想改被控端 OneSay 自己的设置（档位 / 插件 / 信任列表 / 白名单 / 批准表 / 记住的类型 / 剪贴板清除）：一律 self_grant_blocked。 */
+    public static boolean isSelfAuthorizeCmd(String cmd) {
+        String c = cmd == null ? "" : cmd.trim().toLowerCase(Locale.ROOT);
+        return in(c, "settings", "settings_set", "config_set", "pc_level", "level_set", "set_level", "sandbox_set", "approval_set", "plugin_set", "plugin_off",
+                "trust_add", "trusted_add", "net_allow_add", "shortcut_approve", "policy_set", "remember_type", "remember_kind", "remembered_add", "approve_type",
+                "approve_types", "clip_autoclear", "rx_enable", "rx_set", "cmd_enable", "switch_set");
+    }
+
+    /**
+     * 远程想完成付款 / 转账最后一下的指令名（硬规则 ①）：任何档位都拒绝，确认 / 记住都不行（{@link #R_PAY_USER_TAP}）。
+     * 现有指令里没有能点屏幕的；这条是给以后加指令时的兜底：名字像「付款 / 转账 / 提交订单」的一律不收。
+     */
+    public static boolean isPayFinal(String cmd) {
+        String c = cmd == null ? "" : cmd.trim().toLowerCase(Locale.ROOT);
+        return in(c, "pay", "pay_confirm", "confirm_pay", "pay_final", "pay_now", "payment", "payment_confirm", "transfer", "transfer_confirm", "send_money",
+                "checkout", "checkout_confirm", "place_order", "submit_order", "order_pay", "tap_pay", "click_pay");
+    }
+
+    /** 屏幕上一个按钮的字是不是付款 / 转账的最后一下（给机器人点屏幕的地方用：这种按钮只能你亲手点）。 */
+    public static boolean finalPayLabel(String label) {
+        if (label == null) return false;
+        String t = label.replaceAll("[\\s\u00a0\u200b]+", "").toLowerCase(Locale.ROOT);
+        if (t.length() == 0 || t.length() > 24) return false;
+        return FINAL_PAY.matcher(t).find();
+    }
+
+    private static final Pattern FINAL_PAY = Pattern.compile(
+            "(确认|立即|马上|去)(支付|付款|转账)|提交订单并?支付|确认转账|免密支付|指纹支付|面容支付|刷脸支付|输入支付密码|(支付|付款)[¥￥$]?\\d|"
+                    + "^(支付|付款|转账)$|paynow|confirmandpay|confirmpayment|placeorder|completepurchase|sendmoney|confirmtransfer");
 
     /**
      * 远程想回答确认框的指令名（确认 / 批准 / 允许 / 语音批准…）。确认框只认被控端本机的鼠标 / 键盘点击，这些一律
@@ -980,7 +1145,7 @@ public final class LinkPolicy {
     private static final Pattern SELF_CFG = Pattern.compile(
             "(desktop\\.properties)|(shortcut_approvals)|(pc_sandbox)|(pc_approval)|(pc_level)|(trusted_domains)|(plugin_enabled)"
                     + "|(plugin_encoded)|(plugin_net_allow)|(\\btaskkill\\b[^|;]*onesay)|(\\bstop-process\\b[^|;]*onesay)"
-                    + "|(appdata[\\\\]onesay)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts))",
+                    + "|(appdata[\\\\]onesay)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts|remembered))|(approve_kinds)|(clip_autoclear)",
             Pattern.CASE_INSENSITIVE);
 
     public static String selfAuthorizeReason(String normalized, List<String> selfPaths) {
@@ -1106,24 +1271,39 @@ public final class LinkPolicy {
     public static final int URL_MAX = 2048;
 
     public static final class UrlCheck {
+        /** 网址有风险的原因（ok = false 且不是 malformed 时）：IP 字面量 / 内网主机 / 带账号密码 / 疑似仿冒。 */
+        public static final String RISK_IP = "ip", RISK_PRIVATE = "private", RISK_CREDENTIALS = "credentials", RISK_LOOKALIKE = "lookalike";
         public final boolean ok, trusted;
+        /** 格式就不对（空、太长、控制字符、不是 http / https、主机名不合法…）：这不是风险而是坏输入，任何时候都不开。 */
+        public final boolean malformed;
         /** 只给人看：域名（IDN 同时给 Unicode 与 xn-- 形式）。 */
         public final String host, shown, why;
+        /** 有风险时是哪一种（{@link #RISK_IP} …）；没风险 / 格式不对为空。 */
+        public final String risk;
 
         UrlCheck(boolean ok, boolean trusted, String host, String shown, String why) {
+            this(ok, trusted, host, shown, why, false, "");
+        }
+
+        UrlCheck(boolean ok, boolean trusted, String host, String shown, String why, boolean malformed, String risk) {
             this.ok = ok;
             this.trusted = trusted;
             this.host = host == null ? "" : host;
             this.shown = shown == null ? "" : shown;
             this.why = why == null ? "" : why;
+            this.malformed = !ok && malformed;
+            this.risk = ok || malformed || risk == null ? "" : risk;
         }
 
-        static UrlCheck bad(String why) { return new UrlCheck(false, false, "", "", why); }
+        static UrlCheck bad(String why) { return new UrlCheck(false, false, "", "", why, true, ""); }
+
+        static UrlCheck risky(String risk, String host, String shown, String why) { return new UrlCheck(false, false, host, shown, why, false, risk); }
     }
 
     /**
-     * 打开网址前的检查：只许 http/https；拒绝带账号密码（user:pass@）、IP 字面量 / 内网主机（除非在信任列表）、
-     * 混合文字的仿冒域名（punycode / IDN）、超长、控制字符。trusted = 主机是信任域名或其子域。
+     * 打开网址前的检查：只许 http/https；超长、控制字符、格式不对 = {@link UrlCheck#malformed}（坏输入，不开）；
+     * 带账号密码（user:pass@）、IP 字面量 / 内网主机（除非在信任列表）、混合文字的仿冒域名（punycode / IDN）= 有风险（{@link UrlCheck#risk}，
+     * 2026-11-10 起由调用方决定是问你还是放行，不再一律拒绝）。trusted = 主机是信任域名或其子域。
      * v1 不做联网信誉查询（以后可以加）。
      */
     public static UrlCheck checkUrl(String raw, List<String> trustedDomains) {
@@ -1148,7 +1328,7 @@ public final class LinkPolicy {
             if (k >= 0 && k < end) end = k;
         }
         String auth = rest.substring(0, end);
-        if (auth.indexOf('@') >= 0) return UrlCheck.bad("网址里带了账号密码（user:pass@），拒绝");
+        if (auth.indexOf('@') >= 0) return UrlCheck.risky(UrlCheck.RISK_CREDENTIALS, "", auth.substring(auth.lastIndexOf('@') + 1), "网址里带了账号密码（user:pass@）");
         String hostPort = auth;
         String host;
         if (hostPort.startsWith("[")) {
@@ -1176,15 +1356,15 @@ public final class LinkPolicy {
         }
         try {
             URI parsed = new URI(scheme + "://" + ascii + u.substring(colon + 3 + auth.length()).replace(" ", "%20"));
-            if (parsed.getRawUserInfo() != null) return UrlCheck.bad("网址里带了账号密码（user:pass@），拒绝");
+            if (parsed.getRawUserInfo() != null) return UrlCheck.risky(UrlCheck.RISK_CREDENTIALS, ascii, ascii, "网址里带了账号密码（user:pass@）");
         } catch (Exception e) {
             // 路径部分有 URI 不收的字符：交给浏览器，但主机部分已经检查过
         }
         boolean trusted = trustedHost(ascii, trustedDomains);
-        if (isIpLiteral(ascii) && !trusted) return UrlCheck.bad("不打开 IP 地址网址（" + ascii + "），除非你把它加进信任列表");
-        if (isPrivateHost(ascii) && !trusted) return UrlCheck.bad("不打开内网 / 本机地址（" + ascii + "），除非你把它加进信任列表");
+        if (isIpLiteral(ascii) && !trusted) return UrlCheck.risky(UrlCheck.RISK_IP, ascii, ascii, "是 IP 地址网址（" + ascii + "），不在信任列表");
+        if (isPrivateHost(ascii) && !trusted) return UrlCheck.risky(UrlCheck.RISK_PRIVATE, ascii, ascii, "是内网 / 本机地址（" + ascii + "），不在信任列表");
         String look = lookalike(uni);
-        if (look != null) return UrlCheck.bad("疑似仿冒域名（" + look + "）：" + uni + "（" + ascii + "）");
+        if (look != null) return UrlCheck.risky(UrlCheck.RISK_LOOKALIKE, ascii, uni + "（" + ascii + "）", "疑似仿冒域名（" + look + "）：" + uni + "（" + ascii + "）");
         String shown = uni.equals(ascii) ? ascii : uni + "（" + ascii + "）";
         return new UrlCheck(true, trusted, ascii, shown, "");
     }
@@ -1290,20 +1470,31 @@ public final class LinkPolicy {
 
     // ================================================================== 剪贴板信任检查
 
-    public static final int CLIP_MAX_BYTES = 10 * 1024;
+    /** 敏感内容写进剪贴板后多久清除（2026-11-10 起是可选设置，默认关：{@link #CLIP_AUTOCLEAR_DEFAULT}）。 */
     public static final long CLIP_SENSITIVE_CLEAR_MS = 60000;
+    public static final boolean CLIP_AUTOCLEAR_DEFAULT = false;
 
     public static final class ClipCheck {
         public static final int OK = 0, SENSITIVE = 1, REJECT = 2;
         public final int verdict, chars;
         public final String why;
         public final List<String> kinds;
+        /**
+         * 内容像命令 / 脚本、或带 http(s) 以外的链接 / 有问题的链接：2026-11-10 起不再拒绝，只记在这里（电脑作为被控端时据此问你，
+         * 手机作为被控端不看它）。空 = 没有。
+         */
+        public final String note;
 
         ClipCheck(int verdict, int chars, String why, List<String> kinds) {
+            this(verdict, chars, why, kinds, "");
+        }
+
+        ClipCheck(int verdict, int chars, String why, List<String> kinds, String note) {
             this.verdict = verdict;
             this.chars = chars;
             this.why = why == null ? "" : why;
             this.kinds = kinds == null ? Collections.<String>emptyList() : kinds;
+            this.note = note == null ? "" : note;
         }
     }
 
@@ -1324,27 +1515,25 @@ public final class LinkPolicy {
                     + "|(\\bAKIA[0-9A-Z]{16}\\b)|(\\bsk-[A-Za-z0-9_\\-]{20,}\\b)|(\\bgh[pousr]_[A-Za-z0-9]{30,}\\b)|(\\bxox[baprs]-[A-Za-z0-9\\-]{10,})");
     private static final Pattern PASSWORD_KW = Pattern.compile("(密码|口令|password|passwd|pwd|pin)\\s*[:：=是]\\s*\\S+", Pattern.CASE_INSENSITIVE);
 
-    /** 写手机 / 电脑剪贴板前的检查：超长 / 像命令或脚本 / 含过不了网址检查的链接 → 拒绝；验证码 / 卡号 / 私钥 / 助记词 / 密码 → 敏感。 */
+    /**
+     * 写手机 / 电脑剪贴板前的检查：只有空的拒绝（文字长度由指令参数检查管，10 万字）；验证码 / 卡号 / 私钥 / 助记词 / 密码 → 敏感。
+     * 像命令 / 脚本、带 http(s) 以外或有问题的链接 → 记在 {@link ClipCheck#note}（2026-11-10 起不再拒绝；以前超过 10 KB 和像命令都拒）。
+     */
     public static ClipCheck checkClip(String text) {
         if (text == null || text.length() == 0) return new ClipCheck(ClipCheck.REJECT, 0, "没有文字", null);
         int chars = text.codePointCount(0, text.length());
-        int bytes;
-        try {
-            bytes = text.getBytes("UTF-8").length;
-        } catch (Exception e) {
-            bytes = text.length() * 3;
-        }
-        if (bytes > CLIP_MAX_BYTES) return new ClipCheck(ClipCheck.REJECT, chars, "内容太大（超过 10 KB）", null);
-        if (SCRIPTY.matcher(text).find()) return new ClipCheck(ClipCheck.REJECT, chars, "内容像命令 / 脚本", null);
-        Matcher um = URLISH.matcher(text);
-        while (um.find()) {
+        String note = "";
+        String head = text.length() > 64 * 1024 ? text.substring(0, 64 * 1024) : text; // 只为找特征，太长的看前 64K
+        if (SCRIPTY.matcher(head).find()) note = "内容像命令 / 脚本";
+        Matcher um = URLISH.matcher(head);
+        while (note.length() == 0 && um.find()) {
             String scheme = um.group(1).toLowerCase(Locale.ROOT);
             String whole = um.group();
             if (um.group(2) == null && !in(scheme, "javascript", "data", "intent", "file", "content", "vbscript")) continue; // 「时间:10」这类不是链接
-            if (!in(scheme, "http", "https")) return new ClipCheck(ClipCheck.REJECT, chars, "含不允许的链接（" + scheme + ":）", null);
+            if (!in(scheme, "http", "https")) { note = "含 " + scheme + ": 链接"; break; }
             UrlCheck uc = checkUrl(whole, null);
-            if (!uc.ok && !uc.why.startsWith("不打开")) return new ClipCheck(ClipCheck.REJECT, chars, "含有问题的链接：" + uc.why, null);
-            if (!uc.ok) return new ClipCheck(ClipCheck.REJECT, chars, "含 IP / 内网链接", null);
+            if (uc.malformed) note = "含有问题的链接：" + uc.why;
+            else if (!uc.ok) note = UrlCheck.RISK_IP.equals(uc.risk) || UrlCheck.RISK_PRIVATE.equals(uc.risk) ? "含 IP / 内网链接" : "含有风险的链接：" + uc.why;
         }
         List<String> kinds = new ArrayList<String>();
         String t = text.trim();
@@ -1356,8 +1545,8 @@ public final class LinkPolicy {
         if (PRIVKEY.matcher(text).find()) kinds.add("私钥 / 密钥");
         if (seedLike(t)) kinds.add("助记词");
         if (PASSWORD_KW.matcher(text).find() || passwordLike(t)) kinds.add("密码");
-        if (!kinds.isEmpty()) return new ClipCheck(ClipCheck.SENSITIVE, chars, join(kinds, "、"), kinds);
-        return new ClipCheck(ClipCheck.OK, chars, "", null);
+        if (!kinds.isEmpty()) return new ClipCheck(ClipCheck.SENSITIVE, chars, join(kinds, "、"), kinds, note);
+        return new ClipCheck(ClipCheck.OK, chars, "", null, note);
     }
 
     public static boolean luhn(String digits) {
@@ -1582,7 +1771,7 @@ public final class LinkPolicy {
 
     public static String reasonZh(String code) {
         if (R_DENIED_BY_LEVEL.equals(code)) return "执行级别不允许";
-        if (R_CONFIRM_TIMEOUT.equals(code)) return "对方 30 秒内没确认，已拒绝";
+        if (R_CONFIRM_TIMEOUT.equals(code)) return "对方 60 秒内没确认，已拒绝";
         if (R_CONFIRM_DENIED.equals(code)) return "对方点了拒绝";
         if (R_UNTRUSTED_URL.equals(code)) return "网址没通过安全检查";
         if (R_BLOCKED_APP.equals(code)) return "这类 App 不允许远程操作";
@@ -1597,7 +1786,8 @@ public final class LinkPolicy {
         if (R_PLUGIN_BLOCKED.equals(code)) return "安全插件拦下了（提权 / 看不出内容 / 沙箱断网）";
         if (R_NEEDS_ADMIN_SCRIPT.equals(code)) return "这件事要管理员，已生成脚本，需你自己用管理员身份执行";
         if (R_SELF_GRANT_BLOCKED.equals(code)) return "远程不能改 OneSay 自己的设置";
-        if (R_VOICE_APPROVAL_BLOCKED.equals(code)) return "确认只认本机鼠标 / 键盘点击，语音和远程消息不能批准";
+        if (R_VOICE_APPROVAL_BLOCKED.equals(code)) return "确认只认真人点击（本机鼠标 / 键盘，或已配对手机屏幕上的确认卡），语音、远程消息和机器人不能批准";
+        if (R_PAY_USER_TAP.equals(code)) return "付款 / 转账的最后一下只能你自己点";
         return "";
     }
 

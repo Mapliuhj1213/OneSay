@@ -28,7 +28,7 @@ public class PcGuardTest {
 
         @Override public int ask(String from, String cmd, String detail, long timeoutMs) {
             asked.add(cmd + "|" + detail);
-            assertEquals(30_000L, timeoutMs);
+            assertEquals(PcGuard.CONFIRM_MS, timeoutMs); // [approve-not-block] 30 秒 → 60 秒（方案 4）
             return answer;
         }
     }
@@ -62,7 +62,8 @@ public class PcGuardTest {
                 {LinkPolicy.Cat.NET_SEC_SETTING, S, S, S}, {LinkPolicy.Cat.SHELL_EXEC, D, C, C}, {LinkPolicy.Cat.OUTSIDE_WRITE, D, C, A},
                 {LinkPolicy.Cat.OPEN_APP, D, A, A}, {LinkPolicy.Cat.WORKSPACE_WRITE, D, A, A}, {LinkPolicy.Cat.UNINSTALL_APP, D, C, C},
                 {LinkPolicy.Cat.APP_OPERATE, D, D, A}, {LinkPolicy.Cat.RUN_WS_SCRIPT, D, C, C}, {LinkPolicy.Cat.SELF_GRANT, S, S, S},
-                {LinkPolicy.Cat.SYSTEM_APP_OP, D, D, D}, {LinkPolicy.Cat.UNKNOWN, D, D, D},
+                // [approve-not-block] 改：系统程序从「任何档位拒」改成「问你」（只读档照旧拒）（方案 1/3）
+                {LinkPolicy.Cat.SYSTEM_APP_OP, D, C, C}, {LinkPolicy.Cat.UNKNOWN, D, D, D},
                 {LinkPolicy.Cat.SHORTCUT, D, D, D}}; // 没有事实 = 不在快捷指令列表里 → 一律拒
         for (Object[] r : rows) {
             int i = 1;
@@ -106,17 +107,22 @@ public class PcGuardTest {
         assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, reason(g.check("phone", "app_close", m("name", "notepad"))));
 
         // 网址 / 剪贴板信任检查
-        assertEquals(LinkPolicy.R_UNTRUSTED_URL, reason(g.check("phone", "open_url", m("url", "http://127.0.0.1:8080/"))));
+        // [approve-not-block] 改：IP 网址从 untrusted_url 拒绝改成「问你」（没人点 = needs_confirm_timeout），确认框写明原因（方案 1/3）
+        st.answer = PcGuard.TIMEOUT;
+        int n0 = st.asked.size();
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "open_url", m("url", "http://127.0.0.1:8080/"))));
+        assertTrue(st.asked.get(n0), st.asked.get(n0).contains("IP"));
         assertEquals(LinkPolicy.R_UNTRUSTED_URL, reason(g.check("phone", "open_url", m("url", "file:///C:/Windows/System32/calc.exe"))));
         int n = st.asked.size();
-        st.answer = PcGuard.TIMEOUT;
         assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "open_url", m("url", "https://example.org/"))));
         assertTrue("确认框显示域名", st.asked.get(n).contains("example.org"));
         c.trusted = "example.org";
         assertNull(g.check("phone", "open_url", m("url", "https://www.example.org/x")).reply);
-        assertEquals(LinkPolicy.R_CLIPBOARD_REJECTED, reason(g.check("phone", "clipboard_set", m("text", "powershell -enc AAAA"))));
-        assertEquals(LinkPolicy.R_BLOCKED_APP, reason(g.check("phone", "open_app", m("name", "支付宝"))));
-        assertEquals(LinkPolicy.R_BLOCKED_APP, reason(g.check("phone", "open_app", m("name", "x", "path", "C:\\Program Files\\KeePassXC\\KeePassXC.exe"))));
+        // [approve-not-block] 改：像命令的剪贴板、支付 / 密码类程序从直接拒（clipboard_rejected / blocked_app）改成「问你」（没人点 = needs_confirm_timeout）（方案 1/2/3）
+        st.answer = PcGuard.TIMEOUT;
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "clipboard_set", m("text", "powershell -enc AAAA"))));
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "open_app", m("name", "支付宝"))));
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "open_app", m("name", "x", "path", "C:\\Program Files\\KeePassXC\\KeePassXC.exe"))));
         assertEquals("电脑带来的下划线参数被丢掉", null, g.check("phone", "echo", m("_from", "spoof")).args.get("_from"));
         Map<String, Object> d = g.decorate(null);
         assertEquals("auto", d.get("level"));
@@ -177,7 +183,8 @@ public class PcGuardTest {
         assertEquals("快捷指令列表里没有的完全访问也不认", LinkPolicy.R_UNKNOWN, reason(g.check("phone", "shortcut_run", m("name", "x"))));
         assertEquals(1, st.asked.size());
         assertNull(g.check("phone", "app_close", m("name", "notepad")).reply);
-        assertEquals(LinkPolicy.R_SYSTEM_APP, reason(g.check("phone", "app_close", m("name", "explorer"))));
+        // [approve-not-block] 改：系统程序从 system_app 直接拒改成「问你」（没人点 = needs_confirm_timeout）（方案 1/3）
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "app_close", m("name", "explorer"))));
         assertEquals("B 类在完全访问也要确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "volume", m("action", "mute"))));
         // [插件] 改：例子从 HKCU 换成 HKLM —— HKCU 普通键现在放开（B.3），要管理员的仍只生成脚本（原因码 needs_admin_script）
         assertEquals("要管理员的完全访问也不放开", LinkPolicy.R_NEEDS_ADMIN_SCRIPT, reason(g.check("phone", "sys_exec", m("command", "reg delete HKLM\\SOFTWARE\\X /f"))));
@@ -288,7 +295,8 @@ public class PcGuardTest {
             assertNotNull(sc);
             assertEquals(1, sc.length);
             assertEquals("列表里没有的快捷指令不跑", 1, Cli.send(cli, "pc-lan", "shortcut_run", m("name", "x"), out, 10));
-            assertEquals(1, Cli.send(cli, "pc-lan", "open_url", m("url", "http://10.0.0.1/"), out, 10));
+            // [approve-not-block] 改：内网 IP 现在走确认（会等 60 秒），这里换成格式不对的网址测 untrusted_url 这条路（方案 1/3）
+            assertEquals(1, Cli.send(cli, "pc-lan", "open_url", m("url", "http:///x"), out, 10));
             assertEquals(0, Cli.send(cli, "pc-lan", "file_write", m("path", "inbox/a.txt", "text", "来自手机"), out, 10));
             assertEquals("来自手机", Files.readString(Path.of(pcCfg.workspaceDir, "inbox", "a.txt")));
             String l = log.toString();
@@ -303,7 +311,8 @@ public class PcGuardTest {
     @Test public void reasonTextForChat() {
         Map<String, Object> d = new TreeMap<>();
         d.put("reason", LinkPolicy.R_CONFIRM_TIMEOUT);
-        assertEquals("手机上 30 秒没人确认，已拒绝（对方 30 秒内没确认，已拒绝）", PhoneCmds.withReason(new Actions.Result(false, "手机上 30 秒没人确认，已拒绝", d)));
+        // [approve-not-block] 改：原因码说明 30 秒 → 60 秒（方案 4）
+        assertEquals("手机上 60 秒没人确认，已拒绝（对方 60 秒内没确认，已拒绝）", PhoneCmds.withReason(new Actions.Result(false, "手机上 60 秒没人确认，已拒绝", d)));
         d.put("reason", LinkPolicy.R_SCRIPT_GENERATED);
         assertEquals("已生成脚本，需你自己执行：scripts/a.sh", PhoneCmds.withReason(new Actions.Result(false, "已生成脚本，需你自己执行：scripts/a.sh", d)));
         d.put("reason", LinkPolicy.R_UNTRUSTED_URL);
@@ -313,7 +322,8 @@ public class PcGuardTest {
                 "shortcut_needs_approval", "shortcut_changed", "shortcut_category_blocked"})
             assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
         // [恢复手机] 改：手机作为被控端恢复成分档之前（D）：不再在手机上确认，电脑不用多等 40 秒；手机端的 8 个新指令不再有
-        assertEquals(8_000L, PhoneCmds.timeoutMs("open_url"));
+        // [approve-not-block] 改：手机上可能弹确认卡的（网址 / App / 卸载 / 系统命令）电脑多等 60 秒确认 + 5 秒（方案 3/4）
+        assertEquals(8_000L + 65_000L, PhoneCmds.timeoutMs("open_url"));
         assertEquals(8_000L, PhoneCmds.timeoutMs("status"));
         // [第二轮] 改：8 个手机指令按「每项一个开关、不分档」加回来了（用户决定 3），电脑又能发出它们
         assertTrue(PhoneCmds.ALL.contains("flashlight") && PhoneCmds.ALL.contains("sys_exec"));

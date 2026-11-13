@@ -269,8 +269,9 @@ public class Round2Test {
         assertNotNull(PhoneCmds.check("sys_exec", m("command", "")));
         assertNull(PhoneCmds.check("file_list", m()));
         assertNull(PhoneCmds.check("script_list", m()));
-        assertEquals(20_000L, PhoneCmds.timeoutMs("sys_exec"));
-        assertEquals(12_000L, PhoneCmds.timeoutMs("uninstall_app"));
+        // [approve-not-block] 改：系统命令 / 卸载在手机上可能弹确认卡，电脑多等 60 秒确认 + 5 秒（方案 3/4）
+        assertEquals(20_000L + 65_000L, PhoneCmds.timeoutMs("sys_exec"));
+        assertEquals(12_000L + 65_000L, PhoneCmds.timeoutMs("uninstall_app"));
         assertEquals(8_000L, PhoneCmds.timeoutMs("flashlight"));
     }
 

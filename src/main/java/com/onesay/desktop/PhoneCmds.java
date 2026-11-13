@@ -13,7 +13,7 @@ import java.util.Map;
  *   <li>screen_on：点亮屏幕（不解锁）；volume_set {percent 0–100}：媒体音量；</li>
  *   <li>clipboard_set {text}：写手机剪贴板；notify {title, text}：手机上弹一条通知；status：电量、充电、屏幕、铃声模式、媒体音量；</li>
  *   <li>ping / caps：在线、手机上打开了哪些。</li>
- *   <li>加回来的 8 项（不分档、手机上不确认，每项一个开关）：flashlight {on}、setting_set {name, value}、file_write {path, text}、
+ *   <li>加回来的 8 项（不分档、每项一个开关；危险的那一下在手机上弹确认卡）：flashlight {on}、setting_set {name, value}、file_write {path, text}、
  *   file_list、uninstall_app {package}（手机弹系统卸载确认）、script_list、script_run {name}、sys_exec {command}（走手机特权通道）。</li>
  * </ul>
  * 每一项手机上都有开关；个人版默认都开，开源版总开关、危险项（打开网址 / 打开 App / 写剪贴板）和加回来的 8 项默认关；都必须先配对。
@@ -29,8 +29,15 @@ public final class PhoneCmds {
     private PhoneCmds() {}
 
     public static long timeoutMs(String cmd) {
-        if (cmd.equals("sys_exec") || cmd.equals("script_run")) return 20_000; // 手机特权通道执行，命令本身要时间
-        return cmd.equals("find_phone") || cmd.equals("open_app") || cmd.equals("uninstall_app") || cmd.equals("setting_set") ? 12_000 : 8_000;
+        long base;
+        if (cmd.equals("sys_exec") || cmd.equals("script_run")) base = 20_000; // 手机特权通道执行，命令本身要时间
+        else base = cmd.equals("find_phone") || cmd.equals("open_app") || cmd.equals("uninstall_app") || cmd.equals("setting_set") ? 12_000 : 8_000;
+        return mayConfirmOnPhone(cmd) ? base + LinkPolicy.CONFIRM_TIMEOUT_MS + 5_000 : base;
+    }
+
+    /** 手机上可能弹确认卡的（支付 / 系统 App、有风险的网址、系统命令里卸载这类 App）：电脑要多等人点。 */
+    public static boolean mayConfirmOnPhone(String cmd) {
+        return cmd.equals("open_url") || cmd.equals("open_app") || cmd.equals("uninstall_app") || cmd.equals("sys_exec");
     }
 
     /** 参数检查；没问题返回 null，否则返回给人看的原因。手机端会再查一遍。 */

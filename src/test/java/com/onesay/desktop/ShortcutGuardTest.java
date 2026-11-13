@@ -36,7 +36,7 @@ public class ShortcutGuardTest {
         }
 
         @Override public int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways) {
-            assertEquals(30_000L, timeoutMs);
+            assertEquals(PcGuard.CONFIRM_MS, timeoutMs); // [approve-not-block] 30 秒 → 60 秒（方案 4）
             asked.add(cmd + "|" + detail);
             offered.add(offerAlways);
             return answer;

@@ -38,6 +38,8 @@ public final class Agent {
         this.actions = actions;
         this.log = log;
         this.guard = new PcGuard(cfg, confirms);
+        confirms.phoneOffer = this::offerToPhone;
+        confirms.phoneClose = this::closeOnPhone;
         if (cfg.lanEnabled()) add(l -> new LanServer(cfg, l));
         if (cfg.relayEnabled()) add(l -> new RelayClient(cfg, l));
     }
@@ -94,6 +96,7 @@ public final class Agent {
         String id = String.valueOf(f.get("id"));
         Map<String, Object> body = (Map<String, Object>) f.get("body");
         if ("result".equals(body.get("kind"))) { onResult(from, id, body); return; } // 电脑 → 手机下令的回复
+        if ("confirm_answer".equals(body.get("kind"))) { onConfirmAnswer(from, id, body); return; } // 手机屏幕上确认卡的回答
         if (!"cmd".equals(body.get("kind"))) return;
 
         Protocol.Check c = Protocol.verify(cfg.pairKey, id, from, cfg.deviceId, body, System.currentTimeMillis(), replay);
@@ -110,7 +113,7 @@ public final class Agent {
         String cmd = String.valueOf(body.get("cmd"));
         Map<String, Object> args = body.get("args") instanceof Map ? (Map<String, Object>) body.get("args") : Map.of();
         log.accept("执行 " + cmd + "（来自 " + from + "，经" + via.name() + "）");
-        // 要电脑上确认的指令最多等 30 秒：放到单独线程，免得挡住后面的指令（找手机 / 状态等仍走顺序执行线程）
+        // 要确认的指令最多等 60 秒：放到单独线程，免得挡住后面的指令（找手机 / 状态等仍走顺序执行线程）
         Runnable job = () -> {
             Actions.Result r;
             SafeExec.REMOTE.set(Boolean.TRUE); // 远程指令：子进程永不提权；OneSay 是管理员时要降权，降不了就拒
@@ -119,6 +122,9 @@ public final class Agent {
                 if (o.reply != null) {
                     r = o.reply;
                     log.accept("没执行 " + cmd + "（来自 " + from + "）：" + r.data.get("reason"));
+                } else if (o.pass == null || !o.pass.consume(cmd, o.args)) {
+                    // 审批在执行层强制：没有判定放行时发的一次性凭证就不执行（思路借鉴 DIYgod/pinky，Apache-2.0；代码自己写的）
+                    r = Actions.Result.fail("没有通过审批，不执行");
                 } else if (cmd.equals("caps")) {
                     List<Object> caps = new ArrayList<>(actions.capabilities());
                     caps.addAll(new java.util.TreeSet<>(local.keySet()));
@@ -152,6 +158,61 @@ public final class Agent {
             t.setDaemon(true);
             t.start();
         }
+    }
+
+    // ------------------------------------------------------------------ 电脑上的确认也发到手机（手机屏幕上能批）
+
+    /**
+     * 把一条确认发给发令的那台手机（常连通道 / 中转）：签名的 confirm_offer，带一次性 token。手机界面上真人点了才回 confirm_answer；
+     * 手机不在线就不发（照样只在电脑上等）。
+     */
+    boolean offerToPhone(PcGuard.PhoneOffer o) {
+        if (o == null || o.from == null || o.from.isEmpty() || !cfg.peerAllowed(o.from)) return false;
+        Link via = route(o.from);
+        if (via == null) return false;
+        Map<String, Object> b = new TreeMap<>();
+        b.put("kind", "confirm_offer");
+        b.put("cid", (long) o.id);
+        b.put("token", o.token);
+        b.put("cmd", o.cmd);
+        b.put("detail", o.detail);
+        b.put("always", o.always);
+        b.put("remember_kind", o.rememberKind);
+        b.put("remember_zh", o.rememberKind.isEmpty() ? "" : LinkPolicy.kindZh(o.rememberKind));
+        b.put("timeout_ms", Math.max(0, o.deadline - System.currentTimeMillis()));
+        String mid = Protocol.newId();
+        via.send(Protocol.envelope(o.from, mid, Protocol.seal(cfg.pairKey, mid, cfg.deviceId, o.from, b, System.currentTimeMillis())));
+        log.accept("确认也发到了手机 " + o.from + "（手机屏幕上真人点击也能批）");
+        return true;
+    }
+
+    /** 这条确认结束了：叫手机把卡收起来（尽力而为）。 */
+    void closeOnPhone(PcGuard.PhoneOffer o) {
+        Link via = o == null ? null : route(o.from);
+        if (via == null) return;
+        Map<String, Object> b = new TreeMap<>();
+        b.put("kind", "confirm_close");
+        b.put("cid", (long) o.id);
+        String mid = Protocol.newId();
+        via.send(Protocol.envelope(o.from, mid, Protocol.seal(cfg.pairKey, mid, cfg.deviceId, o.from, b, System.currentTimeMillis())));
+    }
+
+    /** 手机确认卡的回答：验签 + 时间窗 + 一次性编号 + 允许的设备，再交给 {@link PcGuard.Confirms#answerPhone}（规则在 ConfirmGate）。 */
+    private void onConfirmAnswer(String from, String id, Map<String, Object> body) {
+        Protocol.Check c = Protocol.verify(cfg.pairKey, id, from, cfg.deviceId, body, System.currentTimeMillis(), replay);
+        if (c != Protocol.Check.OK || !cfg.peerAllowed(from)) {
+            log.accept("手机 " + from + " 的确认回答没通过校验：" + (c != Protocol.Check.OK ? c : "设备未被允许"));
+            return;
+        }
+        Object cid = body.get("cid"), shown = body.get("shown_ms");
+        if (!(cid instanceof Number)) return;
+        ConfirmGate.Answer a = confirms.answerPhone(from, ((Number) cid).intValue(), String.valueOf(body.get("token")), Boolean.TRUE.equals(body.get("allow")),
+                Boolean.TRUE.equals(body.get("always")), Boolean.TRUE.equals(body.get("remember")), String.valueOf(body.get("input")),
+                shown instanceof Number ? ((Number) shown).longValue() : 0L);
+        boolean allow = Boolean.TRUE.equals(body.get("allow"));
+        if (a == ConfirmGate.Answer.ACCEPTED) log.accept("手机 " + from + " 的确认卡上" + (allow ? "允许" : "拒绝") + "了一条请求（真人触摸）");
+        else if (a == ConfirmGate.Answer.NOT_LOCAL) log.accept("手机 " + from + " 回的「允许」不是手机界面上的真人触摸 / token 对不上，没算数：" + LinkPolicy.R_VOICE_APPROVAL_BLOCKED);
+        else log.accept("手机 " + from + " 的确认回答没算数（" + a + "）");
     }
 
     // ------------------------------------------------------------------ 电脑 → 手机（协议 v2）
