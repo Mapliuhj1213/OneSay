@@ -9,11 +9,11 @@ import org.json.JSONObject;
 /**
  * [lane C 第 2 项] 常用城市的裁决（纯函数，JVM 可测）。
  *
- * <p>用户 2026-10-22 的决定：常用城市来自<b>定位</b>和<b>三星系统天气的城市列表</b>。优先级（高 → 低）：
+ * <p>常用城市来自<b>手动设置</b>、<b>你的默认天气 App 屏幕上显示的城市</b>（无障碍读屏，你在控制台点一下才读）和<b>定位</b>。优先级（高 → 低）：
  * <ol>
  *   <li>用户手动设置的 {@code bixby_search_cfg/home_city}（R15 的设置项，非空就用它，别的都不看）；</li>
- *   <li>三星系统天气的城市列表：锁屏 / 小组件当前选中的那座城（{@code TABLE_SETTING_INFO.COL_SETTING_LAST_SEL_LOCATION}），
- *       选中项对不上时取排序第一的城市（读法照晨间播报 SysWeather，只读）；</li>
+ *   <li>默认天气 App 的屏幕：你在控制台点「从天气 App 读城市」时，经无障碍读它首屏显示的城市（{@link #cityFromScreen}），
+ *       结果缓存起来，不定期自动打开别的 App；</li>
  *   <li>定位：最后一次已知位置 → 经纬度反查城市（系统 Geocoder → BigDataCloud → Nominatim）；</li>
  *   <li>都拿不到（含<b>定位权限没给</b>）→ 空串 = 现在的行为（天气问句不补城市）。</li>
  * </ol>
@@ -39,7 +39,7 @@ public final class HomeCityPolicy {
         }
     }
 
-    /** 系统天气库里的一行城市。 */
+    /** 天气 App 里的一行城市（多城市列表排序用）。 */
     public static final class SysCity {
         public final String key;
         public final String name;
@@ -52,7 +52,7 @@ public final class HomeCityPolicy {
         }
     }
 
-    /** 缓存有效期：系统天气列表 / 定位反查的结果 6 小时内复用（手动城市不缓存，每次现读）。 */
+    /** 缓存有效期：天气 App 城市 / 定位反查的结果 6 小时内复用（手动城市不缓存，每次现读）。 */
     public static final long CACHE_TTL_MS = 6L * 3600L * 1000L;
     /** 什么都没拿到时，30 分钟内不再重试（root / 网络都要花时间）。 */
     public static final long NEGATIVE_TTL_MS = 30L * 60L * 1000L;
@@ -175,65 +175,34 @@ public final class HomeCityPolicy {
         }
     }
 
-    // ------------------------------------------------------------------ root 复制命令
 
-    /** 三星天气（WeatherClock）库的源路径。 */
-    public static final String SYS_DB = "/data/data/com.sec.android.daemonapp/databases/WeatherClock";
+    // ------------------------------------------------------------------ 读默认天气 App 的屏幕（通用，不碰任何私有数据库）
 
-    /**
-     * 经 root 守护把系统天气库复制到本 App 目录的命令（纯函数，有单测）。
-     *
-     * <p>要点（都来自晨间播报 SysWeather 的实测教训）：
-     * <ul>
-     *   <li>主库 + {@code -wal} 都要（数据几乎都在 WAL 里）；<b>不复制 {@code -shm}</b>（mmap 越界 SIGBUS）；</li>
-     *   <li>目标文件由 App <b>先建好</b>，root 只用 {@code cat >} 往已有文件里写 —— 文件的 SELinux 标签（含 MCS 类别）
-     *       保持 App 自己的，不会出现 root 新建文件 App 打不开（SQLITE_CANTOPEN_EACCES）的问题；</li>
-     *   <li>WAL 不存在时不算失败（库可能刚 checkpoint 过）；最后回显两份的字节数，App 据此判断复制是否完整。</li>
-     * </ul>
-     */
-    @Deprecated   // 2026-10-25：v4 守护拒「>」重定向与 &&；执行改用 copySteps，这里只留作说明与旧单测
-    public static String copyCommand(String dstDir) {
-        String d = dstDir.endsWith("/") ? dstDir.substring(0, dstDir.length() - 1) : dstDir;
-        String main = q(d + "/WeatherClock");
-        String wal = q(d + "/WeatherClock-wal");
-        return "cat " + q(SYS_DB) + " > " + main
-                + " && { [ -f " + q(SYS_DB + "-wal") + " ] && cat " + q(SYS_DB + "-wal") + " > " + wal + " || : ; }"
-                + " && echo \"SZ $(wc -c < " + main + ") $(wc -c < " + wal + ")\"";
-    }
+    private static final java.util.regex.Pattern CITY_SUFFIX = java.util.regex.Pattern.compile("^([\\u4e00-\\u9fa5]{1,8})(市|区|县)$");
+    private static final java.util.regex.Pattern NOT_CITY = java.util.regex.Pattern.compile(
+            "天气|预报|空气|湿度|风|日出|日落|紫外线|体感|降水|小时|今天|明天|周[一二三四五六日天]|星期|设置|添加|管理|更多|分享|[0-9℃°%]");
 
     /**
-     * 2026-10-25 exec 守护 v4（fix-root.md §3「城市库拷贝」）：拆成两条白名单内的单命令。
-     * <ul>
-     *   <li>{@code cp 源 目标}：目标文件仍由 App 先建好，cp 对已存在的目标是<b>原地截断重写</b>（不换 inode），
-     *       属主与 SELinux 标签（含 MCS 类别）仍是 App 自己的——与原来 {@code cat >} 的考虑一致；</li>
-     *   <li>主库必须成功（相当于 {@code &&}）；WAL 不存在时 cp 失败不算失败。App 在发命令<b>之前</b>先把自己的
-     *       WAL 副本清空，避免源 WAL 不存在时残留上一次的旧 WAL（原脚本 {@code || :} 的遗留问题）；</li>
-     *   <li>不再回显字节数：App 直接读两份文件的长度（{@code File.length()}）。</li>
-     * </ul>
+     * 从天气 App 首屏的文字（按从上到下的顺序）里认出当前城市（纯函数，JVM 单测）：
+     * 优先「XX市 / XX区 / XX县」（去掉「市」）；否则取靠前的、2–6 个汉字、不像天气字段的短文本，
+     * 且它在 {@link com.onesay.assistant.v2.search.WeatherQuery} 的常见地名表里或紧挨着定位图标描述（「当前位置」「定位」）。认不出 → 空串。
      */
-    public static java.util.List<com.onesay.assistant.v2.executor.ShellScript.Step> copySteps(String dstDir) {
-        String d = dstDir.endsWith("/") ? dstDir.substring(0, dstDir.length() - 1) : dstDir;
-        return java.util.Arrays.asList(
-                com.onesay.assistant.v2.executor.ShellScript.must("cp " + q(SYS_DB) + " " + q(d + "/WeatherClock")),
-                com.onesay.assistant.v2.executor.ShellScript.run("cp " + q(SYS_DB + "-wal") + " " + q(d + "/WeatherClock-wal")));
-    }
-
-    /** 解析 copyCommand 的回显「SZ 主库字节 WAL字节」→ {main, wal}；解析不出 → null。 */
-    public static long[] parseCopyEcho(String out) {
-        if (out == null) return null;
-        int k = out.lastIndexOf("SZ ");
-        if (k < 0) return null;
-        String[] p = out.substring(k + 3).trim().split("\\s+");
-        if (p.length < 2) return null;
-        try {
-            return new long[] {Long.parseLong(p[0].trim()), Long.parseLong(p[1].trim())};
-        } catch (NumberFormatException e) {
-            return null;
+    public static String cityFromScreen(List<String> texts) {
+        if (texts == null) return "";
+        for (String t0 : texts) {
+            String t = t0 == null ? "" : t0.trim();
+            java.util.regex.Matcher m = CITY_SUFFIX.matcher(t);
+            if (m.matches() && !NOT_CITY.matcher(t).find()) return "市".equals(m.group(2)) ? clean(m.group(1)) : clean(t);
         }
+        boolean nearLocate = false;
+        for (String t0 : texts) {
+            String t = t0 == null ? "" : t0.trim();
+            if (t.contains("当前位置") || t.contains("定位") || t.equalsIgnoreCase("location")) { nearLocate = true; continue; }
+            if (!t.matches("[\\u4e00-\\u9fa5]{2,6}") || NOT_CITY.matcher(t).find()) { nearLocate = false; continue; }
+            if (nearLocate || com.onesay.assistant.v2.search.WeatherQuery.hasPlace(t, null)) return clean(t);
+        }
+        return "";
     }
-
-    /** 主库 + WAL 加起来的合理下界（低于这个说明复制没成，同 SysWeather.MIN_BYTES）。 */
-    public static final long MIN_DB_BYTES = 8L * 1024L;
 
     private static String q(String s) {
         return "'" + s.replace("'", "'\\''") + "'";

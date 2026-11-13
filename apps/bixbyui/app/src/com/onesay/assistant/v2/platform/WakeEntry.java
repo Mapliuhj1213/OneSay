@@ -5,9 +5,9 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 唤醒入口抽象（refactor/oss 2026-11-06）：Bixby 键、其他按键、悬浮球、语音唤醒词、默认助理手势……
+ * 唤醒入口抽象（refactor/oss 2026-11-06）：按键唤醒、悬浮球、语音唤醒词、默认助理手势……
  *
- * <p>现状：已实现的入口仍由原代码直接接线（WakeService 读 bixby.trigger、KWS 循环、VoiceInteractionService），
+ * <p>现状：已实现的入口仍由原代码直接接线（无障碍服务里的按键唤醒、KWS 循环、VoiceInteractionService），
  * 这里先给出统一的描述与能力声明，供能力页展示和移植时逐个换成实现类。
  * 后续实现类的约定：入口只负责「发生了一次唤醒」并调用 {@link Sink}，不碰录音和面板。
  */
@@ -19,7 +19,7 @@ public interface WakeEntry {
         void onWake(String source, String kind);
     }
 
-    /** 稳定 id（与 {@link FeatureRegistry} 里的功能 id 一致，如 {@code wake.bixby_key}）。 */
+    /** 稳定 id（与 {@link FeatureRegistry} 里的功能 id 一致，如 {@code wake.key}）。 */
     String id();
 
     /** 需要的设备能力。 */
@@ -36,6 +36,6 @@ public interface WakeEntry {
         private Builtin() {}
 
         public static final List<String> ORDER = Collections.unmodifiableList(Arrays.asList(
-                "wake.bixby_key", "wake.other_key", "wake.kws", "wake.assist", "wake.floating"));
+                "wake.key", "wake.kws", "wake.assist", "wake.floating"));
     }
 }

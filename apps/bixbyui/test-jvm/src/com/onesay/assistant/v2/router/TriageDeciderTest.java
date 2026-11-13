@@ -447,7 +447,7 @@ public class TriageDeciderTest {
 
     /** 多步 / 达成型 DO 即使 L0 命中也进循环（L0 只做一步）。 */
     @Test public void multiStepAndGoalDoUseLoop() {
-        TriageDecider.Signals l0 = new TriageDecider.Signals("store.search.samsung", false, false);
+        TriageDecider.Signals l0 = new TriageDecider.Signals("store.search.market", false, false);
         assertTrue(TriageDecider.decide("下载微信", l0).useAgentLoop);
         assertTrue(TriageDecider.decide("打开wifi然后打开蓝牙", l0).useAgentLoop);
     }

@@ -13,7 +13,7 @@ public interface EntryEnv {
     int sdkInt();
 
     /**
-     * 宿主探测到的设备能力，名字由宿主约定（OneSay 用 {@code DeviceCap} 的枚举名，如 {@code ROOT}、{@code BIXBY_KEY}、
+     * 宿主探测到的设备能力，名字由宿主约定（OneSay 用 {@code DeviceCap} 的枚举名，如 {@code ROOT}、{@code OVERLAY}、
      * {@code MIC}、{@code DEFAULT_ASSISTANT}）。宿主不认识的名字返回 {@link EntryTrigger.Tri#UNKNOWN}。
      */
     EntryTrigger.Tri cap(String name);

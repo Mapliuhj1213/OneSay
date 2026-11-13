@@ -35,7 +35,7 @@ public final class ShortcutRunActivity extends Activity {
         } else {
             try {
                 ShortcutUi.request(this, id, Contract.TRIG_LAUNCHER);
-                Toast.makeText(this, "已交给 Bixby 执行「" + r.s("name") + "」", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "已交给 OneSay 执行「" + r.s("name") + "」", Toast.LENGTH_SHORT).show();
             } catch (IllegalArgumentException e) {
                 Toast.makeText(this, "没发出去：" + e.getMessage(), Toast.LENGTH_LONG).show();
             }

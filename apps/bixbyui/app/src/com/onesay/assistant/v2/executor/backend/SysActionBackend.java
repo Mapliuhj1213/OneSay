@@ -44,7 +44,44 @@ public final class SysActionBackend implements ExecutorBackend {
         if (cap == null || !"custom".equals(cap.executorType)) return false;
         return FastCaps.SIGN_RECENTS_CLEAR.equals(cap.sign) || FastCaps.SIGN_DND_ON.equals(cap.sign)
                 || FastCaps.SIGN_DND_OFF.equals(cap.sign) || FastCaps.SIGN_NOTIF_CLEAR_ALL.equals(cap.sign)
-                || FastCaps.SIGN_NFC_TRANSIT.equals(cap.sign);
+                || FastCaps.SIGN_NFC_TRANSIT.equals(cap.sign) || isTorch(cap.sign);
+    }
+
+    static boolean isTorch(String sign) {
+        return "torch.on".equals(sign) || "torch.off".equals(sign) || "torch.toggle".equals(sign);
+    }
+
+    /** 手电筒最近一次已知状态（CameraManager.TorchCallback 维护；未知 = null）。 */
+    private static volatile Boolean sTorchOn;
+    private static volatile boolean sTorchCb;
+
+    /** 通用手电筒：CameraManager.setTorchMode（Android 6+，不需要 root、不碰任何厂商 sysfs 节点）。 */
+    private ExecutionResult torch(ExecRequest req) {
+        try {
+            Context ctx = req.context;
+            android.hardware.camera2.CameraManager cm = (android.hardware.camera2.CameraManager) ctx.getSystemService(Context.CAMERA_SERVICE);
+            String id = null;
+            for (String c : cm.getCameraIdList()) {
+                Boolean f = cm.getCameraCharacteristics(c).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                if (Boolean.TRUE.equals(f)) { id = c; break; }
+            }
+            if (id == null) return ExecutionResult.failed(ErrorCode.EXEC_FAILED, "这台手机没有闪光灯", "no flash", req.cap, req.args);
+            if (!sTorchCb) {
+                sTorchCb = true;
+                final String fid = id;
+                cm.registerTorchCallback(new android.hardware.camera2.CameraManager.TorchCallback() {
+                    @Override public void onTorchModeChanged(String cameraId, boolean enabled) {
+                        if (fid.equals(cameraId)) sTorchOn = enabled;
+                    }
+                }, new android.os.Handler(android.os.Looper.getMainLooper()));
+            }
+            boolean on = "torch.on".equals(req.cap.sign) || ("torch.toggle".equals(req.cap.sign) && !Boolean.TRUE.equals(sTorchOn));
+            cm.setTorchMode(id, on);
+            sTorchOn = on;
+            return ExecutionResult.success(req.cap, req.args, on ? "手电筒已打开" : "手电筒已关闭", ExecutionResult.Verification.UNVERIFIED, "torch=" + on);
+        } catch (Throwable t) {
+            return ExecutionResult.failed(ErrorCode.EXEC_FAILED, "手电筒没打开成功（相机可能正在被占用）", t.getClass().getSimpleName(), req.cap, req.args);
+        }
     }
 
     @Override
@@ -52,6 +89,7 @@ public final class SysActionBackend implements ExecutorBackend {
         if (FastCaps.SIGN_RECENTS_CLEAR.equals(req.cap.sign)) return BackendOutcome.terminal(clearRecents(req));
         if (FastCaps.SIGN_NOTIF_CLEAR_ALL.equals(req.cap.sign)) return BackendOutcome.terminal(clearNotifications(req));
         if (FastCaps.SIGN_NFC_TRANSIT.equals(req.cap.sign)) return BackendOutcome.terminal(nfcTransit(req));
+        if (isTorch(req.cap.sign)) return BackendOutcome.terminal(torch(req));
         return BackendOutcome.terminal(dnd(req, FastCaps.SIGN_DND_ON.equals(req.cap.sign)));
     }
 
@@ -121,29 +159,23 @@ public final class SysActionBackend implements ExecutorBackend {
 
     // ------------------------------------------------------------------ ★ int/1102 审计：打开 NFC 刷公交卡
 
-    /** 钱包 / 交通卡类应用（按优先级；只打开已安装的第一个）。 */
-    public static final String[] WALLET_PKGS = {
-            "com.samsung.android.spay",          // Samsung Pay / 三星钱包（交通卡）
-            "com.samsung.android.samsungpay.gear",
-            "com.unionpay",                      // 云闪付
-            "com.huawei.wallet",                 // 华为钱包
-            "com.miui.tsmclient",                // 小米智能卡
-            "com.finshell.wallet",               // OPPO / 一加钱包
-            "com.vivo.wallet",                   // vivo 钱包
-            "com.google.android.apps.walletnfcrel"};
-
-    /** 纯函数（JVM 可测）：已装集合里按优先级挑一个钱包包名；没有返回 null。 */
-    public static String pickWallet(java.util.Set<String> installed) {
-        if (installed == null) return null;
-        for (String p : WALLET_PKGS) if (installed.contains(p)) return p;
-        return null;
+    /**
+     * 钱包 / 交通卡应用：用<b>系统默认的 NFC 付款应用</b>（设置 › NFC › 默认付款应用，{@code Settings.Secure nfc_payment_default_component}），
+     * 不写死任何厂商钱包包名。纯函数：组件串 → 包名；空 / 格式不对返回 null。
+     */
+    public static String pickWallet(String defaultPaymentComponent) {
+        if (defaultPaymentComponent == null) return null;
+        String c = defaultPaymentComponent.trim();
+        int k = c.indexOf('/');
+        String pkg = k > 0 ? c.substring(0, k) : c;
+        return pkg.matches("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+") ? pkg : null;
     }
 
     /** 回复文案（纯函数）。 */
     public static String nfcTransitReply(boolean nfcOk, String walletLabel) {
         String head = nfcOk ? "NFC 已打开" : "NFC 没打开成功（可以在下拉栏点一下 NFC）";
         if (walletLabel != null) return head + "，已打开「" + walletLabel + "」，把手机背面贴近闸机刷卡就行";
-        return head + "。没找到钱包 / 交通卡应用；如果交通卡开在系统钱包里，亮屏后直接把手机背面贴近闸机即可";
+        return head + "。没找到默认的付款 / 交通卡应用（可以在设置 › NFC › 默认付款应用里选一个）；交通卡开在系统钱包里的话，亮屏后直接把手机背面贴近闸机即可";
     }
 
     private ExecutionResult nfcTransit(ExecRequest req) {
@@ -157,20 +189,23 @@ public final class SysActionBackend implements ExecutorBackend {
             Context ctx = req.context;
             if (ctx != null) {
                 android.content.pm.PackageManager pm = ctx.getPackageManager();
-                java.util.Set<String> installed = new java.util.HashSet<String>();
-                for (String p : WALLET_PKGS) {
-                    try {
-                        pm.getPackageInfo(p, 0);
-                        installed.add(p);
-                    } catch (Throwable ignored) {
-                    }
+                String comp = null;
+                try {
+                    comp = android.provider.Settings.Secure.getString(ctx.getContentResolver(), "nfc_payment_default_component");
+                } catch (Throwable ignored) {
                 }
-                String pkg = pickWallet(installed);
+                String pkg = pickWallet(comp);
                 Intent li = pkg != null ? pm.getLaunchIntentForPackage(pkg) : null;
                 if (li != null) {
                     li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     ctx.startActivity(li);
                     label = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
+                } else if (pkg == null) {
+                    // 没设默认付款应用：打开系统「默认付款应用」页让用户选
+                    try {
+                        ctx.startActivity(new Intent("android.settings.NFC_PAYMENT_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
         } catch (Throwable t) {

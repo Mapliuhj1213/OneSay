@@ -142,49 +142,45 @@ public class DiagEngineTest {
 
     // ------------------------------------------------------------------ 规则 / 芯片
 
-    @Test public void pocketWithPocketKeyOff() {
-        Map<String, String> snap = DiagEngine.snap("system/screen_off_pocket", "0", "system/aod_mode", "1",
-                "system/edge_lighting", "0", "secure/wake_gesture_enabled", null);
+    @Test public void pocketWithAodAndAmbientOn() {
+        Map<String, String> snap = DiagEngine.snap("secure/doze_always_on", "1", "secure/doze_enabled", "1", "secure/wake_gesture_enabled", null);
         DiagEngine.Report r = DiagEngine.diagnose(sym("为什么口袋里屏幕总亮"), snap);
         assertEquals(2, r.findings.size());
-        assertTrue(r.text, r.text.contains("口袋模式") && r.text.contains("当前：关"));
         assertTrue(r.text, r.text.contains("息屏显示（AOD）开着（当前：开）"));
-        assertEquals(Arrays.asList("pocket_on", "aod_off"), ids(r.chips));
-        assertTrue(r.chips.get(0).summary, r.chips.get(0).summary.contains("关 → 开") && r.chips.get(0).summary.contains("未在本机核实"));
+        assertEquals(Arrays.asList("aod_off", "ambient_off"), ids(r.chips));
+        assertTrue(r.chips.get(0).summary, r.chips.get(0).summary.contains("开 → 关"));
         assertTrue(r.text.contains("撤销"));
     }
 
-    @Test public void pocketKeyMissingFallsBackToPage() {
-        Map<String, String> snap = DiagEngine.snap("system/screen_off_pocket", null, "system/aod_mode", "0",
-                "system/edge_lighting", "0", "secure/wake_gesture_enabled", null);
+    @Test public void pocketNothingReadableFallsBackToUiFind() {
+        Map<String, String> snap = DiagEngine.snap("secure/doze_always_on", null, "secure/doze_enabled", "0", "secure/wake_gesture_enabled", null);
         DiagEngine.Report r = DiagEngine.diagnose(sym("为什么口袋里屏幕总亮"), snap);
-        assertEquals(Arrays.asList("page_display"), ids(r.chips));
-        assertTrue(r.text, r.text.contains("没读到"));
-        assertTrue(r.missing.contains("system/screen_off_pocket"));
+        assertEquals("厂商各自命名的「防误触」→ 读屏去设置页找", Arrays.asList("find_pocket"), ids(r.chips));
+        assertEquals(DiagKnowledge.FixKind.UI_FIND, DiagKnowledge.fix("find_pocket").kind);
         // 键不存在时绝不生成写它的芯片
-        assertNull(DiagEngine.chip(DiagKnowledge.fix("pocket_on"), snap));
+        assertNull(DiagEngine.chip(DiagKnowledge.fix("aod_off"), snap));
     }
 
     @Test public void screenOffFastCitesTimeout() {
-        Map<String, String> snap = DiagEngine.snap("system/screen_off_timeout", "15000", "system/intelligent_sleep_mode", "0");
+        Map<String, String> snap = DiagEngine.snap("system/screen_off_timeout", "15000");
         DiagEngine.Report r = DiagEngine.diagnose(sym("屏幕老是自己熄灭"), snap);
         assertTrue(r.text, r.text.contains("屏幕超时只有 15 秒"));
-        assertEquals(Arrays.asList("timeout_2m", "timeout_5m", "smart_stay_on"), ids(r.chips));
+        assertEquals(Arrays.asList("timeout_2m", "timeout_5m"), ids(r.chips));
         assertEquals("15 秒", r.chips.get(1).before);
         assertEquals("5 分钟", r.chips.get(1).after);
     }
 
     @Test public void alreadyAtTargetNoChip() {
-        Map<String, String> snap = DiagEngine.snap("system/screen_off_timeout", "300000", "system/intelligent_sleep_mode", "1");
+        Map<String, String> snap = DiagEngine.snap("system/screen_off_timeout", "300000");
         DiagEngine.Report r = DiagEngine.diagnose(sym("屏幕老是自己熄灭"), snap);
         assertTrue(r.findings.isEmpty());
-        assertEquals("全部正常 → 兜底设置页", Arrays.asList("page_display"), ids(r.chips));
+        assertEquals("全部正常 → 读屏查看「注视不熄屏」", Arrays.asList("find_smart_stay"), ids(r.chips));
         assertTrue(r.text, r.text.contains("看起来都正常") && r.text.contains("5 分钟"));
     }
 
     @Test public void batteryDrainRulesAndChipCap() {
         Map<String, String> snap = DiagEngine.snap("system/screen_brightness_mode", "0", "system/screen_brightness", "230",
-                "system/screen_off_timeout", "600000", "system/aod_mode", "1", "global/low_power", "0",
+                "system/screen_off_timeout", "600000", "secure/doze_always_on", "1", "global/low_power", "0",
                 "secure/location_mode", "3", "global/wifi_scan_always_enabled", "1", "probe/battery_level", "18", "probe/battery_temp", "425");
         DiagEngine.Report r = DiagEngine.diagnose(sym("手机耗电好快"), snap);
         assertTrue(r.text, r.text.contains("电量只剩 18%，省电模式却是关着的（当前：关）"));
@@ -232,8 +228,8 @@ public class DiagEngineTest {
         DiagEngine.Report ro = DiagEngine.diagnose(sym("自动旋转不灵"), DiagEngine.snap("system/accelerometer_rotation", "0", "system/user_rotation", "0"));
         assertEquals(Arrays.asList("rotation_on"), ids(ro.chips));
         DiagEngine.Report n = DiagEngine.diagnose(sym("晚上屏幕太刺眼"), DiagEngine.snap("system/screen_brightness_mode", "0",
-                "system/screen_brightness", "200", "system/blue_light_filter", "0", "secure/night_display_activated", null));
-        assertEquals(Arrays.asList("autobright_on", "bright_40", "blue_light_on"), ids(n.chips));
+                "system/screen_brightness", "200", "secure/night_display_activated", null));
+        assertEquals(Arrays.asList("autobright_on", "bright_40"), ids(n.chips));
     }
 
     @Test public void unknownSymptomUsesOnlyReadKeys() {
@@ -269,12 +265,12 @@ public class DiagEngineTest {
         assertTrue(cmd.contains("dumpsys battery"));
         assertFalse("不在白名单的 id 被丢弃", cmd.contains("adb_enabled") || cmd.contains("rm -rf"));
         assertFalse(cmd.contains("settings put"));
-        String out = "@@system/screen_off_timeout\n30000\n@@probe/battery_level\n  level: 57\n@@system/screen_off_pocket\nnull\n";
-        Map<String, String> m = DiagSnapshot.parse(Arrays.asList("system/screen_off_timeout", "probe/battery_level", "system/screen_off_pocket", "global/zen_mode"), out);
+        String out = "@@system/screen_off_timeout\n30000\n@@probe/battery_level\n  level: 57\n@@secure/doze_always_on\nnull\n";
+        Map<String, String> m = DiagSnapshot.parse(Arrays.asList("system/screen_off_timeout", "probe/battery_level", "secure/doze_always_on", "global/zen_mode"), out);
         assertEquals("30000", m.get("system/screen_off_timeout"));
         assertEquals("57", m.get("probe/battery_level"));
-        assertTrue(m.containsKey("system/screen_off_pocket"));
-        assertNull(m.get("system/screen_off_pocket"));
+        assertTrue(m.containsKey("secure/doze_always_on"));
+        assertNull(m.get("secure/doze_always_on"));
         assertNull("没输出的键 = null", m.get("global/zen_mode"));
         assertEquals("5 分钟", DiagSnapshot.human("system/screen_off_timeout", "300000"));
         assertEquals("仅闹钟", DiagSnapshot.human("global/zen_mode", "3"));
@@ -345,7 +341,7 @@ public class DiagEngineTest {
 
     @Test public void missingKeyIsNeverCreated() {
         FakeSettingsShell sh = new FakeSettingsShell();
-        DiagEngine.ExecOutcome x = DiagEngine.executeFix("pocket_on", sh, CAPS, store, T0);
+        DiagEngine.ExecOutcome x = DiagEngine.executeFix("aod_off", sh, CAPS, store, T0);
         assertFalse(x.ok);
         assertTrue(x.message, x.message.contains("这个设置项"));
         assertFalse(sh.anyCmdContains("settings put"));
@@ -402,17 +398,17 @@ public class DiagEngineTest {
 
     @Test public void endToEndOnFakeDevice() {
         // 症状句 → 快照命令 → 假 shell 应答 → 诊断 → 点芯片 → 改 → 撤销
-        FakeSettingsShell sh = new FakeSettingsShell().put("system/screen_off_timeout", "15000").put("system/intelligent_sleep_mode", "0");
+        FakeSettingsShell sh = new FakeSettingsShell().put("system/screen_off_timeout", "15000");
         DiagKnowledge.Symptom s = sym("我看屏幕时别让它熄屏");
         String cmd = DiagSnapshot.buildReadCommand(s.keyIds);
         Map<String, String> snap = DiagSnapshot.parse(s.keyIds, sh.execute(cmd).output);
         assertEquals("15000", snap.get("system/screen_off_timeout"));
         DiagEngine.Report r = DiagEngine.diagnose(s, snap);
-        assertEquals("smart_stay_on", r.chips.get(2).fixId);
-        assertTrue(DiagEngine.executeFix("smart_stay_on", sh, CAPS, store, T0).ok);
-        assertEquals("1", sh.settings.get("system/intelligent_sleep_mode"));
+        assertEquals("timeout_2m", r.chips.get(0).fixId);
+        assertTrue(DiagEngine.executeFix("timeout_2m", sh, CAPS, store, T0).ok);
+        assertEquals("120000", sh.settings.get("system/screen_off_timeout"));
         assertTrue(DiagEngine.undo(store.latest(T0).id, sh, CAPS, store, T0 + 5000).ok);
-        assertEquals("0", sh.settings.get("system/intelligent_sleep_mode"));
+        assertEquals("15000", sh.settings.get("system/screen_off_timeout"));
     }
 
     static List<String> ids(List<DiagEngine.Chip> chips) {

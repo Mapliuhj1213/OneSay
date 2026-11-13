@@ -2629,6 +2629,20 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         });
     }
 
+    /** 本地功能（如设置诊断的读屏查找）把一段结果上卡片。任何线程。 */
+    public void showLocalReply(final String question, final String answer, final String title) {
+        mMainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (mSheetView == null) return;
+                mSheetView.showAskReply(question, answer, StatusLinePolicy.Source.LOCAL);
+                if (title != null) mSheetView.updateState(title, Color.parseColor("#5E5CE6"), null);
+                mSheetView.setDismissLabel("✕ 关闭");
+                cancelAutoHide();
+            }
+        });
+    }
+
     public void debugShowAskReplyNow(String question, String answer, String title, String sub) {
         if (!com.onesay.assistant.v2.BuildVariant.IS_DEBUG || mSheetView == null) return;
         mSheetView.showAskReply(question, answer, StatusLinePolicy.Source.LOCAL);

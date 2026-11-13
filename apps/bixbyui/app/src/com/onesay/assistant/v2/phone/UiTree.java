@@ -344,6 +344,69 @@ public final class UiTree {
         return Integer.toHexString(b.toString().hashCode()) + ":" + els.size();
     }
 
+    /**
+     * ★ stable-screen：画面稳定判定用的指纹（结构 + 文字 + 位置 + 状态，不含编号）。和 {@link #signature} 不同：
+     * 这里带边界，转场 / 滑入动画里元素在动也算没稳定；编号不进指纹，同一画面重读两次指纹一定相同。
+     */
+    public String settleFingerprint() {
+        long h = 0xcbf29ce484222325L;
+        h = fnv(h, pkg);
+        h = fnv(h, activity);
+        h = fnv(h, ime ? "I" : "-");
+        for (El e : els) {
+            h = fnv(h, e.cls);
+            h = fnv(h, e.rid);
+            h = fnv(h, e.label);
+            h = fnv(h, e.l + "," + e.t + "," + e.r + "," + e.b);
+            h = fnv(h, (e.click ? "c" : "") + (e.edit ? "e" : "") + (e.scroll ? "s" : "") + (e.check ? (e.checked ? "+" : "-") : "")
+                    + (e.selected ? "S" : "") + (e.focused ? "F" : "") + (e.enabled ? "" : "x"));
+        }
+        return Long.toHexString(h) + ":" + els.size();
+    }
+
+    /**
+     * ★ smart-replay：回放指纹用的结构记号。和 {@link #settleFingerprint} 正好相反，这里<b>只看结构与资源 id</b>：
+     * 有资源 id 的元素记「id + 类名」，没有的记「类名 + 种类」，去重（列表多几行 / 少几行不影响），
+     * 不看文字（时间、角标数字、列表内容、输入框里的字都会变）、不看位置、不看勾选 / 焦点状态、不看元素个数。
+     * 记号是 8 位哈希（存储里不出现界面文字）。
+     */
+    public static String replayToken(El e) {
+        String raw = e.rid.length() > 0 ? "r:" + e.rid + "/" + e.cls
+                : "c:" + e.cls + "/" + (e.click ? "k" : "") + (e.edit ? "e" : "") + (e.scroll ? "s" : "") + (e.check ? "c" : "");
+        long h = fnv(0xcbf29ce484222325L, raw);
+        return String.format("%08x", (int) (h ^ (h >>> 32)));
+    }
+
+    /** 一屏的结构记号集合（有资源 id 的优先，最多 max 个，按哈希排序后截断，同一屏每次结果相同）。 */
+    public java.util.List<String> replayTokens(int max) {
+        java.util.TreeSet<String> rid = new java.util.TreeSet<String>(), cls = new java.util.TreeSet<String>();
+        for (El e : els) (e.rid.length() > 0 ? rid : cls).add(replayToken(e));
+        java.util.List<String> out = new ArrayList<String>();
+        for (String s : rid) if (out.size() < max) out.add(s);
+        for (String s : cls) if (out.size() < max) out.add(s);
+        return out;
+    }
+
+    /** ★ smart-replay：回放指纹（前台 + 页面 + 结构记号），诊断 / trace 用；回放时按记号集合的相似度比，不要求完全相同。 */
+    public String replayFingerprint() {
+        long h = 0xcbf29ce484222325L;
+        h = fnv(h, pkg);
+        h = fnv(h, activity);
+        for (String s : replayTokens(48)) h = fnv(h, s);
+        return Long.toHexString(h);
+    }
+
+    private static long fnv(long h, String s) {
+        String v = s == null ? "" : s;
+        for (int i = 0; i < v.length(); i++) {
+            h ^= v.charAt(i);
+            h *= 0x100000001b3L;
+        }
+        h ^= 0x1f;   // 字段分隔
+        h *= 0x100000001b3L;
+        return h;
+    }
+
     /** 动作前后的差异（给模型，≤ maxItems 项）。 */
     public static String diff(UiTree before, UiTree after, int maxItems) {
         if (after == null) return "（动作后读不到界面）";

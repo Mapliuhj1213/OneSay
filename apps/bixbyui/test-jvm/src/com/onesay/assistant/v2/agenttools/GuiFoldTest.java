@@ -76,7 +76,7 @@ public class GuiFoldTest {
     @Test public void deeplinkFailureUnfoldsOnce() {
         CapabilityRetriever.getTopKTiered("把屏幕亮度调到最低", 40);
         assertFalse(AgentToolset.current().guiExpanded());
-        Capability link = CapabilityRegistry.getInstance().describe("store.search.samsung");
+        Capability link = CapabilityRegistry.getInstance().describe("store.search.market");
         assertTrue("深链失败一次就展开", AgentToolset.afterStep("store__search__samsung", link, false, false));
         assertEquals(GuiFold.Reason.UPPER_TIERS_FAILED, AgentToolset.current().fold());
         assertFalse("已经展开，不再要求重新导出", AgentToolset.afterStep("store__search__samsung", link, false, false));

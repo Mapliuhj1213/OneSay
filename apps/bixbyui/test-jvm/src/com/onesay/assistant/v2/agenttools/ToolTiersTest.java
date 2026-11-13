@@ -35,7 +35,7 @@ public class ToolTiersTest {
         assertEquals(ToolTier.INFO, ToolTiers.ofSign("vision.screen.understand"));
         assertEquals(ToolTier.DEEPLINK, ToolTiers.ofSign("app.launch"));
         assertEquals(ToolTier.DEEPLINK, ToolTiers.ofSign("settings.page.wifi"));
-        assertEquals(ToolTier.DEEPLINK, ToolTiers.ofSign("store.search.samsung"));
+        assertEquals(ToolTier.DEEPLINK, ToolTiers.ofSign("store.search.market"));
         assertEquals(ToolTier.API, ToolTiers.ofSign("connectivity.wifi.on"));
         assertEquals(ToolTier.API, ToolTiers.ofSign("probe.apps"));
         assertEquals(ToolTier.API, ToolTiers.ofSign(null));
@@ -126,9 +126,9 @@ public class ToolTiersTest {
     @Test public void mountedSignsFromToolsArray() throws Exception {
         org.json.JSONArray tools = CapabilityRegistry.getInstance().exportToolsSchema(
                 java.util.Arrays.asList(CapabilityRegistry.getInstance().describe("app.launch"),
-                        CapabilityRegistry.getInstance().describe("settings.edge_lighting.on")));
+                        CapabilityRegistry.getInstance().describe("settings.ambient.on")));
         Set<String> m = ToolTiers.mountedSigns(tools);
         assertTrue(m.contains("app.launch"));
-        assertTrue(m.contains("settings.edge_lighting.on"));
+        assertTrue(m.contains("settings.ambient.on"));
     }
 }

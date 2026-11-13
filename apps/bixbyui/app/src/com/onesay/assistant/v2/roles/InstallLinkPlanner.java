@@ -7,8 +7,7 @@ package com.onesay.assistant.v2.roles;
  * <p>区域来自 app_roles.json 种子的 {@code region}（{@code cn} / {@code intl}）；表里没有的包一律按 {@code cn}。
  *
  * <ol>
- *   <li><b>cn</b> → 三星商店深链 {@code samsungapps://ProductDetail/<包名>}（指定 {@value #GALAXY_PKG} 打开，真机已验证）；
- *       没装三星商店 → {@code market://details?id=<包名>}。</li>
+ *   <li><b>cn</b> → {@code market://details?id=<包名>}，不指定商店，由用户的默认应用商店处理。</li>
  *   <li><b>intl</b> → 先测连通性（{@value #CONNECTIVITY_URL} 期望 204，3 秒超时，<b>只能在后台线程调</b>）：
  *     <ul>
  *       <li>通 → {@code market://details?id=<包名>} 指定 Play 商店（{@value #PLAY_PKG}）；没装 Play → 普通 market://。</li>
@@ -25,7 +24,6 @@ public final class InstallLinkPlanner {
 
     private InstallLinkPlanner() {}
 
-    public static final String GALAXY_PKG = "com.sec.android.app.samsungapps";
     public static final String PLAY_PKG = "com.android.vending";
     /** 用户填写的代理 / VPN App 包名（设置 › 设备能力与功能 › 隐私与外部请求）；默认空 = 不自动启动任何 App。 */
     private static volatile String sVpnPkg = "";
@@ -43,13 +41,12 @@ public final class InstallLinkPlanner {
     public static final long POLL_INTERVAL_MS = 1000L;
 
     public static final String VPN_CHIP = "打开代理 App（会断开当前 VPN）";
-    public static final String GALAXY_CHIP = "改用三星商店";
-    public static final String NOTE_FALLBACK = "Play 连不上，改用三星商店。";
-    public static final String NOTE_FALLBACK_MARKET = "Play 连不上，本机也没有三星商店，改用系统应用商店。";
+    public static final String NOTE_FALLBACK = "Play 连不上，";
+    public static final String NOTE_FALLBACK_MARKET = "Play 连不上，改用系统应用商店。";
     public static final String NOTE_VPN_BUSY = "Play 连不上。现在已经开着一个 VPN，自动打开代理 App 会把它断开，所以没有自动切。";
     public static final String NOTE_NO_STORE = "本机没有能打开的应用商店。";
 
-    /** 区域：国内 App 走三星商店，国外 App 走 Play。 */
+    /** 区域：国内 App 走默认应用商店，国外 App 走 Play。 */
     public enum Region {
         CN, INTL;
 
@@ -63,13 +60,13 @@ public final class InstallLinkPlanner {
         }
     }
 
-    public enum Kind { GALAXY, PLAY, MARKET, NONE }
+    public enum Kind { PLAY, MARKET, NONE }
 
     /** 一次决策的下一步。 */
     public enum Step {
         /** 打开 {@link Decision#link}（可能附 {@link Decision#note}）。 */
         OPEN,
-        /** 已有 VPN：先不动，给「打开代理 App」芯片；{@link Decision#link} 是「改用三星商店」的备选链接。 */
+        /** 已有 VPN：先不动，给「打开代理 App」芯片；{@link Decision#link} 是「改用系统应用商店」的备选链接。 */
         OFFER_VPN_CHIP
     }
 
@@ -100,7 +97,7 @@ public final class InstallLinkPlanner {
     public static final class Link {
         public final Kind kind;
         public final String uri;
-        /** 非 null = 指定由该包打开（三星商店 / Play）。 */
+        /** 非 null = 指定由该包打开（如 Play）。 */
         public final String viaPkg;
 
         Link(Kind kind, String uri, String viaPkg) {
@@ -138,7 +135,7 @@ public final class InstallLinkPlanner {
     public static final long YIELD_DELAY_MS = 220L;
 
     /**
-     * [round7] 走完一次安装决策后面板要不要让位（10-10 真机：点安装提示打开三星商店后，面板还盖在商店详情页上）。
+     * [round7] 走完一次安装决策后面板要不要让位（10-10 真机：点安装提示打开商店后，面板还盖在商店详情页上）。
      * 真的拉起了外部界面（商店 / 已装好的 App）→ 让位；只给了「打开代理 App」芯片、或什么都没打开 → 留着（用户还要点）。
      */
     public static boolean yieldsPanel(Step step, boolean launched) {
@@ -147,10 +144,6 @@ public final class InstallLinkPlanner {
 
     public static boolean validPkg(String pkg) {
         return pkg != null && RoleCatalog.PKG.matcher(pkg).matches();
-    }
-
-    public static String galaxyUri(String pkg) {
-        return "samsungapps://ProductDetail/" + pkg;
     }
 
     public static String marketUri(String pkg) {
@@ -186,10 +179,9 @@ public final class InstallLinkPlanner {
         return resolvable(env, u) ? new Link(Kind.MARKET, u, null) : new Link(Kind.NONE, u, null);
     }
 
-    /** 国内路径 / 国外失败的退路：三星商店深链；没装三星商店 → market://。包名不合法 → null。 */
-    public static Link galaxyOrMarket(String pkg, Env env) {
+    /** 国内路径 / 国外失败的退路：market://（默认应用商店）。包名不合法 → null。 */
+    public static Link defaultMarket(String pkg, Env env) {
         if (!validPkg(pkg)) return null;
-        if (installed(env, GALAXY_PKG)) return new Link(Kind.GALAXY, galaxyUri(pkg), GALAXY_PKG);
         return plainMarket(pkg, env);
     }
 
@@ -202,12 +194,12 @@ public final class InstallLinkPlanner {
 
     /** 不联网的「预选」：给日志 / 调试看（cn = 最终链接；intl = 假定 Play 通时的链接）。 */
     public static Link preview(String pkg, Region region, Env env) {
-        return region == Region.INTL ? play(pkg, env) : galaxyOrMarket(pkg, env);
+        return region == Region.INTL ? play(pkg, env) : defaultMarket(pkg, env);
     }
 
     private static Decision fallback(String pkg, Env env, String why) {
-        Link g = galaxyOrMarket(pkg, env);
-        String note = g.kind == Kind.GALAXY ? NOTE_FALLBACK : g.kind == Kind.MARKET ? NOTE_FALLBACK_MARKET : NOTE_FALLBACK + NOTE_NO_STORE;
+        Link g = defaultMarket(pkg, env);
+        String note = g.kind == Kind.MARKET ? NOTE_FALLBACK_MARKET : NOTE_FALLBACK + NOTE_NO_STORE;
         return new Decision(Step.OPEN, g, note, why + "→" + g.kind);
     }
 
@@ -229,7 +221,7 @@ public final class InstallLinkPlanner {
      */
     public static Decision decide(String pkg, Region region, NetEnv env) {
         if (!validPkg(pkg)) return null;
-        if (region != Region.INTL) return open(galaxyOrMarket(pkg, env), "cn");
+        if (region != Region.INTL) return open(defaultMarket(pkg, env), "cn");
         if (env == null) return fallback(pkg, null, "intl:无环境");
         if (probe(env)) return open(play(pkg, env), "intl:通");
         boolean vpn;
@@ -240,13 +232,13 @@ public final class InstallLinkPlanner {
         }
         if (vpn) {
             if (!(vpnPackage().length() > 0 && installed(env, vpnPackage()))) return fallback(pkg, env, "intl:不通+已有VPN+无代理App");
-            Link g = galaxyOrMarket(pkg, env);
+            Link g = defaultMarket(pkg, env);
             return new Decision(Step.OFFER_VPN_CHIP, g, NOTE_VPN_BUSY, "intl:不通+已有VPN→芯片");
         }
         return launchVpnAndRecheck(pkg, env, "intl:不通+无VPN");
     }
 
-    /** 用户点了「打开代理 App（会断开当前 VPN）」芯片（<b>阻塞，后台线程</b>）：启动代理 App → 复测 → Play 或退三星商店。 */
+    /** 用户点了「打开代理 App（会断开当前 VPN）」芯片（<b>阻塞，后台线程</b>）：启动代理 App → 复测 → Play 或退默认商店。 */
     public static Decision afterVpnChip(String pkg, NetEnv env) {
         if (!validPkg(pkg)) return null;
         if (env == null) return fallback(pkg, null, "芯片:无环境");

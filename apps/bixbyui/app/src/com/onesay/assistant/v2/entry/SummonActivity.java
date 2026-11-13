@@ -11,7 +11,7 @@ import android.widget.Toast;
  *   <li>调用方必须持有危险级权限 {@code com.onesay.assistant.permission.SUMMON}（系统会弹框让用户逐个 App 授权）；</li>
  *   <li>{@link Entries#fire} 再核对一次开关。</li>
  * </ol>
- * 可选 extra {@code com.onesay.assistant.extra.MODE}：{@code voice}（默认）/ {@code text}。
+ * 可选 extra {@code com.onesay.assistant.extra.MODE}：{@code voice}（默认）/ {@code text} / {@code screen}（识屏）。
  */
 public class SummonActivity extends Activity {
     @Override protected void onCreate(Bundle b) {

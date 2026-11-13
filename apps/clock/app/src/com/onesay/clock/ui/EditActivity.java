@@ -113,7 +113,7 @@ public class EditActivity extends Activity {
         name.setBackground(null);
         name.setPadding(dp(24), dp(18), dp(24), dp(18));
         card.addView(name);
-        Ui.add(card, Ui.row(this, "智能播报", "响铃时播报时间、天气和 5 条新闻（Bixby 简报样式）", Ui.sw(this, a.brief,
+        Ui.add(card, Ui.row(this, "智能播报", "响铃时播报时间、天气和 5 条新闻", Ui.sw(this, a.brief,
                 new CompoundButton.OnCheckedChangeListener() { public void onCheckedChanged(CompoundButton x, boolean on) { a.brief = on; } }), null));
         rowSnooze = Ui.add(card, Ui.row(this, "稍后提醒", "", Ui.sw(this, a.snoozeOn,
                 new CompoundButton.OnCheckedChangeListener() { public void onCheckedChanged(CompoundButton x, boolean on) { a.snoozeOn = on; refreshSnooze(); } }),

@@ -144,16 +144,14 @@ public class AppChoiceGridTest {
 
     @Test public void storeSearchIntents() {
         List<StoreLinks.Spec> l = StoreLinks.storeSearch("共享单车");
-        assertEquals(3, l.size());
-        // ④ 真机：market:// 在本机弹「打开方式」（Play 未登录 / Uptodown）→ 三星商店搜索深链排第一、限定包
+        assertEquals(2, l.size());
+        // 默认应用商店（market:// 不限定包，系统交给默认商店 / 弹选择器）→ 浏览器搜索兜底
         assertEquals("android.intent.action.VIEW", l.get(0).action);
-        assertEquals("samsungapps://SearchResult/%E5%85%B1%E4%BA%AB%E5%8D%95%E8%BD%A6", l.get(0).uri);
-        assertEquals(StoreLinks.GALAXY_PKG, l.get(0).pkg);
-        assertEquals("market://search?q=%E5%85%B1%E4%BA%AB%E5%8D%95%E8%BD%A6&c=apps", l.get(1).uri);
-        assertNull(l.get(1).pkg);
-        assertTrue(l.get(2).uri.startsWith(StoreLinks.WEB_SEARCH));
-        assertTrue(l.get(2).uri.contains("%E5%85%B1%E4%BA%AB%E5%8D%95%E8%BD%A6"));
-        assertNull("浏览器兜底不限定包", l.get(2).pkg);
+        assertEquals("market://search?q=%E5%85%B1%E4%BA%AB%E5%8D%95%E8%BD%A6&c=apps", l.get(0).uri);
+        assertNull(l.get(0).pkg);
+        assertTrue(l.get(1).uri.startsWith(StoreLinks.WEB_SEARCH));
+        assertTrue(l.get(1).uri.contains("%E5%85%B1%E4%BA%AB%E5%8D%95%E8%BD%A6"));
+        assertNull("浏览器兜底不限定包", l.get(1).pkg);
         assertTrue(StoreLinks.storeSearch("  ").isEmpty());
         assertTrue(StoreLinks.storeSearch(null).isEmpty());
         for (StoreLinks.Spec sp : StoreLinks.storeSearch("video editor")) assertFalse("空格编码成 %20 不是 +", sp.uri.contains("+"));

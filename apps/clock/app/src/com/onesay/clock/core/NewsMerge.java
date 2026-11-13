@@ -83,7 +83,7 @@ public final class NewsMerge {
     }
 
     /**
-     * 标题清洗（只为能念，不改写；移植 v2 SamsungTemplate.cleanTitle）：去网址、开头【栏目】、「栏目丨」前缀、括号与符号、emoji，
+     * 标题清洗（只为能念，不改写）：去网址、开头【栏目】、「栏目丨」前缀、括号与符号、emoji，
      * 「丨|｜」换逗号，合并空白，去首尾标点；超过 MAX_LEN 截到最后一个逗号前（避免念半句）。
      */
     public static String clean(String s) {

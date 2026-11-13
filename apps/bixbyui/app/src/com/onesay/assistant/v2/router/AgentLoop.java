@@ -801,7 +801,7 @@ public class AgentLoop {
 
             // ★把"目标族"的**全部**能力强制补齐进候选。
             //
-            //   用户实测：「下载 linkedin」→ 模型调 store.search.samsung → 商店里没有
+            //   用户实测：「下载 linkedin」→ 模型调 store.search.market → 商店里没有
             //   → **直接收工**，没有去试 Google Play，也没有先探测哪个商店能用。
             //
             //   为什么模型不换路？**它根本没有别的路可选** —— Top-K 是按字面相关度打分的，
@@ -937,7 +937,7 @@ public class AgentLoop {
             boolean shopEvNudged = false, shopPriceNudged = false, shopExNudged = false;   // ★ fix/shop-research：购物证据不够 / 有来源没价格 → 各提醒一次
             if (marketSnap != null && marketSnap.any()) shopPriceNudged = true;   // ★ 11-03：指数数字来自结构化源（槽位），不再催模型补数字
             // 界面动作任务级去重表（同一任务里"同入口同参数"的界面动作只做一次，
-            //   例如 store.search.samsung{微信} 已执行后，store.search.play{微信} 不再带着同一目标
+            //   例如 store.search.market{微信} 已执行后，store.search.play{微信} 不再带着同一目标
             //   并行换路 —— 屏幕只有一个前台，两个商店会互相挤到后台）
             //   ★ arch/agent-loop（B 路）：改为防死循环计数（见 uiRepeatBlocked）—— 综合任务里「先在微信看地址 → 去地图 → 回微信发出去」
             //   第二次打开微信不再被跳过；只拦「紧接着重复同一入口」和「同一入口成功打开超过 UI_REPEAT_MAX 次」。
@@ -1425,7 +1425,7 @@ public class AgentLoop {
 
     /**
      * ★ arch/agent-loop：界面动作防死循环。拦两种：① 紧接着上一个成功的界面动作、同一入口同参数、中间没有任何别的步骤
-     * （= 并行换路 / 原地重开，例如 store.search.samsung{微信} 后马上 store.search.play{微信}）；
+     * （= 并行换路 / 原地重开，例如 store.search.market{微信} 后马上 store.search.play{微信}）；
      * ② 同一入口同参数本任务已成功打开 {@link com.onesay.assistant.v2.agent.LoopConfig#UI_REPEAT_MAX} 次。
      * 中间做过别的步骤再回来（微信 → 地图 → 微信）放行。
      */
@@ -1763,7 +1763,7 @@ public class AgentLoop {
      * <h3>为什么必须有这一步</h3>
      * <p>prompt 里写了"失败就换工具"，但如果候选表里压根没有第二个工具，
      * 这句话就是空话。Top-K 按字面相关度排序，一个"下载 X"的句子可能只召回
-     * {@code store.search.samsung} 一条，把 {@code store.search.play} /
+     * {@code store.search.market} 一条，把 {@code store.search.play} /
      * {@code store.status.check} 全挤出去了 —— 模型**想换也没得换**。
      *
      * <p>本方法按**动作语素**判断目标族，把该族的全部能力兜底塞进候选：
@@ -1819,9 +1819,9 @@ public class AgentLoop {
                 //   ② 已装的话直接启动；不需要则卸载
                 return new String[] {
                         "store.status.check",
-                        "store.search.samsung",
+                        "store.search.market",
                         "store.search.play",
-                        "store.detail.samsung",
+                        "store.detail.market",
                         "app.launch",
                         "app.uninstall",
                 };
@@ -1851,7 +1851,7 @@ public class AgentLoop {
                         "browser.open", "browser.open.default",
                         "browser.search", "browser.search.bing",
                         "browser.search.google", "browser.search.sogou",
-                        "store.status.check", "store.search.samsung", "store.search.play",
+                        "store.status.check", "store.search.market", "store.search.play",
                 };
             case QUERY_INFO:
                 // **"读"这一族此前完全没有兜底**。
@@ -2107,7 +2107,7 @@ public class AgentLoop {
     /**
      * 界面动作的"任务级去重键" = "软件.动作"两段前缀 + 全部参数。
      *
-     * <p>用途：同一任务里 "store.search.samsung{微信}" 与 "store.search.play{微信}"
+     * <p>用途：同一任务里 "store.search.market{微信}" 与 "store.search.play{微信}"
      * 是**同一目标的两种入口**（并行换路），只允许执行第一个；
      * 而 "app.launch{QQ}" 与 "app.launch{微信}" 是两个不同目标，不互相拦。
      */
@@ -2124,7 +2124,7 @@ public class AgentLoop {
         return sb.toString();
     }
 
-    /** sign 的"软件.动作"两段前缀（store.search.samsung → store.search；app.launch → app.launch）。 */
+    /** sign 的"软件.动作"两段前缀（store.search.market → store.search；app.launch → app.launch）。 */
     public static String uiPrefixOf(String sign) {
         if (sign == null) return "";
         int i1 = sign.indexOf('.');

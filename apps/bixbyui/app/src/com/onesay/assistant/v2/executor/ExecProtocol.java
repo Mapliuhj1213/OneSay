@@ -117,12 +117,8 @@ public final class ExecProtocol {
             "settings put global airplane_mode_on 0 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false",
             "settings put secure location_providers_allowed +gps; settings put secure location_providers_allowed +network",
             "settings put secure location_providers_allowed -gps; settings put secure location_providers_allowed -network",
-            "echo 1 > /sys/class/leds/torch-sec1/brightness",
-            "echo 0 > /sys/class/leds/torch-sec1/brightness",
             "reboot",
             "reboot -p",
-            // 守护 v4.1 G7：控制台按键守护状态（守护内建只读实现）
-            com.onesay.assistant.v2.ui.console.ConsoleStatus.DAEMON_PROBE,
             // ★ r2/fast-screen：守护 v4.3 内建模板，拉起常驻 root 读屏助手（守护自己拼命令，不带参数）
             com.onesay.assistant.v2.fastscreen.FsProtocol.START_TEMPLATE,
             // ★ fix/triage-fast：守护 v4.4 内建模板，清空后台（回桌面 → am stack remove 1–4 → am kill-all；不带参数）

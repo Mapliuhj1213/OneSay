@@ -25,9 +25,6 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- 三星天气 ContentProvider（读手机天气，不需要 root；系统里没有这个权限时无影响） -->
-    <uses-permission android:name="com.sec.android.daemonapp.ap.accuweather.ACCUWEATHER_DAEMON_ACCESS_PROVIDER" />
-    <uses-permission android:name="com.sec.android.widgetapp.ap.hero.accuweather.permission.READ_ACCU_DATA" />
 
     <application
         android:name=".App"

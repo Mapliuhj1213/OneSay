@@ -10,12 +10,22 @@ OneSay 自身以 Apache License 2.0 发布（见 `LICENSE`、`NOTICE`）。下�
 | sherpa-onnx JNI（预编译） | `apps/bixbyui/vendor/sherpa/jniLibs/arm64-v8a/libsherpa-onnx-jni.so` | 同上（二进制内版本字串含 1.12.x） | Apache-2.0 | `licenses/Apache-2.0.txt` |
 | ONNX Runtime（预编译，随 sherpa-onnx 包） | `apps/bixbyui/vendor/sherpa/jniLibs/arm64-v8a/libonnxruntime.so` | microsoft/onnxruntime（二进制内版本字串含 1.20.x / 1.24.x），Copyright (c) Microsoft Corporation | MIT | 见下方 MIT 文本 |
 | Jakarta Mail for Android | `apps/bixbyui/vendor/mail/android-mail-1.6.5.jar` | com.sun.mail:android-mail:1.6.5（Eclipse EE4J） | EPL-2.0 或 GPL-2.0 with Classpath Exception | `licenses/EPL-2.0-or-GPL-2.0-with-CPE.txt`（取自 jar 内 `META-INF/LICENSE.txt`） |
+| ZXing core（扫码配对电脑） | `apps/bixbyui/libs/zxing-core-3.5.3.jar` | com.google.zxing:core:3.5.3，Copyright ZXing authors（未改动） | Apache-2.0 | `licenses/Apache-2.0.txt` |
 | Jakarta Activation for Android | `apps/bixbyui/vendor/mail/android-activation-1.6.5.jar` | com.sun.mail:android-activation:1.6.5 | EPL-2.0 或 GPL-2.0 with Classpath Exception（jar 内无独立 LICENSE，按上游项目） | 同上 |
 | Mika（部分代码移植） | `apps/bixbyui/app/src/com/onesay/assistant/plug/{screen,action,guard,evidence,outbox,intent,inbox,outcome,appkb}/core`、`com/onesay/assistant/v2/a11y`、`app/assets/kb_app_*.md` | https://github.com/wangzan101/mika @ebb0e44，Copyright 2026 wangzan101；Kotlin → Java 7 改写，文件头有声明 | Apache-2.0 | `NOTICE`、`licenses/Apache-2.0.txt` |
 | phongent（部分代码移植） | `apps/bixbyui/app/src/com/onesay/assistant/plug/phongent/core/Pg*.java` 等 | https://github.com/mylea1/phongent @0b57e35 | Apache-2.0 | `NOTICE`、`licenses/Apache-2.0.txt` |
 | mermaid | `apps/bixbyui/app/assets/richout_mermaid.min.js` | 9.1.7，Copyright (c) 2014-2022 Knut Sveidqvist | MIT | `apps/bixbyui/app/assets/richout_LICENSES.txt` |
 | Chart.js | `apps/bixbyui/app/assets/richout_chart.umd.js` | 3.9.1，Copyright (c) 2014-2022 Chart.js Contributors | MIT | 同上 |
 | Poppins Bold（仅图标字形） | `apps/*/app/res/mipmap-*/ic_launcher*.png`、`apps/*/app/res/drawable-*/ic_launcher_fg*.png`（「One」桌面图标，字形渲染为位图；仓库与 APK 都不含字体文件） | Indian Type Foundry / Jonny Pinhorn | SIL OFL 1.1（不限制用其渲染出的图像） | https://openfontlicense.org |
+
+## 设计参考（link-v2 电脑联动 v2，未拷贝代码）
+| 项目 | 许可 | 参考了什么 | 用在哪 |
+|---|---|---|---|
+| LocalSend（github.com/localsend/localsend） | Apache-2.0 | 组播发现（224.0.0.0/24）、announce 后立刻回应、自签证书 + SHA-256 指纹识别设备 | `pclink/PcTls`、`PcRx`、`PcLanClient` |
+| LocalSend 协议文档（github.com/localsend/protocol） | 无许可证 | 只阅读，未拷贝 | — |
+| OpenAI Codex CLI（github.com/openai/codex） | Apache-2.0 | 沙箱档 × 审批策略两轴与 workspace-write 沙箱的思路（手机端现已不分档，只在电脑端用） | `pclink/LinkPolicy`、`PcRx`（执行级别） |
+| Home Assistant Companion for Android（github.com/home-assistant/android） | Apache-2.0 | 电脑→手机指令集（亮屏 / 音量 / 打开 App / 打开网址）、闹钟流最大音量找手机 | `pclink/PcRxPolicy`、`PcRxAndroid` |
+| KDE Connect、Sefirah | GPL | 只参考产品形态，没有阅读或使用代码 | — |
 
 ## 只在测试时使用
 

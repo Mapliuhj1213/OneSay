@@ -33,7 +33,7 @@ public class FeatureRegistryConsistencyTest {
         m.put("island", new FeatureSwitch(com.onesay.assistant.v2.island.IslandSettings.PREF,
                 com.onesay.assistant.v2.island.IslandSettings.KEY_ENABLED, true, com.onesay.assistant.v2.island.IslandSettings.KILL));
         m.put("notice", com.onesay.assistant.v2.notice.NoticeSettings.SWITCH);
-        m.put("errand.samsung", com.onesay.assistant.v2.errand.ErrandSettings.SAMSUNG);
+        m.put("errand.browser", com.onesay.assistant.v2.errand.ErrandSettings.BROWSER);
         return m;
     }
 

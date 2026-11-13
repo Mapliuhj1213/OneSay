@@ -52,7 +52,7 @@ final class ShortcutUi {
     void section(LinearLayout col, LinearLayout card) {
         List<Row> all = Store.list(a, Contract.T_SHORTCUTS, null, null, "flagged DESC, last_run_at DESC, _id");
         Shortcuts.Actions.Catalog cat = Settings.shortcutCatalog(a);
-        if (all.isEmpty()) card.addView(ui.empty("还没有快捷指令", "在 Bixby 结果卡上点「存为快捷指令」，或点右下角＋拼一条"));
+        if (all.isEmpty()) card.addView(ui.empty("还没有快捷指令", "在 OneSay 结果卡上点「存为快捷指令」，或点右下角＋拼一条"));
         for (Row r : all) {
             if (card.getChildCount() > 0) card.addView(ui.divider());
             card.addView(item(r, cat));
@@ -95,7 +95,7 @@ final class ShortcutUi {
         if (Contract.SC_FAIL.equals(st) || Contract.SC_FALLBACK_FAIL.equals(st)) return "没做完";
         if (Contract.SC_CANCELLED.equals(st)) return "已取消";
         if (Contract.SC_DENIED.equals(st)) return "未授权";
-        if (Contract.SC_REQUESTED.equals(st) || Contract.SC_QUEUED.equals(st)) return "等 Bixby 执行";
+        if (Contract.SC_REQUESTED.equals(st) || Contract.SC_QUEUED.equals(st)) return "等 OneSay 执行";
         if (Contract.SC_STALE.equals(st)) return "OneSay 没在运行";
         return st;
     }
@@ -108,7 +108,7 @@ final class ShortcutUi {
     void run(Row r, String trigger) {
         try {
             long runId = request(a, r.id(), trigger);
-            Toast.makeText(a, "已交给 Bixby 执行「" + r.s("name") + "」", Toast.LENGTH_SHORT).show();
+            Toast.makeText(a, "已交给 OneSay 执行「" + r.s("name") + "」", Toast.LENGTH_SHORT).show();
             a.watchShortcutRun(runId, r.s("name"));   // 结束时在计划 App 里提示结果（沉浸全屏时岛被隐藏）
         } catch (IllegalArgumentException e) {
             Toast.makeText(a, "没发出去：" + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -220,7 +220,7 @@ final class ShortcutUi {
         // 「开启」是整条快捷指令的总开关，挪出「定时」那一组（原来紧跟在时间行后面，像是定时的开关）
         final Switch on = ed.toggle(f, "启用这条快捷指令", r == null || r.l("enabled", 1) != 0);
         ed.label(f, "怎么触发");
-        final Switch voice = ed.toggle(f, "对 Bixby 说名字", Shortcuts.trigger(trig, Contract.TRIG_VOICE));
+        final Switch voice = ed.toggle(f, "对 OneSay 说名字", Shortcuts.trigger(trig, Contract.TRIG_VOICE));
         final Switch tap = ed.toggle(f, "在计划里点「运行」", Shortcuts.trigger(trig, Contract.TRIG_TAP));
         final Switch launcher = ed.toggle(f, "桌面快捷方式", Shortcuts.trigger(trig, Contract.TRIG_LAUNCHER));
         Capabilities.Status pin = Capabilities.of(Capabilities.Feature.PIN_SHORTCUT, CapabilityProbe.probe(a));
@@ -229,7 +229,7 @@ final class ShortcutUi {
             launcher.setChecked(false);
             launcher.setText("桌面快捷方式（不可用：" + pin.reason + "）");
         }
-        final Switch time = ed.toggle(f, "定时（到点由 Bixby 执行）", Shortcuts.trigger(trig, Contract.TRIG_TIME));
+        final Switch time = ed.toggle(f, "定时（到点由 OneSay 执行）", Shortcuts.trigger(trig, Contract.TRIG_TIME));
         final Row auto = r == null ? null : timedRow(r.id());
         final long[] at = {auto != null ? ed.atOf(auto) : ed.nextHour()};
         // 关掉「定时」后不再显示时间行和重复（时间与重复放进 timeBox，跟着开关显示 / 隐藏）

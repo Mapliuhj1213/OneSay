@@ -2,4 +2,7 @@
 <resources>
     <string name="onesay_shortcut_voice">语音唤起</string>
     <string name="onesay_perm_summon_desc">允许这个应用唤起 OneSay 并打开麦克风聆听一句话。</string>
+    <string name="onesay_shortcut_screen">识屏</string>
+    <string name="onesay_a11y_label">OneSay 读屏与按键唤醒</string>
+    <string name="onesay_a11y_desc">OneSay 的无障碍服务（可选）：读取当前屏幕的控件树用于识屏和设置诊断、在你确认后代为点按；打开「按键唤醒」后用双击电源键 / 长按音量键唤起 OneSay。不会自动打开，内容只在本机处理。部分移植自 Mika（Apache-2.0）。</string>
 </resources>

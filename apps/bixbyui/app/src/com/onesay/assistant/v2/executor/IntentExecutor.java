@@ -50,26 +50,51 @@ public class IntentExecutor implements AppResolver {
     private final Context mContext;
     private final PackageManager mPackageManager;
 
+    /**
+     * 品类词 → 系统「默认应用」类别（Intent.CATEGORY_APP_*，由用户在系统里设的默认 App 处理）+ 兜底候选包。
+     * 先按类别找用户的默认 App；系统没有默认（或弹选择器）时再按候选包（AOSP / Google / 本项目）找第一个已装的。
+     * 不含任何厂商私有包名。
+     */
     private static final String[][] CATEGORY_ALIASES = {
-        // 通用 / AOSP / Google 包在前，厂商包（三星等）在后；第一个装了的胜出。
-        { "浏览器|网页浏览器|上网|网页", "com.android.chrome,com.android.browser,com.sec.android.app.sbrowser" },
-        { "相机|照相机|拍照",         "com.android.camera2,com.android.camera,com.sec.android.app.camera" },
-        { "相册|图库|照片",           "com.google.android.apps.photos,com.android.gallery3d,com.sec.android.gallery3d" },
-        { "音乐|播放器|听歌",         "com.spotify.music,com.android.music,com.sec.android.app.music" },
-        // 候选按「先真实存在的包」排序：OneSay Clock 在前，AOSP / Google / 厂商时钟兜底。
-        { "时钟|闹钟",               "com.onesay.clock,com.android.deskclock,com.google.android.deskclock,com.sec.android.app.clockpackage" },
-        { "计算器|算数",             "com.android.calculator2,com.google.android.calculator,com.sec.android.app.popupcalculator" },
-        { "日历|日程",               "com.android.calendar,com.google.android.calendar,com.samsung.android.calendar" },
-        { "联系人|通讯录|电话本",     "com.android.contacts,com.google.android.contacts,com.samsung.android.app.contacts" },
-        { "信息|短信|短消息",         "com.android.mms,com.google.android.apps.messaging,com.samsung.android.messaging" },
-        { "应用商店|应用市场|商店",   "com.android.vending,com.huawei.appmarket,com.xiaomi.market,com.heytap.market,com.oppo.market,com.bbk.appstore,com.sec.android.app.samsungapps" },
-        { "文件|我的文件|文件管理",   "com.android.documentsui,com.google.android.apps.nbu.files,com.sec.android.app.myfiles" },
-        { "笔记|三星笔记|便签|记事",   "com.samsung.android.app.notes" },
+        { "浏览器|网页浏览器|上网|网页", Intent.CATEGORY_APP_BROWSER, "com.android.chrome,com.android.browser" },
+        { "相机|照相机|拍照",         "",                             "com.android.camera2,com.android.camera" },
+        { "相册|图库|照片",           Intent.CATEGORY_APP_GALLERY,    "com.google.android.apps.photos,com.android.gallery3d" },
+        { "音乐|播放器|听歌",         Intent.CATEGORY_APP_MUSIC,      "com.android.music" },
+        // OneSay Clock 在前，AOSP / Google 时钟兜底（时钟没有 CATEGORY_APP_*）。
+        { "时钟|闹钟",               "",                             "com.onesay.clock,com.android.deskclock,com.google.android.deskclock" },
+        { "计算器|算数",             Intent.CATEGORY_APP_CALCULATOR, "com.android.calculator2,com.google.android.calculator" },
+        { "日历|日程",               Intent.CATEGORY_APP_CALENDAR,   "com.android.calendar,com.google.android.calendar" },
+        { "联系人|通讯录|电话本",     Intent.CATEGORY_APP_CONTACTS,   "com.android.contacts,com.google.android.contacts" },
+        { "信息|短信|短消息",         Intent.CATEGORY_APP_MESSAGING,  "com.android.mms,com.google.android.apps.messaging" },
+        { "应用商店|应用市场|商店",   Intent.CATEGORY_APP_MARKET,     "com.android.vending" },
+        { "文件|我的文件|文件管理",   "",                             "com.android.documentsui,com.google.android.apps.nbu.files" },
     };
+
+    /** 用来查「默认应用」的 PackageManager（构造时记下；JVM 单测里为 null → 只用候选包）。 */
+    private static volatile PackageManager sPm;
+
+    /** 用户为该类别设的默认 App 的启动组件（pkg/cls）；没有默认 / 只会弹选择器 → null。 */
+    static String defaultFor(String category) {
+        PackageManager pm = sPm;
+        if (pm == null || category == null || category.length() == 0) return null;
+        try {
+            Intent sel = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, category);
+            android.content.pm.ResolveInfo ri = pm.resolveActivity(sel, PackageManager.MATCH_DEFAULT_ONLY);
+            if (ri == null || ri.activityInfo == null) return null;
+            String pkg = ri.activityInfo.packageName;
+            if ("android".equals(pkg)) return null;   // ResolverActivity = 没有默认
+            Intent launch = pm.getLaunchIntentForPackage(pkg);
+            if (launch == null || launch.getComponent() == null) return null;
+            return launch.getComponent().getPackageName() + "/" + launch.getComponent().getClassName();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
 
     public IntentExecutor(Context context) {
         this.mContext = context.getApplicationContext();
         this.mPackageManager = mContext.getPackageManager();
+        sPm = mPackageManager;
         registerPackageWatcher(mContext);
     }
 
@@ -224,7 +249,9 @@ public class IntentExecutor implements AppResolver {
             String[] triggers = mapping[0].split("\\|");
             for (String trigger : triggers) {
                 if (trigger.equals(key) || (!exactOnly && key.contains(trigger))) {
-                    String[] candidates = mapping[1].split(",");
+                    String d = defaultFor(mapping[1]);
+                    if (d != null) return d;
+                    String[] candidates = mapping[2].split(",");
                     for (String cand : candidates) {
                         String c = pkgToComponent.get(cand.trim());
                         if (c != null) return c;

@@ -50,7 +50,7 @@ final class DeveloperPage extends Console.BuiltPage {
                 com.onesay.assistant.v2.ui.FloatingSheetService.show(c.act, null);
             }
         });
-        k.linkRow(act, "模拟 Bixby 键", "WakeService.simulateKeyTrigger（暂停时会被挡）", 0, new Runnable() {
+        k.linkRow(act, "模拟按键唤醒", "WakeService.simulateKeyTrigger（暂停时会被挡）", 0, new Runnable() {
             @Override public void run() {
                 com.onesay.assistant.v2.wake.WakeService s = com.onesay.assistant.v2.wake.WakeService.getInstance();
                 if (s != null) {
@@ -61,7 +61,7 @@ final class DeveloperPage extends Console.BuiltPage {
                     if (Build.VERSION.SDK_INT >= 26) c.act.startForegroundService(it);
                     else c.act.startService(it);
                 }
-                c.toast("已触发 Bixby 键唤醒事件");
+                c.toast("已触发按键唤醒事件");
             }
         });
         k.linkRow(act, "播放测试音频", "test_wake.wav（麦克风回环唤醒）", 0, new Runnable() {
@@ -94,9 +94,6 @@ final class DeveloperPage extends Console.BuiltPage {
         ConsoleStatus.Snapshot s = StatusProbe.last();
         k.valueRow(info, "Root 通道（File IPC）", null, s == null || s.rootOk == null ? "未知" : (s.rootOk ? "在线就绪" : "离线"),
                 s == null || s.rootOk == null ? ConsoleHost.TONE_MUTED : (s.rootOk ? ConsoleHost.TONE_OK : ConsoleHost.TONE_BAD));
-        Object[] d = ConsoleStatus.parseDaemon(s == null ? null : s.daemonProbe);
-        k.valueRow(info, "按键守护", "回滚：/data/adb/modules/bixbykey_hijack/rollback_v7.sh",
-                d[0] == null ? "未知" : ((Boolean) d[0] ? "运行" : "未运行") + (d[2] != null ? " " + d[2] : ""), ConsoleHost.TONE_NORMAL);
         k.valueRow(info, "唤醒引擎", com.onesay.assistant.v2.wake.WakeService.getStatusText(), com.onesay.assistant.v2.wake.AssistantPause.isPaused(c.act) ? "已暂停" : "—",
                 ConsoleHost.TONE_NORMAL);
 

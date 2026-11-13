@@ -10,7 +10,7 @@ import java.util.List;
  * [r2/bike-chooser] 应用网格用到的跳转链接（纯 Java，JVM 可测；Android 层只负责按顺序 startActivity，第一个能解析的就用）。
  *
  * <ul>
- *   <li>「打开应用商店查看更多」：先三星商店 {@code samsungapps://SearchResult/<搜索词>}（限定包），
+ *   <li>「打开应用商店查看更多」：{@code market://search}（默认应用商店），
  *       再 {@code market://search?q=<搜索词>&c=apps}（交给系统里能处理 market: 的商店）；
  *       没有任何商店能处理 → 浏览器打开搜索页 {@link #WEB_SEARCH}。</li>
  *   <li>已安装 App：先试 open_uri（限定该包，比如支付宝扫一扫），失败 → 按包名启动主界面。</li>
@@ -45,17 +45,13 @@ public final class StoreLinks {
     }
 
     public static final String VIEW = "android.intent.action.VIEW";
-    /** 三星商店包名（国内主力商店；本机 Play 未登录）。 */
-    public static final String GALAXY_PKG = "com.sec.android.app.samsungapps";
 
     /** 「查看更多」的候选（按顺序试）。query 已清洗；为空返回空表（不显示链接）。 */
     public static List<Spec> storeSearch(String query) {
         String q = AppChoiceSpec.sanitizeQuery(query);
         if (q == null) return Collections.emptyList();
         List<Spec> l = new ArrayList<Spec>();
-        // ④ 真机（10-30）：market://search 在本机弹「打开方式」（Play 未登录 / Uptodown），见 SettingsExpansionCaps 挖接口结论
-        //   → 先走三星商店搜索深链（关键词预填，限定三星商店包），解析不到再交给系统的 market:，最后浏览器
-        l.add(new Spec(VIEW, "samsungapps://SearchResult/" + enc(q), GALAXY_PKG, "三星商店搜索"));
+        // 通用 market:// 搜索（由用户的默认应用商店处理），解析不到再用浏览器
         l.add(new Spec(VIEW, "market://search?q=" + enc(q) + "&c=apps", null, "商店搜索"));
         l.add(new Spec(VIEW, WEB_SEARCH + enc(q + " App 下载"), null, "浏览器搜索"));
         return l;

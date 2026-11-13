@@ -76,10 +76,31 @@ public class A11yBackend extends AccessibilityService {
         }
         mSelf = getPackageName();
         sInstance = this;
+        try {
+            mKeyWake = new com.onesay.assistant.v2.entry.keywake.KeyWakeHost(this);
+            mKeyWake.refresh();
+        } catch (Throwable t) {
+            android.util.Log.w("A11yBackend", "按键唤醒启动失败: " + t.getClass().getSimpleName());
+        }
+    }
+
+    private volatile com.onesay.assistant.v2.entry.keywake.KeyWakeHost mKeyWake;
+
+    /** 按键唤醒设置 / 入口开关改动后调用（服务没连上时什么都不做）。 */
+    public static void refreshKeyWake() {
+        A11yBackend b = sInstance;
+        if (b != null && b.mKeyWake != null) b.mKeyWake.refresh();
+    }
+
+    @Override protected boolean onKeyEvent(android.view.KeyEvent event) {
+        com.onesay.assistant.v2.entry.keywake.KeyWakeHost h = mKeyWake;
+        if (h != null && h.onKeyEvent(event)) return true;
+        return super.onKeyEvent(event);
     }
 
     @Override public boolean onUnbind(android.content.Intent intent) {
         sInstance = null;
+        if (mKeyWake != null) mKeyWake.stop();
         return super.onUnbind(intent);
     }
 

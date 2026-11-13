@@ -56,7 +56,6 @@ public class SettingsActivity extends Activity {
         LinearLayout c1 = Ui.card(this);
         rowPregen = Ui.add(c1, Ui.row(this, "提前准备", "", null, new View.OnClickListener() { public void onClick(View v) { pickPregen(); } }));
         flagRow(c1, Flags.NEWS_MISS_LINE, "新闻取不到时说一句", "「今天的新闻暂时没取到。」关闭时直接跳到结束语");
-        flagRow(c1, Flags.X_ROOT_WEATHER, "使用手机天气", "读三星天气 App 的数据（与天气 App 一致）；读不到时改用网络天气");
         rowCity = Ui.add(c1, Ui.row(this, "网络天气位置", "", null, new View.OnClickListener() { public void onClick(View v) { pickCity(); } }));
         rowRain = flagRow(c1, Flags.X_RAIN_LINE, "播报降雨提醒", "");
         rowQwKey = Ui.add(c1, Ui.row(this, "和风天气 API Key", "", null, new View.OnClickListener() { public void onClick(View v) { keys(); } }));

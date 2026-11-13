@@ -16,10 +16,10 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * [lane C 第 2 项] 常用城市（Android 侧）：手动设置 → 三星系统天气城市列表 → 定位反查 → 空（旧行为）。
+ * [lane C 第 2 项] 常用城市（Android 侧）：手动设置 → 默认天气 App 屏幕上的城市（{@link WeatherAppCity}，用户点了才读）→ 定位反查 → 空。
  * 裁决规则见 {@link HomeCityPolicy}。
  *
- * <p>线程：{@link #resolve} 可能走 root IPC 与网络，<b>只能在后台线程调</b>（天气问句检索本来就在后台线程）。
+ * <p>线程：{@link #resolve} 可能走网络，<b>只能在后台线程调</b>（天气问句检索本来就在后台线程）。
  * 结果缓存在 {@code bixby_city}（6 h；什么都没拿到时 30 min 内不重试）。
  *
  * <p>Kill-switch：{@code city.off}（文件存在 = 只用手动设置，和 R15 一样）。
@@ -68,16 +68,16 @@ public final class HomeCityProvider {
                 }
                 return new HomeCityPolicy.Result(cached, src);
             }
-            String sys = "";
-            List<String> list = readSysWeatherCities(app);
-            if (!list.isEmpty()) sys = list.get(0);
+            String sys = WeatherAppCity.cached(app);   // 默认天气 App 屏幕上读到的城市（用户在控制台触发过才有）
+            List<String> list = new ArrayList<String>();
+            if (sys.length() > 0) list.add(sys);
             boolean granted = locationGranted(app);
             String loc = "";
             if (sys.length() == 0 && granted) loc = locationCity(app);
             HomeCityPolicy.Result r = HomeCityPolicy.decide(m, sys, loc, granted);
             sp.edit().putString(K_CITY, r.city).putString(K_SOURCE, r.source.name()).putLong(K_AT, now)
                     .putString(K_LIST, join(list)).apply();
-            Log.i(TAG, "[CITY] 常用城市 → " + r.source + "（系统天气 " + list.size() + " 座" + (granted ? "" : "，定位未授权") + "）");
+            Log.i(TAG, "[CITY] 常用城市 → " + r.source + (granted ? "" : "（定位未授权）"));
             return r;
         }
     }
@@ -93,128 +93,6 @@ public final class HomeCityProvider {
                 + " sysList=" + sp.getString(K_LIST, "") + " locGranted=" + locationGranted(ctx);
     }
 
-    // ------------------------------------------------------------------ 系统天气（root，只读）
-
-    /** 读三星系统天气的城市列表（选中的排第一）。拿不到 → 空列表。 */
-    static List<String> readSysWeatherCities(Context app) {
-        return readSysWeatherCities(app, null);
-    }
-
-    // ★ feat/rain-minutely：分钟级降水的定位兜底——系统天气里选中城市（没选中 = 排第一的）的经纬度，缓存 12 h
-    private static final String K_LAT = "sys_lat", K_LON = "sys_lon", K_LL_AT = "sys_ll_at";
-    public static final long SYS_LL_TTL_MS = 12L * 3600000L;
-
-    /**
-     * 系统天气城市的经纬度 {lat, lon}；拿不到 → null。走 root 复制库（只读），12 h 内用缓存。<b>后台线程调</b>。
-     * 只给分钟级降水用（城市级精度，比 GPS 省电得多，也不用开定位）。
-     */
-    public static double[] sysWeatherLatLon(Context ctx) {
-        Context app = ctx.getApplicationContext();
-        SharedPreferences sp = app.getSharedPreferences(PREF, Context.MODE_PRIVATE);
-        long now = System.currentTimeMillis();
-        long at = sp.getLong(K_LL_AT, 0L);
-        if (at > 0 && now - at < SYS_LL_TTL_MS && sp.contains(K_LAT)) {
-            return new double[] {Double.longBitsToDouble(sp.getLong(K_LAT, 0L)), Double.longBitsToDouble(sp.getLong(K_LON, 0L))};
-        }
-        synchronized (LOCK) {
-            double[] ll = new double[] {Double.NaN, Double.NaN};
-            readSysWeatherCities(app, ll);
-            if (Double.isNaN(ll[0]) || Double.isNaN(ll[1]) || (ll[0] == 0 && ll[1] == 0)) return null;
-            sp.edit().putLong(K_LAT, Double.doubleToLongBits(ll[0])).putLong(K_LON, Double.doubleToLongBits(ll[1])).putLong(K_LL_AT, now).apply();
-            Log.i(TAG, "[CITY] 系统天气城市经纬度已缓存（12 h，城市级）");
-            return ll;
-        }
-    }
-
-    /** latLonOut != null 时顺带取选中城市的经纬度（{lat, lon}；取不到保持原值）。 */
-    static List<String> readSysWeatherCities(Context app, double[] latLonOut) {
-        List<String> out = new ArrayList<String>();
-        File dir = new File(app.getFilesDir(), "wdb");
-        SQLiteDatabase db = null;
-        Cursor cur = null;
-        try {
-            if (!dir.exists() && !dir.mkdirs()) return out;
-            File main = new File(dir, "WeatherClock");
-            File wal = new File(dir, "WeatherClock-wal");
-            File shm = new File(dir, "WeatherClock-shm");
-            // 目标文件由 App 自己建（标签对），root 只往里写；-shm 删掉交给 SQLite 用 WAL 重建
-            if (shm.exists()) shm.delete();
-            if (!main.exists()) main.createNewFile();
-            if (!wal.exists()) wal.createNewFile();
-            // 2026-10-25 exec 守护 v4：先清空自己的 WAL 副本，再拆成两条单命令 cp（见 HomeCityPolicy.copySteps）
-            new java.io.FileOutputStream(wal, false).close();
-            java.util.List<com.onesay.assistant.v2.executor.ShellScript.Step> steps = HomeCityPolicy.copySteps(dir.getAbsolutePath());
-            com.onesay.assistant.v2.executor.ShellExecutor exec = new com.onesay.assistant.v2.executor.ShellExecutor(app);
-            com.onesay.assistant.v2.executor.ShellExecutor.ShellResponse r1 = com.onesay.assistant.v2.executor.ShellScript.exec(exec, steps.get(0));
-            if (r1 != null && r1.isSuccess()) com.onesay.assistant.v2.executor.ShellScript.exec(exec, steps.get(1));   // WAL 可能不存在：失败不算
-            com.onesay.assistant.v2.executor.ShellExecutor.ShellResponse resp = r1;
-            long[] sz = new long[] {main.length(), wal.length()};
-            if (resp == null || !resp.isSuccess() || sz[0] + sz[1] < HomeCityPolicy.MIN_DB_BYTES) {
-                Log.w(TAG, "[CITY] 系统天气库复制失败（rc=" + (resp == null ? "?" : resp.rc) + "）");
-                return out;
-            }
-            db = SQLiteDatabase.openDatabase(main.getAbsolutePath(), null, SQLiteDatabase.OPEN_READWRITE);
-            try {   // 关 mmap（防撕裂 WAL 导致 SIGBUS，见晨间播报 SysWeather）
-                Cursor pc = db.rawQuery("PRAGMA mmap_size=0", null);
-                if (pc != null) pc.close();
-            } catch (Throwable ignored) {
-            }
-            String sel = null;
-            try {
-                cur = db.rawQuery("SELECT COL_SETTING_LAST_SEL_LOCATION FROM TABLE_SETTING_INFO LIMIT 1", null);
-                if (cur.moveToFirst() && !cur.isNull(0)) sel = cur.getString(0);
-            } catch (Throwable t) {
-                Log.w(TAG, "[CITY] 读选中城市失败: " + t.getMessage());
-            } finally {
-                if (cur != null) cur.close();
-                cur = null;
-            }
-            List<HomeCityPolicy.SysCity> rows = new ArrayList<HomeCityPolicy.SysCity>();
-            cur = db.rawQuery("SELECT COL_WEATHER_KEY, COL_WEATHER_NAME, COL_WEATHER_ORDER FROM TABLE_WEATHER_INFO", null);
-            while (cur.moveToNext()) {
-                rows.add(new HomeCityPolicy.SysCity(cur.isNull(0) ? null : cur.getString(0),
-                        cur.isNull(1) ? null : cur.getString(1), cur.isNull(2) ? Integer.MAX_VALUE : cur.getInt(2)));
-            }
-            out.addAll(HomeCityPolicy.orderSysCities(rows, sel));
-            if (latLonOut != null && latLonOut.length >= 2) {
-                if (cur != null) cur.close();
-                cur = null;
-                try {
-                    cur = db.rawQuery("SELECT COL_WEATHER_KEY, COL_WEATHER_LATITUDE, COL_WEATHER_LONGITUDE, COL_WEATHER_ORDER FROM TABLE_WEATHER_INFO", null);
-                    int bestOrder = Integer.MAX_VALUE;
-                    boolean gotSel = false;
-                    while (cur.moveToNext()) {
-                        String key = cur.isNull(0) ? null : cur.getString(0);
-                        if (cur.isNull(1) || cur.isNull(2)) continue;
-                        double la, lo;
-                        try {
-                            la = Double.parseDouble(cur.getString(1).trim());
-                            lo = Double.parseDouble(cur.getString(2).trim());
-                        } catch (Throwable bad) {
-                            continue;
-                        }
-                        int ord = cur.isNull(3) ? Integer.MAX_VALUE - 1 : cur.getInt(3);
-                        boolean isSel = sel != null && sel.equals(key);
-                        if (gotSel && !isSel) continue;
-                        if (isSel || ord < bestOrder) {
-                            latLonOut[0] = la;
-                            latLonOut[1] = lo;
-                            bestOrder = ord;
-                            gotSel = isSel;
-                        }
-                    }
-                } catch (Throwable t) {
-                    Log.w(TAG, "[CITY] 读系统天气经纬度失败: " + t.getClass().getSimpleName());
-                }
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "[CITY] 解析系统天气库失败: " + t.getMessage());
-        } finally {
-            if (cur != null) try { cur.close(); } catch (Throwable ignored) { }
-            if (db != null) try { db.close(); } catch (Throwable ignored) { }
-        }
-        return out;
-    }
 
     // ------------------------------------------------------------------ 定位
 

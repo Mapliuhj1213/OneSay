@@ -105,22 +105,23 @@ final class VoicePage extends Console.BuiltPage {
                 tuning.setFlag(WakeTuning.K_ADAPTIVE_EP, on);
             }
         });
-        // ★ int/1102：唤醒提示音三选一（厂商原声 / 方案 A / 旧版）；选完试听一次。厂商原声运行时读系统自带音效，找不到自动退回方案 A
+        // 唤醒提示音三选一（系统提示音 / 方案 A / 旧版）；选完试听一次。系统提示音从手机自带通知音里挑，运行时解码，不可用自动退回方案 A
         LinearLayout gCue = k.group(col, "唤醒提示音");
         final ConsoleKit.RowImpl cueRow = k.actionRow(gCue, "唤醒提示音", cueSub(com.onesay.assistant.v2.wake.WakeCue.pref(), com.onesay.assistant.v2.wake.WakeCue.effective()),
                 cueLabel(com.onesay.assistant.v2.wake.WakeCue.pref()), null);
         cueRow.button.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                final String[] keys = {"vendor", "a", "legacy"};
-                final String[] names = {"厂商原声", "方案 A", "旧版"};
+                final String[] keys = {"system", "a", "legacy"};
+                final String[] names = {"系统提示音（自选）", "方案 A", "旧版"};
                 int cur = java.util.Arrays.asList(keys).indexOf(com.onesay.assistant.v2.wake.WakeCue.key(com.onesay.assistant.v2.wake.WakeCue.pref()));
                 k.dialog().setTitle("唤醒提示音").setSingleChoiceItems(names, Math.max(0, cur), new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, final int which) {
                         d.dismiss();
                         final android.app.Activity act = c.act;
+                        if (which == 0) { pickSystemCue(act, cueRow); return; }
                         com.onesay.assistant.v2.util.Threads.start("wakecue-ui", new Runnable() {
                             @Override public void run() {
-                                com.onesay.assistant.v2.wake.WakeCueLoader.set(act, keys[which]);   // 厂商原声第一次要解码（后台线程）
+                                com.onesay.assistant.v2.wake.WakeCueLoader.set(act, keys[which]);
                                 previewCue();
                                 act.runOnUiThread(new Runnable() {
                                     @Override public void run() {
@@ -173,17 +174,49 @@ final class VoicePage extends Console.BuiltPage {
         k.footer(col, "默认只说「好了，看屏幕」这类短提示，答案在卡片上；开了「朗读完整回答」才把答案读出来。");
     }
 
-    /** ★ int/1102：唤醒提示音按钮文字。 */
-    static String cueLabel(com.onesay.assistant.v2.wake.WakeCue.Source s) {
-        return s == com.onesay.assistant.v2.wake.WakeCue.Source.A ? "方案 A" : s == com.onesay.assistant.v2.wake.WakeCue.Source.LEGACY ? "旧版" : "厂商原声";
+    /** 从手机自带通知音里选一个当唤醒提示音（列表在后台读）。 */
+    private void pickSystemCue(final android.app.Activity act, final ConsoleKit.RowImpl cueRow) {
+        com.onesay.assistant.v2.util.Threads.start("wakecue-list", new Runnable() {
+            @Override public void run() {
+                final java.util.List<String[]> l = com.onesay.assistant.v2.wake.WakeCueLoader.listSystemSounds(act);
+                act.runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        final String[] titles = new String[l.size() + 1];
+                        titles[0] = "系统默认通知音";
+                        for (int i = 0; i < l.size(); i++) titles[i + 1] = l.get(i)[0];
+                        c.kit.dialog().setTitle("选一个系统提示音").setItems(titles, new android.content.DialogInterface.OnClickListener() {
+                            @Override public void onClick(android.content.DialogInterface d, final int w) {
+                                com.onesay.assistant.v2.util.Threads.start("wakecue-ui", new Runnable() {
+                                    @Override public void run() {
+                                        com.onesay.assistant.v2.wake.WakeCueLoader.setUri(act, w == 0 ? "" : l.get(w - 1)[1]);
+                                        previewCue();
+                                        act.runOnUiThread(new Runnable() {
+                                            @Override public void run() {
+                                                cueRow.button.setText(cueLabel(com.onesay.assistant.v2.wake.WakeCue.pref()));
+                                                cueRow.setSub(cueSub(com.onesay.assistant.v2.wake.WakeCue.pref(), com.onesay.assistant.v2.wake.WakeCue.effective()));
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        }).setNegativeButton("取消", null).show();
+                    }
+                });
+            }
+        });
     }
 
-    /** ★ int/1102：唤醒提示音副标题（选了厂商原声但手机上没有时说明退回）。 */
+    /** ★ int/1102：唤醒提示音按钮文字。 */
+    static String cueLabel(com.onesay.assistant.v2.wake.WakeCue.Source s) {
+        return s == com.onesay.assistant.v2.wake.WakeCue.Source.A ? "方案 A" : s == com.onesay.assistant.v2.wake.WakeCue.Source.LEGACY ? "旧版" : "系统提示音";
+    }
+
+    /** ★ int/1102：唤醒提示音副标题（选了系统提示音但不可用时说明退回）。 */
     static String cueSub(com.onesay.assistant.v2.wake.WakeCue.Source pref, com.onesay.assistant.v2.wake.WakeCue.Source eff) {
-        if (pref == com.onesay.assistant.v2.wake.WakeCue.Source.VENDOR && eff != com.onesay.assistant.v2.wake.WakeCue.Source.VENDOR) return "厂商原声没找到，正在用方案 A";
+        if (pref == com.onesay.assistant.v2.wake.WakeCue.Source.SYSTEM && eff != com.onesay.assistant.v2.wake.WakeCue.Source.SYSTEM) return "系统提示音不可用，正在用方案 A";
         if (pref == com.onesay.assistant.v2.wake.WakeCue.Source.A) return "两声上扬的短提示（约 0.24 秒）";
         if (pref == com.onesay.assistant.v2.wake.WakeCue.Source.LEGACY) return "早期版本的提示音";
-        return "手机自带的 Bixby 唤醒音（默认）";
+        return "手机自带的通知音（自选）";
     }
 
     /** 选完试听一次（助手提示音通道，和真实唤醒同一路）。 */
@@ -223,7 +256,7 @@ final class VoicePage extends Console.BuiltPage {
         if (i > 0) g.getChildAt(i - 1).setVisibility(active ? android.view.View.VISIBLE : android.view.View.GONE);
     }
 
-    /** 声纹按钮文案去掉 emoji / 符号（「🎙 录制声纹」→「录制声纹」，三星 emoji 和文字基线对不齐）。 */
+    /** 声纹按钮文案去掉 emoji / 符号（「🎙 录制声纹」→「录制声纹」）。 */
     static String clean(String label) {
         if (label == null) return "";
         return label.replaceAll("^[^\\p{L}\\p{N}]+", "").trim();

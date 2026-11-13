@@ -48,11 +48,6 @@ public final class DeviceProfile {
         return mCaps;
     }
 
-    /** 厂商是否三星（大小写不敏感；manufacturer 或 brand 任一为 samsung）。 */
-    public boolean isSamsung() {
-        return isVendor("samsung");
-    }
-
     /** 厂商是否魅族（manufacturer / brand 为 meizu）。 */
     public boolean isMeizu() {
         return isVendor("meizu");
@@ -62,7 +57,7 @@ public final class DeviceProfile {
         return v.equalsIgnoreCase(manufacturer.trim()) || v.equalsIgnoreCase(brand.trim());
     }
 
-    /** 一行摘要（开发者页 / 诊断用）：「samsung SM-N950N · API 26 · arm64-v8a」。 */
+    /** 一行摘要（开发者页 / 诊断用）：「Google Pixel 8 · API 34 · arm64-v8a」。 */
     public String summary() {
         StringBuilder sb = new StringBuilder();
         sb.append(manufacturer.length() > 0 ? manufacturer : "?").append(' ').append(model.length() > 0 ? model : "?");
@@ -147,13 +142,10 @@ public final class DeviceProfile {
         }
 
         /**
-         * 由厂商 / API / ABI 推得出的能力（{@link DeviceCap#SAMSUNG}、{@link DeviceCap#API_26}、{@link DeviceCap#API_30}、{@link DeviceCap#API_34}、
+         * 由厂商 / API / ABI 推得出的能力（{@link DeviceCap#API_26}、{@link DeviceCap#API_30}、{@link DeviceCap#API_34}、
          * {@link DeviceCap#ARM64}）。已显式设过的不覆盖。
          */
         public Builder deriveStatic() {
-            boolean samsung = "samsung".equalsIgnoreCase(manufacturer == null ? "" : manufacturer.trim())
-                    || "samsung".equalsIgnoreCase(brand == null ? "" : brand.trim());
-            putIfAbsent(DeviceCap.SAMSUNG, Tri.of(samsung));
             if (sdkInt > 0) {
                 putIfAbsent(DeviceCap.API_26, Tri.of(sdkInt >= 26));
                 putIfAbsent(DeviceCap.API_30, Tri.of(sdkInt >= 30));

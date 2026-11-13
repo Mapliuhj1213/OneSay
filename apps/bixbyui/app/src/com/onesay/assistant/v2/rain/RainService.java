@@ -168,12 +168,6 @@ public final class RainService {
                 return new Loc(best.getLatitude(), best.getLongitude(), "last-known");
             }
         }
-        try {
-            double[] ll = com.onesay.assistant.v2.city.HomeCityProvider.sysWeatherLatLon(app);
-            if (ll != null) return new Loc(ll[0], ll[1], "sys-weather");
-        } catch (Throwable t) {
-            Log.w(TAG, "[RAIN] 系统天气城市坐标读取失败: " + t.getClass().getSimpleName());
-        }
         return null;
     }
 

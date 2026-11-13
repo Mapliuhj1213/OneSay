@@ -98,7 +98,6 @@ public class SecIntExecWhitelistCiTest {
         l.addAll(ShellScript.commands(com.onesay.assistant.v2.jobs.PowerWhitelist.applySteps(o)));
         l.addAll(ShellScript.commands(com.onesay.assistant.v2.jobs.PowerWhitelist.restoreSteps(o)));
         l.addAll(ShellScript.commands(com.onesay.assistant.v2.jobs.ReliabilityCheck.probeSteps("com.onesay.assistant")));
-        l.addAll(ShellScript.commands(com.onesay.assistant.v2.city.HomeCityPolicy.copySteps("/data/user/0/com.onesay.assistant/files/wdb")));
         l.addAll(ShellScript.commands(com.onesay.assistant.v2.diag.DiagSnapshot.buildReadSteps(com.onesay.assistant.v2.diag.DiagKnowledge.KEYS.keySet())));
         l.add(com.onesay.assistant.v2.vision.SecIntVisionAccess.captureCmd(P + "/vision/vision_shot.png"));
         l.add(com.onesay.assistant.v2.vision.SecIntVisionAccess.captureCmd("/storage/emulated/0/Android/data/com.onesay.assistant/cache/vision_shot.png"));
@@ -123,7 +122,6 @@ public class SecIntExecWhitelistCiTest {
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.NFC_OFF);
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.NFC_STATE);
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.STORE_GOOGLE);
-        l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.STORE_SAMSUNG);
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.screenshotCmd());
         // 能力程序（ShellPrograms）：槽位填样例
         Map<String, String> slots = new HashMap<String, String>();
@@ -131,7 +129,7 @@ public class SecIntExecWhitelistCiTest {
         for (String t : new String[]{
                 com.onesay.assistant.v2.executor.backend.ShellPrograms.RESOLVE_BROWSER,
                 com.onesay.assistant.v2.executor.backend.ShellPrograms.BROWSER_FALLBACK,
-                "am start -n com.sec.android.app.sbrowser/.SBrowserLauncherActivity",
+                "am start -n com.example.browser/.MainActivity",
                 com.onesay.assistant.v2.executor.backend.ShellPrograms.TAXI_AMAP,
                 com.onesay.assistant.v2.executor.backend.ShellPrograms.TAXI_GEO,
                 com.onesay.assistant.v2.executor.backend.ShellPrograms.NAV_GEO,

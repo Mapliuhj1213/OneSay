@@ -22,10 +22,10 @@ import java.util.regex.Pattern;
  * <h3>核实等级（{@link Verify}）</h3>
  * <ul>
  *   <li>{@code AOSP}：Android 8 公开常量（Settings.System/Secure/Global）或 AOSP 固定输出格式，键名可信；</li>
- *   <li>{@code SAMSUNG_SEEN}：三星私有键，键名出现在一份 Note 8 的 {@code settings list system} 公开转储里
- *       （pastebin.com/myHEG3pd，2018-05，只有键名无取值），含义按通行用法推断，<b>未在本机核实</b>；</li>
- *   <li>{@code UNVERIFIED}：含义或输出格式是推断（如 {@code screen_off_pocket} = 口袋模式），<b>必须真机核实</b>。</li>
+ *   <li>{@code UNVERIFIED}：含义或输出格式是按 AOSP 源码推断的探针，<b>必须真机核实</b>。</li>
  * </ul>
+ * 厂商各自命名、没有通用 settings 键的开关（息屏显示、防误触、护眼……）<b>不进这张表</b>：用 {@link FixKind#UI_FIND}
+ * 芯片打开标准设置页，经无障碍读控件树找到它（{@link SettingsNav}），报告当前状态，你确认后才代点。
  * 读到 {@code null}（键不存在）时：发现文案如实说「这台机器上没读到」，<b>不会</b>生成写这个键的芯片，改给「打开设置页」芯片。
  */
 public final class DiagKnowledge {
@@ -40,7 +40,7 @@ public final class DiagKnowledge {
     // =====================================================================
 
     /** 键名核实等级。 */
-    public enum Verify { AOSP, SAMSUNG_SEEN, UNVERIFIED }
+    public enum Verify { AOSP, UNVERIFIED }
 
     /** 值的人话格式。 */
     public enum Fmt { BOOL01, MS, BRIGHT, BMODE, ZEN, RINGER, LOCMODE, VOL15, FONT, WIFI_SLEEP, TEMP10, DBM, PCT, INWL, RAW, STAYON }
@@ -92,7 +92,9 @@ public final class DiagKnowledge {
         /** dumpsys deviceidle whitelist +包名（包名来自本表）；撤销 = -包名（仅当原来不在白名单）。 */
         DEVICEIDLE,
         /** 打开设置页（现有 settings.page.* 能力）；不写设置、无需撤销。 */
-        PAGE
+        PAGE,
+        /** 打开标准设置页（{@link #capSign} = Settings.ACTION_*），读控件树找「{@link #target}」并报告；代点要你每次确认（{@link SettingsNav}）。 */
+        UI_FIND
     }
 
     /** 一个修复动作（动作芯片）。 */
@@ -136,7 +138,7 @@ public final class DiagKnowledge {
         }
 
         public boolean writes() {
-            return kind != FixKind.PAGE;
+            return kind != FixKind.PAGE && kind != FixKind.UI_FIND;
         }
 
         @Override public String toString() {
@@ -275,11 +277,6 @@ public final class DiagKnowledge {
         put(k, s("system", "accelerometer_rotation", "自动旋转", Fmt.BOOL01, Verify.AOSP, null));
         put(k, s("system", "user_rotation", "锁定时的屏幕方向", Fmt.RAW, Verify.AOSP, "0=竖屏 1=横屏"));
         put(k, s("system", "font_scale", "字体大小", Fmt.FONT, Verify.AOSP, null));
-        put(k, s("system", "intelligent_sleep_mode", "智能亮屏（Smart stay，看着屏幕时不熄屏）", Fmt.BOOL01, Verify.SAMSUNG_SEEN, null));
-        put(k, s("system", "screen_off_pocket", "口袋模式 / 防误触", Fmt.BOOL01, Verify.UNVERIFIED,
-                "键名见于 Note 8 转储，含义（口袋里不亮屏/防误触）为推断"));
-        put(k, s("system", "aod_mode", "息屏显示（AOD）", Fmt.BOOL01, Verify.SAMSUNG_SEEN, "现有能力 settings.aod.on/off 已在用"));
-        put(k, s("system", "edge_lighting", "侧屏闪光（来通知时点亮屏幕边缘）", Fmt.BOOL01, Verify.SAMSUNG_SEEN, "现有能力 settings.edge_lighting.on/off 已在用"));
         // ★ 11-04 C（「我的手机怎么一直亮屏」诊断不出）：充电时保持唤醒（开发者选项）/ 开发者选项总开关 / 亮屏锁
         //   （亮屏锁探针用单个 -E 模式：多个 -e 会被 exec 守护 v4 当成文件参数拒掉 GREP_FILE_ARG）
         put(k, s("global", "stay_on_while_plugged_in", "充电时保持唤醒（开发者选项）", Fmt.STAYON, Verify.AOSP,
@@ -289,20 +286,19 @@ public final class DiagKnowledge {
                 "持有亮屏锁的数量（应用要求屏幕常亮）", Fmt.RAW, Verify.AOSP, null));
         put(k, p("screen_wakelock_tag", "dumpsys power | grep -m1 -E 'SCREEN_BRIGHT_WAKE_LOCK|SCREEN_DIM_WAKE_LOCK|FULL_WAKE_LOCK'",
                 "WAKE_LOCK\\s+'([^']{1,60})'", "第一个亮屏锁的标签", Fmt.RAW, Verify.AOSP, null));
-        put(k, s("secure", "wake_gesture_enabled", "抬起唤醒", Fmt.BOOL01, Verify.AOSP, "AOSP 键；三星机上可能不存在（读到 null 则跳过）"));
-        put(k, s("system", "blue_light_filter", "护眼模式（蓝光过滤）", Fmt.BOOL01, Verify.SAMSUNG_SEEN, null));
-        put(k, s("secure", "night_display_activated", "夜间模式（AOSP 夜间亮度）", Fmt.BOOL01, Verify.AOSP, "三星 Android 8 一般用 blue_light_filter，这项多半为 null"));
+        put(k, s("secure", "doze_always_on", "息屏显示（AOD）", Fmt.BOOL01, Verify.AOSP, "AOSP 键（Android 8.1+）；ROM 不认时读到 null，改走设置页读屏"));
+        put(k, s("secure", "doze_enabled", "通知亮屏（来通知时点亮屏幕）", Fmt.BOOL01, Verify.AOSP, "AOSP 键；ROM 不认时读到 null"));
+        put(k, s("secure", "wake_gesture_enabled", "抬起唤醒", Fmt.BOOL01, Verify.AOSP, "AOSP 键；部分 ROM 上不存在（读到 null 则跳过）"));
+        put(k, s("secure", "night_display_activated", "夜间模式（AOSP 夜间亮度）", Fmt.BOOL01, Verify.AOSP, "部分 ROM 用自己的护眼开关，这项可能为 null（改走设置页读屏）"));
         // ---- 声音 / 振动 / 勿扰 ----
         put(k, s("global", "zen_mode", "勿扰模式", Fmt.ZEN, Verify.AOSP, null));
         put(k, s("global", "mode_ringer", "情景模式（响铃/振动/静音）", Fmt.RINGER, Verify.AOSP, null));
-        put(k, s("system", "volume_ring_speaker", "来电铃声音量", Fmt.VOL15, Verify.SAMSUNG_SEEN,
-                "AOSP AudioService 持久化键（volume_<流>_<设备>），见于 Note 8 转储；写它不会改实际音量，只读"));
-        put(k, s("system", "volume_music_speaker", "媒体音量", Fmt.VOL15, Verify.SAMSUNG_SEEN, "同上，只读"));
-        put(k, s("system", "volume_notification_speaker", "通知音量", Fmt.VOL15, Verify.SAMSUNG_SEEN, "同上，只读"));
+        put(k, s("system", "volume_ring_speaker", "来电铃声音量", Fmt.VOL15, Verify.AOSP,
+                "AOSP AudioService 持久化键（volume_<流>_<设备>）；写它不会改实际音量，只读"));
+        put(k, s("system", "volume_music_speaker", "媒体音量", Fmt.VOL15, Verify.AOSP, "同上，只读"));
+        put(k, s("system", "volume_notification_speaker", "通知音量", Fmt.VOL15, Verify.AOSP, "同上，只读"));
         put(k, s("system", "vibrate_when_ringing", "来电时同时振动", Fmt.BOOL01, Verify.AOSP, null));
         put(k, s("system", "haptic_feedback_enabled", "触摸振动反馈", Fmt.BOOL01, Verify.AOSP, null));
-        put(k, s("system", "all_sound_off", "关闭所有声音（三星辅助功能）", Fmt.BOOL01, Verify.UNVERIFIED, "键名见于 Note 8 转储，含义为推断"));
-        put(k, s("system", "motion_pick_up", "智能提醒（拿起手机时振动提示未读）", Fmt.BOOL01, Verify.UNVERIFIED, "键名见于 Note 8 转储，含义为推断"));
         // ---- 电池 / 后台 ----
         put(k, s("global", "low_power", "省电模式", Fmt.BOOL01, Verify.AOSP, "现有能力 battery.saver.on/off 已在用"));
         put(k, p("battery_level", "dumpsys battery | grep -m1 ' level:'", "level:\\s*(\\d+)", "电量", Fmt.PCT, Verify.AOSP, null));
@@ -321,7 +317,7 @@ public final class DiagKnowledge {
         put(k, s("secure", "location_mode", "定位模式", Fmt.LOCMODE, Verify.AOSP, "现有能力 connectivity.gps.on 写 3"));
         put(k, s("global", "auto_time", "自动同步时间", Fmt.BOOL01, Verify.AOSP, "现有能力 settings.autotime.on/off"));
         put(k, s("global", "auto_time_zone", "自动同步时区", Fmt.BOOL01, Verify.AOSP, null));
-        // ---- ★ device-1102：单 App 断网（典型案例：Tailscale/VPN 让三星应用商店「无网络可用」，用户 11-02 实测关掉 Tailscale 即恢复）----
+        // ---- ★ device-1102：单 App 断网（典型案例：Tailscale/VPN 让某个应用商店「无网络可用」，关掉 VPN 即恢复）----
         put(k, p("vpn_tun", "ip addr show | grep -c tun", "(\\d+)", "VPN 隧道网卡（tun）数量", Fmt.RAW, Verify.AOSP,
                 "VPN（含 Tailscale）运行时会有 tun0 一类网卡"));
         put(k, p("vpn_active", "dumpsys connectivity | grep -c 'type: VPN'", "(\\d+)", "系统里活动的 VPN 网络", Fmt.RAW, Verify.UNVERIFIED,
@@ -339,11 +335,8 @@ public final class DiagKnowledge {
         putFix(f, setting("timeout_30s", "熄屏改为 30 秒", "system/screen_off_timeout", "30000", "settings.screentimeout.set", "{\"seconds\":30}", 1, null));
         putFix(f, setting("stay_on_off", "关闭「充电时保持唤醒」", "global/stay_on_while_plugged_in", "0", null, null, 1,
                 "开发者选项里的开关；关掉后充电时也按屏幕超时熄屏"));
-        putFix(f, setting("smart_stay_off", "关闭智能亮屏", "system/intelligent_sleep_mode", "0", null, null, 1, "三星键名"));
-        putFix(f, setting("smart_stay_on", "开启智能亮屏", "system/intelligent_sleep_mode", "1", null, null, 1, "三星键名，未在本机核实"));
-        putFix(f, setting("pocket_on", "开启口袋模式", "system/screen_off_pocket", "1", null, null, 1, "三星键，含义未在本机核实"));
-        putFix(f, setting("aod_off", "关闭息屏显示", "system/aod_mode", "0", "settings.aod.off", "{}", 1, null));
-        putFix(f, setting("edge_light_off", "关闭侧屏闪光", "system/edge_lighting", "0", "settings.edge_lighting.off", "{}", 1, null));
+        putFix(f, setting("aod_off", "关闭息屏显示", "secure/doze_always_on", "0", "settings.aod.off", "{}", 1, null));
+        putFix(f, setting("ambient_off", "关闭通知亮屏", "secure/doze_enabled", "0", "settings.ambient.off", "{}", 1, null));
         putFix(f, setting("lift_wake_off", "关闭抬起唤醒", "secure/wake_gesture_enabled", "0", null, null, 1, null));
         putFix(f, setting("rotation_on", "开启自动旋转", "system/accelerometer_rotation", "1", "settings.rotation.on", "{}", 1, null));
         putFix(f, setting("font_l", "字体调到大号", "system/font_scale", "1.1", null, null, 1, null));
@@ -351,13 +344,11 @@ public final class DiagKnowledge {
         putFix(f, setting("autobright_on", "开启自动亮度", "system/screen_brightness_mode", "1", "settings.autobrightness.on", "{}", 1, null));
         putFix(f, setting("autobright_off", "关闭自动亮度", "system/screen_brightness_mode", "0", "settings.autobrightness.off", "{}", 1, null));
         putFix(f, setting("bright_40", "亮度降到 40", "system/screen_brightness", "40", "settings.brightness.set", "{\"level\":40}", 1, null));
-        putFix(f, setting("blue_light_on", "开启护眼模式", "system/blue_light_filter", "1", null, null, 1, "三星键名，写入后是否立即生效需真机核实"));
         // 声音 / 振动
         putFix(f, cap("ring_vol_12", "铃声调到 12/15", "system/volume_ring_speaker", "12", "volume.ring.set", "{\"level\":12}", "volume.ring.get", "level", 1, null));
         putFix(f, cap("media_vol_10", "媒体音量调到 10", "system/volume_music_speaker", "10", "volume.media.set", "{\"level\":10}", "volume.media.get", "level", 1, null));
         putFix(f, setting("ring_vibrate_off", "来电不再同时振动", "system/vibrate_when_ringing", "0", null, null, 1, null));
         putFix(f, setting("haptic_off", "关闭触摸振动", "system/haptic_feedback_enabled", "0", "settings.haptic.off", "{}", 1, null));
-        putFix(f, setting("smart_alert_off", "关闭智能提醒", "system/motion_pick_up", "0", null, null, 1, "三星键，含义未在本机核实"));
         // 电池 / 后台 / 通知
         putFix(f, setting("saver_on", "开启省电模式", "global/low_power", "1", "battery.saver.on", "{}", 2, null));
         putFix(f, setting("saver_off", "关闭省电模式", "global/low_power", "0", "battery.saver.off", "{}", 2, null));
@@ -378,6 +369,13 @@ public final class DiagKnowledge {
         putFix(f, page("page_location", "打开定位设置", "settings.page.location"));
         putFix(f, page("page_datetime", "打开日期时间设置", "settings.page.datetime"));
         putFix(f, page("page_accessibility", "打开辅助功能", "settings.page.accessibility"));
+        // 厂商各自命名的设置项（没有通用 settings 键）：经无障碍读设置页控件树找到它、报告当前状态，你确认后再代点（SettingsNav）
+        putFix(f, uiFind("find_smart_stay", "查看「注视不熄屏」", "注视时保持亮屏", "android.settings.DISPLAY_SETTINGS"));
+        putFix(f, uiFind("find_pocket", "查看「防误触」", "防误触", "android.settings.DISPLAY_SETTINGS"));
+        putFix(f, uiFind("find_aod", "查看「息屏显示」", "息屏显示", "android.settings.DISPLAY_SETTINGS"));
+        putFix(f, uiFind("find_edge_light", "查看「通知亮屏」", "通知亮屏", "android.settings.NOTIFICATION_SETTINGS"));
+        putFix(f, uiFind("find_eye_comfort", "查看「护眼模式」", "护眼模式", "android.settings.DISPLAY_SETTINGS"));
+        putFix(f, uiFind("find_pickup_alert", "查看「拿起提醒」", "拿起手机时振动提醒", "android.settings.SOUND_SETTINGS"));
         FIXES = Collections.unmodifiableMap(f);
 
         LinkedHashMap<String, Fix> w = new LinkedHashMap<String, Fix>();
@@ -398,56 +396,46 @@ public final class DiagKnowledge {
                         "^(怎么|为什么|为啥)?(一直亮屏|屏幕常亮|老亮着屏|一直亮着)", "(充电|插着电|充着电).{0,6}(屏幕|屏).{0,4}(一直|不)(亮|熄|灭)"),
                 list("亮屏", "熄屏", "常亮"),
                 list("global/stay_on_while_plugged_in", "global/development_settings_enabled", "system/screen_off_timeout",
-                        "system/intelligent_sleep_mode", "probe/screen_wakelocks", "probe/screen_wakelock_tag", "system/screen_brightness_mode"),
+                        "probe/screen_wakelocks", "probe/screen_wakelock_tag", "system/screen_brightness_mode"),
                 rules(
                         rule("开发者选项里的「充电时保持唤醒」开着（当前：{v}）：只要插着充电器，屏幕就不会自动熄灭。", list("stay_on_off"),
                                 c("global/stay_on_while_plugged_in", Op.NE, "0"), c("global/stay_on_while_plugged_in", Op.NOTNULL, null)),
                         rule("屏幕超时设成了 {v}，不碰屏幕要这么久才熄。", list("timeout_2m", "timeout_30s"),
                                 c("system/screen_off_timeout", Op.GE, "600000")),
                         rule("有应用正要求屏幕常亮（亮屏锁 {v} 个，视频 / 导航 / 游戏类常见），关掉那个应用屏幕就会按时熄灭。", list("page_display"),
-                                c("probe/screen_wakelocks", Op.GT, "0")),
-                        rule("智能亮屏开着（当前：{v}）：你看着屏幕时它不会熄，这是正常行为。", list("smart_stay_off"),
-                                c("system/intelligent_sleep_mode", Op.EQ, "1"))),
-                "page_display", "正在看视频、导航或玩游戏时，这些应用本来就会让屏幕常亮。"));
+                                c("probe/screen_wakelocks", Op.GT, "0"))),
+                "page_display", "正在看视频、导航或玩游戏时，这些应用本来就会让屏幕常亮；有的手机还有「注视时保持亮屏」，看着屏幕时不会熄，可以让我去设置里查看。"));
         sy.add(new Symptom("pocket_screen_on", "口袋里屏幕总亮 / 误触",
                 pats("(口袋|兜|包包?|裤兜)里.{0,8}(亮|误触|点亮|自己开|乱点|乱按|打电话|拨号)",
                         "(放|装|揣)(进|在)?(口袋|兜|包).{0,6}(亮|误触|乱点)", "误触", "(屏幕|手机).{0,4}(自己|自动|莫名其妙|老是|总是).{0,3}(点亮|亮起来|亮)(?!度)"),
                 list("口袋", "误触", "亮屏"),
-                list("system/screen_off_pocket", "system/aod_mode", "system/edge_lighting", "secure/wake_gesture_enabled"),
+                list("secure/doze_always_on", "secure/doze_enabled", "secure/wake_gesture_enabled"),
                 rules(
-                        rule("「口袋模式/防误触」现在是关着的（当前：{v}）——放进口袋时没有用距离传感器挡住亮屏和误触。", list("pocket_on"),
-                                c("system/screen_off_pocket", Op.EQ, "0")),
-                        rule("这台机器上没读到「口袋模式/防误触」开关（三星键名待核实），可以在「显示」设置里找「防误触」。", list("page_display"),
-                                c("system/screen_off_pocket", Op.NULL, null)),
                         rule("息屏显示（AOD）开着（当前：{v}），屏幕上会一直有时钟等内容，口袋里看着像「亮着」。", list("aod_off"),
-                                c("system/aod_mode", Op.EQ, "1")),
-                        rule("侧屏闪光开着（当前：{v}），来通知时会点亮屏幕边缘。", list("edge_light_off"),
-                                c("system/edge_lighting", Op.EQ, "1")),
+                                c("secure/doze_always_on", Op.EQ, "1")),
+                        rule("通知亮屏开着（当前：{v}），来通知时会点亮屏幕。", list("ambient_off"),
+                                c("secure/doze_enabled", Op.EQ, "1")),
                         rule("抬起唤醒开着（当前：{v}），走路晃动时可能被当成「拿起手机」而亮屏。", list("lift_wake_off"),
                                 c("secure/wake_gesture_enabled", Op.EQ, "1"))),
-                "page_display", "也可能是来电/通知亮屏，属于正常行为。"));
+                "find_pocket", "也可能是来电/通知亮屏，属于正常行为；防误触、息屏显示、通知亮屏这类开关各家叫法不同，我可以去设置页里帮你找。"));
         sy.add(new Symptom("screen_off_fast", "屏幕老是自己熄灭",
                 pats("(屏幕|手机).{0,4}(老是|总是|经常|一直|动不动|自己|没多久|一会儿就?|很快就?).{0,3}(熄灭|熄屏|息屏|灭屏|黑屏|暗了|黑了|锁屏|灭了|熄了|暗下去)",
                         "(熄屏|息屏|灭屏|黑屏|锁屏).{0,3}(太快|好快|很快|太早)",
                         "(看|盯着|读|用).{0,8}(时|的时候|时候).{0,4}(别|不要)(让它|让屏幕|让手机)?(熄屏|息屏|灭屏|黑屏|暗|锁屏|熄灭)",
                         "(别|不要)(让它|让屏幕|让手机)(自动)?(熄屏|息屏|灭屏|黑屏|熄灭)"),
                 list("熄屏", "息屏", "灭屏", "黑屏"),
-                list("system/screen_off_timeout", "system/intelligent_sleep_mode"),
+                list("system/screen_off_timeout"),
                 rules(
                         rule("屏幕超时只有 {v}，不碰屏幕这么久就会自动熄屏。", list("timeout_2m", "timeout_5m"),
                                 c("system/screen_off_timeout", Op.LE, "30000")),
                         rule("屏幕超时是 {v}，看长文章时可能还是不够。", list("timeout_5m"),
-                                c("system/screen_off_timeout", Op.GT, "30000"), c("system/screen_off_timeout", Op.LT, "300000")),
-                        rule("智能亮屏（看着屏幕时不熄屏）是关着的（当前：{v}）。", list("smart_stay_on"),
-                                c("system/intelligent_sleep_mode", Op.EQ, "0")),
-                        rule("这台机器上没读到「智能亮屏」开关（三星键名待核实）。", list("page_display"),
-                                c("system/intelligent_sleep_mode", Op.NULL, null))),
-                "page_display", "如果开着省电模式，系统也可能把超时压短。"));
+                                c("system/screen_off_timeout", Op.GT, "30000"), c("system/screen_off_timeout", Op.LT, "300000"))),
+                "find_smart_stay", "如果开着省电模式，系统也可能把超时压短。"));
         sy.add(new Symptom("battery_drain", "耗电快",
                 pats("耗电.{0,3}(好|很|太|特别|有点|贼)?(快|厉害|严重|多)", "掉电.{0,2}(好|很|太|特别|有点)?快", "(电量|电).{0,2}掉得.{0,2}(好|很|太|特别)?快",
                         "电(池)?.{0,2}(不经用|不耐用|撑不住|不够用)", "(手机|电池).{0,3}(发烫|发热|好烫|很烫)", "费电"),
                 list("耗电", "电池", "掉电", "发烫", "发热"),
-                list("system/screen_brightness_mode", "system/screen_brightness", "system/screen_off_timeout", "system/aod_mode",
+                list("system/screen_brightness_mode", "system/screen_brightness", "system/screen_off_timeout", "secure/doze_always_on",
                         "global/low_power", "secure/location_mode", "global/wifi_scan_always_enabled", "probe/battery_level", "probe/battery_temp"),
                 rules(
                         rule("电量只剩 {v}，省电模式却是关着的（当前：{v2}）。", list("saver_on"),
@@ -457,7 +445,7 @@ public final class DiagKnowledge {
                         rule("屏幕超时设成了 {v}，屏幕亮着的时间偏长。", list("timeout_30s"),
                                 c("system/screen_off_timeout", Op.GE, "120000")),
                         rule("息屏显示（AOD）开着（当前：{v}），每天会多耗一些电。", list("aod_off"),
-                                c("system/aod_mode", Op.EQ, "1")),
+                                c("secure/doze_always_on", Op.EQ, "1")),
                         rule("电池温度偏高（当前：{v}），发热时耗电会明显加快，先别边充边玩。", list(),
                                 c("probe/battery_temp", Op.GE, "400")),
                         rule("定位是高精度模式（当前：{v}），常驻定位的 App 会更费电。", list(),
@@ -487,7 +475,7 @@ public final class DiagKnowledge {
                         // R5：「别人打电话我听不到」「有人打过来我都听不见」——来电在前、听不到在后（排除通话中听不到对方）
                         "(打电话|打来电话|来电话|打过来|打给我|打我电话|打我手机).{0,6}听不(到|见)(?!对方|对面)"),
                 list("声音", "铃声", "来电", "音量"),
-                list("global/mode_ringer", "global/zen_mode", "system/volume_ring_speaker", "system/volume_music_speaker", "system/all_sound_off"),
+                list("global/mode_ringer", "global/zen_mode", "system/volume_ring_speaker", "system/volume_music_speaker"),
                 rules(
                         rule("手机现在是{v}，来电不会响铃。", list("ring_vol_12"),
                                 c("global/mode_ringer", Op.NE, "2")),
@@ -496,24 +484,20 @@ public final class DiagKnowledge {
                         rule("来电铃声音量偏低（当前：{v}）。", list("ring_vol_12"),
                                 c("system/volume_ring_speaker", Op.LE, "6")),
                         rule("媒体音量偏低（当前：{v}），放视频/音乐会很小声。", list("media_vol_10"),
-                                c("system/volume_music_speaker", Op.LE, "5")),
-                        rule("「关闭所有声音」开着（当前：{v}）。", list("page_accessibility"),
-                                c("system/all_sound_off", Op.EQ, "1"))),
+                                c("system/volume_music_speaker", Op.LE, "5"))),
                 "page_sound", "如果连着蓝牙耳机，声音会从耳机出。"));
         sy.add(new Symptom("vibrate_always", "一直振动",
                 pats("(为什么|为啥|老是|总是|一直|动不动|莫名其妙|经常).{0,6}(振动|震动|在震|在振|震个不停|振个不停)",
                         "(振动|震动).{0,3}(停不下来|个不停|不停|太频繁|太多)", "(老是|总是|一直)在?(振|震)"),
                 list("振动", "震动"),
-                list("global/mode_ringer", "system/haptic_feedback_enabled", "system/vibrate_when_ringing", "system/motion_pick_up"),
+                list("global/mode_ringer", "system/haptic_feedback_enabled", "system/vibrate_when_ringing"),
                 rules(
                         rule("手机现在是{v}，所有来电和通知都会用振动代替响铃。", list("ring_vol_12"),
                                 c("global/mode_ringer", Op.EQ, "1")),
                         rule("触摸振动反馈开着（当前：{v}），每次点按键盘、按键都会轻振。", list("haptic_off"),
                                 c("system/haptic_feedback_enabled", Op.EQ, "1")),
                         rule("来电时同时振动开着（当前：{v}）。", list("ring_vibrate_off"),
-                                c("system/vibrate_when_ringing", Op.EQ, "1")),
-                        rule("智能提醒开着（当前：{v}），拿起手机时如果有未读通知会振一下。", list("smart_alert_off"),
-                                c("system/motion_pick_up", Op.EQ, "1"))),
+                                c("system/vibrate_when_ringing", Op.EQ, "1"))),
                 "page_sound", "如果是某个 App 一直在振，多半是它自己的通知振动设置。"));
         sy.add(new Symptom("dnd_check", "勿扰是不是开着",
                 pats("(勿扰|免打扰).{0,6}(是不是|开着吗|开着没|开了吗|开了没|有没有开|打开了吗|开没开|还开着)", "(是不是|是否).{0,4}(开了?|开着|打开了)?.{0,2}(勿扰|免打扰)"),
@@ -568,7 +552,7 @@ public final class DiagKnowledge {
                                 c("global/wifi_sleep_policy", Op.NE, "2"), c("global/wifi_sleep_policy", Op.NOTNULL, null)),
                         rule("省电模式开着（当前：{v}），锁屏后的联网会受限制。", list("saver_off"),
                                 c("global/low_power", Op.EQ, "1"))),
-                "page_wifi", "三星的「智能网络切换」也会在 Wi-Fi 差时自动切到移动数据，可以在 WLAN 设置里看看。"));
+                "page_wifi", "有的手机会在 Wi-Fi 差时自动切到移动数据（「智能网络切换」一类），可以在 WLAN 设置里看看。"));
         // ★ int/1102 审计：「热点开了电脑连不上」走设备诊断（读飞行 / 省电 / VPN / WLAN 状态），不再进 GUI 点界面
         sy.add(new Symptom("hotspot_no_client", "开了热点别的设备连不上 / 没网",
                 pats("热点.{0,10}(连不上|连不了|搜不到|找不到|用不了|没网|上不了网|没有网|连接不上|不能用)",
@@ -609,15 +593,13 @@ public final class DiagKnowledge {
         sy.add(new Symptom("night_glare", "晚上屏幕太刺眼",
                 pats("(晚上|夜里|夜间|半夜|睡前|关灯|黑暗).{0,8}(刺眼|晃眼|太亮|好亮|亮瞎|眼睛疼|眼睛难受|眼睛累)", "屏幕.{0,3}(刺眼|晃眼)", "刺眼"),
                 list("刺眼", "晃眼"),
-                list("system/screen_brightness_mode", "system/screen_brightness", "system/blue_light_filter", "secure/night_display_activated"),
+                list("system/screen_brightness_mode", "system/screen_brightness", "secure/night_display_activated"),
                 rules(
                         rule("现在是手动亮度（{v}），环境变暗时不会自动降亮度。", list("autobright_on", "bright_40"),
                                 c("system/screen_brightness_mode", Op.EQ, "0")),
                         rule("亮度偏高（当前：{v}）。", list("bright_40"),
-                                c("system/screen_brightness", Op.GE, "120")),
-                        rule("护眼模式（蓝光过滤）是关着的（当前：{v}）。", list("blue_light_on"),
-                                c("system/blue_light_filter", Op.EQ, "0"))),
-                "page_display", null));
+                                c("system/screen_brightness", Op.GE, "120"))),
+                "find_eye_comfort", "护眼 / 夜间模式各家叫法不同，我可以去显示设置里帮你找。"));
         sy.add(new Symptom("brightness_jumps", "亮度老是自己变",
                 pats("亮度.{0,4}(老是|总是|一直|经常|自己|自动).{0,2}(变|变暗|变亮|乱跳|跳|调)", "(屏幕)?(忽明忽暗|一会亮一会暗|一会儿亮一会儿暗)", "(屏幕|亮度).{0,2}自己(变|调)"),
                 list("亮度"),
@@ -750,6 +732,10 @@ public final class DiagKnowledge {
     private static Fix idle(String id, String label, String pkg, String probeKeyId, int risk) {
         if (!SAFE_NAME.matcher(pkg).matches()) throw new IllegalStateException("非法包名 " + pkg);
         return new Fix(id, label, FixKind.DEVICEIDLE, probeKeyId, "1", null, null, null, null, pkg, risk, true, null);
+    }
+
+    private static Fix uiFind(String id, String label, String settingLabel, String settingsAction) {
+        return new Fix(id, label, FixKind.UI_FIND, null, settingLabel, settingsAction, null, null, null, null, 1, false, null);
     }
 
     private static Fix page(String id, String label, String sign) {
