@@ -25,9 +25,13 @@ public final class PcMedia {
     // ================================================================== 链接
 
     private static final Pattern URL = Pattern.compile("(?i)https?://[^\\s\"'<>`，。！？、；）】」]+");
-    private static final Pattern BAD = Pattern.compile("[\\s;&|`$<>\"'\\\\\\x00-\\x1f\\x7f{}^]");
+    private static final Pattern BAD = Pattern.compile("[\\s;|`$<>\"'\\\\\\x00-\\x1f\\x7f{}^]");
 
-    /** 一段文字（分享内容、语音、剪贴板）里的第一个 http(s) 链接，去掉 # 片段和第一个 &amp; 之后的参数（多是来源跟踪参数）。没有返回 null。 */
+    /**
+     * 一段文字（分享内容、语音、剪贴板）里的第一个 http(s) 链接，去掉 # 片段（只在浏览器里用，不发给网站）和明显的来源跟踪参数
+     * （utm_*、spm、spm_id_from、fbclid、gclid、igshid），其余查询参数（如 YouTube 的 &amp;t=10、&amp;list=）原样保留。没有返回 null。
+     * 和电脑端 MediaArgs.tidy 同一套规则（2026-11-11 起不再截掉第一个 &amp; 之后的参数）。
+     */
     public static String tidy(String text) {
         if (text == null) return null;
         Matcher m = URL.matcher(text);
@@ -35,10 +39,30 @@ public final class PcMedia {
         String u = m.group();
         int hash = u.indexOf('#');
         if (hash >= 0) u = u.substring(0, hash);
-        int amp = u.indexOf('&');
-        if (amp >= 0) u = u.substring(0, amp);
-        while (u.endsWith("?") || u.endsWith(".") || u.endsWith(",")) u = u.substring(0, u.length() - 1);
+        u = dropTracking(u);
+        while (u.endsWith("?") || u.endsWith("&") || u.endsWith(".") || u.endsWith(",")) u = u.substring(0, u.length() - 1);
         return u.length() == 0 ? null : u;
+    }
+
+    /** 明显的来源跟踪参数（整理时去掉；名字不分大小写，utm_ 开头的都算）。 */
+    static boolean tracking(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        return n.startsWith("utm_") || n.equals("spm") || n.equals("spm_id_from") || n.equals("fbclid") || n.equals("gclid") || n.equals("igshid");
+    }
+
+    /** 去掉查询串里的跟踪参数，其余参数和顺序不变；空参数（&amp;&amp;）顺手去掉。 */
+    static String dropTracking(String u) {
+        int q = u.indexOf('?');
+        if (q < 0) return u;
+        StringBuilder b = new StringBuilder();
+        for (String kv : u.substring(q + 1).split("&")) {
+            if (kv.length() == 0) continue;
+            int eq = kv.indexOf('=');
+            if (tracking(eq < 0 ? kv : kv.substring(0, eq))) continue;
+            if (b.length() > 0) b.append('&');
+            b.append(kv);
+        }
+        return b.length() == 0 ? u.substring(0, q) : u.substring(0, q + 1) + b;
     }
 
     /** 和电脑端同一套检查（电脑端会再查一遍）：没问题返回 null，否则返回原因。 */

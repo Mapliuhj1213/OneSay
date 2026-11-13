@@ -21,12 +21,24 @@ public class PcMediaTest {
     static final String URL = "https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_Trailer_1080p.ogv";
 
     @Test public void tidyAndCheckUrl() {
-        assertEquals("https://www.bilibili.com/video/BV1xx/?share_source=copy", PcMedia.tidy("【标题】 https://www.bilibili.com/video/BV1xx/?share_source=copy&vd_source=abc#t=1 复制打开"));
+        assertEquals("https://www.bilibili.com/video/BV1xx/?share_source=copy&vd_source=abc", PcMedia.tidy("【标题】 https://www.bilibili.com/video/BV1xx/?share_source=copy&vd_source=abc#t=1 复制打开"));
         assertEquals("https://v.douyin.com/abc/", PcMedia.tidy("7.99 复制打开抖音 https://v.douyin.com/abc/ 看看"));
         assertNull(PcMedia.tidy("没有链接"));
         assertNull(PcMedia.tidy(null));
+        // 2026-11-11 用户同意：不再截掉第一个 & 之后的参数；YouTube 带 &t=10 完整保留，只去 # 片段和明显的跟踪参数
+        String yt = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10";
+        assertEquals(yt, PcMedia.tidy("分享视频 " + yt + " 从第 10 秒"));
+        assertNull(PcMedia.checkUrl(PcMedia.tidy(yt)));
+        assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10&list=PL1",
+                PcMedia.tidy("https://www.youtube.com/watch?utm_source=share&v=dQw4w9WgXcQ&t=10&UTM_Medium=x&&spm=a.b&list=PL1&fbclid=Zz#comments"));
+        assertEquals("https://a.com/v", PcMedia.tidy("https://a.com/v?utm_source=x&spm_id_from=1&gclid=2&igshid=3"));
+        PcMedia.Ask ask = PcMedia.voice("用电脑下载 " + yt);
+        assertNotNull(ask);
+        assertEquals("语音里的链接也完整保留", yt, ask.url);
+        assertNull(PcMedia.checkUrl("https://a.com/?a=1&b=2"));
+        assertNotNull(PcMedia.checkUrl("https://a.com/?a=1& b"));
         assertNull(PcMedia.checkUrl(URL));
-        String[] bad = {"https://a.com/x;rm", "https://a.com/?a=1&b=2", "https://a.com/x|y", "https://a.com/a b", "file:///sdcard/x", "--exec x", "-o x",
+        String[] bad = {"https://a.com/x;rm", "https://a.com/x|y", "https://a.com/a b", "file:///sdcard/x", "--exec x", "-o x",
                 "javascript:alert(1)", "https://u:p@a.com/", "https:///x", "", "https://a.com/`id`", "https://a.com/$x"};
         for (String b : bad) assertNotNull(b, PcMedia.checkUrl(b));
         Map<String, Object> a = PcMedia.args(URL, "720", "mp3");

@@ -177,7 +177,7 @@
 
 **电脑端**
 - 工具不随安装包附带：设置 › 下载 › 「安装」时才从官方发布页下载 yt-dlp（github.com/yt-dlp/yt-dlp，SHA2-256SUMS）和 FFmpeg（github.com/FFmpeg-Builds，**LGPL 静态构建** `ffmpeg-nX.Y-latest-win64-lgpl-X.Y.zip`，checksums.sha256），边下边算 SHA-256，和官方校验和对上才放到位；装好后每个可执行文件的 SHA-256 记进 `tools.json`，**每次运行前再算一遍，对不上拒绝运行**。存放 `%LOCALAPPDATA%\OneSay\tools`（路径里有中文等非 ASCII 时退到 `%ProgramData%\OneSay\tools`，和工作区同一条规则）。发布页上找不到 LGPL 构建就不自动装。「检查更新」比对发布页当前的校验和。
-- 参数固定白名单（`MediaArgs`）：链接只收 http / https，拒绝空格、控制字符和 `; & | `` ` `` $ < > " ' \ { } ^`，不能以 `-` 开头，链接前固定一个 `--`；清晰度只有最佳 / 1080 / 720，仅音频只有 m4a / mp3；固定 `--ignore-config --no-plugin-dirs --no-playlist --no-exec`；不接受任何用户自由参数。分享文字 / 输入框里的链接先「整理」（取第一个链接，去掉 # 和第一个 & 之后的跟踪参数，整理后的链接会显示给你）再严格检查。
+- 参数固定白名单（`MediaArgs`）：链接只收 http / https，拒绝空格、控制字符和 `; | `` ` `` $ < > " ' \ { } ^`，不能以 `-` 开头，链接前固定一个 `--`（查询参数里正常的 `& = %` 放行，2026-11-11：链接在参数数组里永远是单独一个元素、不经 shell，`&` 变不成额外参数；yt-dlp 只认直接启动的可执行文件，`.bat` / `.cmd` 拒绝）；清晰度只有最佳 / 1080 / 720，仅音频只有 m4a / mp3；固定 `--ignore-config --no-plugin-dirs --no-playlist --no-exec`；不接受任何用户自由参数。分享文字 / 输入框里的链接先「整理」（取第一个链接，去掉 # 片段和明显的跟踪参数 utm_* / spm / spm_id_from / fbclid / gclid / igshid，其余参数如 YouTube 的 `&t=10` 原样保留，整理后的链接会显示给你）再严格检查。
 - 先 `-J` 取标题 / 时长 / 大小预览，再进队列（同时最多 2 个）；`--continue` 断点续传；解析进度行（百分比、速度、剩余时间）；遇 HTTP 429 退避重试最多 3 次（10 / 30 / 90 秒）。每个任务记下实际执行的命令，日志里 Cookie 路径打码。输出到 `%USERPROFILE%\OneSay\Downloads`（配置 `media_dir` 可改）。
 - 登录内容：只导入你自己导出的 cookies.txt（Netscape 格式），只留该站点（含子域名）的行，存配置目录 `cookies\<站点>.txt`，只给当前账户（Windows ACL 只留所有者；其他系统 rw-------）；每次下载用一份临时副本，用完删。不读浏览器 Cookie、不做浏览器扩展、不破 DRM。
 - 审批：新动作类型 `media_get`（类别 MEDIA_DOWNLOAD），走「能批就不拦」：分类 / 按需 → 确认卡（类型 `pc.media_download`，可勾「以后这类不用问」）；完全访问 + 从不询问 → 直接跑；工作区可写 + 从不询问、只读 → 拒。工具还没装时卡片换成 `pc.media_tool_install`（先装工具再下载）。链接没过检查直接拒（untrusted_url），不弹卡。
