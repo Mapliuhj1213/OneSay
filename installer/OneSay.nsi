@@ -39,6 +39,8 @@ VIAddVersionKey /LANG=0 "ProductName" "OneSay"
 VIAddVersionKey /LANG=0 "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=0 "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=0 "FileDescription" "OneSay Setup"
+VIAddVersionKey /LANG=0 "CompanyName" "OneSay"
+VIAddVersionKey /LANG=0 "LegalCopyright" "© 2026 OneSay contributors"
 
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
@@ -103,10 +105,10 @@ LangString TxtNeed64       ${LANG_SIMPCHINESE} "OneSay 需要 64 位 Windows 10 
 LangString TxtNeed64       ${LANG_ENGLISH}     "OneSay requires 64-bit Windows 10 or 11."
 LangString TxtNoWrite      ${LANG_SIMPCHINESE} "没有权限写入这个文件夹：$\r$\n$INSTDIR$\r$\n$\r$\nOneSay 不用管理员权限安装，请选一个你自己能写的位置（默认位置就可以）。"
 LangString TxtNoWrite      ${LANG_ENGLISH}     "Cannot write to this folder:$\r$\n$INSTDIR$\r$\n$\r$\nOneSay installs without administrator rights. Please choose a folder you can write to (the default is fine)."
-LangString SecDataName     ${LANG_SIMPCHINESE} "同时删除我的数据（设置、配对、对话记录、工作区）"
-LangString SecDataName     ${LANG_ENGLISH}     "Also delete my data (settings, pairings, chats, workspace)"
-LangString TxtConfirmData  ${LANG_SIMPCHINESE} "将永久删除 OneSay 的设置、配对钥匙、对话记录和工作区里的文件，无法恢复。$\r$\n$\r$\n确定删除吗？选「否」只卸载程序、保留数据。"
-LangString TxtConfirmData  ${LANG_ENGLISH}     "This permanently deletes OneSay settings, pairing keys, chats and the files in its workspace.$\r$\n$\r$\nDelete them? Choose No to remove only the program and keep your data."
+LangString SecDataName     ${LANG_SIMPCHINESE} "同时删除我的数据（设置、配对、对话记录、工作区、下载工具）"
+LangString SecDataName     ${LANG_ENGLISH}     "Also delete my data (settings, pairings, chats, workspace, download tools)"
+LangString TxtConfirmData  ${LANG_SIMPCHINESE} "将永久删除你这个账户的 OneSay 设置、配对钥匙、对话记录、工作区里的文件和下载工具，无法恢复。下载到「OneSay\Downloads」的文件会保留。$\r$\n$\r$\n确定删除吗？选「否」只卸载程序、保留数据。"
+LangString TxtConfirmData  ${LANG_ENGLISH}     "This permanently deletes this account's OneSay settings, pairing keys, chats, workspace files and download tools. Files in OneSay\Downloads are kept.$\r$\n$\r$\nDelete them? Choose No to remove only the program and keep your data."
 
 ; ---------------------------------------------------------------- 公用：OneSay 是否在运行
 ; 运行中的 exe 不能以写方式打开（共享冲突）：自带运行时的 javaw.exe / java.exe 打不开 = 正在运行。
@@ -296,6 +298,9 @@ Section "un.$(SecAppName)" UnSecApp
   RMDir /r "$INSTDIR\runtime"
   Delete "$INSTDIR\${APPEXE}"
   Delete "$INSTDIR\OneSay.exe.config"
+  Delete "$INSTDIR\LICENSE.txt"
+  Delete "$INSTDIR\NOTICE.txt"
+  Delete "$INSTDIR\THIRD_PARTY_NOTICES.md"
   Delete "$INSTDIR\${UNINSTEXE}"
   RMDir "$INSTDIR"
 SectionEnd
@@ -308,49 +313,90 @@ Section /o "un.$(SecDataName)" UnSecData
   delete_data:
   ; 配置、配对钥匙、对话与记忆、日志（程序写在 %APPDATA%\OneSay）
   RMDir /r "$APPDATA\OneSay"
-  ; 工作区：%USERPROFILE%\OneSay\workspace；用户目录含非 ASCII 字符时程序改用 %ProgramData%\OneSay\workspace
+  ; 工作区：%USERPROFILE%\OneSay\workspace；用户目录含非 ASCII 字符时程序改用
+  ; %ProgramData%\OneSay\accounts\<账户标记>\workspace（每个账户一个子目录，规则同 UserDirs.accountTag）。
+  ; 下载工具：%LOCALAPPDATA%\OneSay\tools；含非 ASCII 时 %ProgramData%\OneSay\accounts\<账户标记>\tools。
+  ; 只删本账户自己的；%USERPROFILE%\OneSay\Downloads（下载的文件）不删。
   RMDir /r "$PROFILE\OneSay\workspace"
   RMDir "$PROFILE\OneSay"
-  Push $PROFILE
-  Call un.IsAsciiPath
-  Pop $0
+  RMDir /r "$LOCALAPPDATA\OneSay\tools"
+  RMDir "$LOCALAPPDATA\OneSay"
   ReadEnvStr $1 "ProgramData"
-  ${If} $0 == 0
-  ${AndIf} $1 != ""
-    RMDir /r "$1\OneSay\workspace"
+  ${If} $1 != ""
+    Push $PROFILE
+    Call un.AccountTag
+    Pop $2
+    RMDir /r "$1\OneSay\accounts\$2"
+    RMDir "$1\OneSay\accounts"
     RMDir "$1\OneSay"
   ${EndIf}
 SectionEnd
 
-; 输入：栈顶字符串；输出：1 = 全是可打印 ASCII（0x20..0x7E），0 = 否（与 LinkPolicy.pcWorkspaceDir 相同判断）
-Function un.IsAsciiPath
+; 输入：栈顶 = 用户目录（$PROFILE）；输出：账户标记。与 UserDirs.accountTag 相同：
+; 取最后一段，A–Z a–z 0–9 和 - 原样保留，其余每个 UTF-16 字符写成 _XXXX（4 位大写十六进制）；空 = default。
+Function un.AccountTag
   Exch $0
   Push $1
   Push $2
   Push $3
   Push $4
+  Push $5
   Push $9
+  ; 去掉结尾的 \ 或 /
+  ${Do}
+    StrCpy $1 $0 1 -1
+    ${If} $1 == "\"
+    ${OrIf} $1 == "/"
+      StrCpy $0 $0 -1
+    ${Else}
+      ${Break}
+    ${EndIf}
+  ${Loop}
+  ; 取最后一段
   StrLen $1 $0
-  StrCpy $4 1
-  ${If} $1 == 0
-    StrCpy $4 0
-  ${EndIf}
+  StrCpy $2 $1
+  ${DoWhile} $2 > 0
+    IntOp $3 $2 - 1
+    StrCpy $4 $0 1 $3
+    ${If} $4 == "\"
+    ${OrIf} $4 == "/"
+      ${Break}
+    ${EndIf}
+    StrCpy $2 $3
+  ${Loop}
+  StrCpy $0 $0 "" $2
+  StrLen $1 $0
+  StrCpy $5 ""
   StrCpy $2 0
   ${DoWhile} $2 < $1
     StrCpy $3 $0 1 $2
     System::Call "*(&w2 r3)p.r9"
-    System::Call "*$9(&i2 .r3)"
+    System::Call "*$9(&i2 .r4)"
     System::Free $9
-    IntOp $3 $3 & 0xFFFF
-    ${If} $3 < 0x20
-    ${OrIf} $3 > 0x7E
-      StrCpy $4 0
-      ${Break}
+    IntOp $4 $4 & 0xFFFF
+    ${If} $4 >= 0x30
+    ${AndIf} $4 <= 0x39
+      StrCpy $5 "$5$3"
+    ${ElseIf} $4 >= 0x41
+    ${AndIf} $4 <= 0x5A
+      StrCpy $5 "$5$3"
+    ${ElseIf} $4 >= 0x61
+    ${AndIf} $4 <= 0x7A
+      StrCpy $5 "$5$3"
+    ${ElseIf} $4 == 0x2D
+      StrCpy $5 "$5$3"
+    ${Else}
+      IntFmt $4 "_%04X" $4
+      StrCpy $5 "$5$4"
     ${EndIf}
     IntOp $2 $2 + 1
   ${Loop}
-  StrCpy $0 $4
+  ${If} $5 == ""
+    StrCpy $5 "default"
+  ${EndIf}
+  StrCpy $0 $5
   Pop $9
+  Pop $5
   Pop $4
   Pop $3
   Pop $2

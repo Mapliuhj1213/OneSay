@@ -102,10 +102,8 @@ public final class Media {
 
     /** 下载目录：%USERPROFILE%\OneSay\Downloads（其他系统 ~/OneSay/Downloads）；配置里写了就用配置的。 */
     public static Path defaultOutDir(String configured) {
-        if (configured != null && !configured.isBlank()) return Paths.get(configured.trim());
-        String up = System.getenv("USERPROFILE");
-        if (up != null && !up.isEmpty()) return Paths.get(up, "OneSay", "Downloads");
-        return Paths.get(System.getProperty("user.home"), "OneSay", "Downloads");
+        // 下载目录不按中文用户名回退到 ProgramData（[integ]，见 UserDirs.downloadsDir）
+        return UserDirs.downloadsDir(configured, System.getenv("USERPROFILE"), System.getProperty("user.home"));
     }
 
     public Path outDir() { return outDir; }

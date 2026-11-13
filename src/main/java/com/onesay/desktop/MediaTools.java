@@ -27,7 +27,7 @@ import java.util.zip.ZipInputStream;
 
 /**
  * 链接下载要用的两个外部工具：yt-dlp（Unlicense）和 FFmpeg（选 LGPL 构建）。不随安装包附带，第一次用时按需下载，
- * 存在 %LOCALAPPDATA%\OneSay\tools（用户目录里有中文等非 ASCII 字符时退到 %ProgramData%\OneSay\tools，和工作区同一条规则）。
+ * 存在 %LOCALAPPDATA%\OneSay\tools（用户目录里有中文等非 ASCII 字符时退到 %ProgramData%\OneSay\accounts\<账户>\tools，和工作区同一条规则）。
  *
  * <p>校验：下载前先从同一个官方发布页取校验和文件（yt-dlp 的 SHA2-256SUMS、FFmpeg-Builds 的 checksums.sha256），下完边算 SHA-256 边比，
  * 对不上删掉、不装。装好后把每个可执行文件的 SHA-256 记进 tools.json；每次运行前再算一遍，和记录对不上就拒绝运行（{@link #verify}）。
@@ -85,17 +85,15 @@ public final class MediaTools {
     }
 
     /**
-     * 工具目录：Windows %LOCALAPPDATA%\OneSay\tools；路径里有非 ASCII（中文用户名）时退到 %ProgramData%\OneSay\tools；
-     * 没有 LOCALAPPDATA（非 Windows）时 ~/.local/share/onesay/tools。只算路径，不建目录。
+     * 工具目录：Windows %LOCALAPPDATA%\OneSay\tools；路径里有非 ASCII（中文用户名）时退到 %ProgramData%\OneSay\accounts\<账户>\tools
+     * （[integ] 按账户分子目录，规则见 UserDirs）；没有 LOCALAPPDATA（非 Windows）时 ~/.local/share/onesay/tools。只算路径，不建目录。
      */
     public static String toolsDir(String localAppData, String programData, String userHome) {
-        String la = localAppData == null ? "" : localAppData.trim();
-        if (la.isEmpty()) return Paths.get(userHome == null ? "." : userHome, ".local", "share", "onesay", "tools").toString();
-        boolean ascii = true;
-        for (int i = 0; i < la.length(); i++) if (la.charAt(i) > 0x7e || la.charAt(i) < 0x20) { ascii = false; break; }
-        String base = ascii ? la : (programData == null || programData.trim().isEmpty() ? "C:\\ProgramData" : programData.trim());
-        while (base.endsWith("\\") || base.endsWith("/")) base = base.substring(0, base.length() - 1);
-        return base + "\\OneSay\\tools";
+        return UserDirs.toolsDir(localAppData, programData, userHome, null);
+    }
+
+    public static String toolsDir(String localAppData, String programData, String userHome, String userProfile) {
+        return UserDirs.toolsDir(localAppData, programData, userHome, userProfile);
     }
 
     /** 下载限制：防止发布页被换成超大文件。 */
@@ -122,7 +120,7 @@ public final class MediaTools {
         String os = System.getProperty("os.name", ""), arch = System.getProperty("os.arch", "");
         boolean win = os.toLowerCase(Locale.ROOT).contains("win");
         String over = System.getProperty("onesay.tools.dir", "");
-        Path d = !over.isEmpty() ? Paths.get(over) : Paths.get(toolsDir(win ? System.getenv("LOCALAPPDATA") : null, System.getenv("ProgramData"), System.getProperty("user.home")));
+        Path d = !over.isEmpty() ? Paths.get(over) : Paths.get(toolsDir(win ? System.getenv("LOCALAPPDATA") : null, System.getenv("ProgramData"), System.getProperty("user.home"), win ? System.getenv("USERPROFILE") : null));
         return new MediaTools(d, win, ytdlpSource(YTDLP_RELEASES, os, arch), win ? ffmpegSource(FFMPEG_RELEASES, arch) : null);
     }
 

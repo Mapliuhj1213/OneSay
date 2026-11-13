@@ -64,7 +64,7 @@ public final class Config {
     /** 链接下载：默认清晰度 best / 1080 / 720（MediaArgs.quality）。 */
     public String mediaQuality = "best";
     /** 链接下载的文件夹；空 = %USERPROFILE%\OneSay\Downloads。 */
-    public String mediaDir = "";  // 空 = %USERPROFILE%\OneSay\workspace（中文用户名退到 %ProgramData%\OneSay\workspace）
+    public String mediaDir = "";  // 空 = %USERPROFILE%\OneSay\Downloads（不回退，见 UserDirs.downloadsDir）
 
     private transient Tls tls;
 
@@ -209,11 +209,11 @@ public final class Config {
         pcLevel = m.legacy().id;
     }
 
-    /** 远程指令能写的工作区（不自动建）。Windows：%USERPROFILE%\OneSay\workspace，用户目录非 ASCII 时用 %ProgramData%；其他系统 ~/OneSay/workspace。 */
+    /** 远程指令能写的工作区（不自动建）。Windows：%USERPROFILE%\OneSay\workspace，用户目录非 ASCII 时用 %ProgramData%\OneSay\accounts\<账户>\workspace（[integ] 按账户分子目录，见 UserDirs）；其他系统 ~/OneSay/workspace。 */
     public Path workspace() {
         if (!workspaceDir.isEmpty()) return Paths.get(workspaceDir);
         String up = System.getenv("USERPROFILE");
-        if (up != null && !up.isEmpty()) return Paths.get(LinkPolicy.pcWorkspaceDir(up, System.getenv("ProgramData")));
+        if (up != null && !up.isEmpty()) return Paths.get(UserDirs.workspaceDir(up, System.getenv("ProgramData")));
         return Paths.get(System.getProperty("user.home"), "OneSay", "workspace");
     }
 

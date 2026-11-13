@@ -8,9 +8,12 @@ ONESAY_BASE=/path/OneSay-0.5.0-windows-x64.zip bash installer/build-installer.sh
 ```
 - `ONESAY_BASE`：上一版 zip，或者解开后的 `OneSay` 目录。用到里面的 `OneSay.exe`、`OneSay.exe.config`（`launcher/` 编出来的启动器）和 `runtime\`（jlink 精简过的 Temurin 17）。这几样在 Linux 上不重新构建，做法和 zip 交付相同。jar 每次用 `build.sh` 从源码构建。
 - 版本号取构建出来的 jar 里的 `Implementation-Version`（由 `build.sh` 写入），不用另外填。
-- 需要：JDK 17+、git、unzip、makensis 3.x（可用 `MAKENSIS=` 指定路径）。Debian/Ubuntu 上装 `apt install nsis` 就行。
+- 需要：JDK 17+、unzip、makensis 3.x（可用 `MAKENSIS=` 指定路径）。Debian/Ubuntu 上装 `apt install nsis` 就行。
 - 默认输出到 `build/installer-out/`。中间文件在 `build/installer/`，这个目录已被 .gitignore 忽略。
 - 项目根目录下有 `LICENSE` 时，安装程序会显示协议页。脚本会自动给它补上 UTF-8 BOM。
+- **不附 source.zip**（2026-11-13 定）。安装目录里直接放 `LICENSE.txt`（Apache-2.0）、`NOTICE.txt`、`THIRD_PARTY_NOTICES.md`；自带 Java 运行时（Eclipse Temurin，GPLv2 + Classpath Exception）的许可在 `runtime\legal\`。
+- 发布者（「设置 › 应用」里显示）：**OneSay**；文件属性里的版权：**© 2026 OneSay contributors**。
+- **首版不签名**：安装程序和 `Uninstall.exe` 都没有代码签名。下载后运行时 Windows SmartScreen 会提示「Windows 已保护你的电脑 / 未知发布者」，点「更多信息 → 仍要运行」继续。以后签名时，证书上的名字要和发布者一致。
 
 ## 安装程序做什么
 - **只为当前用户安装，不需要管理员权限**：`RequestExecutionLevel user`（manifest 为 asInvoker），不弹 UAC，不写 HKLM。
@@ -33,5 +36,15 @@ ONESAY_BASE=/path/OneSay-0.5.0-windows-x64.zip bash installer/build-installer.sh
 - **默认保留用户数据**。可以勾选「同时删除我的数据」（默认不勾，勾了以后还会再确认一次），会删除：
   - `%APPDATA%\OneSay`：设置、配对钥匙、对话和记忆、日志
   - `%USERPROFILE%\OneSay\workspace`（`%USERPROFILE%\OneSay` 里没有别的东西时，这个目录也一起删）
-  - 用户目录名里有非 ASCII 字符（比如中文用户名）时，程序把工作区放在 `%ProgramData%\OneSay\workspace`，这种情况下删的是这个目录
+  - `%LOCALAPPDATA%\OneSay\tools`：链接下载用的 yt-dlp / FFmpeg
+  - 用户目录名里有非 ASCII 字符（比如中文用户名）时，程序把工作区和下载工具放在 `%ProgramData%\OneSay\accounts\<账户标记>\` 下（**每个 Windows 账户一个子目录**，标记规则见 docs/PCLINK.md「按账户的目录」，例如 `C:\Users\张三` → `_5F20_4E09`），删的是本账户的这个子目录，不碰同一台电脑上其他账户的
+  - **不删** `%USERPROFILE%\OneSay\Downloads`（链接下载下来的文件是你自己的；这个目录不按中文用户名回退）
 - 静默卸载：`Uninstall.exe /S`，数据保留。
+
+## 链接下载用的工具（按需下载，不随安装包）
+安装包里**没有** yt-dlp 和 FFmpeg。要用「链接下载」时，在 OneSay「设置 › 下载」里点「安装」，程序才从官方发布页下载：
+- **yt-dlp**（Unlicense）：github.com/yt-dlp/yt-dlp 的发布页，按官方 `SHA2-256SUMS` 校验。
+- **FFmpeg**：只用 FFmpeg-Builds 的 **LGPL 静态构建**（`ffmpeg-nX.Y-latest-win64-lgpl-X.Y.zip`，ARM64 用 winarm64），按官方 `checksums.sha256` 校验；发布页上找不到 LGPL 构建就不自动装（不会退到 GPL 构建）。
+- 下载时边下边算 SHA-256，和官方校验和对上才放到位；装好后每次运行前再核对一次，对不上拒绝运行。
+- 存放位置：`%LOCALAPPDATA%\OneSay\tools`；用户目录含中文等非 ASCII 时 `%ProgramData%\OneSay\accounts\<账户标记>\tools`。下载的视频 / 音频放 `%USERPROFILE%\OneSay\Downloads`（设置里可改），**不回退**。
+- 卸载时勾「同时删除我的数据」会删掉这些工具；不勾则保留。

@@ -432,9 +432,11 @@ public class MediaGetTest {
 
     @Test public void toolsDirFollowsChineseUsernameFallback() {
         assertEquals("C:\\Users\\me\\AppData\\Local\\OneSay\\tools", MediaTools.toolsDir("C:\\Users\\me\\AppData\\Local", "C:\\ProgramData", "/h"));
-        assertEquals("中文用户名退到 ProgramData", "C:\\ProgramData\\OneSay\\tools", MediaTools.toolsDir("C:\\Users\\张三\\AppData\\Local", "C:\\ProgramData", "/h"));
-        assertEquals("D:\\PD\\OneSay\\tools", MediaTools.toolsDir("C:\\Users\\张三\\AppData\\Local\\", "D:\\PD\\", "/h"));
-        assertEquals("C:\\ProgramData\\OneSay\\tools", MediaTools.toolsDir("C:\\Users\\张三\\AppData\\Local", null, "/h"));
+        // [integ] 2026-11-13：中文用户名的回退改成按账户分子目录 %ProgramData%\OneSay\accounts\<账户标记>\tools
+        //   （原期望 C:\ProgramData\OneSay\tools、D:\PD\OneSay\tools、C:\ProgramData\OneSay\tools；张三 → _5F20_4E09）
+        assertEquals("中文用户名退到 ProgramData（按账户）", "C:\\ProgramData\\OneSay\\accounts\\_5F20_4E09\\tools", MediaTools.toolsDir("C:\\Users\\张三\\AppData\\Local", "C:\\ProgramData", "/h"));
+        assertEquals("D:\\PD\\OneSay\\accounts\\_5F20_4E09\\tools", MediaTools.toolsDir("C:\\Users\\张三\\AppData\\Local\\", "D:\\PD\\", "/h"));
+        assertEquals("C:\\ProgramData\\OneSay\\accounts\\_5F20_4E09\\tools", MediaTools.toolsDir("C:\\Users\\张三\\AppData\\Local", null, "/h"));
         assertTrue(MediaTools.toolsDir(null, null, "/home/u").endsWith("onesay/tools"));
     }
 

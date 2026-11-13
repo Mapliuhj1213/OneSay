@@ -16,7 +16,7 @@
 ## 1. 证书与指纹
 
 - 每台设备第一次运行生成 EC P-256 钥匙 + X.509 v3 自签证书（CN=`onesay-<设备id>`，SHA256withECDSA，有效期 −1 天 ~ +20 年、不超过 2049-12-31）。
-  不靠任何 CA；电脑端存在 `desktop.properties` 的 `tls_key`/`tls_cert`（文件权限 600），手机端私钥经 Keystore 加密存 `bixby_pclink/tls_key`。
+  不靠任何 CA；电脑端存在 `desktop.properties` 的 `tls_key`/`tls_cert`（文件权限 600），手机端私钥经 Android Keystore 加密后存在手机 App 自己的私有设置里（只在本机，不导出）。
 - 指纹 = `base64url(SHA-256(证书 DER))`，无填充，43 个字符。给人核对时显示前 4 字节十六进制 `1A2B-3C4D`（电脑设置页、手机控制台都显示）。
 - 证书一旦生成就不变：换了证书，对方钉的指纹就对不上。
 
@@ -126,7 +126,7 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 
 「确认」= 被控端弹「允许一次 / 拒绝」，30 秒不点算拒绝；「脚本」= 只在工作区 `scripts/` 生成带中文头注释（做什么、风险、怎么执行）的 .sh（手机）或 .ps1（电脑），通知「已生成脚本，需你自己执行」，从不执行。
 
-- 工作区：手机 `getExternalFilesDir("workspace")`；电脑 `%USERPROFILE%\OneSay\workspace`，用户目录含非 ASCII 时用 `%ProgramData%\OneSay\workspace`。路径检查拒绝 `..`、绝对路径、盘符、UNC、设备路径、NTFS 备用流、Windows 保留名，并用规范路径比对（符号链接跳出也拒）。
+- 工作区：手机 `getExternalFilesDir("workspace")`；电脑 `%USERPROFILE%\OneSay\workspace`，用户目录含非 ASCII 时用 `%ProgramData%\OneSay\accounts\<账户标记>\workspace`（每个账户一个子目录，2026-11-13 起）。路径检查拒绝 `..`、绝对路径、盘符、UNC、设备路径、NTFS 备用流、Windows 保留名，并用规范路径比对（符号链接跳出也拒）。
 - 网址检查：只许 http/https；拒绝 user:pass@、IP 字面量 / 内网主机（除非在信任列表）、混合文字 / 整段西里尔或希腊仿冒的 IDN（含 punycode）、超长（2048）、控制字符和反斜杠。v1 不做联网信誉查询。
 - 剪贴板检查：超过 10 KB、像命令 / 脚本、含过不了网址检查的链接 → 拒绝；验证码、银行卡号（Luhn）、私钥 / 密钥、助记词、密码 → 敏感：要确认，Android 13+ 标 `EXTRA_IS_SENSITIVE`，60 秒后自动清除。
 - 回复 `data` 带 `level` / `level_zh`，没执行时带 `reason`（`denied_by_level`、`needs_confirm_timeout`、`confirm_denied`、`untrusted_url`、`blocked_app`、`clipboard_rejected`、`script_generated`、`system_app`、`unknown_command`、`shortcut_needs_approval`、`shortcut_changed`、`shortcut_category_blocked`）和 `reason_zh`；生成脚本时带 `path`。
@@ -168,7 +168,7 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 | 远程改 OneSay 自己的设置 | D（self_grant_blocked） | D | D |
 | 系统程序、支付 / 银行 / 密码 / 钱包 / 商店 / 安装器类 | D | D | D |
 
-- **工作区**：`%USERPROFILE%\OneSay\workspace`（用户目录非 ASCII 时 `%ProgramData%\OneSay\workspace`）；工作区里的 `.git`、`.codex`、`.agents` 只读。
+- **工作区**：`%USERPROFILE%\OneSay\workspace`（用户目录非 ASCII 时 `%ProgramData%\OneSay\accounts\<账户标记>\workspace`）；工作区里的 `.git`、`.codex`、`.agents` 只读。
 - **工作区可写档下的命令（第二轮，2026-11-08 用户决定）**：Windows 上 Java 没法把子进程关在工作区里（没有系统级沙箱），你知道这一点，所以命令、跑工作区脚本、工作区外写入改成「**电脑上确认后，按你自己的权限执行**」，不再只生成脚本。审批策略照常：分类 / 按需 → 先确认（30 秒不点 = 拒），从不 → 直接拒。安全插件规则全部在确认之前、照旧优先（永不提权、需要管理员只生成 .ps1、禁止自授权、默认断网、编码命令拦截）；OneSay 自己是管理员时确认了也拒。操作第三方程序仍只在完全访问档。
 - **默认断网**：只读 / 工作区可写档下，命令要联网（curl / wget / Invoke-WebRequest / WebClient / bitsadmin / certutil -urlcache / UNC `\\主机\共享`…）时，域名必须在白名单 `net_allow` 里（含子域），否则 `plugin_blocked`。完全访问档不断网。
 
@@ -298,7 +298,7 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 思路参考 omniget（https://github.com/OpenSelena/omniget，GPL-3.0）：链接 → 预览 → 队列 → 进度、引擎按需下载。**只读思路，代码自写**，没有拷贝或改写 omniget 的任何代码。引擎 yt-dlp（Unlicense），以子进程调用。
 
 **电脑端**
-- 工具不随安装包附带：设置 › 下载 › 「安装」时才从官方发布页下载 yt-dlp（github.com/yt-dlp/yt-dlp，SHA2-256SUMS）和 FFmpeg（github.com/FFmpeg-Builds，**LGPL 静态构建** `ffmpeg-nX.Y-latest-win64-lgpl-X.Y.zip`，checksums.sha256），边下边算 SHA-256，和官方校验和对上才放到位；装好后每个可执行文件的 SHA-256 记进 `tools.json`，**每次运行前再算一遍，对不上拒绝运行**。存放 `%LOCALAPPDATA%\OneSay\tools`（路径里有中文等非 ASCII 时退到 `%ProgramData%\OneSay\tools`，和工作区同一条规则）。发布页上找不到 LGPL 构建就不自动装。「检查更新」比对发布页当前的校验和。
+- 工具不随安装包附带：设置 › 下载 › 「安装」时才从官方发布页下载 yt-dlp（github.com/yt-dlp/yt-dlp，SHA2-256SUMS）和 FFmpeg（github.com/FFmpeg-Builds，**LGPL 静态构建** `ffmpeg-nX.Y-latest-win64-lgpl-X.Y.zip`，checksums.sha256），边下边算 SHA-256，和官方校验和对上才放到位；装好后每个可执行文件的 SHA-256 记进 `tools.json`，**每次运行前再算一遍，对不上拒绝运行**。存放 `%LOCALAPPDATA%\OneSay\tools`（路径里有中文等非 ASCII 时退到 `%ProgramData%\OneSay\accounts\<账户标记>\tools`，和工作区同一条规则；下载目录 `%USERPROFILE%\OneSay\Downloads` 不回退）。发布页上找不到 LGPL 构建就不自动装。「检查更新」比对发布页当前的校验和。
 - 参数固定白名单（`MediaArgs`）：链接只收 http / https，拒绝空格、控制字符和 `; | `` ` `` $ < > " ' \ { } ^`，不能以 `-` 开头，链接前固定一个 `--`（查询参数里正常的 `& = %` 放行，2026-11-11：链接在参数数组里永远是单独一个元素、不经 shell，`&` 变不成额外参数；yt-dlp 只认直接启动的可执行文件，`.bat` / `.cmd` 拒绝）；清晰度只有最佳 / 1080 / 720，仅音频只有 m4a / mp3；固定 `--ignore-config --no-plugin-dirs --no-playlist --no-exec`；不接受任何用户自由参数。分享文字 / 输入框里的链接先「整理」（取第一个链接，去掉 # 片段和明显的跟踪参数 utm_* / spm / spm_id_from / fbclid / gclid / igshid，其余参数如 YouTube 的 `&t=10` 原样保留，整理后的链接会显示给你）再严格检查。
 - 先 `-J` 取标题 / 时长 / 大小预览，再进队列（同时最多 2 个）；`--continue` 断点续传；解析进度行（百分比、速度、剩余时间）；遇 HTTP 429 退避重试最多 3 次（10 / 30 / 90 秒）。每个任务记下实际执行的命令，日志里 Cookie 路径打码。输出到 `%USERPROFILE%\OneSay\Downloads`（配置 `media_dir` 可改）。
 - 登录内容：只导入你自己导出的 cookies.txt（Netscape 格式），只留该站点（含子域名）的行，存配置目录 `cookies\<站点>.txt`，只给当前账户（Windows ACL 只留所有者；其他系统 rw-------）；每次下载用一份临时副本，用完删。不读浏览器 Cookie、不做浏览器扩展、不破 DRM。
@@ -309,3 +309,16 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 - 语音「下载这个视频」「把这个链接下到电脑」「用电脑下载 https://…」「下载这个视频的音频」（链接取自说的话，没有就取剪贴板）；系统分享菜单「下到电脑」（选清晰度 / 仅音频 / 是否传回手机，要你点「下载」才发）；控制台「电脑联动 › 把链接下到电脑」。
 - 发 `media_get` 后每 2 秒查一次 `media_status`，通知栏显示进度；完成后可选传回手机（≤ 5 MB，存 Movies / Music 下的 OneSay）。大于 5 MB 只通知完成并给出电脑上的路径（现有通道单条上限，**没有新造传输协议**）。
 - 电脑没连上：只提示「需要连上电脑」，手机本地不跑 yt-dlp。
+
+## 按账户的目录（2026-11-13 集成）
+
+用户目录名全是 ASCII 时，工作区和工具目录照旧在自己的用户目录下。含中文等非 ASCII 时退到 ProgramData，**每个 Windows 账户一个子目录**：
+
+| 用途 | 用户目录 ASCII | 用户目录非 ASCII |
+|---|---|---|
+| 工作区 | `%USERPROFILE%\OneSay\workspace` | `%ProgramData%\OneSay\accounts\<账户标记>\workspace` |
+| 链接下载工具（yt-dlp / FFmpeg） | `%LOCALAPPDATA%\OneSay\tools` | `%ProgramData%\OneSay\accounts\<账户标记>\tools` |
+| 链接下载输出 | `%USERPROFILE%\OneSay\Downloads` | 同左（**不回退**） |
+
+账户标记 = 用户目录最后一段，A–Z a–z 0–9 和 `-` 原样保留，其余每个字符写成 `_` + 4 位大写十六进制（UTF-16），例如 `C:\Users\张三` → `_5F20_4E09`。实现在 `UserDirs`，安装程序卸载时用同一规则找到本账户的目录，「同时删除我的数据」只删自己的那份，不碰同一台电脑上其他账户的。
+`LinkPolicy.pcWorkspaceDir` 仍是三端同步的旧算法（手机 / 开源版测试钉着），电脑端已不再用它算路径。

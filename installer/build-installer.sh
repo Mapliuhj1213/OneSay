@@ -7,7 +7,8 @@
 # ONESAY_BASE 提供 Windows 专用、在 Linux 上不重建的部分：
 #   OneSay.exe + OneSay.exe.config（launcher/ 的 C# 启动器）和 runtime\（jlink 精简 Temurin 17）。
 #   与 zip 交付做法相同：jar 每次从源码构建，这两样沿用上一版包里的。
-# 需要：JDK 17+（javac/jar，JAVA_HOME 或 PATH）、git、unzip、makensis 3.x（MAKENSIS 可指定路径）。
+# 需要：JDK 17+（javac/jar，JAVA_HOME 或 PATH）、unzip、makensis 3.x（MAKENSIS 可指定路径）。
+# 首版不签名（2026-11-13 定）：exe 和 Uninstall.exe 都没有代码签名，SmartScreen 会提示「未知发布者」。
 # 可选：installer 目录外的项目根有 LICENSE 文件时，安装程序显示协议页。
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -44,8 +45,11 @@ mkdir -p "$STAGE/app"
 cp "$BASEDIR/OneSay.exe" "$BASEDIR/OneSay.exe.config" "$STAGE/"
 cp -r "$BASEDIR/runtime" "$STAGE/runtime"
 cp "$JAR" "$STAGE/app/onesay-desktop.jar"
-# 与 zip 一样随附源码（Temurin GPLv2+CE 与第三方许可说明在里面）；按当前提交打
-git archive --format=zip -o "$STAGE/app/source.zip" HEAD
+# 不再随附 source.zip（2026-11-13 定）。许可与第三方说明直接放在安装目录：
+#   LICENSE.txt（Apache-2.0）、NOTICE.txt、THIRD_PARTY_NOTICES.md；Temurin 的 GPLv2+CE 等在 runtime\legal 里。
+cp "$ROOT/LICENSE" "$STAGE/LICENSE.txt"
+cp "$ROOT/NOTICE" "$STAGE/NOTICE.txt"
+cp "$ROOT/THIRD_PARTY_NOTICES.md" "$STAGE/THIRD_PARTY_NOTICES.md"
 
 # 5) 构建 exe
 EXE="$OUT/OneSay-Setup-$VERSION-x64.exe"
