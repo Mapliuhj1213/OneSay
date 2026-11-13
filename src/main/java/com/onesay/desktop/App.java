@@ -45,6 +45,10 @@ public final class App {
     Notify notify;
     Actions actions;
     UiServer ui;
+    Media media;
+    /** 设置页「下载」区块里工具的状态（算 SHA-256 较慢，不每 2.5 秒算：启动、安装完、打开区块时刷新）。 */
+    volatile Map<String, Object> mediaToolsView = new TreeMap<>();
+    volatile String mediaInstall = "";
 
     App(Config cfg) {
         this.cfg = cfg;
@@ -118,6 +122,7 @@ public final class App {
             Map<String, Object> m = store.mergeMemory(a.get("text") == null ? null : String.valueOf(a.get("text")), at instanceof Number ? ((Number) at).longValue() : 0L);
             return Actions.Result.ok("记忆已同步", m);
         });
+        setupMedia();
         agent.confirms.onNew = d -> notify.post("pc", "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点，或在已配对手机屏幕上的确认卡上点；60 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
         agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
         agent.start();
@@ -132,9 +137,164 @@ public final class App {
         routes();
         if (!ui.start(uiPort()) && !ui.start(0)) throw new IOException("界面端口打不开");
         log.accept("界面 " + ui.url());
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); }));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();
         new Thread(App::ensureShortcuts, "onesay-shortcuts").start();
+    }
+
+    // ---------- 链接下载 ----------
+    /** 链接下载：工具在 %LOCALAPPDATA%\OneSay\tools，Cookie 在配置目录 cookies\，文件下到 %USERPROFILE%\OneSay\Downloads。手机指令走 PcGuard 后到这里。 */
+    void setupMedia() {
+        Path dir = cfg.file.getParent() == null ? Config.defaultDir() : cfg.file.getParent();
+        media = new Media(MediaTools.forThisPc(), new MediaCookies(dir.resolve("cookies")), Media.defaultOutDir(cfg.mediaDir), log);
+        media.onFinish = t -> {
+            if (t.state == Media.State.DONE) notify.post("pc", "下载完成", (t.title.isEmpty() ? t.url : t.title) + " → " + t.file, t.from);
+            else if (t.state == Media.State.FAILED) notify.post("pc", "下载失败", (t.title.isEmpty() ? t.url : t.title) + "：" + t.error, t.from);
+        };
+        agent.guard.mediaToolsMissing = media.tools::missing;
+        agent.local.put("media_get", media::remoteGet);
+        agent.local.put("media_status", media::remoteStatus);
+        agent.local.put("media_fetch", media::remoteFetch);
+        agent.local.put("media_cancel", media::remoteCancel);
+        new Thread(() -> mediaToolsView = media.tools.view(), "onesay-media-tools").start();
+    }
+
+    /** 界面「下载」区块的接口（本机口令保护）。 */
+    Map<String, Object> mediaApi(Map<String, Object> b) {
+        return mediaApi(media, b, log, this);
+    }
+
+    static Map<String, Object> mediaApi(Media media, Map<String, Object> b, Consumer<String> log, App app) {
+        String op = str(b, "op", "state");
+        switch (op) {
+            case "tools": {
+                Map<String, Object> m = ok("");
+                Map<String, Object> v = media.tools.view();
+                if (app != null) app.mediaToolsView = v;
+                m.put("tools", v);
+                return m;
+            }
+            case "install": {
+                if (app == null) return fail("没有界面");
+                if (!app.mediaInstall.isEmpty() && !app.mediaInstall.startsWith("已") && !app.mediaInstall.startsWith("失败")) return fail("正在安装");
+                boolean force = Boolean.TRUE.equals(b.get("force"));
+                app.mediaInstall = "正在下载…";
+                new Thread(() -> {
+                    try {
+                        List<String> done = media.tools.install(force, (what, d, t) -> app.mediaInstall = "正在下载 " + what + " " + MediaArgs.mb(d) + (t > 0 ? " / " + MediaArgs.mb(t) : ""));
+                        app.mediaInstall = done.isEmpty() ? "已是装好的，不用重装" : "已安装 " + String.join("、", done) + "（已核对官方 SHA-256）";
+                        log.accept("下载工具：" + app.mediaInstall);
+                    } catch (Exception e) {
+                        app.mediaInstall = "失败：" + MediaTools.msg(e);
+                        log.accept("下载工具安装失败：" + MediaTools.msg(e));
+                    }
+                    app.mediaToolsView = media.tools.view();
+                }, "onesay-media-install").start();
+                return ok("开始安装");
+            }
+            case "check_update": {
+                Map<String, Object> m = ok("");
+                m.put("updates", media.tools.checkUpdates());
+                return m;
+            }
+            case "preview": {
+                String url = MediaArgs.tidy(str(b, "url", ""));
+                if (url == null) return fail("没找到 http / https 链接");
+                try {
+                    Media.Info in = media.preview(url, str(b, "quality", "best"), str(b, "audio", ""));
+                    Map<String, Object> m = ok(in.title);
+                    m.put("url", url);
+                    m.put("title", in.title);
+                    m.put("duration", MediaArgs.duration(in.duration));
+                    m.put("seconds", in.duration);
+                    m.put("size", MediaArgs.mb(in.size));
+                    m.put("bytes", in.size);
+                    return m;
+                } catch (RuntimeException e) {
+                    Map<String, Object> f = fail(MediaTools.msg(e));
+                    f.put("url", url);
+                    return f;
+                }
+            }
+            case "download": {
+                String url = MediaArgs.tidy(str(b, "url", ""));
+                if (url == null) return fail("没找到 http / https 链接");
+                if (media.tools.missing()) return fail("先在上面安装下载工具");
+                Media.Info in = null;
+                if (b.get("title") != null) {
+                    in = new Media.Info();
+                    in.title = str(b, "title", "");
+                    in.duration = b.get("seconds") instanceof Number ? ((Number) b.get("seconds")).doubleValue() : 0;
+                    in.size = b.get("bytes") instanceof Number ? ((Number) b.get("bytes")).longValue() : 0;
+                }
+                try {
+                    Media.Task t = media.enqueue(url, b.get("quality"), b.get("audio"), "", false, in);
+                    Map<String, Object> m = ok("已加入下载队列（#" + t.id + "）");
+                    m.put("task", media.view(t));
+                    return m;
+                } catch (IllegalArgumentException e) {
+                    return fail(e.getMessage());
+                }
+            }
+            case "cancel":
+                return media.cancel(Media.intOf(b.get("id"))) ? ok("已取消") : fail("没有这个进行中的任务");
+            case "cookie_import": {
+                String err = media.cookies.save(str(b, "site", ""), str(b, "text", ""));
+                if (err != null) return fail(err);
+                log.accept("导入了 " + MediaCookies.site(str(b, "site", "")) + " 的 Cookie（内容不记日志）");
+                Map<String, Object> m = ok("已导入，只有这个账户能读");
+                m.put("cookies", media.cookies.list());
+                return m;
+            }
+            case "cookie_delete": {
+                if (!media.cookies.delete(str(b, "site", ""))) return fail("没有这个站点的 Cookie");
+                log.accept("删除了 " + MediaCookies.site(str(b, "site", "")) + " 的 Cookie");
+                Map<String, Object> m = ok("已删除");
+                m.put("cookies", media.cookies.list());
+                return m;
+            }
+            case "open_dir":
+            case "reveal": {
+                Path target = media.outDir();
+                if (op.equals("reveal")) {
+                    Media.Task t = media.task(Media.intOf(b.get("id")));
+                    if (t == null || t.file.isEmpty()) return fail("还没有文件");
+                    target = Paths.get(t.file);
+                }
+                try {
+                    Files.createDirectories(media.outDir());
+                    if (isWindows()) {
+                        if (op.equals("reveal")) new ProcessBuilder("explorer.exe", "/select,", target.toString()).start();
+                        else new ProcessBuilder("explorer.exe", target.toString()).start();
+                    } else if (Desktop.isDesktopSupported()) Desktop.getDesktop().open((op.equals("reveal") ? target.getParent() : target).toFile());
+                    else return fail("这台电脑打不开文件夹：" + target);
+                    return ok("已打开");
+                } catch (Exception e) {
+                    return fail("打不开：" + target);
+                }
+            }
+            case "state":
+                break;
+            default:
+                return fail("不认识的操作");
+        }
+        Map<String, Object> m = ok("");
+        m.put("tasks", media.views());
+        m.put("cookies", media.cookies.list());
+        m.put("dir", media.outDir().toString());
+        return m;
+    }
+
+    /** 每次刷新状态带上的「下载」区块数据（不算 SHA-256）。 */
+    Map<String, Object> mediaState() {
+        Map<String, Object> m = new TreeMap<>();
+        m.put("tools", mediaToolsView);
+        m.put("install", mediaInstall);
+        m.put("tasks", media.views());
+        m.put("cookies", media.cookies.list());
+        m.put("dir", media.outDir().toString());
+        m.put("quality", MediaArgs.quality(cfg.mediaQuality));
+        return m;
     }
 
     // ---------- 开始菜单与桌面快捷方式（用 exe 启动时） ----------
@@ -234,6 +394,7 @@ public final class App {
         s.put("plugin_encoded", cfg.pluginEncoded);
         s.put("net_allow", cfg.netAllow);
         s.put("trusted_domains", cfg.trusted);
+        s.put("media_quality", MediaArgs.quality(cfg.mediaQuality));
         return s;
     }
 
@@ -267,6 +428,7 @@ public final class App {
             s.put("shortcut_approvals", agent.guard.approvalView());
             s.put("remembered", agent.guard.rememberedView());
             s.put("workspace", cfg.workspace().toString());
+            s.put("media", mediaState());
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
         });
@@ -340,6 +502,7 @@ public final class App {
             return m;
         });
         ui.on("confirm", b -> confirmApi(agent.confirms, b, log));
+        ui.on("media", this::mediaApi);
         // 「以后这类不用问」记住的动作类型：看 / 撤销（只能在电脑界面上；远程改不了）
         ui.on("remembered", b -> {
             String op = str(b, "op", "list");
@@ -428,6 +591,7 @@ public final class App {
                     case "net_allow": cfg.netAllow = String.join(",", LinkPolicy.parseDomains(v)); break;
                     case "trusted_domains": cfg.trusted = String.join(",", LinkPolicy.parseDomains(v)); break;
                     case "autostart": autostart(v.equals("true")); break;
+                    case "media_quality": cfg.mediaQuality = MediaArgs.quality(v); break;
                     default: break;
                 }
             }

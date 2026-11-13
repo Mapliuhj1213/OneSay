@@ -60,7 +60,11 @@ public final class Config {
     public String approveKinds = "";
     public String shortcutApprovals = ""; // 手机触发快捷指令「以后直接执行」的批准表：id=内容哈希,...（LinkPolicy.parseApprovals）
     public String trusted = "";       // 手机让电脑打开网址时的信任域名，逗号分隔
-    public String workspaceDir = "";  // 空 = %USERPROFILE%\OneSay\workspace（中文用户名退到 %ProgramData%\OneSay\workspace）
+    public String workspaceDir = "";
+    /** 链接下载：默认清晰度 best / 1080 / 720（MediaArgs.quality）。 */
+    public String mediaQuality = "best";
+    /** 链接下载的文件夹；空 = %USERPROFILE%\OneSay\Downloads。 */
+    public String mediaDir = "";  // 空 = %USERPROFILE%\OneSay\workspace（中文用户名退到 %ProgramData%\OneSay\workspace）
 
     private transient Tls tls;
 
@@ -124,6 +128,8 @@ public final class Config {
         c.shortcutApprovals = LinkPolicy.formatApprovals(LinkPolicy.parseApprovals(p.getProperty("shortcut_approvals", "")));
         c.approveKinds = LinkPolicy.formatKinds(LinkPolicy.parseKinds(p.getProperty("approve_kinds", "")));
         c.workspaceDir = p.getProperty("workspace_dir", "").trim();
+        c.mediaQuality = MediaArgs.quality(p.getProperty("media_quality", "best"));
+        c.mediaDir = p.getProperty("media_dir", "").trim();
         return c;
     }
 
@@ -158,6 +164,8 @@ public final class Config {
         p.setProperty("shortcut_approvals", shortcutApprovals);
         p.setProperty("approve_kinds", approveKinds);
         p.setProperty("workspace_dir", workspaceDir);
+        p.setProperty("media_quality", MediaArgs.quality(mediaQuality));
+        p.setProperty("media_dir", mediaDir);
         p.setProperty("llm_provider", llmProvider);
         p.setProperty("llm_key", llmKey);
         p.setProperty("llm_model", llmModel);
