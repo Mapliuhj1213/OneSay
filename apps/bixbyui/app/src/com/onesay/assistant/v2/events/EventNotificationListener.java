@@ -63,6 +63,18 @@ public class EventNotificationListener extends NotificationListenerService {
         }
     }
 
+    /** ★ compat-vyrse：当前通知快照（只在 VYRSE 兼容开着、电脑要求读通知时调）。没授权 / 没连上 = null。 */
+    public static android.service.notification.StatusBarNotification[] activeSnapshot() {
+        EventNotificationListener l = sConnected;
+        if (l == null) return null;
+        try {
+            return l.getActiveNotifications();
+        } catch (Throwable t) {
+            Log.w(TAG, "[EVENT-NL] 读当前通知失败: " + t.getClass().getSimpleName());
+            return null;
+        }
+    }
+
     @Override public void onListenerConnected() {
         sConnected = this;
         com.onesay.assistant.v2.phongent.PgNotices.connected = true;

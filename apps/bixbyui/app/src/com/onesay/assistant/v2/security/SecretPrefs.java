@@ -47,6 +47,7 @@ public final class SecretPrefs {
             {"bixby_llm_providers", "key_custom_openai"},
             {"bixby_llm_providers", "key_anthropic"},
             {"bixby_llm_providers", "key_gemini"},
+            {"bixby_vyrse", "vyrse_token"},  // ★ compat-vyrse VYRSE 电脑发给本机的 key（电脑只存哈希）
     };
 
     private static volatile SecretCodec sCodec;

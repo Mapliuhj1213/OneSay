@@ -289,6 +289,12 @@
             android:name="com.onesay.assistant.v2.phongent.PhongentService"
             android:exported="false" />
 
+        <!-- compat-vyrse：VYRSE 电脑兼容的长轮询服务（只主动连配对时填的局域网地址，不监听端口）。exported=false：
+             只由本 App 起停（总开关开 + 已配对 + 连接开关开），常驻通知的「停止」按钮是发给它的显式 PendingIntent。 -->
+        <service
+            android:name="com.onesay.assistant.v2.vyrse.VyrseLinkService"
+            android:exported="false" />
+
         <!-- 底部 Sheet 悬浮抽屉服务（置顶但保持被控应用可见）
              exported=false。启动方只有本 App（WakeService / MainActivity / BootReceiver /
              TestRunReceiver），同 uid 不受影响；旧版导出且接收 ACTION_SHOW + query 直接执行，任何 App 都能塞指令。 -->

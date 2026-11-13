@@ -45,6 +45,7 @@ public final class BuiltinPlugins {
         k.register(new com.onesay.assistant.v2.kernel.plugins.AskOncePlugin());   // ★ int/1102 问一次记住（发消息渠道 / 购物方式 / 邮件先问哪类 / 播放音乐无播放器），默认开
         k.register(new com.onesay.assistant.v2.kernel.plugins.PcLinkPlugin());   // ★ feat/pclink 电脑联动（扫码配对电脑端 OneSay）：默认开，没配对 = 不联网、无副作用
         k.register(new com.onesay.assistant.v2.kernel.plugins.ApiFirstPlugin());   // ★ feat/api-first 接口优先路由工具 route.open（系统接口 → 已配置接口 → 深链 → 点界面兜底），默认开
+        k.register(new com.onesay.assistant.v2.kernel.plugins.VyrsePlugin());   // ★ compat-vyrse：VYRSE 电脑兼容（当它的手机），默认关；关着 = 不联网、无服务
         k.register(new HelloPlugin());   // 示例，默认关
     }
 }
