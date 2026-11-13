@@ -113,8 +113,23 @@ public final class LlmClient {
     }
 
     public String apiKey() {
+        com.onesay.assistant.v2.llm.ProviderRoute r = route();   // ★ priv-llm：主对话走了别家 → 用那家的 Key
+        if (r != null) return r.key();
         String k = mKey != null ? mKey.apiKey() : null;
         return k == null ? "" : k;
+    }
+
+    /**
+     * ★ priv-llm（自带 Key 服务商层）：发往「主对话」地址（{@link LlmEndpoints#deepseekChatUrl()}）的请求，
+     * 用户在「大模型服务商」里选了别家时改走那家（{@link com.onesay.assistant.v2.llm.ProviderRouting}）；
+     * 其它地址（百炼兼容模式的识屏 / 看图等）和没选别家时一律返回 null = 原样不变。
+     */
+    com.onesay.assistant.v2.llm.ProviderRoute route() {
+        com.onesay.assistant.v2.llm.ProviderRoute r = com.onesay.assistant.v2.llm.ProviderRouting.active();
+        // [integ] 2026-11-13：console-align 后主对话客户端用 DEEPSEEK_URL 建、请求时才换成主模型地址；
+        //   这里按换算后的地址比对，保持 priv-llm 原语义（选了别家服务商时主对话一律走那家，不论主模型地址改没改过）
+        if (r == null || mUrl == null || !effectiveUrl(mUrl).equals(LlmEndpoints.deepseekChatUrl())) return null;
+        return r;
     }
 
     public boolean hasKey() {
@@ -238,10 +253,13 @@ public final class LlmClient {
         int len = -1;
         boolean headers = false;
         try {
-            HttpURLConnection conn = connection();
+            final com.onesay.assistant.v2.llm.ProviderRoute route = route();
+            final com.onesay.assistant.v2.llm.WireRequest wire = route == null ? null : routedWire(route, jsonBody, false);
+            HttpURLConnection conn = wire == null ? connection() : (HttpURLConnection) new URL(wire.url).openConnection();
             synchronized (holder) { holder[0] = conn; }
             if (killed[0]) throw new java.net.SocketTimeoutException("total cap");
-            send(conn, jsonBody, false);
+            if (wire == null) send(conn, jsonBody, false);
+            else sendRouted(conn, wire, route);
             code = conn.getResponseCode();
             headers = true;
             if (code != 200) {
@@ -251,6 +269,7 @@ public final class LlmClient {
             } else {
                 String body = drain0(conn.getInputStream(), Integer.MAX_VALUE);
                 len = body == null ? 0 : body.length();
+                if (route != null && body != null && body.trim().length() > 0) body = route.adapter().toOpenAi(body, route.model).toString();
                 at.res = LlmResponse.parse(code, body);
                 at.emptyBody = body == null || body.trim().length() == 0;
             }
@@ -342,20 +361,46 @@ public final class LlmClient {
         long s = System.currentTimeMillis();
         int chars = 0;
         try {
-            conn = open(jsonBody, true);
+            com.onesay.assistant.v2.llm.ProviderRoute route = route();
+            if (route != null) {
+                com.onesay.assistant.v2.llm.WireRequest wire = routedWire(route, jsonBody, true);
+                conn = (HttpURLConnection) new URL(wire.url).openConnection();
+                sendRouted(conn, wire, route);
+            } else {
+                conn = open(jsonBody, true);
+            }
             st.httpCode = conn.getResponseCode();
             if (st.httpCode != 200) {
                 st.error = "HTTP " + st.httpCode + " " + drain(conn.getErrorStream(), 400);
                 return st;
             }
             in = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+            com.onesay.assistant.v2.llm.ProviderAdapter.StreamTranslator tr = route == null ? null : route.adapter().newStream(route.model);
             String line;
+            outer:
             while ((line = in.readLine()) != null) {
                 chars += line.length();
-                if (LlmResponse.isDoneLine(line)) break;
-                if (!sink.onLine(line)) {
-                    st.aborted = true;
-                    break;
+                if (tr == null) {
+                    if (LlmResponse.isDoneLine(line)) break;
+                    if (!sink.onLine(line)) {
+                        st.aborted = true;
+                        break;
+                    }
+                    continue;
+                }
+                for (String l : tr.onLine(line)) {   // ★ priv-llm：别家的流式行翻成 OpenAI 格式再交给原来的 sink
+                    if (LlmResponse.isDoneLine(l)) break outer;
+                    if (!sink.onLine(l)) {
+                        st.aborted = true;
+                        break outer;
+                    }
+                }
+                if (tr.done()) break;
+            }
+            if (tr != null && !st.aborted && line == null) {
+                for (String l : tr.finish()) {
+                    if (LlmResponse.isDoneLine(l)) break;
+                    if (!sink.onLine(l)) { st.aborted = true; break; }
                 }
             }
             return st;
@@ -371,6 +416,33 @@ public final class LlmClient {
     }
 
     // ---------------- 内部 ----------------
+
+    /** ★ priv-llm：主对话改走别家时的线上请求（模型名先经 {@link LlmModels#prepareJson} 统一，再换成该服务商配置的模型）。 */
+    static com.onesay.assistant.v2.llm.WireRequest routedWire(com.onesay.assistant.v2.llm.ProviderRoute r, String jsonBody, boolean stream)
+            throws Exception {
+        org.json.JSONObject body = new org.json.JSONObject(LlmModels.prepareJson(jsonBody == null ? "{}" : jsonBody));
+        return r.adapter().chat(r.base, r.model, body, stream);
+    }
+
+    private void sendRouted(HttpURLConnection conn, com.onesay.assistant.v2.llm.WireRequest w,
+                            com.onesay.assistant.v2.llm.ProviderRoute r) throws Exception {
+        if (!com.onesay.assistant.v2.llm.ProviderUrls.keySafe(w.url) || !com.onesay.assistant.v2.llm.ProviderRouting.allowsHost(w.url))
+            throw new java.io.IOException("拒绝：大模型 Key 只发往已配置的 https 主机");
+        conn.setInstanceFollowRedirects(false);   // Key 不跟着跳转去别的主机
+        conn.setRequestMethod(w.method);
+        for (java.util.Map.Entry<String, String> e : w.headers.entrySet()) conn.setRequestProperty(e.getKey(), e.getValue());
+        if (w.stream) conn.setRequestProperty("Cache-Control", "no-cache");
+        if (w.keyHeader != null) conn.setRequestProperty(w.keyHeader, w.keyPrefix + r.key());
+        conn.setConnectTimeout(mConnectTimeoutMs);
+        conn.setReadTimeout(mReadTimeoutMs);
+        if (w.body != null) {
+            conn.setDoOutput(true);
+            OutputStream os = conn.getOutputStream();
+            os.write(w.body.getBytes("UTF-8"));
+            os.flush();
+            os.close();
+        }
+    }
 
     private HttpURLConnection open(String jsonBody, boolean stream) throws Exception {
         HttpURLConnection conn = connection();

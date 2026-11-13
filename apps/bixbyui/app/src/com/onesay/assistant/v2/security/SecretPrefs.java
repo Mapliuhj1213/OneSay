@@ -39,6 +39,14 @@ public final class SecretPrefs {
             {"bixby_pclink", "pair_key"},      // ★ feat/pclink 电脑联动配对密钥（32 字节，base64url）
             {"bixby_pclink", "tls_key"},       // ★ link-v2 电脑联动本机 TLS 私钥（PKCS8，base64url）
             {"bixby_llm_backup", "backup_key"},   // ★ borrow-1112 备用模型 Key
+            // ★ priv-llm 自带 Key 服务商（DeepSeek / 百炼沿用上面的 deepseek_key / dashscope_key）
+            {"bixby_llm_providers", "key_moonshot"},
+            {"bixby_llm_providers", "key_zhipu"},
+            {"bixby_llm_providers", "key_siliconflow"},
+            {"bixby_llm_providers", "key_openrouter"},
+            {"bixby_llm_providers", "key_custom_openai"},
+            {"bixby_llm_providers", "key_anthropic"},
+            {"bixby_llm_providers", "key_gemini"},
     };
 
     private static volatile SecretCodec sCodec;

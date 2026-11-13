@@ -17,6 +17,22 @@ This product includes software derived from Mika
     com.onesay.assistant.plug.{screen,action,guard,evidence,outbox,intent,inbox,outcome,appkb}.core,
     apps/bixbyui/app/assets/kb_app_*.md, com.onesay.assistant.v2.a11y
 
+This product includes software derived from Mika (bring-your-own-key model provider layer)
+  https://github.com/wangzan101/mika (upstream revision 8d61573eaed7d36fa37093bab233c94a5e79dd4d)
+  Mika
+  Copyright 2026 wangzan101
+  Licensed under the Apache License, Version 2.0.
+  Ported parts (Kotlin -> Java 7 + org.json, modified; each file carries a
+  "Portions derived from Mika" header naming the upstream file):
+    com.onesay.assistant.v2.llm.{ProviderKind,ProviderPreset,ProviderErrors,
+      OpenAiCompatAdapter,AnthropicAdapter,GeminiAdapter}
+
+This product includes the Shizuku API library 13.1.5 (apps/bixbyui/libs/shizuku-api-13.1.5.jar,
+unmodified classes of dev.rikka.shizuku:api/provider/aidl/shared 13.1.5), used by the optional
+"Shizuku 特权" plugin (default off)
+  https://github.com/RikkaApps/Shizuku-API
+  Copyright (c) 2021 RikkaW. Licensed under the MIT License (licenses/MIT-Shizuku-API.txt).
+
 This product includes software derived from phongent (based on Mika)
   https://github.com/mylea1/phongent (reference commit 0b57e35)
   NOTICE: Mika, Copyright 2026 wangzan101; extensions by mylea.

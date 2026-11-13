@@ -106,6 +106,7 @@ public final class LlmEndpoints {
             sDashscope = q != null ? q : DASHSCOPE_PRESET;
             MainModelEndpoint.load(c);   // ★ console-align：主模型地址（同一个键 deepseek_base_url；debug 包也认 http）
         } catch (Throwable ignored) { }
+        com.onesay.assistant.v2.llm.ProviderStore.apply(c);   // ★ priv-llm：主对话服务商（没选别家 = 原 DeepSeek 通道）
     }
 
     /** 保存主模型 base（★ console-align：交给 {@link MainModelEndpoint}，同一个键）；非法返回 false 且不改。空串 = 恢复预置。 */

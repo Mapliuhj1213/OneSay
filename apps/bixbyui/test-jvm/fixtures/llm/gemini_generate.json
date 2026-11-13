@@ -1,0 +1,1 @@
+{"candidates":[{"content":{"parts":[{"text":"想一想要不要开灯","thought":true},{"text":"好的，帮你打开客厅灯。"},{"functionCall":{"name":"light__on","args":{"room":"客厅"}},"thoughtSignature":"CiQFAKE"}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":88,"candidatesTokenCount":20,"thoughtsTokenCount":6,"totalTokenCount":114},"modelVersion":"gemini-2.5-flash"}

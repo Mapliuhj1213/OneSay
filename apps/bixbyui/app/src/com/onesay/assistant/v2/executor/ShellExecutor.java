@@ -93,9 +93,12 @@ public class ShellExecutor implements ShellRunner {
 
     /** OneSay 开源版：用户选了非守护的执行后端（su 直连 / Shizuku）且可用时，命令交给它；否则 null 照旧走守护。 */
     private static ShellResponse viaBackend(String command, long timeoutMs) {
-        com.onesay.plugin.api.exec.ExecBackend b = com.onesay.assistant.v2.platform.ExecBackendHost.delegate();
-        if (b == null) return null;
-        com.onesay.plugin.api.exec.ExecResult r = b.run(command, timeoutMs);
+        // ★ priv-llm：执行档位 su / root 守护 / Shizuku 特权（白名单）/ 原守护，见 ExecTierRouter
+        com.onesay.assistant.v2.platform.ExecTierRouter.Route rt = com.onesay.assistant.v2.platform.ExecBackendHost.route(command);
+        if (rt.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.DENY) return ShellResponse.denied(rt.denyReason);
+        if (rt.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.DAEMON) return null;
+        com.onesay.plugin.api.exec.ExecResult r = rt.backend.run(command, timeoutMs);
+        if (r.rc == ExecProtocol.RC_DENIED && r.output.startsWith("DENY ")) return ShellResponse.denied(r.output.substring(5).trim());
         return new ShellResponse(r.rc, r.output, r.timedOut, r.backendDown);
     }
 

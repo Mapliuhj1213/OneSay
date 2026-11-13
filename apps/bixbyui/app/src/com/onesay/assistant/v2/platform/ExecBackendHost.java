@@ -9,6 +9,7 @@ import com.onesay.plugin.api.exec.ExecBackends;
 import com.onesay.plugin.api.exec.ExecResult;
 import com.onesay.plugin.exec.root.RootExecBackend;
 import com.onesay.plugin.exec.shizuku.ShizukuExecBackend;
+import com.onesay.plugin.exec.shizuku.ShizukuWhitelist;
 
 /**
  * 宿主侧：注册执行后端插件（libs/plugins/exec-*），读写用户在「设备能力 › 执行后端」里的选择。
@@ -22,6 +23,11 @@ public final class ExecBackendHost {
 
     public static final String PREFS = "onesay_exec";
     public static final String KEY_BACKEND = "backend";
+    /** ★ priv-llm：「Shizuku 特权」插件开关（默认关）。 */
+    public static final String KEY_SHIZUKU = "shizuku_enabled";
+
+    private static volatile ShizukuExecBackend sShizuku;
+    private static volatile boolean sShizukuOn;
 
     private static volatile boolean sInit;
     private static volatile Context sApp;
@@ -46,8 +52,16 @@ public final class ExecBackendHost {
                 }
             }));
             ExecBackends.register(RootExecBackend.su(null));
-            ExecBackends.register(new ShizukuExecBackend());
+            ShizukuExecBackend shz;
+            try {
+                shz = new ShizukuExecBackend(new ShizukuBridge(), new ShizukuWhitelist(app.getPackageName()));
+            } catch (Throwable t) {
+                shz = new ShizukuExecBackend();   // 库缺失 / 包名异常：不可用，但照样登记（设置页能看到原因）
+            }
+            sShizuku = shz;
+            ExecBackends.register(shz);
             ExecBackends.select(sp(app).getString(KEY_BACKEND, ExecBackends.NONE));
+            sShizukuOn = sp(app).getBoolean(KEY_SHIZUKU, false);
             sInit = true;
             } catch (Throwable t) {
                 // 宿主环境不完整（例如 JVM 单测里的假 Context）：不注册任何后端 = 特权动作保持置灰，守护通道照旧。
@@ -68,6 +82,38 @@ public final class ExecBackendHost {
                 }
             });
         }
+    }
+
+    /** ★ priv-llm：「Shizuku 特权」开关（默认关）。 */
+    public static boolean shizukuEnabled(Context ctx) {
+        ensureInit(ctx);
+        return sShizukuOn;
+    }
+
+    /** 打开时：Shizuku 在跑但没授权 → 弹 Shizuku 的授权框。关掉 = 之后的命令不再经 Shizuku。 */
+    public static void setShizukuEnabled(Context ctx, boolean on) {
+        ensureInit(ctx);
+        sp(ctx).edit().putBoolean(KEY_SHIZUKU, on).apply();
+        sShizukuOn = on;
+        if (on) ShizukuBridge.requestPermissionIfNeeded();
+    }
+
+    /** 控制台用：插件关 → null（不显示）；开 → Shizuku 此刻可不可用。 */
+    public static Boolean shizukuReady(Context ctx) {
+        ensureInit(ctx);
+        ShizukuExecBackend s = sShizuku;
+        if (!sShizukuOn && !ShizukuExecBackend.ID.equals(ExecBackends.selected())) return null;
+        return s != null && s.available() == ExecBackend.Tri.YES;
+    }
+
+    public static ShizukuExecBackend shizuku() {
+        return sShizuku;
+    }
+
+    /** ★ priv-llm：按执行档位（su / root 守护 / Shizuku 白名单 / 原守护）决定这条命令走哪里，见 {@link ExecTierRouter}。 */
+    public static ExecTierRouter.Route route(String command) {
+        if (!sInit) return ExecTierRouter.DAEMON;
+        return ExecTierRouter.route(command, ExecBackends.ready(), sShizuku, sShizukuOn);
     }
 
     /**

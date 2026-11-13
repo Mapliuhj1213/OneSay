@@ -25,7 +25,7 @@ LIBS="$TOOLS/test-libs"
 JUNIT="$LIBS/junit-4.13.2.jar:$LIBS/hamcrest-core-1.3.jar"
 JSON="$LIBS/android-json-0.0.20131108.vaadin1.jar"
 ICU="$LIBS/icu4j-72.1.jar"
-MAIL="$ROOT/vendor/mail/android-mail-1.6.5.jar:$ROOT/vendor/mail/android-activation-1.6.5.jar:$ROOT/libs/zxing-core-3.5.3.jar"   # ★ feat/pclink：ZXing（扫码页只编译不运行）
+MAIL="$ROOT/vendor/mail/android-mail-1.6.5.jar:$ROOT/vendor/mail/android-activation-1.6.5.jar:$ROOT/libs/zxing-core-3.5.3.jar:$ROOT/libs/shizuku-api-13.1.5.jar"   # ★ feat/pclink：ZXing（扫码页只编译不运行）
 T="$ROOT/test-jvm"
 B="${BIXBY_TEST_BUILD:-$T/build}"   # 可用 BIXBY_TEST_BUILD 把编译输出放到别处（如 /tmp）
 

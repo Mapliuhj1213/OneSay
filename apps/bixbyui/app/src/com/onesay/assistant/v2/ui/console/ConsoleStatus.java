@@ -23,6 +23,8 @@ public final class ConsoleStatus {
         public boolean micReady;
         public boolean paused;
         public Boolean rootOk;
+        /** ★ priv-llm：「Shizuku 特权」此刻可用（插件关 = null，不参与判定）。 */
+        public Boolean shizukuOk;
         public Boolean llmConfigured;
         public String visionModel;
         public Boolean asrConfigured;
@@ -102,14 +104,33 @@ public final class ConsoleStatus {
         return new Pill("唤醒", Level.OK);
     }
 
+    /**
+     * ★ priv-llm：开源版里 root 是<b>可选</b>的（大多数手机没有 root）：没有 root 只是提示（灰色「无 Root」，不进提醒条、
+     * 不让首页变「需要处理」）。个人版保持原判定（{@code false} = 没有 root 算严重问题）。
+     */
+    public static final boolean ROOT_OPTIONAL = true;
+
+    /** 特权胶囊：root 优先；没有 root 但「Shizuku 特权」可用 → Shizuku（中间档，正常）；都没有 → 开源版提示 / 个人版严重。 */
     public static Pill root(Snapshot s) {
+        if (Boolean.TRUE.equals(s.rootOk)) return new Pill("Root", Level.OK);
+        if (Boolean.TRUE.equals(s.shizukuOk)) return new Pill("Shizuku", Level.OK);
         if (s.rootOk == null) return s.done ? new Pill("Root 未知", Level.UNKNOWN) : pending("Root", null);
-        return s.rootOk ? new Pill("Root", Level.OK) : new Pill("Root 未就绪", Level.BAD);
+        if (Boolean.FALSE.equals(s.shizukuOk)) return new Pill("Shizuku 未就绪", ROOT_OPTIONAL ? Level.WARN : Level.BAD);
+        return ROOT_OPTIONAL ? new Pill("无 Root", Level.OFF) : new Pill("Root 未就绪", Level.BAD);
     }
 
     public static Pill llm(Snapshot s) {
         if (s.llmConfigured == null) return s.done ? new Pill("DeepSeek 未知", Level.UNKNOWN) : pending("DeepSeek", null);
         return s.llmConfigured ? new Pill("DeepSeek", Level.OK) : new Pill("DeepSeek 未配置", Level.WARN);
+    }
+
+    /** ★ priv-llm：特权通道一行字（状态页 / 权限页共用）：就绪（root）/ Shizuku 就绪 / 无 Root（可选）/ 未就绪。 */
+    public static String privilegeText(Snapshot s) {
+        if (Boolean.TRUE.equals(s.rootOk)) return "就绪（root）";
+        if (Boolean.TRUE.equals(s.shizukuOk)) return "Shizuku 就绪（中间档）";
+        if (s.rootOk == null) return s.done ? "未知" : "检测中";
+        if (Boolean.FALSE.equals(s.shizukuOk)) return "Shizuku 未就绪";
+        return ROOT_OPTIONAL ? "无 Root（可选：开 Shizuku 特权或 root）" : "未就绪";
     }
 
     public static List<Pill> pills(Snapshot s) {
@@ -127,7 +148,7 @@ public final class ConsoleStatus {
     public static List<Banner> allProblems(Snapshot s) {
         List<Banner> out = new ArrayList<Banner>();
         if (Boolean.FALSE.equals(s.wakeRunning)) out.add(new Banner("唤醒服务没在运行，按键和唤醒词都没反应", "启动", Banner.ACT_WAKE, Level.BAD));
-        if (Boolean.FALSE.equals(s.rootOk)) out.add(new Banner("Root 通道未就绪，系统设置类操作用不了", "详情", Banner.ACT_STATUS, Level.BAD));
+        if (root(s).level == Level.BAD) out.add(new Banner("Root 通道未就绪，系统设置类操作用不了", "详情", Banner.ACT_STATUS, Level.BAD));
         // r2/p0 P0-2（M27-1）：语音识别 Key / 录音权限 —— 缺任一项，说话就完全用不了
         if (Boolean.FALSE.equals(s.micPermission)) out.add(new Banner("没有录音权限，听不到你说话", "去授权", Banner.ACT_MIC, Level.BAD));
         if (Boolean.FALSE.equals(s.asrConfigured)) {
@@ -157,7 +178,7 @@ public final class ConsoleStatus {
         // r2/p0 P0-2：语音用不了时不能说「随时待命」—— 缺哪个就写哪个
         String voice = voiceBlockers(s);
         if (voice != null) return new Hero("需要处理", voice, Level.BAD);
-        if (s.wakeRunning == null || s.rootOk == null) {
+        if (s.wakeRunning == null || (s.rootOk == null && !Boolean.TRUE.equals(s.shizukuOk))) {
             return s.done ? new Hero("状态未知", "有些状态查不到", Level.UNKNOWN) : new Hero("检测中", "正在检查…", Level.UNKNOWN);
         }
         if (wake(s).level == Level.WARN) return new Hero("启动中", "语音引擎启动中", Level.WARN);
