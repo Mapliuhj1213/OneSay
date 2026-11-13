@@ -91,6 +91,10 @@ public class SettingsActivity extends Activity {
         Ui.add(c4, Ui.row(this, "权限与引导", "电池优化、通知、定位", null, new View.OnClickListener() {
             public void onClick(View v) { startActivity(new Intent(SettingsActivity.this, OnboardActivity.class)); }
         }));
+        // [borrow-1112] 可靠性检查
+        Ui.add(c4, Ui.row(this, "可靠性检查", "闹钟和提醒权限、电池优化、闹钟音量、勿扰、通知", null, new View.OnClickListener() {
+            public void onClick(View v) { startActivity(new Intent(SettingsActivity.this, CheckActivity.class)); }
+        }));
         Ui.add(c4, Ui.row(this, "关于", "com.onesay.clock " + Ui.version(this) + "· 开源版不带预合成语音件，播报用你配置的云端音色现合成并缓存", null, null));
         col.addView(c4, Ui.cardLp(this));
         sv.addView(col);

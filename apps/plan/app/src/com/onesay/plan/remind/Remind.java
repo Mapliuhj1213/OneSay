@@ -67,6 +67,12 @@ public final class Remind {
                 Store.purgeSoftDeleted(c, now);
                 archiveExpiredTickets(c, now);
                 long next = Reminders.nextAt(input(c), now, TimeZone.getDefault());
+                // [borrow-1112] 强提醒的「稍后」也用这一个闹钟：取更早的；已经过点的稍后马上补
+                long snz = AlertLog.load(c).nextSnoozeAt(0);
+                if (snz > 0) {
+                    if (snz <= now) snz = now + 1000L;
+                    if (next <= 0 || snz < next) next = snz;
+                }
                 AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
                 PendingIntent pi = firePi(c);
                 am.cancel(pi);
@@ -103,10 +109,38 @@ public final class Remind {
             long now = System.currentTimeMillis();
             List<Reminders.Item> due = Reminders.due(input(c), Settings.lastCheck(c), now, TimeZone.getDefault());
             Settings.setLastCheck(c, now);
-            if (Settings.notify(c)) for (Reminders.Item it : due) post(c, it);
-            Log.i(TAG, "[REMIND] 到点发了 " + due.size() + " 条");
+            boolean on = Settings.notify(c);
+            int strong = 0;
+            if (on) for (Reminders.Item it : due) {
+                // [borrow-1112] 强提醒的待办：响铃 + 整屏；其余照旧发通知
+                if (Contract.T_TODOS.equals(it.table) && it.strong) { StrongRingService.ring(c, it.id, it.title, it.at); strong++; }
+                else post(c, it);
+            }
+            if (on) strong += ringSnoozes(c, now);
+            Log.i(TAG, "[REMIND] 到点发了 " + due.size() + " 条" + (strong > 0 ? "，强提醒响铃 " + strong + " 次" : ""));
         }
         scheduleNow(c);
+    }
+
+    /** [borrow-1112] 强提醒「稍后」到点：待办还在、没完成、还开着提醒 → 再响；否则记为已停止。过点太久（超过补发容忍）记为没人管。 */
+    static int ringSnoozes(Context c, long now) {
+        int n = 0;
+        for (final com.onesay.plan.core.StrongAlert.Entry e : AlertLog.load(c).snoozesDue(0, now)) {
+            Row r = Store.get(c, Contract.T_TODOS, e.todoId);
+            final String st;
+            if (r == null || r.l("done_at") != 0 || r.l("remind", 1) == 0) st = com.onesay.plan.core.StrongAlert.STOPPED;
+            else if (e.snoozeUntil < now - Reminders.CATCHUP_MS) st = com.onesay.plan.core.StrongAlert.MISSED;
+            else st = null;
+            if (st != null) {
+                AlertLog.edit(c, new AlertLog.Edit() {
+                    public com.onesay.plan.core.StrongAlert.Entry apply(com.onesay.plan.core.StrongAlert.Book b) { return b.stop(e.todoId, System.currentTimeMillis(), st); }
+                });
+                continue;
+            }
+            StrongRingService.ring(c, e.todoId, r.s("title"), r.l("due_at"));
+            n++;
+        }
+        return n;
     }
 
     public static void channels(Context c) {
@@ -145,6 +179,12 @@ public final class Remind {
             b.addAction(new Notification.Action.Builder(null, "已取", actionPi(c, ACTION_TAKEN, it)).build());
         }
         ((NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE)).notify(it.notifyId(), b.build());
+        if (Contract.T_TODOS.equals(it.table)) {   // [borrow-1112] 记一笔：助手问「刚才提醒的是哪条」时能找到
+            final Reminders.Item x = it;
+            AlertLog.edit(c, new AlertLog.Edit() {
+                public com.onesay.plan.core.StrongAlert.Entry apply(com.onesay.plan.core.StrongAlert.Book b) { return b.notified(x.id, x.title, x.occ, System.currentTimeMillis()); }
+            });
+        }
     }
 
     static PendingIntent actionPi(Context c, String action, Reminders.Item it) {
@@ -168,6 +208,7 @@ public final class Remind {
 
     /** 撤销这条数据已弹出的提醒通知（删除 / 软删 / 完成 / 已取 / 过期归档时调用）；闹钟由随后的 changed→schedule 重排。 */
     public static void dismiss(Context c, String table, long id) {
+        if (Contract.T_TODOS.equals(table)) StrongRingService.cancelIfRinging(c, id);   // [borrow-1112] 勾掉 / 删除 / 关提醒时在响就停
         try {
             ((NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE)).cancel(Reminders.notifyId(table, id));
         } catch (Exception e) {

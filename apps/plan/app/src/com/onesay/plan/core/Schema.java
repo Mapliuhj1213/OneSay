@@ -108,7 +108,8 @@ public final class Schema {
 
     public static final Table TODOS = new Table(Contract.T_TODOS,
             req("title", TEXT, 200), opt("due_at", INT, "0", 0), opt("done_at", INT, "0", 0), opt("remind", INT, "1", 0),
-            opt("priority", INT, "0", 0), opt("list", TEXT, "''", 40));
+            opt("priority", INT, "0", 0), opt("list", TEXT, "''", 40),
+            opt("strong", INT, "0", 0));   // [borrow-1112] 强提醒：到点像闹钟一样响（schema 4）
 
     public static final Table TICKETS = new Table(Contract.T_TICKETS,
             req("kind", TEXT, 16), req("title", TEXT, 200), opt("number", TEXT, "''", 40), opt("from_place", TEXT, "''", 80),

@@ -39,6 +39,12 @@ OneSay 自身以 Apache License 2.0 发布（见 `LICENSE`、`NOTICE`）。下�
 | omniget（github.com/OpenSelena/omniget） | GPL-3.0 | 只读思路：链接 → 预览 → 下载队列 → 进度、引擎按需下载（思路参考 omniget，代码自写，没有拷贝或改写任何代码）；手机端只发链接给电脑，不跑 yt-dlp | `pclink/PcMedia`、`PcMediaAndroid`、`PcShareActivity` |
 | KDE Connect、Sefirah | GPL | 只参考产品形态，没有阅读或使用代码 | — |
 
+## 设计参考（社区借鉴 2026-11-12 · 时钟 / 计划 App，未拷贝代码）
+| 项目 | 许可 | 参考了什么 | 用在哪 |
+|---|---|---|---|
+| 涛声 TaoSheng（github.com/0xCoach/TaoSheng） | MIT | 待办到点像闹钟一样持续响铃、锁屏整屏，音量键稍后、电源键停止；口头说「发了」把对应待办标为完成。代码自写，按 MIT 惯例注明 | `apps/plan`：`core/StrongAlert`、`core/RemindLink`、`remind/StrongRingService`、`ui/StrongAlertActivity`、`data/RemindCalls` |
+| Wake Me / WeckMich（github.com/anka1981/WeckMich） | GPL-3.0-only | 只读思路（功能说明）：重复规则与预览、暂停而不删除、可靠性自检与「错过的闹钟」通知。代码自写，没有拷贝或改写任何代码 | `apps/clock`：`core/RepeatRule`、`Pause`、`Missed`、`Health`，`ui/CheckActivity`、`RuleUi` |
+
 ## 只在测试时使用
 
 | 组件 | 位置 | 许可证 |

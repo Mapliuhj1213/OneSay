@@ -69,6 +69,6 @@ public final class Contract {
     /** 迁移导入包格式（OneSay 原样导出各库行，映射在计划 App 侧 {@link RawImport}）。 */
     public static final String BUNDLE_FORMAT = "bixbyui-raw-v1";
 
-    /** 2：events 加 deleted_at（OneSay 撤销删除用的软删）。3：加 shortcuts / shortcut_runs（快捷指令）。 */
-    public static final int SCHEMA_VERSION = 3;
+    /** 2：events 加 deleted_at（OneSay 撤销删除用的软删）。3：加 shortcuts / shortcut_runs（快捷指令）。4：todos 加 strong（[borrow-1112] 强提醒）。 */
+    public static final int SCHEMA_VERSION = 4;
 }

@@ -64,9 +64,11 @@ public class MainActivity extends Activity {
                 PopupMenu pm = new PopupMenu(MainActivity.this, more);
                 pm.getMenu().add(0, 1, 0, "设置");
                 pm.getMenu().add(0, 2, 1, "权限与引导");
+                pm.getMenu().add(0, 3, 2, "可靠性检查");   // [borrow-1112]
                 pm.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
                     public boolean onMenuItemClick(android.view.MenuItem it) {
-                        startActivity(new Intent(MainActivity.this, it.getItemId() == 1 ? SettingsActivity.class : OnboardActivity.class));
+                        startActivity(new Intent(MainActivity.this, it.getItemId() == 1 ? SettingsActivity.class
+                                : it.getItemId() == 3 ? CheckActivity.class : OnboardActivity.class));
                         return true;
                     }
                 });
@@ -95,6 +97,7 @@ public class MainActivity extends Activity {
         long now = System.currentTimeMillis();
         AlarmMath.Event e = AlarmMath.earliest(as, prefs.snoozes(), now, TimeZone.getDefault());
         sub.setText(AlarmMath.untilLabel(e == null ? 0 : e.at, now));
+        healthBanner(as);
         if (as.isEmpty()) {
             TextView t = Ui.text(this, "没有闹钟\n点右上角「+」添加一个", 16, Ui.T2, Ui.regular());
             t.setGravity(Gravity.CENTER);
@@ -108,6 +111,21 @@ public class MainActivity extends Activity {
     }
 
     static final String[] DAYS = {"日", "一", "二", "三", "四", "五", "六"};
+
+    /** [borrow-1112] 有开着的闹钟、且自检发现问题时，列表顶上放一条提示，点了去自检页。 */
+    void healthBanner(List<Alarm> as) {
+        boolean anyOn = false;
+        for (Alarm a : as) anyOn |= a.on;
+        if (!anyOn) return;
+        List<com.onesay.clock.core.Health.Issue> l = CheckActivity.issues(this);
+        if (l.isEmpty()) return;
+        LinearLayout card = Ui.card(this);
+        View r = Ui.add(card, Ui.row(this, com.onesay.clock.core.Health.banner(l), l.get(0).title, null, new View.OnClickListener() {
+            public void onClick(View v) { startActivity(new Intent(MainActivity.this, CheckActivity.class)); }
+        }));
+        Ui.setSubColor(r, Ui.WARN);
+        list.addView(card, Ui.cardLp(this));
+    }
 
     View item(final Alarm a) {
         LinearLayout card = Ui.card(this);
@@ -185,8 +203,21 @@ public class MainActivity extends Activity {
         return card;
     }
 
-    /** 单次：「明天」/「今天」；重复：七个字，选中的蓝色。 */
+    /** 单次：「明天」/「今天」；重复：七个字，选中的蓝色；[borrow-1112] 其它规则写规则名，暂停中再加一行。 */
     CharSequence daysSpan(Alarm a) {
+        CharSequence base = baseSpan(a);
+        String p = com.onesay.clock.core.Pause.label(a, System.currentTimeMillis(), TimeZone.getDefault());
+        if (p.length() == 0) return base;
+        SpannableStringBuilder sb = new SpannableStringBuilder(base);
+        sb.append('\n');
+        int st = sb.length();
+        sb.append(p);
+        sb.setSpan(new ForegroundColorSpan(a.on ? Ui.WARN : Ui.T_OFF), st, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return sb;
+    }
+
+    CharSequence baseSpan(Alarm a) {
+        if (a.rule != com.onesay.clock.core.RepeatRule.WEEKLY) return com.onesay.clock.core.RepeatRule.shortLabel(a);
         if (!a.repeats()) {
             long nx = AlarmMath.next(a, System.currentTimeMillis(), TimeZone.getDefault());
             if (nx <= 0) { Alarm t = new Alarm(); t.hour = a.hour; t.minute = a.minute; nx = AlarmMath.next(t, System.currentTimeMillis(), TimeZone.getDefault()); }

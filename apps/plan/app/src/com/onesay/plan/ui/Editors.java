@@ -269,10 +269,13 @@ final class Editors {
         final long[] due = {r == null ? 0 : r.l("due_at")};
         whenField(f, due, true, "不设截止");
         final Switch remind = toggle(f, "到截止时提醒我", r == null || r.l("remind", 1) != 0);
+        // [borrow-1112] 强提醒：到点像闹钟一样响铃、整屏，音量键稍后、电源键停止（思路来源 涛声 TaoSheng，MIT）
+        final Switch strong = toggle(f, "强提醒（到点像闹钟一样响，直到处理）", r != null && r.l("strong") != 0);
         final EditText note = field(f, "备注（可不填）", r == null ? "" : r.s("note"));
         dialog(r == null ? "新建待办" : "编辑待办", scroll(f), r, Contract.T_TODOS, new Saver() {
             @Override public Row collect() {
-                return new Row().with("title", str(title)).with("due_at", due[0]).with("remind", remind.isChecked() ? 1 : 0).with("note", str(note));
+                return new Row().with("title", str(title)).with("due_at", due[0]).with("remind", remind.isChecked() ? 1 : 0).with("note", str(note))
+                        .with("strong", strong.isChecked() ? 1 : 0);
             }
         });
     }

@@ -18,6 +18,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- [borrow-1112] 待办强提醒：前台响铃服务 + 锁屏整屏页 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:label="@string/app_name"
@@ -70,6 +73,17 @@
         <meta-data android:name="com.onesay.link.ASSISTANT" android:value="${assistantAppId}" />
 
         <receiver android:name=".remind.RemindReceiver" android:exported="false" />
+        <!-- [borrow-1112] 待办强提醒：响铃服务与整屏页，都不导出（只接自己的 Intent / PendingIntent） -->
+        <service android:name=".remind.StrongRingService" android:exported="false" />
+        <activity android:name=".ui.StrongAlertActivity"
+            android:theme="@style/TicketTheme"
+            android:screenOrientation="portrait"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.onesay.plan.strong"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:exported="false" />
         <receiver android:name=".remind.BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

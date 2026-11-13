@@ -222,6 +222,7 @@ final class Pages {
         final boolean done = r.l("done_at") != 0;
         long due = r.l("due_at");
         String sub = due > 0 ? Fmt.when(due, now(), tz) + (due < now() && !done ? " · 逾期" : "") : "";
+        if (r.l("strong") != 0 && !done) sub = sub + (sub.length() > 0 ? " · " : "") + "强提醒";   // [borrow-1112]
         CheckView check = new CheckView(a, done, Ui.C_TODO);
         check.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(28), ui.dp(28)));
         check.setContentDescription(done ? "标为没做完" : "完成");
@@ -514,6 +515,14 @@ final class Pages {
         tl.setSingleLine(true);
         tl.setTextSize(15);
         box.addView(tl, ui.match(0, 4));
+        // [borrow-1112] 强提醒「稍后」分钟数
+        box.addView(ui.text("强提醒「稍后」几分钟（1–60，默认 10）", 13.5f, Ui.TEXT2, null), ui.match(8, 0));
+        final android.widget.EditText snz = new android.widget.EditText(a);
+        snz.setText(String.valueOf(Settings.strongSnoozeMin(a)));
+        snz.setSingleLine(true);
+        snz.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        snz.setTextSize(15);
+        box.addView(snz, ui.match(0, 4));
         String imp = Settings.lastImport(a);
         box.addView(ui.text("从 OneSay 导入：" + (imp.length() > 0 ? Fmt.when(Settings.lastImportAt(a), now(), tz) + " · " + imp : "还没导入过"), 13.5f, Ui.TEXT2, null), ui.match(10, 4));
         box.addView(ui.text("OneSay 经数据接口读写这里：content://" + Contract.AUTHORITY + "（只认与本 App 同一证书签名的 App）", 12.5f, Ui.TEXT3, null), ui.match(6, 4));
@@ -528,6 +537,7 @@ final class Pages {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         Settings.setNotify(a, n.isChecked());
                         Settings.setTicketLeads(a, tl.getText().toString().trim());
+                        try { Settings.setStrongSnoozeMin(a, Integer.parseInt(snz.getText().toString().trim())); } catch (NumberFormatException ignored) { }
                         Remind.schedule(a);
                     }
                 })
