@@ -237,6 +237,8 @@ public final class LinkPolicy {
         REMOTE_APPROVAL,
         /** 付款 / 转账的最后一下（最终支付 / 确认转账 / 提交订单并付款）。任何档位都拒绝，确认也不行：只能用户亲手点。 */
         PAY_FINAL,
+        /** 链接下载（media_get）：电脑用 yt-dlp 把链接里的视频 / 音频下到下载文件夹。2026-11-11 新增，走「能批就不拦」（动作类型 pc.media_download）。 */
+        MEDIA_DOWNLOAD,
         UNKNOWN
     }
 
@@ -259,6 +261,10 @@ public final class LinkPolicy {
         public boolean protectedPath;
         /** 要动的 App 就是 OneSay 自己（远程卸载 / 关掉 / 停用自己 = 改自己的权限，硬规则）。 */
         public boolean appSelf;
+        /** 链接下载：电脑上的下载工具（yt-dlp / FFmpeg）还没装，这次要先装（确认卡的动作类型变成 pc.media_tool_install）。 */
+        public boolean mediaToolsMissing;
+        /** 链接下载：链接没过检查的原因（非空 = 拒绝，不弹卡）。 */
+        public String mediaBad = "";
     }
 
     public static final class Decision {
@@ -319,7 +325,8 @@ public final class LinkPolicy {
             {"pc.blocked_app.operate", "电脑：关掉支付 / 银行 / 密码 / 商店类程序"}, {"pc.system_app", "电脑：改动系统程序"},
             {"pc.workspace.protected", "电脑：改工作区里的 .git / .codex / .agents"},
             {"phone.blocked_app.open", "手机：打开支付 / 银行 / 钱包 / 商店类 App"}, {"phone.blocked_app.uninstall", "手机：卸载支付 / 银行 / 钱包 / 商店类 App"},
-            {"phone.system_app", "手机：卸载 / 停用系统 App"}, {"phone.url.risky", "手机：打开带账号密码 / 疑似仿冒的网址"}};
+            {"phone.system_app", "手机：卸载 / 停用系统 App"}, {"phone.url.risky", "手机：打开带账号密码 / 疑似仿冒的网址"},
+            {"pc.media_download", "电脑：下载链接里的视频 / 音频"}, {"pc.media_tool_install", "电脑：第一次安装下载工具（yt-dlp / FFmpeg）"}};
 
     public static boolean knownKind(String k) {
         if (k == null) return false;
@@ -446,6 +453,15 @@ public final class LinkPolicy {
             if (f.shortcutApproved) return Decision.allow();
             if (f.shortcutChanged) return askReason(ap, R_SHORTCUT_CHANGED, "快捷指令内容改过了，需要重新批准");
             return askReason(ap, R_SHORTCUT_NEEDS_APPROVAL, "第一次从手机运行这个快捷指令，需要你批准");
+        }
+
+        // ---- 链接下载（2026-11-11）：链接不对直接拒；工具没装先问装不装（这次也一起下）；装好了按 media_download 问。
+        // 和关机 / 卸载一样：分类 / 按需 → 弹确认卡（可勾「以后这类不用问」）；从不询问 → 只有完全访问直接跑，其余拒。只读档在上面已经拒了。
+        if (c == Cat.MEDIA_DOWNLOAD) {
+            if (f.mediaBad != null && f.mediaBad.length() > 0) return Decision.deny(R_UNTRUSTED_URL, f.mediaBad);
+            if (f.mediaToolsMissing)
+                return needsApproval(sb, ap, "第一次用链接下载：先从官方发布页下载 yt-dlp 和 FFmpeg（LGPL 构建，核对 SHA-256 后才运行），再下载这个链接", "pc.media_tool_install");
+            return needsApproval(sb, ap, "下载链接里的视频 / 音频到电脑的下载文件夹", "pc.media_download");
         }
 
         // ---- 两轴矩阵
@@ -579,9 +595,10 @@ public final class LinkPolicy {
         if (cmd == null) return Cat.UNKNOWN;
         if (isRemoteApproval(cmd)) return Cat.REMOTE_APPROVAL;
         if (isPayFinal(cmd)) return Cat.PAY_FINAL;
-        if (in(cmd, "ping", "caps", "info", "shortcut_list", "level")) return Cat.QUERY;
-        if (in(cmd, "screenshot", "clipboard_get", "file_get", "file_list", "script_list")) return Cat.READ_PRIVATE;
-        if (in(cmd, "media", "lock", "notify", "memory_sync", "echo")) return Cat.HARMLESS;
+        if (in(cmd, "ping", "caps", "info", "shortcut_list", "level", "media_status")) return Cat.QUERY;
+        if (in(cmd, "screenshot", "clipboard_get", "file_get", "file_list", "script_list", "media_fetch")) return Cat.READ_PRIVATE;
+        if (in(cmd, "media", "lock", "notify", "memory_sync", "echo", "media_cancel")) return Cat.HARMLESS;
+        if ("media_get".equals(cmd)) return Cat.MEDIA_DOWNLOAD;
         if (in(cmd, "volume", "brightness", "dnd")) return Cat.SIMPLE_SETTING;
         if (in(cmd, "shutdown", "sleep", "shutdown_abort")) return Cat.POWER;
         if ("open_url".equals(cmd)) return Cat.OPEN_URL;

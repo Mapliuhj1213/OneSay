@@ -12,6 +12,8 @@ import com.onesay.assistant.v2.notice.NoticeHooks;
 import com.onesay.assistant.v2.pclink.PcLanClient;
 import com.onesay.assistant.v2.pclink.PcLink;
 import com.onesay.assistant.v2.pclink.PcLinkUi;
+import com.onesay.assistant.v2.pclink.PcMedia;
+import com.onesay.assistant.v2.pclink.PcMediaAndroid;
 import com.onesay.assistant.v2.pclink.PcRxAndroid;
 import com.onesay.assistant.v2.pclink.PcVoice;
 import com.onesay.assistant.v2.router.Invocation;
@@ -29,6 +31,8 @@ import java.util.List;
  *   <li>控制台：设置 › 功能 › 「电脑联动」页（配对、在线状态、锁屏 / 截图 / 剪贴板 / 打开网址 / 睡眠 / 关机、提醒同步开关）；</li>
  *   <li>提醒中枢新出现的日程 / 定时提醒 / 自动任务结果 / 降水 → 电脑在线时发 notify，离线丢弃；</li>
  *   <li>语音口令：「电脑锁屏」「让电脑截个图」「电脑在线吗」（关机 / 睡眠只引导去控制台确认）；</li>
+ *   <li>[media-get] 链接下载：「下载这个视频」「把这个链接下到电脑」（链接取自说的话或剪贴板）+ 系统分享菜单「下到电脑」→ 电脑用 yt-dlp 下载，
+ *       通知栏看进度，可选传回手机（≤ 5 MB）；电脑没连上只提示「需要连上电脑」，手机本地不下载；</li>
  *   <li>v2（link-v2）：配对串带电脑证书指纹 → TLS 钉指纹 + 双向证书；手机保持一条常连通道，电脑可让手机响铃找手机、打开网址 / App、
  *       亮屏、调媒体音量、写剪贴板、弹通知、查电量（每项单独开关，见 {@code pclink/PcRxPolicy}）。</li>
  * </ul>
@@ -82,6 +86,8 @@ public final class PcLinkPlugin extends FeaturePlugin {
             text = "关机和睡眠要在控制台「设置 › 功能 › 电脑联动」里点，会先让你确认一次。";
         } else if (Looper.myLooper() == Looper.getMainLooper()) {
             text = "现在没法等电脑回话，请在控制台「电脑联动」页里点。";   // 路由正常在后台线程；万一在主线程不做网络
+        } else if (k == PcVoice.Kind.MEDIA) {
+            text = media(app, query);
         } else if (k == PcVoice.Kind.LOCK) {
             PcLanClient.Result r = PcLink.runNow(app, "lock", null, 1800, 8000);
             text = r.ok ? "电脑已锁屏。" : "没锁上：" + r.text;
@@ -102,6 +108,20 @@ public final class PcLinkPlugin extends FeaturePlugin {
         } catch (Exception ignored) {
         }
         return new Invocation("ask.reply", args, 1.0, Invocation.RouteSource.L0_RULE, query);
+    }
+
+    /** 链接下载：链接取自说的话，没有就取剪贴板里的；先看电脑在不在（不在只提示），在就交给 {@link PcMediaAndroid}（后台发、通知栏看进度）。 */
+    static String media(Context app, String query) {
+        PcMedia.Ask ask = PcMedia.voice(query);
+        String url = ask == null ? null : ask.url;
+        if (url == null) url = PcMedia.tidy(PcLinkUi.clipText(app));
+        if (url == null) return "没找到链接：先复制视频链接再说「下载这个视频」，或者在别的 App 里点分享 → 「下到电脑」。";
+        String bad = PcMedia.checkUrl(url);
+        if (bad != null) return "这个链接不能下：" + bad;
+        PcLanClient.Result ping = PcLink.runNow(app, "ping", null, 1500, 4000);
+        if (!ping.reached()) return "需要连上电脑：局域网里没找到 " + PcLink.pcName(app) + "。手机不会自己下载。";
+        PcMediaAndroid.start(app, url, PcMedia.Q_BEST, ask == null ? "" : ask.audio, false);
+        return "好，已把链接发给电脑下载" + (ask != null && ask.audio.length() > 0 ? "（仅音频）" : "") + "。第一次可能要你在电脑或手机弹出的确认卡上点一下，进度看通知栏。";
     }
 
     @Override public String routeLog() { return "[ROUTE-PCLINK] 电脑联动接管: "; }

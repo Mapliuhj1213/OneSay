@@ -170,3 +170,20 @@
 | 码 | 中文 |
 |---|---|
 | `pay_user_tap` | 付款 / 转账的最后一下要你自己点，远程和机器人都不能代点 |
+
+## 链接下载（2026-11-11，分支 feat/media-get）
+
+思路参考 omniget（https://github.com/OpenSelena/omniget，GPL-3.0）：链接 → 预览 → 队列 → 进度、引擎按需下载。**只读思路，代码自写**，没有拷贝或改写 omniget 的任何代码。引擎 yt-dlp（Unlicense），以子进程调用。
+
+**电脑端**
+- 工具不随安装包附带：设置 › 下载 › 「安装」时才从官方发布页下载 yt-dlp（github.com/yt-dlp/yt-dlp，SHA2-256SUMS）和 FFmpeg（github.com/FFmpeg-Builds，**LGPL 静态构建** `ffmpeg-nX.Y-latest-win64-lgpl-X.Y.zip`，checksums.sha256），边下边算 SHA-256，和官方校验和对上才放到位；装好后每个可执行文件的 SHA-256 记进 `tools.json`，**每次运行前再算一遍，对不上拒绝运行**。存放 `%LOCALAPPDATA%\OneSay\tools`（路径里有中文等非 ASCII 时退到 `%ProgramData%\OneSay\tools`，和工作区同一条规则）。发布页上找不到 LGPL 构建就不自动装。「检查更新」比对发布页当前的校验和。
+- 参数固定白名单（`MediaArgs`）：链接只收 http / https，拒绝空格、控制字符和 `; & | `` ` `` $ < > " ' \ { } ^`，不能以 `-` 开头，链接前固定一个 `--`；清晰度只有最佳 / 1080 / 720，仅音频只有 m4a / mp3；固定 `--ignore-config --no-plugin-dirs --no-playlist --no-exec`；不接受任何用户自由参数。分享文字 / 输入框里的链接先「整理」（取第一个链接，去掉 # 和第一个 & 之后的跟踪参数，整理后的链接会显示给你）再严格检查。
+- 先 `-J` 取标题 / 时长 / 大小预览，再进队列（同时最多 2 个）；`--continue` 断点续传；解析进度行（百分比、速度、剩余时间）；遇 HTTP 429 退避重试最多 3 次（10 / 30 / 90 秒）。每个任务记下实际执行的命令，日志里 Cookie 路径打码。输出到 `%USERPROFILE%\OneSay\Downloads`（配置 `media_dir` 可改）。
+- 登录内容：只导入你自己导出的 cookies.txt（Netscape 格式），只留该站点（含子域名）的行，存配置目录 `cookies\<站点>.txt`，只给当前账户（Windows ACL 只留所有者；其他系统 rw-------）；每次下载用一份临时副本，用完删。不读浏览器 Cookie、不做浏览器扩展、不破 DRM。
+- 审批：新动作类型 `media_get`（类别 MEDIA_DOWNLOAD），走「能批就不拦」：分类 / 按需 → 确认卡（类型 `pc.media_download`，可勾「以后这类不用问」）；完全访问 + 从不询问 → 直接跑；工作区可写 + 从不询问、只读 → 拒。工具还没装时卡片换成 `pc.media_tool_install`（先装工具再下载）。链接没过检查直接拒（untrusted_url），不弹卡。
+- 手机指令：`media_get {url, quality, audio}`、`media_status {id?}`（查询）、`media_fetch {id}`（≤ 5 MB 整文件 base64 回传，复用取文件同一种回法和上限；大了只回电脑路径）、`media_cancel {id}`。
+
+**手机端（个人版 / 开源版同功能，默认开；手机→电脑方向，不属于手机被控端的分档指令）**
+- 语音「下载这个视频」「把这个链接下到电脑」「用电脑下载 https://…」「下载这个视频的音频」（链接取自说的话，没有就取剪贴板）；系统分享菜单「下到电脑」（选清晰度 / 仅音频 / 是否传回手机，要你点「下载」才发）；控制台「电脑联动 › 把链接下到电脑」。
+- 发 `media_get` 后每 2 秒查一次 `media_status`，通知栏显示进度；完成后可选传回手机（≤ 5 MB，存 Movies / Music 下的 OneSay）。大于 5 MB 只通知完成并给出电脑上的路径（现有通道单条上限，**没有新造传输协议**）。
+- 电脑没连上：只提示「需要连上电脑」，手机本地不跑 yt-dlp。

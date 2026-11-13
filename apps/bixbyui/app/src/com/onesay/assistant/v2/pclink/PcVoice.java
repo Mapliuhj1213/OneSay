@@ -11,11 +11,12 @@ import java.util.regex.Pattern;
  *   <li>在线：「电脑在线吗」「电脑连上了吗」；</li>
  *   <li>关机 / 睡眠：只回一句「去控制台点，要二次确认」，不执行。</li>
  *   <li>[approve-not-block] 有确认卡在等时说「允许 / 好的 / 批准…」：不算批准（{@link Kind#APPROVAL}），只回一句「要在屏幕上点」。</li>
+ *   <li>[media-get] 链接下载：「下载这个视频」「把这个链接下到电脑」「用电脑下载 https://…」（{@link Kind#MEDIA}，规则见 {@link PcMedia#voice}）。</li>
  * </ul>
  */
 public final class PcVoice {
 
-    public enum Kind { NONE, LOCK, SHOT, STATUS, POWER, APPROVAL }
+    public enum Kind { NONE, LOCK, SHOT, STATUS, POWER, APPROVAL, MEDIA }
 
     private PcVoice() {}
 
@@ -27,6 +28,7 @@ public final class PcVoice {
 
     public static Kind of(String q) {
         if (q == null) return Kind.NONE;
+        if (PcMedia.voice(q) != null) return Kind.MEDIA; // 可能带一长串链接，先于下面的长度限制
         String s = q.trim().replaceAll("[，。！？,.!?\\s]+$", "").replaceAll("\\s+", "");
         if (s.length() == 0 || s.length() > 20) return Kind.NONE;
         if (PcConfirm.anyPending() && PcConfirm.spokenApproval(s)) return Kind.APPROVAL; // 说话不算批准
