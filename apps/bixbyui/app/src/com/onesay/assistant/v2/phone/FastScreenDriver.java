@@ -113,6 +113,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
 
     @Override public boolean tap(UiTree.El e) {
         if (e == null) return false;
+        com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();   // approve-not-block：机器人在点，这一会儿确认卡上的触摸不算真人
         if (mk(1)) {   // ★ mika-plug（mika.actchain）：节点或 ≤8 层可点祖先 ACTION_CLICK → （B1 无手势）→ 注入
             String how = com.onesay.assistant.plug.action.core.ActionChain.tap(port(), e.src, new int[]{e.l, e.t, e.r, e.b}, e.cls);
             Log.i(TAG, "[PHONE] 点按 " + how);
@@ -127,6 +128,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
 
     /** 注入点按（护罩开孔 → 注入 → 补孔）。测试也直接调。 */
     public boolean injectTap(int x, int y) {
+        com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();
         ShieldOverlay sh = mShield;
         Rect hole = new Rect(x - 32, y - 32, x + 32, y + 32);
         if (sh != null) sh.openHole(hole);
@@ -307,6 +309,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     }
 
     @Override public boolean swipe(int x1, int y1, int x2, int y2, int ms) {
+        com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();
         ShieldOverlay sh = mShield;
         if (sh != null) sh.openHole(new Rect(Math.min(x1, x2) - 48, Math.min(y1, y2) - 48, Math.max(x1, x2) + 48, Math.max(y1, y2) + 48));
         try {

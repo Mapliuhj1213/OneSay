@@ -213,6 +213,14 @@
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
             android:label="扫码配对电脑" />
 
+        <!-- ★ approve-not-block：手机屏幕上的确认卡（电脑发来的指令要你确认 / 电脑上的确认也能在手机上批）。只认真人手指，不导出 -->
+        <activity
+            android:name="com.onesay.assistant.v2.pclink.PcConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.Dialog.NoActionBar"
+            android:label="确认" />
+
         <activity
             android:name="com.onesay.assistant.v2.ui.MailSettingsActivity"
             android:exported="false"

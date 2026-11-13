@@ -255,6 +255,7 @@ public class A11yBackend extends AccessibilityService {
 
     /** dispatchGesture 点按（API 24+），最多等 1 s 回调。 */
     public boolean gestureTap(int x, int y) {
+        com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();   // approve-not-block：机器人注入手势，确认卡上这一会儿的触摸不算真人
         try {
             Path p = new Path();
             p.moveTo(x, y);

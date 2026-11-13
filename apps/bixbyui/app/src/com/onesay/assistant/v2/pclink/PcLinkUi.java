@@ -37,6 +37,8 @@ public final class PcLinkUi {
     public static final String TITLE = "电脑联动";
     static final long POLL_MS = 10000L;
     static final long POLL_MAX_MS = 10L * 60000L;
+    /** 电脑上可能要确认的指令手机这边等多久（电脑确认最多 60 秒 + 执行）。 */
+    static final int MAY_CONFIRM_WAIT_MS = (int) LinkPolicy.CONFIRM_TIMEOUT_MS + 15000;
 
     private PcLinkUi() {}
 
@@ -186,9 +188,30 @@ public final class PcLinkUi {
                     });
             rows[i].setEnabled(on);
         }
+        // [approve-not-block] 敏感剪贴板 60 秒清除（可选，默认关）；「以后这类不用问」记住的类型，可撤销
+        host.switchRow(g, "敏感内容 60 秒后自动清除", "电脑写进手机剪贴板的验证码 / 卡号 / 密码这类内容，60 秒后清掉（默认关）",
+                PcRxAndroid.clipAutoClear(act), new ConsoleHost.Toggle() {
+                    @Override public void onToggle(boolean v) { PcRxAndroid.setClipAutoClear(act, v); }
+                });
+        java.util.List<String> kinds = PcRxAndroid.rememberedKinds(act);
+        LinearLayout rg = host.group(root, "以后这类不用问");
+        if (kinds.isEmpty()) {
+            host.valueRow(rg, "还没有记住过", "手机确认卡上勾「以后这类不用问」并允许后，同一类直接做（付款最后一下、改 OneSay 自己、给 App 授权不会弹卡，也记不住）", "", ConsoleHost.TONE_MUTED);
+        } else {
+            for (final String k : kinds) {
+                host.actionRow(rg, LinkPolicy.kindZh(k), "电脑让手机做这一类时不再弹确认卡", "撤销", new Runnable() {
+                    @Override public void run() {
+                        PcRxAndroid.forget(act, k);
+                        host.toast("已撤销，下次会再问你");
+                        refresh(host);
+                    }
+                });
+            }
+        }
         String log = PcLink.sp(act).getString(PcRxAndroid.K_RX_LOG, "");
         host.footer(root, "开着时手机和电脑保持一条连接（只在 Wi-Fi 下，电脑不在就等它上线），电脑随时能找到手机；每条指令都带配对钥匙签名，"
-                + "过期或重放的直接拒绝。" + (log.length() > 0 ? "\n最近：\n" + log : ""));
+                + "过期或重放的直接拒绝。打开 / 卸载支付类与系统 App、带账号或疑似仿冒的网址会先在手机上弹确认卡（只认手指点，60 秒不点 = 拒绝）；"
+                + "电脑上要确认的事也会同时发到这里，在手机上点也算数。" + (log.length() > 0 ? "\n最近：\n" + log : ""));
     }
 
     /** 重画当前页（控制台的 onResume 会重建顶层页面）。 */
@@ -292,14 +315,14 @@ public final class PcLinkUi {
     // ================================================================== 动作
 
     static void simple(final ConsoleHost host, String cmd, Map<String, Object> args, String pending) {
-        // link-v2：电脑作为被控端时可能要在电脑上点确认（关机 / 睡眠 / 卸载 / 打开不在信任列表的网址 / 写剪贴板 / 设置改动；
-        // 快捷指令第一次或改过后要批准；运行脚本 / 执行命令每次确认），电脑最多等 30 秒，手机这边多等一会儿
+        // link-v2：电脑作为被控端时可能要确认（关机 / 睡眠 / 卸载 / 打开不在信任列表的网址 / 写剪贴板 / 设置改动；
+        // 快捷指令第一次或改过后要批准；运行脚本 / 执行命令每次确认）。[approve-not-block] 电脑最多等 60 秒（电脑上或这台手机的确认卡上点都行），手机这边多等一会儿
         LinkPolicy.Cat cat = LinkPolicy.pcCat(cmd);
         boolean mayConfirm = cat == LinkPolicy.Cat.SIMPLE_SETTING || cat == LinkPolicy.Cat.POWER || cat == LinkPolicy.Cat.OPEN_URL
                 || cat == LinkPolicy.Cat.CLIPBOARD_WRITE || cat == LinkPolicy.Cat.RUN_WS_SCRIPT || cat == LinkPolicy.Cat.SHORTCUT
-                || cat == LinkPolicy.Cat.SHELL_EXEC || cat == LinkPolicy.Cat.UNINSTALL_APP || cat == LinkPolicy.Cat.APP_OPERATE;
-        host.toast(mayConfirm ? pending + "（电脑上可能要点确认）" : pending);
-        PcLink.run(host.activity(), cmd, args, mayConfirm ? 40000 : 15000, new PcLink.Done() {
+                || cat == LinkPolicy.Cat.SHELL_EXEC || cat == LinkPolicy.Cat.UNINSTALL_APP || cat == LinkPolicy.Cat.APP_OPERATE || cat == LinkPolicy.Cat.OPEN_APP;
+        host.toast(mayConfirm ? pending + "（可能要确认：电脑上或这台手机弹出的确认卡上点）" : pending);
+        PcLink.run(host.activity(), cmd, args, mayConfirm ? MAY_CONFIRM_WAIT_MS : 15000, new PcLink.Done() {
             @Override public void done(PcLanClient.Result r) {
                 Object why = r.data == null ? null : r.data.get("reason_zh");
                 String t = r.text.length() > 0 ? r.text : (r.ok ? "完成" : "失败");

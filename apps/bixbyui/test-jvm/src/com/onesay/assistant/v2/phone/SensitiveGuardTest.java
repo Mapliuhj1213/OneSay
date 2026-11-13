@@ -166,4 +166,23 @@ public class SensitiveGuardTest {
         assertFalse(SensitiveGuard.strongRid("com.x:id/title"));
         assertFalse(SensitiveGuard.strongRid(""));
     }
+
+    /** ★ approve-not-block 硬规则 ①：付款 / 转账的最后一下只能你亲手点（机器人不代点）。 */
+    @Test public void finalPayButtonMustBeTappedByUser() {
+        for (String n : new String[]{"确认支付", "立即付款", "确认转账", "提交订单并支付", "免密支付", "Pay now"}) {
+            UiTree u = FakeScreens.screen("p", "a").button(n).ui(null);
+            PhonePlan.Step s = new PhonePlan.Step();
+            s.op = "tap";
+            s.id = u.findText(n).id;
+            assertNotNull(n, SensitiveGuard.userMustTap(s, u));
+        }
+        for (String n : new String[]{"提交订单", "加入购物车", "去结算", "支付方式", "发送"}) {
+            UiTree u = FakeScreens.screen("p", "a").button(n).ui(null);
+            PhonePlan.Step s = new PhonePlan.Step();
+            s.op = "tap";
+            s.id = u.findText(n).id;
+            assertNull(n + "（前面的步骤照常问你）", SensitiveGuard.userMustTap(s, u));
+        }
+        assertNull(SensitiveGuard.userMustTap(null, null));
+    }
 }

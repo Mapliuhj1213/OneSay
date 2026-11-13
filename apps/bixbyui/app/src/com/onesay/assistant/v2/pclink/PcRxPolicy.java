@@ -12,8 +12,9 @@ import java.util.Map;
  * 开源版默认保守：总开关「接受电脑指令」默认关（不常连）；打开后，危险项（打开网址 / 打开 App / 写剪贴板）仍默认关，要用户逐项打开。
  *
  * <p>[link-v2 第二轮] 分档时加的 8 个指令（手电筒、改设置、工作区文件、卸载、脚本、系统命令）按分档之前的语义加回来：
- * 没有执行级别、手机上不弹确认，每项一个开关、挂在「接受电脑指令」总开关下；开源版这 8 项都默认关。红线照旧（{@link PcRx} 里查）：
- * 支付 / 银行 / 钱包类 App 不碰、系统 App 不卸载、网址和剪贴板内容过不了检查不做、给 App 授权只生成脚本。
+ * 没有执行级别，每项一个开关、挂在「接受电脑指令」总开关下；开源版这 8 项都默认关。[approve-not-block] 规则（{@link PcRx} 里查）：
+ * 给 App 授权只生成脚本、远程卸载 / 停用 OneSay 自己不行（硬规则）；支付 / 银行 / 钱包类 App、系统 App、带账号或疑似仿冒的网址
+ * 在手机上弹确认卡（原来直接拒）；网址里的 IP / 内网地址、像命令或超过 10 KB 的剪贴板不再拒。
  */
 public final class PcRxPolicy {
 
@@ -96,17 +97,17 @@ public final class PcRxPolicy {
         if (VOLUME.equals(cmd)) return "只改媒体音量（0–100）";
         if (NOTIFY.equals(cmd)) return "电脑发来的提醒以通知显示";
         if (STATUS.equals(cmd)) return "电量、是否充电、屏幕、铃声模式、媒体音量";
-        if (CLIPBOARD.equals(cmd)) return "电脑把文字放进手机剪贴板（会覆盖原内容；像命令、坏链接、超过 10 KB 的不写，验证码 / 卡号等敏感内容 60 秒后自动清除）";
-        if (OPEN_URL.equals(cmd)) return "只许 http / https，带账号密码、内网地址、仿冒域名的不开";
-        if (OPEN_APP.equals(cmd)) return "按包名或桌面上的名字打开；支付 / 银行 / 钱包类不打开";
+        if (CLIPBOARD.equals(cmd)) return "电脑把文字放进手机剪贴板（会覆盖原内容，最多 10 万字；验证码 / 卡号等标为敏感，要不要 60 秒后清除见下面的开关）";
+        if (OPEN_URL.equals(cmd)) return "只许 http / https；家里 NAS、路由器这类内网地址直接开，带账号密码、疑似仿冒的先在手机上问你";
+        if (OPEN_APP.equals(cmd)) return "按包名或桌面上的名字打开；支付 / 银行 / 钱包类先在手机上问你";
         if (FLASHLIGHT.equals(cmd)) return "打开 / 关闭闪光灯";
         if (SETTING.equals(cmd)) return "亮度、音量、勿扰、铃声、屏幕超时、Wi-Fi、蓝牙；飞行模式、移动数据等走特权通道";
         if (FILE_WRITE.equals(cmd)) return "写进 OneSay 工作区；工作区以外只写共享存储里的普通文件";
         if (FILE_LIST.equals(cmd)) return "列出 OneSay 工作区里的文件";
-        if (UNINSTALL.equals(cmd)) return "弹出系统卸载确认，最后由你点；系统 App 和支付 / 银行 / 钱包类不卸";
+        if (UNINSTALL.equals(cmd)) return "弹出系统卸载确认，最后由你点；系统 App 和支付 / 银行 / 钱包类先在手机上问你，OneSay 自己不卸";
         if (SCRIPT_LIST.equals(cmd)) return "列出工作区 scripts/ 里的脚本";
         if (SCRIPT_RUN.equals(cmd)) return "运行工作区 scripts/ 里的 .sh（走特权通道）";
-        if (SYS_EXEC.equals(cmd)) return "走特权通道执行命令；给 App 授权的只生成脚本，不执行";
+        if (SYS_EXEC.equals(cmd)) return "走特权通道执行命令；给 App 授权的只生成脚本，不执行；卸载 / 停用支付类和系统 App 先问你";
         return "";
     }
 

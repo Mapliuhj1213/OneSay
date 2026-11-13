@@ -655,3 +655,5 @@ com/onesay/assistant/v2/pclink/PcTls.java
 com/onesay/assistant/v2/pclink/PcRx.java
 com/onesay/assistant/v2/pclink/PcRxPolicy.java
 com/onesay/assistant/v2/pclink/LinkPolicy.java
+# approve-not-block（2026-11-10）：手机屏幕上的确认卡（纯 Java 规则）
+com/onesay/assistant/v2/pclink/PcConfirm.java

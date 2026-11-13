@@ -76,7 +76,9 @@ public final class PcLinkPlugin extends FeaturePlugin {
         if (k == PcVoice.Kind.NONE || ctx == null || !PcLink.active(ctx)) return null;
         Context app = ctx.getApplicationContext();
         String text;
-        if (k == PcVoice.Kind.POWER) {
+        if (k == PcVoice.Kind.APPROVAL) {
+            text = "确认卡只认手指在屏幕上点，说话不算批准。要允许请在确认卡上点「允许」。";   // approve-not-block：语音批不了
+        } else if (k == PcVoice.Kind.POWER) {
             text = "关机和睡眠要在控制台「设置 › 功能 › 电脑联动」里点，会先让你确认一次。";
         } else if (Looper.myLooper() == Looper.getMainLooper()) {
             text = "现在没法等电脑回话，请在控制台「电脑联动」页里点。";   // 路由正常在后台线程；万一在主线程不做网络

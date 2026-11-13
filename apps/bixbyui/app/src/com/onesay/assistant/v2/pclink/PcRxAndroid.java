@@ -51,10 +51,12 @@ import java.util.concurrent.TimeUnit;
  * </ul>
  * 日志只打指令名、结果、长度，不打网址、剪贴板、通知内容。
  */
-public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard {
+public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, PcRx.Asker {
 
     static final String TAG = "PcLink";
     public static final String K_RX = "rx_enabled", K_RX_LOG = "rx_log";
+    /** [approve-not-block] 「以后这类不用问」记住的类型（只收 phone.*）；敏感剪贴板 60 秒清除（可选，默认关）。 */
+    public static final String K_APPROVE_KINDS = "rx_approve_kinds", K_CLIP_AUTOCLEAR = "rx_clip_autoclear";
     static final String CH = "pclink_from_pc", ACTION_STOP = "com.onesay.assistant.v2.pclink.RING_STOP";
     static final int NID_RING = 47821, NID_MSG = 47822;
 
@@ -67,6 +69,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard {
 
     private PcRxAndroid(Context app) {
         this.app = app;
+        PcConfirmActivity.install(app); // 手机屏幕上的确认卡（本机卡 + 电脑发来的卡）
     }
 
     // ================================================================== 生命周期
@@ -222,8 +225,54 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard {
         } catch (Exception ignored) {
         }
         f.appLabel = label;
-        // 自己（OneSay）也按禁止类处理：电脑不能远程卸载本 App
-        f.appBlocked = f.appBlocked || LinkPolicy.blockedApp(pkg, label) || app.getPackageName().equals(pkg);
+        // [approve-not-block] 自己（OneSay）：远程卸载 / 停用是硬规则（改自己的权限），打开不算
+        f.appSelf = app.getPackageName().equals(pkg);
+        f.appBlocked = f.appBlocked || LinkPolicy.blockedApp(pkg, label);
+    }
+
+    // ================================================================== Asker（手机确认卡、以后这类不用问、剪贴板清除）
+
+    @Override public int ask(String title, String detail, String rememberKind) {
+        PcConfirmActivity.install(app);
+        return PcConfirm.ask(title, detail, rememberKind, LinkPolicy.CONFIRM_TIMEOUT_MS);
+    }
+
+    @Override public java.util.Collection<String> rememberedKinds() {
+        return rememberedKinds(app);
+    }
+
+    @Override public void remember(String kind) {
+        if (kind == null || !kind.startsWith("phone.") || !LinkPolicy.knownKind(kind)) return;
+        java.util.List<String> k = rememberedKinds(app);
+        if (!k.contains(kind)) k.add(kind);
+        PcLink.sp(app).edit().putString(K_APPROVE_KINDS, LinkPolicy.formatKinds(k)).apply();
+        Log.i(TAG, "[PCLINK] 以后这类不用问：" + kind);
+    }
+
+    @Override public boolean clipAutoClear() {
+        return clipAutoClear(app);
+    }
+
+    public static java.util.List<String> rememberedKinds(Context c) {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        for (String k : LinkPolicy.parseKinds(PcLink.sp(c).getString(K_APPROVE_KINDS, ""))) if (k.startsWith("phone.")) out.add(k);
+        return out;
+    }
+
+    /** 控制台「撤销」：没有这一类返回 false。 */
+    public static boolean forget(Context c, String kind) {
+        java.util.List<String> k = rememberedKinds(c);
+        if (!k.remove(kind)) return false;
+        PcLink.sp(c).edit().putString(K_APPROVE_KINDS, LinkPolicy.formatKinds(k)).apply();
+        return true;
+    }
+
+    public static boolean clipAutoClear(Context c) {
+        return PcLink.sp(c).getBoolean(K_CLIP_AUTOCLEAR, LinkPolicy.CLIP_AUTOCLEAR_DEFAULT);
+    }
+
+    public static void setClipAutoClear(Context c, boolean on) {
+        PcLink.sp(c).edit().putBoolean(K_CLIP_AUTOCLEAR, on).apply();
     }
 
     @Override public String script(String cmd, Map<String, Object> a, String why) {
@@ -352,6 +401,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard {
         if (PcRxPolicy.CLIPBOARD.equals(cmd)) {
             final String t = String.valueOf(a.get("text"));
             final boolean sensitive = Boolean.TRUE.equals(a.get("_sensitive"));
+            final boolean clear = sensitive && Boolean.TRUE.equals(a.get("_clear")); // 60 秒清除：可选设置，默认关
             final boolean[] done = {false};
             final CountDownLatch l = new CountDownLatch(1);
             new Handler(Looper.getMainLooper()).post(new Runnable() {
@@ -360,7 +410,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard {
                         ClipboardManager cm = (ClipboardManager) app.getSystemService(Context.CLIPBOARD_SERVICE);
                         ClipData cd = ClipData.newPlainText("OneSay", t);
                         if (sensitive) Clip.markSensitive(cd);
-                        Clip.set(cm, cd, sensitive);
+                        Clip.set(cm, cd, clear);
                         done[0] = true;
                     } catch (Throwable ignored) {
                     }
@@ -371,7 +421,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard {
                 l.await(3, TimeUnit.SECONDS);
             } catch (InterruptedException ignored) {
             }
-            return done[0] ? ok("已放进手机剪贴板（" + t.length() + " 字）" + (sensitive ? "，标为敏感，60 秒后自动清除" : ""), null) : fail("写不了剪贴板");
+            return done[0] ? ok("已放进手机剪贴板（" + t.length() + " 字）" + (clear ? "，标为敏感，60 秒后自动清除" : sensitive ? "，标为敏感" : ""), null) : fail("写不了剪贴板");
         }
         if (PcRxPolicy.FLASHLIGHT.equals(cmd)) return flashlight(!Boolean.FALSE.equals(a.get("on")));
         if (PcRxPolicy.SETTING.equals(cmd)) return setting(PcRxPolicy.str(a, "name"), PcRxPolicy.str(a, "value"), a);
@@ -671,8 +721,8 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard {
             }
         }
 
-        /** 主线程调用。敏感内容 60 秒后清掉——期间如果剪贴板被别人改过就不清。 */
-        static void set(final ClipboardManager cm, ClipData cd, boolean sensitive) {
+        /** 主线程调用。clear = 60 秒后清掉（敏感内容且开了「自动清除」时）——期间如果剪贴板被别人改过就不清。 */
+        static void set(final ClipboardManager cm, ClipData cd, boolean clear) {
             if (lis == null) {
                 lis = new ClipboardManager.OnPrimaryClipChangedListener() {
                     @Override public void onPrimaryClipChanged() {
@@ -685,7 +735,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard {
             ours = true;
             gen++;
             cm.setPrimaryClip(cd);
-            if (!sensitive) return;
+            if (!clear) return;
             final int mine = gen;
             H.postDelayed(new Runnable() {
                 @Override public void run() {
