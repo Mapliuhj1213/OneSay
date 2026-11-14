@@ -194,6 +194,7 @@ public class ConsentPolicy {
     public static boolean acceptsAlwaysAllow(Capability cap) {
         if (cap == null || cap.sign == null) return false;
         if (RED_SIGNS.contains(cap.sign)) return false;
+        if (ToolGate.oddSign(cap.sign).length() > 0) return false; // 名字写法可疑的工具：每次都问，不能记住
         if (CommsRisk.isComms(cap.sign)) return false;
         if (cap.sideEffect == com.onesay.assistant.v2.capability.SideEffect.PUBLIC_COMMS) return false;   // [conn] 对外发送每次都要确认
         if (isRemoteConnTool(cap)) return false;

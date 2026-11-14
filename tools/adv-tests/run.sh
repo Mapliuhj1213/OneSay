@@ -3,7 +3,7 @@
 # 找茬式对抗测试（2026-11-14）：助手 / 计划 / 时钟 三块单独跑。
 #
 #   bash tools/adv-tests/run.sh            # 门禁内的对抗用例（Adv*Test，三块都跑）
-#   bash tools/adv-tests/run.sh bugs       # 只跑「已知缺陷」用例（默认门禁排除，预期会失败，修好后应转绿）
+#   bash tools/adv-tests/run.sh bugs       # 只跑「已知缺陷」用例（默认门禁排除）。2026-11-14 修复后已全部移回门禁，目录暂空
 #   bash tools/adv-tests/run.sh gate assistant|plan|clock   # 只跑一块
 #
 # 依赖与各 App 原有测试相同：TOOLS（默认 ~/onesay-tools）下的 jdk、android-sdk/platforms/android-28、test-libs。

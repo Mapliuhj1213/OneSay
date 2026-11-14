@@ -19,7 +19,7 @@ import static org.junit.Assert.*;
  *       单引号、注释、非法转义、裸词、NaN / Infinity 字面量、深度超过 64）→ IllegalArgumentException；嵌套深度逐层到边界；</li>
  *   <li>pair：配对串（含输入法全角改写、零宽、首字母大写、前后夹杂文字）→ 解析或给出不含密钥的错误；v2 指纹格式、版本、钥匙长度、端口。</li>
  * </ul>
- * 「\\u+041」「+1」「01」「1e999」这类不合 JSON 语法却被接受的写法在 adv-bugs（AdvBugPcJsonLenientTest）。
+ * 「\\u+041」「+1」「01」「1e999」这类不合 JSON 语法却被接受的写法在 AdvPcJsonLenientTest（2026-11-14 已修）。
  */
 @RunWith(Parameterized.class)
 public class AdvJsonPairingTest {

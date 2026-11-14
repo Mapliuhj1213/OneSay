@@ -10,13 +10,13 @@ import java.util.Collection;
 import static org.junit.Assert.*;
 
 /**
- * [已知缺陷 P2] Shizuku 白名单的模拟按键「电源键除外，避免误锁屏 / 关机菜单」只按字符串比较 "26" / "223"，
+ * [2026-11-14 已修，原「已知缺陷 P2」] Shizuku 白名单的模拟按键「电源键除外，避免误锁屏 / 关机菜单」只按字符串比较 "26" / "223"，
  * 而 {@code [0-9]{1,3}} 放行任何 1–3 位数字：input keyevent 026（Android 按整数解析 = 26 电源键）被放行，
  * 长按 026 = 关机菜单。另外 KEYCODE_SOFT_SLEEP（276）同样会锁屏，没在禁用表里。插件默认关。
  * 期望：按解析后的键码判断（26 / 223 / 276 及其前导零写法都拒）。
  */
 @RunWith(Parameterized.class)
-public class AdvBugShizukuKeyTest {
+public class AdvShizukuKeyTest {
 
     @Parameterized.Parameters(name = "{index}: {0}")
     public static Collection<Object[]> data() {
@@ -26,7 +26,7 @@ public class AdvBugShizukuKeyTest {
 
     private final String cmd;
 
-    public AdvBugShizukuKeyTest(String cmd) {
+    public AdvShizukuKeyTest(String cmd) {
         this.cmd = cmd;
     }
 

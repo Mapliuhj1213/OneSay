@@ -23,7 +23,7 @@ import static org.junit.Assert.*;
  *   <li>shellPhone / shellPc：一条 shell 命令的类别（授权红线、管理员、简单设置、拼接命令）；</li>
  *   <li>inspect：电脑端安全插件（提权 / 改自己 / 编码 / 断网）。</li>
  * </ul>
- * 每行一个输入；kind 决定怎么断言。手机侧引号 / 转义写法绕过授权红线的那几条在 adv-bugs（AdvBugPhoneShellQuoteTest）。
+ * 每行一个输入；kind 决定怎么断言。手机侧引号 / 转义写法绕过授权红线的那几条在 AdvPhoneShellQuoteTest（2026-11-14 已修）。
  */
 @RunWith(Parameterized.class)
 public class AdvLinkCmdTest {

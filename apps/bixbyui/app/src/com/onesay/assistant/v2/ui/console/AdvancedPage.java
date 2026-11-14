@@ -241,8 +241,10 @@ final class AdvancedPage extends Console.BuiltPage {
                 .setPositiveButton("保存", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         String u = url.getText().toString().trim();
-                        if (custom && !u.startsWith("https://")) {
-                            c.toast("地址要以 https:// 开头");
+                        // 解析后校验：不收 user:pw@、? 查询串、# 片段；http 只有 debug 包收、且只认真正的 127.0.0.1 / localhost
+                        String bad = custom ? com.onesay.assistant.v2.net.LlmFallback.checkUrl(u, com.onesay.assistant.v2.net.MainModelEndpoint.allowHttp()) : null;
+                        if (bad != null) {
+                            c.toast(bad);
                             return;
                         }
                         String kk = key.getText().toString();

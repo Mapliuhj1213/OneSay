@@ -15,7 +15,7 @@ import static org.junit.Assert.*;
 /**
  * 找茬 · libs/plugins/exec-shizuku 的命令白名单（Shizuku 以 shell / root 身份执行，默认关）：
  * 只放行注释列出的四类、参数逐个校验；任何 shell 元字符、改别的包、别的 appops、电源 / 睡眠键、工作区外截屏路径都拒。
- * 每行一个命令，期望 allow:<类别> 或 deny。前导零写法的电源键（026）在 adv-bugs（AdvBugShizukuKeyTest）。
+ * 每行一个命令，期望 allow:<类别> 或 deny。前导零写法的电源键（026）在 AdvShizukuKeyTest（2026-11-14 已修）。
  */
 @RunWith(Parameterized.class)
 public class AdvShizukuWhitelistTest {

@@ -14,7 +14,7 @@ import java.util.Collection;
 import static org.junit.Assert.*;
 
 /**
- * [已知缺陷 P2，两处纵深防御缺口，现有内置能力不直接触发]
+ * [2026-11-14 已修，原「已知缺陷 P2」：两处纵深防御缺口，现有内置能力不直接触发]
  * <ol>
  *   <li>monotonic：ToolGate 注释「闸门只能把直接跑升级成要确认或拒绝，不能反向」。但污点分支里 isBenignCreate（新建闹钟 / 计时器）
  *       排在「能力本身要确认就继承」之前：一个静态声明 risk=2 + confirm 的 clock.alarm.set / clock.timer.set，不污点时要确认，
@@ -26,7 +26,7 @@ import static org.junit.Assert.*;
  * </ol>
  */
 @RunWith(Parameterized.class)
-public class AdvBugGateTaintTest {
+public class AdvGateTaintTest {
 
     @Parameterized.Parameters(name = "{index}: {0} {1}")
     public static Collection<Object[]> data() {
@@ -38,7 +38,7 @@ public class AdvBugGateTaintTest {
 
     private final String kind, sign;
 
-    public AdvBugGateTaintTest(String kind, String sign) {
+    public AdvGateTaintTest(String kind, String sign) {
         this.kind = kind;
         this.sign = sign;
     }

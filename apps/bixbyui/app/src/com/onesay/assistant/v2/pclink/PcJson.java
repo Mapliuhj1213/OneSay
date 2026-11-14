@@ -17,6 +17,9 @@ public final class PcJson {
 
     private PcJson() {}
 
+    /** JSON 数字语法：-?(0|[1-9]数字*)(.数字+)?([eE][+-]?数字+)? */
+    private static final java.util.regex.Pattern NUM = java.util.regex.Pattern.compile("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?");
+
     public static Object parse(String s) {
         P p = new P(s);
         p.ws();
@@ -183,6 +186,9 @@ public final class PcJson {
                         case 'f': sb.append('\f'); break;
                         case 'u':
                             if (i + 4 > s.length()) throw new IllegalArgumentException("bad \\u");
+                            // 必须正好 4 位十六进制（parseInt 会收 +041、-001 这种，JSON 不收）
+                            for (int k = i; k < i + 4; k++)
+                                if (Character.digit(s.charAt(k), 16) < 0 || s.charAt(k) > 'f') throw new IllegalArgumentException("bad \\u");
                             sb.append((char) Integer.parseInt(s.substring(i, i + 4), 16));
                             i += 4;
                             break;
@@ -198,6 +204,8 @@ public final class PcJson {
             while (i < s.length() && "0123456789.eE+-".indexOf(s.charAt(i)) >= 0) i++;
             String t = s.substring(st, i);
             if (t.length() == 0 || t.equals("-")) throw new IllegalArgumentException("bad value at " + st);
+            // 2026-11-14 对抗测试 P2-3：按 JSON 语法收数字（不收前导 +、前导 0），超出 double 范围（1e999）当坏数据，不变成 Infinity
+            if (!NUM.matcher(t).matches()) throw new IllegalArgumentException("bad number at " + st);
             if (t.indexOf('.') < 0 && t.indexOf('e') < 0 && t.indexOf('E') < 0) {
                 try {
                     return Long.parseLong(t);
@@ -205,7 +213,9 @@ public final class PcJson {
                     // 超出 long：按 double
                 }
             }
-            return Double.parseDouble(t);
+            double d = Double.parseDouble(t);
+            if (Double.isNaN(d) || Double.isInfinite(d)) throw new IllegalArgumentException("number out of range at " + st);
+            return d;
         }
     }
 }

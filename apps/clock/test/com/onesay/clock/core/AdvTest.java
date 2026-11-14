@@ -12,7 +12,7 @@ import java.util.*;
  *   <li>错过的闹钟：没有记录不报、响过不报、调试闹钟不报、贪睡宽限、往回最多 3 天、最多 10 条、记录串畸形；</li>
  *   <li>对外接口 AlarmApi：参数越界、days 只取低 7 位、同一每周闹钟复用而大小周 / 每月 / 每隔 N 天不复用、调试闹钟不可改不出现、id 用完、标签清洗。</li>
  * </ul>
- * 标签截断把代理对切开这一条在 test-adv-bugs（AdvBugClockTest），默认不跑。
+ * 标签截断把代理对切开这一条在 AdvClockLabelTest（2026-11-14 已修，已在门禁里）。
  */
 public class AdvTest {
     static int pass, fail;

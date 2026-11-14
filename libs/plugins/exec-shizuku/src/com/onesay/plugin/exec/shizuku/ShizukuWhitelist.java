@@ -120,7 +120,15 @@ public final class ShizukuWhitelist {
         if ("--longpress".equals(a.get(i))) i++;
         if (a.size() != i + 1) return deny("INPUT_ARGS");
         String k = a.get(i);
-        if (k.equals("KEYCODE_POWER") || k.equals("26") || k.equals("KEYCODE_SLEEP") || k.equals("223")) return deny("KEY_BLOCKED(" + k + ")");
+        // 2026-11-14 对抗测试 P2-7：Android 按整数解析键码，026 就是 26（电源键）。先去掉前导零再按原来的名单判断，执行的也是规范化后的写法。
+        if (k.matches("[0-9]{1,3}")) {
+            k = String.valueOf(Integer.parseInt(k));
+            a = new ArrayList<String>(a);
+            a.set(i, k);
+        }
+        // 电源 / 睡眠 / 软睡眠（锁屏）键不放：KEYCODE_SOFT_SLEEP = 276
+        if (k.equals("KEYCODE_POWER") || k.equals("26") || k.equals("KEYCODE_SLEEP") || k.equals("223") || k.equals("KEYCODE_SOFT_SLEEP") || k.equals("276"))
+            return deny("KEY_BLOCKED(" + k + ")");
         if (k.matches("KEYCODE_[A-Z0-9_]{1,40}") || k.matches("[0-9]{1,3}")) return allow(CAT_KEYEVENT, a);
         return deny("KEY_ARGS(" + k + ")");
     }

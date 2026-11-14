@@ -123,7 +123,12 @@ public final class PcProtocol {
         if (!(sig instanceof String)) return Check.NO_SIG;
         TreeMap<String, Object> b = new TreeMap<String, Object>(body);
         b.remove("sig");
-        String want = sign(key, id, from, to, b);
+        String want;
+        try {
+            want = sign(key, id, from, to, b);
+        } catch (RuntimeException e) {
+            return Check.BAD_SIG; // 签不出来（比如 Infinity / NaN 这种 JSON 写不出的值）= 不是合法报文，不抛异常
+        }
         if (!MessageDigest.isEqual(want.getBytes(ASCII), ((String) sig).getBytes(ASCII))) return Check.BAD_SIG;
         Object v = body.get("v");
         if (!(v instanceof Number) || ((Number) v).intValue() != VERSION) return Check.BAD_VERSION;

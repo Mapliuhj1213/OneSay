@@ -60,7 +60,70 @@ public final class Redactor {
         s = replaceChecked(s, CARD, 1, Kind.BANK_CARD);
         s = replace(s, PHONE, 1, Kind.PHONE);
         s = replace(s, CODE, 2, Kind.CODE);
+        // 2026-11-14 对抗测试 P2-5：全角数字 / 全角＠、零宽字符、不换行 / 全角空格拆开的写法。先规范化再认一遍，
+        // 换掉的是原文那一段（restore 逐字还原）；同一个号码的不同写法共用一个占位符。
+        if (!fold(s).text.equals(s)) {
+            s = replaceFolded(s, EMAIL, 0, Kind.EMAIL);
+            s = replaceFolded(s, ID18, 1, Kind.ID_CARD);
+            s = replaceFolded(s, CARD, 1, Kind.BANK_CARD);
+            s = replaceFolded(s, PHONE, 1, Kind.PHONE);
+            s = replaceFolded(s, CODE, 2, Kind.CODE);
+        }
         return s;
+    }
+
+    /** 规范化后的文本，和每个字符在原文里的起点（at[i]；at[len] = 原文长度）。 */
+    static final class Folded {
+        final String text;
+        final int[] at;
+
+        Folded(String text, int[] at) {
+            this.text = text;
+            this.at = at;
+        }
+    }
+
+    /**
+     * 只为识别的规范化：全角数字 / 字母 / ＠ / ＋ / －（NFKC 同款）→ 半角；零宽 / 格式字符去掉；不换行 / 全角 / 窄空格 → 普通空格；各种短横 → -。
+     */
+    static Folded fold(String s) {
+        StringBuilder b = new StringBuilder(s.length());
+        int[] at = new int[s.length() + 1];
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (com.onesay.assistant.v2.security.SafetyText.isInvisible(c)) continue;
+            if (c >= '\uff01' && c <= '\uff5e') c = (char) (c - 0xfee0);
+            else if (c == '\u3000' || c == '\u00a0' || c == '\u202f' || c == '\u205f' || (c >= '\u2000' && c <= '\u200a')) c = ' ';
+            else if (c >= '\u2010' && c <= '\u2015' || c == '\u2212') c = '-';
+            at[n++] = i;
+            b.append(c);
+        }
+        at[n] = s.length();
+        int[] out = new int[n + 1];
+        System.arraycopy(at, 0, out, 0, n + 1);
+        return new Folded(b.toString(), out);
+    }
+
+    /** 在规范化后的文本里认，换掉原文对应的那一段（已经是占位符的跳过）。 */
+    private String replaceFolded(String s, Pattern p, int group, Kind k) {
+        Folded f = fold(s);
+        Matcher m = p.matcher(f.text);
+        StringBuilder b = new StringBuilder();
+        int last = 0;
+        while (m.find()) {
+            String val = m.group(group);
+            int os = f.at[m.start(group)], oe = f.at[m.end(group)];
+            if (os < last || inPlaceholder(s, os)) continue;
+            if (k == Kind.ID_CARD && !idChecksumOk(val)) continue;
+            if (k == Kind.BANK_CARD && !luhnOk(val.replaceAll("[ \\-]", ""))) continue;
+            String raw = s.substring(os, oe);
+            b.append(s, last, os).append(tag(k, raw, val));
+            last = oe;
+        }
+        if (last == 0) return s;
+        b.append(s.substring(last));
+        return b.toString();
     }
 
     /** 把占位符换回真实值（认不出的占位符原样留着）。 */
@@ -100,7 +163,12 @@ public final class Redactor {
     // ------------------------------------------------------------------
 
     private String tag(Kind k, String raw) {
-        String norm = normalize(k, raw);
+        return tag(k, raw, raw);
+    }
+
+    /** raw = 原文（restore 换回的就是它），keyVal = 规范化后的写法（同一值不同写法共用占位符）。 */
+    private String tag(Kind k, String raw, String keyVal) {
+        String norm = normalize(k, keyVal);
         String key = k.name() + ":" + norm;
         String t = mValueToTag.get(key);
         if (t == null) {

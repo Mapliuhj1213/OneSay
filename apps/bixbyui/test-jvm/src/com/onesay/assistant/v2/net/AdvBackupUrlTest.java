@@ -10,7 +10,7 @@ import java.util.Collection;
 import static org.junit.Assert.*;
 
 /**
- * [已知缺陷 P2] 备用模型的地址只由 LlmFallback.Backup.usable() 核对（LlmClient.send 对备用客户端跳过 keyAllowedFor），而 usable()
+ * [2026-11-14 已修，原「已知缺陷 P2」] 备用模型的地址只由 LlmFallback.Backup.usable() 核对（LlmClient.send 对备用客户端跳过 keyAllowedFor），而 usable()
  * 只看前缀 startsWith("https://") || startsWith("http://127.0.0.1:")：
  * <ul>
  *   <li>http://127.0.0.1:1@evil.example/… 前缀对上，真实主机是 evil.example —— Key 以明文 http 发往外部主机，release 包也一样
@@ -21,7 +21,7 @@ import static org.junit.Assert.*;
  * 不带用户信息 / 查询串 / 片段；回环地址按解析后的主机判断）。
  */
 @RunWith(Parameterized.class)
-public class AdvBugBackupUrlTest {
+public class AdvBackupUrlTest {
 
     @Parameterized.Parameters(name = "{index}: {0}")
     public static Collection<Object[]> data() {
@@ -32,7 +32,7 @@ public class AdvBugBackupUrlTest {
 
     private final String url;
 
-    public AdvBugBackupUrlTest(String url) {
+    public AdvBackupUrlTest(String url) {
         this.url = url;
     }
 

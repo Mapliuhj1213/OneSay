@@ -133,7 +133,8 @@ public final class PcRx {
         if (d.verdict == LinkPolicy.Verdict.CONFIRM) asks.add(d);
         if (PcRxPolicy.SYS_EXEC.equals(cmd) && d.verdict != LinkPolicy.Verdict.SCRIPT) {
             // 系统命令里用 pm 卸载 / 停用 / 清数据某个 App：OneSay 自己不行（硬规则），系统 App 和支付 / 银行 / 钱包类先问你
-            java.util.regex.Matcher pm = PM_APP_OP.matcher(PcRxPolicy.str(a, "command"));
+            // 先去掉引号 / 反斜杠再认（pm 'uninstall' com.x、pm clear 'com.x' 执行的就是 pm uninstall / pm clear）
+            java.util.regex.Matcher pm = PM_APP_OP.matcher(LinkPolicy.unquoteShell(PcRxPolicy.str(a, "command")));
             while (pm.find()) {
                 Map<String, Object> pa = new TreeMap<String, Object>();
                 pa.put("package", pm.group(3));
@@ -230,6 +231,9 @@ public final class PcRx {
             String raw = PcRxPolicy.str(a, "url");
             String u = PcVoice.normalizeUrl(raw);
             f.url = LinkPolicy.checkUrl(u == null ? raw : u, java.util.Collections.<String>emptyList());
+        } else if (PcRxPolicy.SYS_EXEC.equals(cmd)) {
+            // 写法可疑（引号拆分、同形字、全角、零宽、变量展开…）：守卫认不准，改成不能记住的确认卡
+            f.oddWriting = LinkPolicy.oddShellWriting(PcRxPolicy.str(a, "command"));
         } else if (PcRxPolicy.CLIPBOARD.equals(cmd)) {
             f.clip = LinkPolicy.checkClip(a.get("text") == null ? "" : String.valueOf(a.get("text")));
         } else if (PcRxPolicy.OPEN_APP.equals(cmd) || PcRxPolicy.UNINSTALL.equals(cmd)) {
@@ -380,7 +384,12 @@ public final class PcRx {
                 if (m == null) return "closed " + ws.closeCode;
                 if ("pong".equals(m)) continue;
                 if (inflight.get() >= MAX_INFLIGHT) {
-                    String reply = onFrame(p, guard, h, m, System.currentTimeMillis(), out);
+                    String reply;
+                    try {
+                        reply = onFrame(p, guard, h, m, System.currentTimeMillis(), out);
+                    } catch (RuntimeException e) {
+                        reply = null; // 一帧坏数据只丢这一帧，不打断整条常连（和异步分支一样）
+                    }
                     if (reply != null) ws.sendText(reply);
                     continue;
                 }

@@ -265,6 +265,12 @@ public final class LinkPolicy {
         public boolean mediaToolsMissing;
         /** 链接下载：链接没过检查的原因（非空 = 拒绝，不弹卡）。 */
         public String mediaBad = "";
+        /**
+         * 写法可疑、守卫认不准的原因（引号 / 转义拆开命令、同形字、全角、零宽、编码过的 IP…），给人看的一句话。
+         * 非空 = 本来会直接做或可记住的确认，一律改成<b>不能记住</b>的确认卡（2026-11-14 用户定：「这类问题弹出确认就行」）；
+         * 硬规则（拒绝 / 只生成脚本）不受影响。
+         */
+        public String oddWriting = "";
     }
 
     public static final class Decision {
@@ -385,6 +391,23 @@ public final class LinkPolicy {
     public static Decision decide(Target t, Mode mode, Cat c, Facts f) {
         if (f == null) f = new Facts();
         if (mode == null) mode = Mode.DEFAULT;
+        return oddWriting(decideCore(t, mode, c, f), f, t, mode);
+    }
+
+    /**
+     * 写法可疑（{@link Facts#oddWriting}）：会直接做的、或可以「以后这类不用问」的确认，都改成不能记住的确认卡，卡上写一句为什么问。
+     * 拒绝 / 只生成脚本原样返回（硬规则比确认严）。电脑端「从不询问」下没法问，就拒绝。
+     */
+    static Decision oddWriting(Decision d, Facts f, Target t, Mode mode) {
+        String why = f == null || f.oddWriting == null ? "" : f.oddWriting.trim();
+        if (why.length() == 0 || d == null) return d;
+        if (d.verdict == Verdict.DENY || d.verdict == Verdict.SCRIPT) return d;
+        String text = why + "，守卫认不准，先问你（这类不能记住）" + (d.text.length() > 0 ? "：" + d.text : "");
+        if (t == Target.PC && mode != null && mode.approval == Approval.NEVER) return denyNever(text);
+        return Decision.confirm(d.reason, text);
+    }
+
+    static Decision decideCore(Target t, Mode mode, Cat c, Facts f) {
         if (c == null) c = Cat.UNKNOWN;
         // ---- 硬规则 ①②：任何档位、两种被控端都一样，确认 / 记住都不行
         if (c == Cat.REMOTE_APPROVAL) return denyRemoteApproval();
@@ -561,6 +584,8 @@ public final class LinkPolicy {
                     c == Cat.OPEN_APP ? "phone.blocked_app.open" : "phone.blocked_app.uninstall");
         if (c == Cat.OPEN_URL && f.url != null && !f.url.ok) {
             if (f.url.malformed) return Decision.deny(R_UNTRUSTED_URL, f.url.why);
+            if (UrlCheck.RISK_IP.equals(f.url.risk) && encodedIp(f.url.host))
+                return Decision.confirm("网址写法可疑：编码过的 IP（" + oneLine(f.url.host) + "），守卫认不准，先问你（这类不能记住）");
             if (UrlCheck.RISK_IP.equals(f.url.risk) || UrlCheck.RISK_PRIVATE.equals(f.url.risk)) return Decision.allow(); // 分档之前就不拦（家里 NAS、路由器）
             return Decision.ask("打开网址：" + f.url.why, "phone.url.risky");
         }
@@ -636,7 +661,9 @@ public final class LinkPolicy {
     /** 屏幕上一个按钮的字是不是付款 / 转账的最后一下（给机器人点屏幕的地方用：这种按钮只能你亲手点）。 */
     public static boolean finalPayLabel(String label) {
         if (label == null) return false;
-        String t = label.replaceAll("[\\s\u00a0\u200b]+", "").toLowerCase(Locale.ROOT);
+        // 2026-11-14 对抗测试 P1-2：先用 SafetyText.squash 规范化（NFKC 全角→半角、去零宽 / 格式字符、西里尔 / 希腊同形字→拉丁、繁→简、去空白和分隔标点），
+        // 「確認支付」「Pаy Now」「ＰａｙＮｏｗ」「确认 + U+200D + 支付」都和简体 / 半角写法一样认成付款最后一下。
+        String t = com.onesay.assistant.v2.security.SafetyText.squash(label);
         if (t.length() == 0 || t.length() > 24) return false;
         return FINAL_PAY.matcher(t).find();
     }
@@ -682,6 +709,103 @@ public final class LinkPolicy {
             Pattern.CASE_INSENSITIVE);
     private static final Pattern SYS_APP_OP = Pattern.compile("\\bpm\\s+(uninstall|disable|disable-user|hide|clear|suspend)\\b", Pattern.CASE_INSENSITIVE);
 
+    /**
+     * 手机 shell（sh）命令去引号 / 反斜杠：' 和 " 去掉，反斜杠去掉（它后面的字符留下），空白合成一个空格。只给红线匹配用，不拿去执行。
+     * 「'pm' grant」「p''m grant」「p\\m grant」「pm "grant"」→「pm grant」。
+     */
+    public static String unquoteShell(String raw) {
+        if (raw == null) return "";
+        StringBuilder b = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == '\'' || c == '"') continue;
+            if (c == '\\') {
+                if (i + 1 < raw.length()) b.append(raw.charAt(++i));
+                continue;
+            }
+            b.append(c);
+        }
+        return b.toString().replaceAll("[ \t\u00a0]+", " ").trim();
+    }
+
+    /**
+     * 手机 shell 命令写法可疑、守卫认不准的原因（给人看，一句话）；正常写法返回 ""。认的写法：
+     * 引号 / 反斜杠把一个词拆开（p''m、gr"a"nt、p\\m）、命令名加引号（'ls'）、零宽 / 格式字符、特殊空格（不换行 / 全角 / 窄空格）、
+     * 全角字母数字、西里尔 / 希腊字母（同形字）、变量或命令替换（$x、${x}、$(…)、反引号：展开后是什么看不准）。
+     */
+    public static String oddShellWriting(String raw) {
+        if (raw == null || raw.length() == 0) return "";
+        boolean quoteSplit = false, invisible = false, oddSpace = false, full = false, homo = false, expand = false;
+        char q = 0; // 当前在哪种引号里（0 = 不在）
+        boolean wordStart = true, cmdPos = true;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            char prev = i > 0 ? raw.charAt(i - 1) : ' ';
+            char next = i + 1 < raw.length() ? raw.charAt(i + 1) : ' ';
+            if (com.onesay.assistant.v2.security.SafetyText.isInvisible(c)) invisible = true;
+            else if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && (Character.isSpaceChar(c) || Character.isWhitespace(c))) oddSpace = true;
+            if (c >= '\uff01' && c <= '\uff5e') full = true;
+            if ((c >= '\u0370' && c <= '\u03ff') || (c >= '\u0400' && c <= '\u052f')) homo = true;
+            if (q == '\'') {
+                if (c == '\'') { q = 0; if (wordChar(next)) quoteSplit = true; }
+                continue;
+            }
+            if (c == '`') expand = true;
+            if (c == '$' && (next == '(' || next == '{' || next == '\'' || next == '"' || next == '@' || next == '*' || next == '_' || Character.isLetterOrDigit(next)))
+                expand = true;
+            if (q == '"') {
+                if (c == '\\') { i++; continue; }
+                if (c == '"') { q = 0; if (wordChar(next)) quoteSplit = true; }
+                continue;
+            }
+            if (c == '\'' || c == '"') {
+                if (wordChar(prev)) quoteSplit = true;
+                if (cmdPos && wordStart) quoteSplit = true; // 命令名本身加了引号
+                q = c;
+                wordStart = false;
+                continue;
+            }
+            if (c == '\\') {
+                if (wordChar(prev) || wordChar(next) || (cmdPos && wordStart)) quoteSplit = true;
+                i++;
+                wordStart = false;
+                continue;
+            }
+            if (c == ' ' || c == '\t') { if (!wordStart) cmdPos = false; wordStart = true; continue; }
+            if (c == ';' || c == '|' || c == '&' || c == '\n' || c == '(') { cmdPos = true; wordStart = true; continue; }
+            wordStart = false;
+        }
+        List<String> why = new ArrayList<String>();
+        if (quoteSplit) why.add("引号 / 反斜杠拆分");
+        if (invisible) why.add("夹了零宽 / 不可见字符");
+        if (oddSpace) why.add("用了特殊空格（不换行 / 全角）");
+        if (full) why.add("全角字符");
+        if (homo) why.add("同形字（西里尔 / 希腊字母）");
+        if (expand) why.add("变量 / 命令替换（$、反引号）");
+        return why.isEmpty() ? "" : "命令写法可疑：" + join(why, "、");
+    }
+
+    private static boolean wordChar(char c) {
+        return c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != ';' && c != '|' && c != '&' && c != '(' && c != ')' && c != '<' && c != '>' && c != '=';
+    }
+
+    /**
+     * 编码过的 IP 写法（整数 2130706433、十六进制 0x7f.1、八进制 0177.0.0.1、少于 4 段的 127.1）：浏览器会照样解析成 IP，守卫认不准。
+     * 规范的四段十进制和 IPv6 不算。
+     */
+    public static boolean encodedIp(String asciiHost) {
+        if (asciiHost == null || !isIpLiteral(asciiHost)) return false;
+        String h = asciiHost.toLowerCase(Locale.ROOT);
+        if (h.startsWith("[") || h.indexOf(':') >= 0) return false;
+        String[] parts = h.split("\\.", -1);
+        if (parts.length != 4) return true;
+        for (String p : parts) {
+            if (!p.matches("0|[1-9]\\d{0,2}")) return true;
+            if (Integer.parseInt(p) > 255) return true;
+        }
+        return false;
+    }
+
     /** 把一条 shell 命令分类：先认红线（授权），再认电脑 A 类 / 手机简单设置 / 网络安全设置，其余都是 SHELL_EXEC。 */
     public static Cat classifyShell(Target t, String cmd) {
         String s = cmd == null ? "" : cmd;
@@ -693,8 +817,11 @@ public final class LinkPolicy {
             if (adminReason(n).length() > 0 || hkcuElevationReason(n).length() > 0) return Cat.SYSTEM_A;
             return Cat.SHELL_EXEC;
         }
-        if (SELF_GRANT.matcher(s).find()) return Cat.SELF_GRANT;
-        if (SYS_APP_OP.matcher(s).find()) return Cat.SHELL_EXEC; // 卸载 / 停用要走 uninstall_app（系统卸载界面），shell 形式按系统命令处理
+        // 2026-11-14 对抗测试 P1-1：shell 会先去掉引号 / 反斜杠再执行（'pm' grant、p''m grant、p\\m grant 执行的都是 pm grant），
+        // 所以红线既看原文、也看去掉引号 / 反斜杠后的写法（电脑分支用 normalizeCommand，同一个道理）。
+        String n = unquoteShell(s);
+        if (SELF_GRANT.matcher(s).find() || SELF_GRANT.matcher(n).find()) return Cat.SELF_GRANT;
+        if (SYS_APP_OP.matcher(s).find() || SYS_APP_OP.matcher(n).find()) return Cat.SHELL_EXEC; // 卸载 / 停用要走 uninstall_app（系统卸载界面），shell 形式按系统命令处理
         // 多条命令拼接的（; && | 反引号 $()）一律按任意命令处理，不按其中一段放宽
         if (s.matches("(?s).*(;|&&|\\|\\||\\||`|\\$\\(|\\n|>|<).*")) return Cat.SHELL_EXEC;
         if (PHONE_SIMPLE.matcher(s).find()) return Cat.SIMPLE_SETTING;
@@ -1330,6 +1457,7 @@ public final class LinkPolicy {
         if (u.length() > URL_MAX) return UrlCheck.bad("网址太长（超过 " + URL_MAX + " 字符）");
         for (int i = 0; i < u.length(); i++) {
             char ch = u.charAt(i);
+            // 2026-11-14 对抗测试 P2-1：不换行空格、全角空格、窄空格这类 Unicode 空白和一切零宽 / 格式字符也算（以前只看 ASCII）
             if (ch < 0x21 || ch == 0x7f || ch == '\\' || (ch >= 0x200b && ch <= 0x200f) || (ch >= 0x202a && ch <= 0x202e) || ch == 0xfeff)
                 return UrlCheck.bad("网址里有空白 / 控制字符或反斜杠");
         }
@@ -1345,6 +1473,12 @@ public final class LinkPolicy {
             if (k >= 0 && k < end) end = k;
         }
         String auth = rest.substring(0, end);
+        // 2026-11-14 对抗测试 P2-1：主机 / 端口里的不换行空格、全角空格、窄空格这类 Unicode 空白和零宽 / 格式字符也算坏输入（以前只看 ASCII；路径里的照旧交给浏览器）
+        for (int i = 0; i < auth.length(); i++) {
+            char ch = auth.charAt(i);
+            if (Character.isSpaceChar(ch) || Character.isWhitespace(ch) || com.onesay.assistant.v2.security.SafetyText.isInvisible(ch))
+                return UrlCheck.bad("网址的主机部分有空白 / 不可见字符");
+        }
         if (auth.indexOf('@') >= 0) return UrlCheck.risky(UrlCheck.RISK_CREDENTIALS, "", auth.substring(auth.lastIndexOf('@') + 1), "网址里带了账号密码（user:pass@）");
         String hostPort = auth;
         String host;
@@ -1356,6 +1490,7 @@ public final class LinkPolicy {
             int pc = hostPort.lastIndexOf(':');
             host = pc >= 0 ? hostPort.substring(0, pc) : hostPort;
             if (pc >= 0 && !hostPort.substring(pc + 1).matches("\\d{0,5}")) return UrlCheck.bad("端口不对");
+            if (pc >= 0 && hostPort.length() > pc + 1 && Integer.parseInt(hostPort.substring(pc + 1)) > 65535) return UrlCheck.bad("端口不对（超过 65535）");
         }
         while (host.endsWith(".")) host = host.substring(0, host.length() - 1);
         if (host.length() == 0) return UrlCheck.bad("网址里没有主机名");

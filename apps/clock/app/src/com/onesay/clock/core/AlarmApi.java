@@ -114,16 +114,35 @@ public final class AlarmApi {
         return AlarmMath.isDebugId(n) ? -1 : n;
     }
 
-    /** 标签：去控制 / 双向覆盖字符，截断 30 字。 */
+    /**
+     * 标签：去控制 / 双向覆盖字符和落单的代理，截断 30 字。
+     * 2026-11-14 对抗测试 P2-8：按码点计数、按字素（BreakIterator 字符边界）整段截，不把 emoji / 生僻字的代理对或组合序列切开。
+     */
     static String cleanLabel(String s) {
         if (s == null) return "";
-        StringBuilder b = new StringBuilder();
-        for (int i = 0; i < s.length() && b.length() < MAX_LABEL; i++) {
+        StringBuilder f = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
+            if (Character.isHighSurrogate(c) && i + 1 < s.length() && Character.isLowSurrogate(s.charAt(i + 1))) {
+                f.append(c).append(s.charAt(++i));
+                continue;
+            }
+            if (Character.isSurrogate(c)) continue; // 落单的半个代理对
             if (Character.isISOControl(c) || (c >= '\u202A' && c <= '\u202E') || (c >= '\u2066' && c <= '\u2069')) continue;
-            b.append(c);
+            f.append(c);
+            if (f.length() > MAX_LABEL * 16) break; // 够截了，后面不用再看
         }
-        return b.toString().trim();
+        String t = f.toString();
+        java.text.BreakIterator it = java.text.BreakIterator.getCharacterInstance(java.util.Locale.ROOT);
+        it.setText(t);
+        int cps = 0, end = 0;
+        for (int st = it.first(), nx = it.next(); nx != java.text.BreakIterator.DONE; st = nx, nx = it.next()) {
+            int n = t.codePointCount(st, nx);
+            if (cps + n > MAX_LABEL) break;
+            cps += n;
+            end = nx;
+        }
+        return t.substring(0, end).trim();
     }
 
     /** 结果 JSON（OneSay 闹钟卡片直接用这个格式渲染）。 */

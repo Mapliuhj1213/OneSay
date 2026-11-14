@@ -10,13 +10,13 @@ import java.util.Collection;
 import static org.junit.Assert.*;
 
 /**
- * [已知缺陷 P2] 发给云端前的本地脱敏（Redactor）只认 ASCII 数字、ASCII 空格 / 短横分隔、ASCII @：读屏文字里常见的全角数字、
+ * [2026-11-14 已修，原「已知缺陷 P2」] 发给云端前的本地脱敏（Redactor）只认 ASCII 数字、ASCII 空格 / 短横分隔、ASCII @：读屏文字里常见的全角数字、
  * 夹在号码中间的零宽字符 / 不换行空格 / 全角空格、全角 ＠ 都原样发出去（模型照样读得懂）。注释的目标是「读屏文字 / 用户原话 / 工具结果里的
  * 手机号…发出去之前换成稳定占位符」。期望：先做 NFKC + 去零宽（SafetyText 已有）再匹配，restore 仍逐字还原。
  * （base64 / URL 编码之类的「编码后」写法属于规则型识别本来就不覆盖的，不算在这里。）
  */
 @RunWith(Parameterized.class)
-public class AdvBugRedactorVariantTest {
+public class AdvRedactorVariantTest {
 
     @Parameterized.Parameters(name = "{index}: {0}")
     public static Collection<Object[]> data() {
@@ -26,7 +26,7 @@ public class AdvBugRedactorVariantTest {
 
     private final String text;
 
-    public AdvBugRedactorVariantTest(String text) {
+    public AdvRedactorVariantTest(String text) {
         this.text = text;
     }
 

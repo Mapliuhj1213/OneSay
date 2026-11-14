@@ -24,7 +24,7 @@ import static org.junit.Assert.*;
  *   <li>user：用户自填服务地址（UserEndpoint，https / wss）；</li>
  *   <li>switch：什么时候换备用（超时、5xx、429 换；401 / 402 / 400 / 403 / 404、成功不换）；换了之后请求体 model 换掉、非默认思考系去掉 thinking。</li>
  * </ul>
- * 备用模型地址只看前缀（https:// 或 http://127.0.0.1:）这一条在 adv-bugs（AdvBugBackupUrlTest）。
+ * 备用模型地址只看前缀（https:// 或 http://127.0.0.1:）这一条在 AdvBackupUrlTest（2026-11-14 已修）。
  */
 @RunWith(Parameterized.class)
 public class AdvEndpointRoutingTest {

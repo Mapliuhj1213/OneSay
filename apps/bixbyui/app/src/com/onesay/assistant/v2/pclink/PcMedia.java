@@ -24,7 +24,8 @@ public final class PcMedia {
 
     // ================================================================== 链接
 
-    private static final Pattern URL = Pattern.compile("(?i)https?://[^\\s\"'<>`，。！？、；）】」]+");
+    // 2026-11-14 对抗测试 P2-2：中文分享里包住链接的引号 / 书名号（“” ‘’ 《》 『』 〈〉 「」）和不换行 / 全角空格、零宽字符也是链接的边界
+    private static final Pattern URL = Pattern.compile("(?i)https?://[^\\s\\u00a0\\u2000-\\u200f\\u2028-\\u202f\\u205f-\\u2064\\u3000\\ufeff\"'<>`，。！？、；：）】」“”‘’《》『』〈〉「]+");
     private static final Pattern BAD = Pattern.compile("[\\s;|`$<>\"'\\\\\\x00-\\x1f\\x7f{}^]");
 
     /**
@@ -40,7 +41,7 @@ public final class PcMedia {
         int hash = u.indexOf('#');
         if (hash >= 0) u = u.substring(0, hash);
         u = dropTracking(u);
-        while (u.endsWith("?") || u.endsWith("&") || u.endsWith(".") || u.endsWith(",")) u = u.substring(0, u.length() - 1);
+        while (u.length() > 0 && "?&.,…".indexOf(u.charAt(u.length() - 1)) >= 0) u = u.substring(0, u.length() - 1);
         return u.length() == 0 ? null : u;
     }
 

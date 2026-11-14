@@ -3,11 +3,11 @@ package com.onesay.clock.core;
 import java.util.*;
 
 /**
- * [已知缺陷 P2] 对外闹钟接口的标签清洗（AlarmApi.cleanLabel，「截断 30 字」）按 UTF-16 单元计数、逐个 char 追加：
+ * [2026-11-14 已修，原「已知缺陷 P2」] 对外闹钟接口的标签清洗（AlarmApi.cleanLabel，「截断 30 字」）按 UTF-16 单元计数、逐个 char 追加：
  * 第 30 个单元正好是代理对的前一半时，只留下孤立的高位代理（emoji / 生僻字被切开），写进闹钟表和结果 JSON 后显示成乱码。
  * 期望：按码点截断，结果里没有孤立代理。默认门禁不跑：bash tools/adv-tests/run.sh bugs clock。
  */
-public class AdvBugClockTest {
+public class AdvClockLabelTest {
     static int pass, fail;
 
     static void ok(String name, boolean c) {
@@ -37,7 +37,7 @@ public class AdvBugClockTest {
             AlarmApi.Result r = AlarmApi.apply(new ArrayList<Alarm>(), AlarmApi.A_SET, 0, 7, 0, 0, true, l);
             ok("ALARM_SET 存进去的标签合法 [" + l.length() + "]", r.alarms.size() == 1 && wellFormed(r.alarms.get(0).label));
         }
-        System.out.println("AdvBugClockTest " + pass + "/" + (pass + fail) + (fail == 0 ? " ALL PASS" : " FAILED"));
+        System.out.println("AdvClockLabelTest " + pass + "/" + (pass + fail) + (fail == 0 ? " ALL PASS" : " FAILED"));
         System.exit(fail == 0 ? 0 : 1);
     }
 }

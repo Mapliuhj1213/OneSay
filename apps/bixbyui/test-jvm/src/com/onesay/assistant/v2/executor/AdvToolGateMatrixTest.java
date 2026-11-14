@@ -28,7 +28,7 @@ import static org.junit.Assert.*;
  *   <li>任何情况下，静态声明「风险 ≥ 2 且要确认」的能力不得被放行（「闸门只能升级，不能反向」）。</li>
  * </ol>
  * 签名不含 phone.call / sms.send（号码分级另测）。BENIGN_CREATE（新建闹钟 / 计时器）的「污点下放行」只对
- * 静态不要求确认的能力成立；静态要求确认的那几格放在 adv-bugs（AdvBugGateMonotonicTest），这里跳过。
+ * 静态不要求确认的能力成立；静态要求确认的那几格在 AdvGateTaintTest（2026-11-14 已修），这里跳过。
  */
 @RunWith(Parameterized.class)
 public class AdvToolGateMatrixTest {
@@ -59,7 +59,7 @@ public class AdvToolGateMatrixTest {
                             int r = rc[0], c = rc[1];
                             boolean confirm = c == 1, tainted = t == 1;
                             boolean benign = ToolGate.BENIGN_CREATE.contains(s) && e != SideEffect.ROOT && e != SideEffect.DESTRUCTIVE && e != SideEffect.PUBLIC_COMMS;
-                            if (benign && tainted && r >= 2 && confirm && !com.onesay.assistant.v2.phone.RiskLabel.outboundSign(s)) continue; // 见 adv-bugs
+                            if (benign && tainted && r >= 2 && confirm && !com.onesay.assistant.v2.phone.RiskLabel.outboundSign(s)) continue; // 见 AdvGateTaintTest
                             String k = s + "|" + e + "|" + r + "|" + c + "|" + t;
                             if (!seen.add(k)) throw new IllegalStateException("dup " + k);
                             out.add(new Object[]{s, e, r, confirm, tainted});

@@ -31,11 +31,41 @@ public final class LlmFallback {
             this.key = key;
         }
 
-        /** 地址是 https（本机回环地址只给测试用）、模型名和 Key 都有。 */
+        /** 地址合格（{@link #checkUrl}；http 只认本机回环，给测试 / 调试用）、模型名和 Key 都有。 */
         public boolean usable() {
             String k = key == null ? null : key.apiKey();
-            return (url.startsWith("https://") || url.startsWith("http://127.0.0.1:")) && model.length() > 0 && k != null && k.trim().length() > 0;
+            return checkUrl(url, true) == null && model.length() > 0 && k != null && k.trim().length() > 0;
         }
+    }
+
+    /**
+     * 备用模型地址校验（2026-11-14 对抗测试 P2-6：以前只看前缀，{@code http://127.0.0.1:1@evil.example/…} 的真实主机是 evil.example）。
+     * 解析后判断：https；或 allowHttp 时 http 且主机<b>就是</b> 127.0.0.1 / localhost。不能带用户名密码（user:pw@）、? 查询串、# 片段、空白 / 不可见字符。
+     * 合格返回 null，否则返回给人看的一句话。设置页用它拒收（http 只有 debug 包收），{@link Backup#usable} 用它兜底。
+     */
+    public static String checkUrl(String raw, boolean allowHttp) {
+        String s = raw == null ? "" : raw.trim();
+        if (s.length() == 0) return "没有地址";
+        if (s.length() > 500) return "地址太长";
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch <= ' ' || ch == 0x7f || Character.isSpaceChar(ch) || Character.isWhitespace(ch) || com.onesay.assistant.v2.security.SafetyText.isInvisible(ch))
+                return "地址里不能有空格或不可见字符";
+        }
+        java.net.URI u;
+        try {
+            u = new java.net.URI(s);
+        } catch (Exception e) {
+            return "地址格式不对";
+        }
+        String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(java.util.Locale.ROOT);
+        if (u.getRawUserInfo() != null || u.getRawAuthority() != null && u.getRawAuthority().indexOf('@') >= 0) return "地址里不能带用户名或密码";
+        if (u.getRawQuery() != null || u.getRawFragment() != null || s.indexOf('?') >= 0 || s.indexOf('#') >= 0) return "地址里不能带 ? 或 # 后面的参数";
+        String host = u.getHost() == null ? "" : u.getHost().toLowerCase(java.util.Locale.ROOT);
+        if (host.length() == 0) return "地址里没有主机名";
+        if (scheme.equals("https")) return null;
+        if (scheme.equals("http") && allowHttp && (host.equals("127.0.0.1") || host.equals("localhost"))) return null;
+        return allowHttp ? "地址要以 https:// 开头（http 只收本机 127.0.0.1 / localhost）" : "地址要以 https:// 开头";
     }
 
     public interface Source {

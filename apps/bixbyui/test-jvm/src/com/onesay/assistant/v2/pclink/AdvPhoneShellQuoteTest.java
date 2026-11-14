@@ -14,14 +14,14 @@ import java.util.TreeMap;
 import static org.junit.Assert.*;
 
 /**
- * [已知缺陷 P1] 手机作为被控端时，系统命令（sys_exec）的授权红线只对原文做正则（LinkPolicy.classifyShell 的手机分支、PcRx.PM_APP_OP），
+ * [2026-11-14 已修，原「已知缺陷 P1」] 手机作为被控端时，系统命令（sys_exec）的授权红线只对原文做正则（LinkPolicy.classifyShell 的手机分支、PcRx.PM_APP_OP），
  * 不像电脑分支那样先 normalizeCommand。shell 会把引号 / 反斜杠去掉再执行，所以 'pm' grant、p''m grant、pm "uninstall" 这类写法
  * 被分成普通 SHELL_EXEC，手机端直接执行（PcRx：phoneLegacy 对 SHELL_EXEC 放行）——绕过「给 App 授权只生成脚本」「远程不能卸载 / 停用 OneSay 自己」两条硬规则。
  * 前提：手机上打开了「接受电脑指令」和「系统命令」（开源版默认都关），且是已配对的电脑发来。
  * 期望（类注释 / PcRxPolicy.sub：「给 App 授权的只生成脚本，不执行」）：这些写法与 pm grant 同样处理。
  */
 @RunWith(Parameterized.class)
-public class AdvBugPhoneShellQuoteTest {
+public class AdvPhoneShellQuoteTest {
 
     @Parameterized.Parameters(name = "{index}: {0}")
     public static Collection<Object[]> data() {
@@ -39,7 +39,7 @@ public class AdvBugPhoneShellQuoteTest {
 
     private final String cmd, kind;
 
-    public AdvBugPhoneShellQuoteTest(String cmd, String kind) {
+    public AdvPhoneShellQuoteTest(String cmd, String kind) {
         this.cmd = cmd;
         this.kind = kind;
     }

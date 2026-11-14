@@ -20,7 +20,7 @@ import static org.junit.Assert.*;
  *   <li>neg：不满足规则的（12 开头、位数不对、校验不对、没有关键字的数字、没有顶级域的邮箱）原样不动；</li>
  *   <li>stable：同一值（不同写法）同一占位符、不同值编号递增、已有占位符不被二次替换、toString 不含值。</li>
  * </ul>
- * 身份证 / 银行卡号由固定算法生成（不是真实号码）。全角数字、零宽字符、不换行空格分隔这几种写法在 adv-bugs（AdvBugRedactorVariantTest）。
+ * 身份证 / 银行卡号由固定算法生成（不是真实号码）。全角数字、零宽字符、不换行空格分隔这几种写法在 AdvRedactorVariantTest（2026-11-14 已修）。
  */
 @RunWith(Parameterized.class)
 public class AdvRedactorTest {

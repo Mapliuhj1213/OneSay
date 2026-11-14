@@ -18,10 +18,14 @@ import static org.junit.Assert.*;
  * 找茬 · 打开网址前的信任检查（LinkPolicy.checkUrl）与信任列表：每行一个网址（+ 可选信任列表），期望是
  * ok / trusted / malformed / ip / private / credentials / lookalike 之一（UrlCheck 注释：坏输入 malformed 任何时候都不开；
  * 有风险的按 risk 分类；trusted = 主机是信任域名或其子域）。另外核对两端（电脑 / 手机）对同一网址的处置。
- * 主机名里夹不换行空格 / 端口超过 65535 这几条放在 adv-bugs（AdvBugUrlHostTest）。
+ * 主机名里夹不换行空格 / 端口超过 65535 这几条放在 AdvUrlHostTest（2026-11-14 已修）。
  */
 @RunWith(Parameterized.class)
 public class AdvUrlCheckTest {
+
+    /** 编码过的 IP 写法（规范四段十进制和 IPv6 以外的）：手机上不再静默放行，改弹不能记住的确认卡。 */
+    static final java.util.Set<String> ENCODED_IP = new java.util.HashSet<String>(java.util.Arrays.asList(
+            "http://2130706433/", "http://0x7f000001/", "http://0x7f.1/", "http://127.1/", "http://017700000001/"));
 
     static final String LONG = "https://example.com/" + new String(new char[2100]).replace('\0', 'a');
 
@@ -117,7 +121,13 @@ public class AdvUrlCheckTest {
             assertEquals(at, LinkPolicy.Verdict.DENY, pc.verdict);
             assertEquals(at, LinkPolicy.Verdict.DENY, pcNever.verdict);
         } else if (want.equals("ip") || want.equals("private")) {
-            assertEquals(at, LinkPolicy.Verdict.ALLOW, ph.verdict);
+            if (ENCODED_IP.contains(url)) {
+                // [2026-11-14 修复 · 用户原则「写法可疑的弹出确认就行」] 编码过的 IP（整数 / 十六进制 / 八进制 / 少于 4 段）：手机上弹确认卡，且不能记住
+                assertEquals(at, LinkPolicy.Verdict.CONFIRM, ph.verdict);
+                assertFalse(at, ph.rememberable());
+            } else {
+                assertEquals(at, LinkPolicy.Verdict.ALLOW, ph.verdict);
+            }
             assertEquals(at, "pc.url.risky", pc.kind);
             assertEquals(at, LinkPolicy.Verdict.DENY, pcNever.verdict);
         } else if (want.equals("credentials") || want.equals("lookalike")) {
