@@ -197,13 +197,13 @@ public class BuildVariantTest {
 
     /** 守护：默认 release 常量与 v8.3 一字不差；debug 冷启动目标写全类名。 */
     @Test public void keyDaemonDefaultsToRelease() {
-        String v9 = src("tools/kdaemon/hijack_daemon.v9.sh");
-        assertTrue(v9.contains("REL_PKG=com.onesay.assistant\n"));
-        assertTrue(v9.contains("TARGET=$PKG/.WebViewUiActivity"));
-        assertTrue(v9.contains("TARGET=$DBG_PKG/com.onesay.assistant.WebViewUiActivity"));
-        assertTrue(v9.contains("TARGET_FLAG=/data/adb/bixbyui_key_target"));
-        String ex = src("tools/kdaemon/exec_daemon.v2.sh");
+        // [ci-1114] hijack_daemon.v9 / exec_daemon.v2 已从开源版删除；同一意图（守护默认指向 release 包，debug 需显式开关）改查现存的
+        //   key_daemon.sh 与 exec_daemon.v4.sh
+        String kd = src("tools/kdaemon/key_daemon.sh");
+        assertTrue(kd.contains("PKG=${KD_PKG:-com.onesay.assistant}\n"));
+        String ex = src("tools/kdaemon/exec_daemon.v4.sh");
         assertTrue(ex.contains("DIR=/data/user/0/com.onesay.assistant/files\n"));
         assertTrue(ex.contains("DBG_FLAG=/data/adb/bixbyui_debug_exec"));
+        assertTrue(ex.contains("PKG_REL=${BIXBY_EXEC_PKG_REL:-com.onesay.assistant}\n"));
     }
 }

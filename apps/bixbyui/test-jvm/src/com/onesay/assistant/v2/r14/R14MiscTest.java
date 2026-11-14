@@ -66,7 +66,7 @@ public class R14MiscTest {
         String ws = src("app/src/com/onesay/assistant/v2/wake/WakeService.java");
         assertTrue("KWS 块受暂停判据控制", ws.contains("if (!kwsPaused && mKws != null && mKwsStream != null) {"));
         assertTrue("恢复时 reset 流", ws.contains("mKws.reset(mKwsStream); } catch (Throwable ignore) {}"));
-        assertTrue("按下就开始暂停", ws.contains("now + CaptureSessionPolicy.KWS_PAUSE_ON_DOWN_MS"));
+        // [ci-1114] 「按下就开始暂停」随 厂商键守护的 down 事件一起移除（开源版按键只有 PRESS），断言删去
         String fv = src("app/src/com/onesay/assistant/v2/ui/FloatingSheetView.java");
         assertTrue("新界面卡片不走 alpha 离屏层", fv.contains("public boolean hasOverlappingRendering() {\n        return !mV2;"));
         String fs = src("app/src/com/onesay/assistant/v2/ui/FloatingSheetService.java");
@@ -127,7 +127,7 @@ public class R14MiscTest {
         assertTrue("提示音期间捕获窗内的帧进缓冲 + 流式", block.contains("appendCaptureChunk(buf, read)")
                 && appBody.contains("mPcmBuffer.append(buf, read)") && appBody.contains("feedRealtime(buf, read)"));
         assertFalse("提示音期间不喂能量门", block.contains("processFrame"));
-        assertTrue("按下就预建流式", ws.contains("prewarmRecognition(\"按下\")"));
+        // [ci-1114] 「按下就预建流式」同上：没有 down 事件了，断言删去
         assertTrue("开窗绑定流式", ws.contains("bindRealtime(mCaptureGen)"));
         assertTrue("开窗冻结底噪", ws.contains("mEnergyGate.armCapture(mArmAt)"));
         assertTrue("续期要人声帧够数", ws.contains("RealtimeAsrPolicy.renewAllowed("));

@@ -89,8 +89,10 @@ public class SecIntExecProtocolTest {
     /** 守护 v4.1 G1（fix-root2 / APP-FOLLOWUP）：有密钥时每条固定模板都发签名 act=tmpl，恰好一行 a=<模板全文>。 */
     @Test public void fixedTemplatesGoSignedTmplFrame() {
         List<String> all = new ArrayList<String>(Arrays.asList(ExecProtocol.FIXED_TEMPLATES));
-        assertTrue("控制台状态探针也是固定模板", all.contains(com.onesay.assistant.v2.ui.console.ConsoleStatus.DAEMON_PROBE));
-        assertTrue(all.contains("reboot") && all.contains("reboot -p") && all.contains("echo 1 > /sys/class/leds/torch-sec1/brightness"));
+        // [ci-1114] 控制台按键守护探针 DAEMON_PROBE 已随按键守护一起从开源版移除，不再是固定模板；原断言删去
+        assertTrue(all.contains("reboot") && all.contains("reboot -p"));
+        // [ci-1114] 厂商专有 torch-sec1 手电筒模板已从守护 / App 两侧删除（手电筒走 CameraManager），确认不会再被当模板放行
+        assertFalse(all.contains("echo 1 > /sys/class/leds/torch-sec1/brightness"));
         for (String t : all) {
             String b = ExecProtocol.requestBody(t, "k", 1700000000L);
             String[] ls = b.split("\n", -1);
@@ -323,13 +325,10 @@ public class SecIntExecProtocolTest {
         r = com.onesay.assistant.v2.executor.backend.ShellPrograms.forSign("volume.media.down").run(f, none);
         assertEquals("读不到当前值 → rc 1、不 set", 1, r.rc);
         assertEquals(1, f.cmds.size());
-        // 手电筒：写入走守护固定模板
-        f = new Fake().on("cat /sys/class/leds/torch-sec1/brightness", 0, "0\n");
-        com.onesay.assistant.v2.executor.backend.ShellPrograms.forSign("torch.toggle").run(f, none);
-        assertEquals("echo 1 > /sys/class/leds/torch-sec1/brightness", f.cmds.get(1));
-        assertTrue(ExecProtocol.isFixedTemplate(f.cmds.get(1)));
-        f = new Fake().on("cat /sys/class/leds/torch-sec1/brightness", 0, "255");
-        assertEquals("on", com.onesay.assistant.v2.executor.backend.ShellPrograms.checkFor("torch.toggle").run(f, none).output);
+        // 手电筒 [ci-1114]：开源版不再走 shell（厂商 sysfs 节点已删），由 SysActionBackend 用 CameraManager 切换
+        assertNull(com.onesay.assistant.v2.executor.backend.ShellPrograms.forSign("torch.toggle"));
+        assertNull(com.onesay.assistant.v2.executor.backend.ShellPrograms.checkFor("torch.toggle"));
+        assertFalse(ExecProtocol.isFixedTemplate("echo 1 > /sys/class/leds/torch-sec1/brightness"));
         // 定位
         f = new Fake().on("settings get secure location_providers_allowed", 0, "network,gps");
         assertEquals("3", com.onesay.assistant.v2.executor.backend.ShellPrograms.forSign("connectivity.gps.state").run(f, none).output);
@@ -477,14 +476,8 @@ public class SecIntExecProtocolTest {
             assertEquals("MAC_REQUIRED", ExecProtocol.denyReason(r[1]));
             r = roundTrip(rel, ExecProtocol.requestBody("id", key, System.currentTimeMillis() / 1000L));
             assertEquals("0", r[0]);
-            // ⑧ v4.1 G1/G7：require_mac 下固定模板走签名 act=tmpl 照常执行（控制台状态探针走守护内建只读实现）
-            r = roundTrip(rel, ExecProtocol.requestBody(com.onesay.assistant.v2.ui.console.ConsoleStatus.DAEMON_PROBE, key, System.currentTimeMillis() / 1000L));
-            assertNotNull(r);
-            assertEquals(r[1], "0", r[0]);
-            assertTrue(r[1], r[1].endsWith("END") && (r[1].startsWith("DEAD") || r[1].startsWith("ALIVE")));
-            //    同一条探针按明文发 → MAC_REQUIRED（即补丁前 App 的行为）
-            r = roundTrip(rel, com.onesay.assistant.v2.ui.console.ConsoleStatus.DAEMON_PROBE);
-            assertEquals("MAC_REQUIRED", ExecProtocol.denyReason(r[1]));
+            // ⑧ [ci-1114] 原用控制台按键守护探针 DAEMON_PROBE 测 require_mac 下的 act=tmpl，该探针已随按键守护从开源版移除；
+            //    其余固定模板（重启 / 飞行模式等）不宜在测试里真执行，故删去此段。明文被拒见 ⑦，签名 act=tmpl 的拒绝路径见 ⑨。
             // ⑨ 签名正确但不是模板的 act=tmpl → TMPL_UNKNOWN，且 App 不会 legacy 重发
             r = roundTrip(rel, ExecProtocol.buildSignedTemplate("id", key, System.currentTimeMillis() / 1000L, ExecProtocol.newNonce()));
             assertEquals("77", r[0]);

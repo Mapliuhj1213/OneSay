@@ -136,7 +136,6 @@ public class AsrFailureTest {
         s.wakeRunning = true;
         s.micReady = true;
         s.rootOk = true;
-        s.daemonProbe = "ALIVE\nMOD\n# Bixby key takeover daemon - v8.1 x\nEND\n";
         s.llmConfigured = true;
         s.asrConfigured = true;
         s.asrKeyInvalid = false;

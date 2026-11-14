@@ -185,8 +185,7 @@ public class QuickNoteTest {
         // ★ R10：缩略图（D7，默认关）/ 视觉兜底（D8）都在敏感拒收之后，且不在 Hooks 里直接截图
         assertFalse("Hooks 不直接截图", h.contains("screencap"));
         assertTrue("缩略图在存库（= 已过敏感检查）之后", h.indexOf("QuickNoteThumbs.capture") > h.indexOf("if (!n.saved())"));
-        String v7 = src("tools/kdaemon/hijack_daemon.v7.sh");
-        assertTrue("守护 v7 认 App 的手势标记", v7.contains("bixby.gesture_v2"));
+        // [ci-1114] 开源版已删 厂商键接管守护 hijack_daemon.v7/v8/v9（随去厂商化），原「守护认手势标记」断言删去
     }
 
     // ---------------------------------------------------------------- 2026-10-11 晚：「我刚记的那个是什么」

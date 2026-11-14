@@ -142,7 +142,15 @@ public class AdvEndpointRoutingTest {
         } else if (kind.equals("key")) {
             String[] p = in.split(" ⟂ ", -1);
             MainModelEndpoint.setForProcess(p[1], mode.equals("debug"));
-            assertEquals(at, Boolean.parseBoolean(want), LlmEndpoints.keyAllowedFor(p[0]));
+            // [ci-1114] 测试隔离：LlmClientTest 等在静态块里把 sTestAllowLoopback 置 true 且不复位，同一 JVM 先跑它们时
+            //   这里的 127.0.0.1 用例会被测试后门放行。判定生产行为时强制关掉后门，断言本身不放宽
+            boolean prev = LlmEndpoints.sTestAllowLoopback;
+            LlmEndpoints.sTestAllowLoopback = false;
+            try {
+                assertEquals(at, Boolean.parseBoolean(want), LlmEndpoints.keyAllowedFor(p[0]));
+            } finally {
+                LlmEndpoints.sTestAllowLoopback = prev;
+            }
         } else if (kind.equals("user")) {
             String[] p = mode.split("\\|");
             String got = UserEndpoint.normalize(in, p[0], p[1].equals("y"));

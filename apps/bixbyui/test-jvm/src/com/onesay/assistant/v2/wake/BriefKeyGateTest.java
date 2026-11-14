@@ -292,18 +292,16 @@ public class BriefKeyGateTest {
     @Test public void wiring_everyEntryGoesThroughConvergencePoint() {
         String w = KernelWiring.src("app/src/com/onesay/assistant/v2/wake/WakeService.java");
         // 唤醒入口都调 requestWakeInternal（短按 / 随口记收音 / 模拟键 / 唤醒词 / 冷启动补发 / requestWake）
-        assertTrue("按键文件短按", w.contains("requestWakeInternal(SRC_KEY_FILE, false);"));
+        // [ci-1114] 开源版没有 厂商键守护的按键文件短按热路径了：原始按键双击 → Entries.fire(KEY_WAKE) → Entries.doSummon
+        //   → WakeService.requestWake → requestWakeInternal，仍过同一个简报闸门。按当前写法更新（调用点 7 → 6，闸门断言不放宽）
+        assertTrue("原始按键双击走入口注册表", w.contains("com.onesay.assistant.v2.entry.Entries.fire(WakeService.this, com.onesay.assistant.v2.entry.BuiltinEntries.KEY_WAKE,"));
+        assertTrue("入口唤起汇入 requestWake", KernelWiring.src("app/src/com/onesay/assistant/v2/entry/Entries.java").contains("WakeService.requestWake(source, false);"));
         assertTrue("随口记收音", w.contains("w.requestWakeInternal(SRC_KEY_FILE + \"-hold\", false);"));
         assertTrue("模拟按键", w.contains("requestWakeInternal(SRC_KEY_SIM, false);"));
         assertTrue("唤醒词", body(w, "private void wakeOnce()").contains("requestWakeInternal(SRC_VOICE, false);"));
         assertTrue("冷启动补发", w.contains("requestWakeInternal(it.value[0], \"1\".equals(it.value[1]));"));
-        assertEquals("requestWakeInternal 的调用点（定义 1 + 6 处）没有新增绕路", 7,
+        assertEquals("requestWakeInternal 的调用点（定义 1 + 5 处）没有新增绕路", 6,
                 count(w, "requestWakeInternal(") - count(w, "requestWakeInternal()"));
-        // 按键文件：每个事件先记 seq，长按 / 松手 hold 都带 seq 进手势汇合点
-        String obs = w.substring(w.indexOf("KeyTrigger kt = KeyTrigger.parse(readSmall(triggerFile));"));
-        assertTrue("先记 seq 再分流", obs.indexOf("mKeySeq = kt.seq;") < obs.indexOf("if (kt.kind == KeyTrigger.Kind.DOWN)"));
-        assertTrue(w.contains("dispatchKeyGesture(getApplicationContext(), \"hold\", kt.seq);"));
-        assertTrue(w.contains("onLongGesture(silent, kt.seq);"));
         assertTrue(body(w, "private void onLongGesture(boolean silent, int seq)").contains("dispatchKeyGesture(getApplicationContext(), \"long\", seq);"));
         assertTrue("冷启动 Activity 的 2 参版本只转发", body(w, "public static void dispatchKeyGesture(final Context app, final String gesture)")
                 .contains("dispatchKeyGesture(app, gesture, 0);"));

@@ -114,9 +114,7 @@ public class SecIntExecWhitelistCiTest {
         l.add("settings put system screen_brightness 120");
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.VOLUME_GET);
         l.add("media volume --stream 3 --set 7");
-        l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.TORCH_GET);
-        l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.TORCH_ON);
-        l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.TORCH_OFF);
+        // [ci-1114] TORCH_GET / ON / OFF 已随厂商 sysfs 手电筒 shell 路径删除（手电筒走 CameraManager）
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.LOC_GET);
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.NFC_ON);
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.NFC_OFF);
@@ -201,9 +199,7 @@ public class SecIntExecWhitelistCiTest {
      */
     @Test public void unsplittableCompoundsAreDeniedAsDocumented() throws Exception {
         Assume.assumeTrue("没有 /bin/sh 或守护脚本", haveSh());
-        // G7（fix-root2）：控制台按键守护探针原文现在是守护的固定模板（守护内建只读实现，只回 ALIVE|DEAD/MOD|NOMOD/版本/END）
-        assertEquals("ALLOW (template)", check(com.onesay.assistant.v2.ui.console.ConsoleStatus.DAEMON_PROBE));
-        assertNull(com.onesay.assistant.v2.executor.ExecProtocol.splitChain(com.onesay.assistant.v2.ui.console.ConsoleStatus.DAEMON_PROBE));
+        // G7 [ci-1114]：控制台按键守护探针已随按键守护从开源版移除，原两条断言删去
         // G8：存图缓存层读别的 App 私有缓存 —— v4 有意拦截，拒绝码明确
         String list = com.onesay.assistant.v2.imgsave.SecIntImgSaveAccess.cacheListCommand("com.tencent.mm");
         assertEquals("DENY OTHER_APP_DATA(com.tencent.mm)", check(list));

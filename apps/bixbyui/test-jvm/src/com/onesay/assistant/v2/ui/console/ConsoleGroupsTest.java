@@ -177,32 +177,15 @@ public class ConsoleGroupsTest {
 
     // ------------------------------------------------------------------ 状态卡首帧占位（按键 未知 → v9 顶动布局）
 
-    static final String ALIVE_V9 = "ALIVE\nMOD\n# Bixby key takeover daemon - v9 \"x\" (2026-11-01)\nEND\n";
-
-    @Test public void pendingDaemonPillUsesLastVersionGrey() {
-        ConsoleStatus.Snapshot s = new ConsoleStatus.Snapshot();
-        s.lastDaemonVer = "v9";
-        ConsoleStatus.Pill p = ConsoleStatus.daemon(s);
-        assertEquals("首帧用上次值", "按键 v9", p.label);
-        assertEquals("但不写绿（还没确认）", ConsoleStatus.Level.UNKNOWN, p.level);
-        s.rootOk = true;   // root 回来了，守护探针还没回来
-        assertEquals("按键 v9", ConsoleStatus.daemon(s).label);
-        assertEquals(ConsoleStatus.Level.UNKNOWN, ConsoleStatus.daemon(s).level);
-        s.daemonProbe = ALIVE_V9;
-        s.done = true;
-        assertEquals("探完同一个文字 → 胶囊不变宽", "按键 v9", ConsoleStatus.daemon(s).label);
-        assertEquals(ConsoleStatus.Level.OK, ConsoleStatus.daemon(s).level);
-        assertEquals("v9", ConsoleStatus.daemonVersion(s));
-    }
+    // [ci-1114] 开源版已随 exec_daemon v4 移除按键守护胶囊（c2f9070，ConsoleStatus 不再有 daemon()/parseDaemon()/daemonProbe）：
+    //   原 pendingDaemonPillUsesLastVersionGrey / unknownOnlyAfterDoneOrRootFailed 这几条只测已删除的功能，按当前行为删去；其余状态卡断言保留。
 
     @Test public void pendingPillsSameLabelsAsHealthy() {
         ConsoleStatus.Snapshot pend = new ConsoleStatus.Snapshot();
-        pend.lastDaemonVer = "v9";
         ConsoleStatus.Snapshot ok = new ConsoleStatus.Snapshot();
         ok.wakeRunning = true;
         ok.micReady = true;
         ok.rootOk = true;
-        ok.daemonProbe = ALIVE_V9;
         ok.llmConfigured = true;
         ok.done = true;
         List<ConsoleStatus.Pill> a = ConsoleStatus.pills(pend), b = ConsoleStatus.pills(ok);
@@ -215,26 +198,9 @@ public class ConsoleGroupsTest {
         assertTrue("还在探不出提醒条", ConsoleStatus.banners(pend).isEmpty());
     }
 
-    @Test public void unknownOnlyAfterDoneOrRootFailed() {
-        ConsoleStatus.Snapshot s = new ConsoleStatus.Snapshot();
-        s.lastDaemonVer = "v9";
-        s.rootOk = false;
-        assertEquals("root 已确定不通 → 按键未知（不拿上次值糊弄）", "按键 未知", ConsoleStatus.daemon(s).label);
-        s.rootOk = true;
-        s.done = true;
-        assertEquals("探完守护探针没回来 → 未知", "按键 未知", ConsoleStatus.daemon(s).label);
-        s.daemonProbe = "DEAD\nMOD\nEND";
-        assertEquals("按键 未运行", ConsoleStatus.daemon(s).label);
-        assertNull("没在运行不存版本", ConsoleStatus.daemonVersion(s));
-        ConsoleStatus.Snapshot n = new ConsoleStatus.Snapshot();
-        assertEquals("从没探到过 → 只写「按键」", "按键", ConsoleStatus.daemon(n).label);
-    }
-
-    @Test public void probeSeedsAndPersistsVersion() {
+    @Test public void probeSeedsAndPersistsVersion() {   // [ci-1114] 守护版本占位字段已移除，只留「首帧用 seed」
         String p = src(CON + "StatusProbe.java");
-        assertTrue("首帧快照带上次版本", p.contains("public static ConsoleStatus.Snapshot seed(Context ctx)") && p.contains("s.lastDaemonVer = lastDaemonVer(app);"));
-        assertTrue("探完存版本", p.contains("saveDaemonVer(app, s);"));
-        assertTrue("copy 带上占位字段", p.contains("b.lastDaemonVer = a.lastDaemonVer;"));
+        assertTrue("首帧快照入口还在", p.contains("public static ConsoleStatus.Snapshot seed(Context ctx)"));
         String h = src(CON + "HomePage.java");
         assertTrue("首页首帧用 seed 而不是空快照", h.contains("render(last != null ? last : StatusProbe.seed(c.act));"));
         assertFalse(h.contains("render(last != null ? last : new ConsoleStatus.Snapshot());"));

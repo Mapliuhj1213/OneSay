@@ -39,11 +39,8 @@ public final class ShellPrograms {
     // ---- 其它带 $() / 算术 / if / || 的能力模板（CI 跑能力注册表时发现，fix-root 的静态语料没覆盖到）----
     public static final String BRIGHTNESS_GET = "settings get system screen_brightness";
     public static final String VOLUME_GET = "media volume --stream 3 --get";
-    public static final String TORCH_NODE = "/sys/class/leds/torch-sec1/brightness";
-    public static final String TORCH_GET = "cat " + TORCH_NODE;
-    /** 守护固定模板（逐字匹配，含 &gt; 只能以 legacy 明文发）。 */
-    public static final String TORCH_ON = "echo 1 > " + TORCH_NODE;
-    public static final String TORCH_OFF = "echo 0 > " + TORCH_NODE;
+    // [ci-1114] 原 torch-sec1 sysfs 节点（厂商专有）的 shell 手电筒程序已删：开源版 torch.* 能力走 executor=custom
+    //   （SysActionBackend → CameraManager），这条 shell 路径没人调，且 exec 守护 v4 本来就拒（PATH_NOT_ALLOWED / METACHAR）。
     public static final String LOC_GET = "settings get secure location_providers_allowed";
     public static final String NFC_ON = "svc nfc enable";
     public static final String NFC_OFF = "svc nfc disable";
@@ -65,7 +62,6 @@ public final class ShellPrograms {
         if ("settings.brightness.down".equals(sign)) return brightnessStep(-40);
         if ("volume.media.up".equals(sign)) return volumeStep(2);
         if ("volume.media.down".equals(sign)) return volumeStep(-2);
-        if ("torch.toggle".equals(sign)) return TORCH_TOGGLE;
         if ("connectivity.gps.state".equals(sign)) return LOC_STATE;
         if ("connectivity.nfc.on".equals(sign)) return alwaysOk(NFC_ON);
         if ("connectivity.nfc.off".equals(sign)) return alwaysOk(NFC_OFF);
@@ -80,7 +76,6 @@ public final class ShellPrograms {
     public static Program checkFor(String sign) {
         if (sign == null) return null;
         if ("connectivity.gps.on".equals(sign) || "connectivity.gps.off".equals(sign)) return LOC_STATE;
-        if ("torch.toggle".equals(sign)) return TORCH_STATE;
         if ("connectivity.nfc.on".equals(sign)) return nfcState("mState=on");
         if ("connectivity.nfc.off".equals(sign)) return nfcState("mState=off");
         return null;
@@ -141,23 +136,6 @@ public final class ShellPrograms {
             }
         };
     }
-
-    /** 原：if [ "$(cat 节点)" = "0" ]; then echo 1 > 节点; else echo 0 > 节点; fi —— 写入走守护的两条固定模板。 */
-    static final Program TORCH_TOGGLE = new Program() {
-        @Override public ShellExecutor.ShellResponse run(ShellRunner sh, Map<String, String> slots) {
-            ShellExecutor.ShellResponse r = sh.execute(TORCH_GET);
-            if (bad(r)) return r;
-            return sh.execute("0".equals(r.output.trim()) ? TORCH_ON : TORCH_OFF);
-        }
-    };
-
-    static final Program TORCH_STATE = new Program() {
-        @Override public ShellExecutor.ShellResponse run(ShellRunner sh, Map<String, String> slots) {
-            ShellExecutor.ShellResponse r = sh.execute(TORCH_GET);
-            if (bad(r)) return r;
-            return ok("0".equals(r.output.trim()) ? "off" : "on");
-        }
-    };
 
     /** 原 LOC_PROBE：providers 里有 gps 或 network → 3，否则 0。 */
     static final Program LOC_STATE = new Program() {

@@ -70,9 +70,10 @@ public class L0FlashlightTest {
         assertNotNull(c);
         assertEquals(SideEffect.DEVICE_CONTROL, c.sideEffect);
         assertFalse("与 torch.on/off 同级：不需确认", c.confirm);
-        assertTrue(c.cmdTemplate.contains("/sys/class/leds/torch-sec1/brightness"));
-        assertEquals("模板没有槽位", c.cmdTemplate, ShellCommand.fill(c.cmdTemplate, new HashMap<String, String>()));
-        assertEquals("on|off", c.expectTemplate);
+        // [ci-1114] 开源版手电筒不走 shell 模板（原厂商 torch-sec1 节点），executor=custom → SysActionBackend（CameraManager）
+        assertNull("没有 shell 模板", c.cmdTemplate);
+        assertEquals("custom", c.executorType);
+        assertTrue(new com.onesay.assistant.v2.executor.backend.SysActionBackend().accepts(c, null));
         assertEquals("手电筒已打开", c.replyMap.get("on"));
         assertEquals("手电筒已关闭", c.replyMap.get("off"));
     }

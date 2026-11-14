@@ -206,12 +206,14 @@ public class Int1102AuditFixTest {
             assertEquals(q, FastCaps.SIGN_NFC_TRANSIT, h.sign);
         }
         assertEquals("connectivity.nfc.on", FastIntents.match("打开nfc").sign);
-        assertNull(SysActionBackend.pickWallet(new HashSet<String>(Arrays.asList("com.tencent.mm"))));
-        assertEquals("com.samsung.android.spay",
-                SysActionBackend.pickWallet(new HashSet<String>(Arrays.asList("com.unionpay", "com.samsung.android.spay"))));
-        assertEquals("com.unionpay", SysActionBackend.pickWallet(new HashSet<String>(Arrays.asList("com.unionpay"))));
-        assertTrue(SysActionBackend.nfcTransitReply(true, null).contains("没找到钱包"));
-        assertTrue(SysActionBackend.nfcTransitReply(true, "三星钱包").contains("已打开「三星钱包」"));
+        // [ci-1114] 开源版 pickWallet 改为读系统「默认 NFC 付款应用」组件串（不写死厂商钱包包名），按当前签名更新
+        assertNull("没设默认付款应用", SysActionBackend.pickWallet(null));
+        assertNull("格式不对", SysActionBackend.pickWallet("  "));
+        assertNull("不是包名", SysActionBackend.pickWallet("rm -rf /"));
+        assertEquals("com.unionpay", SysActionBackend.pickWallet("com.unionpay/com.unionpay.hce.PayService"));
+        assertEquals("com.example.wallet", SysActionBackend.pickWallet(" com.example.wallet "));
+        assertTrue(SysActionBackend.nfcTransitReply(true, null).contains("没找到默认的付款"));
+        assertTrue(SysActionBackend.nfcTransitReply(true, "钱包").contains("已打开「钱包」"));
     }
 
     @Test public void tableCompareIsRichAsk() {

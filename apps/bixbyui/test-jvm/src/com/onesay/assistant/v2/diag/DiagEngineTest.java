@@ -77,7 +77,13 @@ public class DiagEngineTest {
                 assertFalse(f.id + " 不能写探针", k.isProbe());
                 assertNull(f.id, DiagKnowledge.checkWrite(k.ns, k.key, f.target));
             }
-            if (f.capSign != null) assertNotNull(f.id + " 复用的现有能力不存在: " + f.capSign, CapabilityRegistry.getInstance().describe(f.capSign));
+            // [ci-1114] 开源版新增 UI_FIND（厂商命名的设置项：读设置页控件树找到再确认代点），capSign 槽放的是要打开的系统设置页
+            //   Intent action（android.settings.*），不是能力签名；其余种类仍必须复用已注册能力
+            if (f.kind == DiagKnowledge.FixKind.UI_FIND) {
+                assertTrue(f.id + " UI_FIND 只能打开系统设置页: " + f.capSign, f.capSign != null && f.capSign.matches("android\\.settings\\.[A-Z_]+"));
+            } else if (f.capSign != null) {
+                assertNotNull(f.id + " 复用的现有能力不存在: " + f.capSign, CapabilityRegistry.getInstance().describe(f.capSign));
+            }
             if (f.prevGetSign != null) assertNotNull(f.id, CapabilityRegistry.getInstance().describe(f.prevGetSign));
         }
     }

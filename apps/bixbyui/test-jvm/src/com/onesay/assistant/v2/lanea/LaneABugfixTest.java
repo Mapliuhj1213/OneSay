@@ -148,9 +148,9 @@ public class LaneABugfixTest {
         assertTrue("1.5 s 取件超时分支先收尾再报失败", a1 > 0 && a1 < pick);
         int to = s.indexOf("命令超时未返回");
         assertTrue("12 s 超时（没取走）分支同样收尾", s.indexOf("abandonRequest(req, res, body)", a1 + 1) < to);
-        String d = KernelWiring.src("tools/kdaemon/exec_daemon.v3.sh");
-        assertTrue(d.contains("stale \"$REQ\"") && d.contains("stale \"$sreq\"") && d.contains("STALE_S=${BIXBY_EXEC_STALE_S:-3}"));
-        assertTrue("v2 仓库副本保持原样", KernelWiring.src("tools/kdaemon/exec_daemon.v2.sh").contains("exec-daemon v2 start"));
+        // [ci-1114] 开源版只随仓库带 exec 守护 v4（v2/v3 已删），过期丢弃改在 v4 里查
+        String d = KernelWiring.src("tools/kdaemon/exec_daemon.v4.sh");
+        assertTrue(d.contains("STALE_S=${BIXBY_EXEC_STALE_S:-3}") && d.contains("stale \"$proc\"") && d.contains("STALE dropped"));
     }
 
     @Test public void wakeServiceNotificationTitleCarriesVariant() {

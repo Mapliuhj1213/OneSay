@@ -52,12 +52,6 @@ SettingsExpansionCaps.java	settings put system haptic_feedback_enabled 1
 SettingsExpansionCaps.java	settings put system haptic_feedback_enabled 0
 SettingsExpansionCaps.java	settings put global low_power 1
 SettingsExpansionCaps.java	settings put global low_power 0
-SettingsExpansionCaps.java	settings put system aod_mode 1
-SettingsExpansionCaps.java	settings put system aod_mode 0
-SettingsExpansionCaps.java	settings put system edge_lighting 1
-SettingsExpansionCaps.java	settings put system edge_lighting 0
-SettingsExpansionCaps.java	settings put system enable_smart_capture 1
-SettingsExpansionCaps.java	settings put system enable_smart_capture 0
 SettingsExpansionCaps.java	am start -a android.settings.WIFI_SETTINGS
 SettingsExpansionCaps.java	am start -a android.settings.SOUND_SETTINGS
 SettingsExpansionCaps.java	am start -a android.settings.DISPLAY_SETTINGS
@@ -71,8 +65,6 @@ SettingsExpansionCaps.java	am start -a android.settings.ACCESSIBILITY_SETTINGS
 SettingsExpansionCaps.java	am start -a android.intent.action.VIEW -d 'samsungapps://SearchResult/abc'
 SettingsExpansionCaps.java	am start -a android.intent.action.VIEW -d 'samsungapps://ProductDetail/com.tencent.mm'
 SettingsExpansionCaps.java	am start -a android.intent.action.VIEW -d 'market://search?q=abc'
-SystemCaps.java	echo 1 > /sys/class/leds/torch-sec1/brightness
-SystemCaps.java	echo 0 > /sys/class/leds/torch-sec1/brightness
 SystemCaps.java	input keyevent 26
 SystemCaps.java	am start -a android.intent.action.CALL -d tel:10086
 SystemCaps.java	am start -a android.intent.action.SENDTO -d smsto:10086 --es sms_body 'abc'
@@ -100,4 +92,3 @@ ImageSaveController.rootCopySteps#mkdir(v4.1 G3)	mkdir -p '/storage/emulated/0/P
 ImageSaveController.rootCopySteps#cp(v4.1 G3)	cp -f '/data/user/0/com.onesay.assistant/cache/scratch/imgsave/out_OneSay_20261025_120000_1.png' '/storage/emulated/0/Pictures/OneSay/com.tencent.mm/OneSay_20261025_120000_1.png'
 ImageSaveController.rootCopySteps#cp-orig(v4.1 G3)	cp -f '/data/user/0/com.onesay.assistant/cache/scratch/imgsave/out_OneSay_20261025_120000_2_orig.jpg' '/storage/emulated/0/Pictures/OneSay/com.tencent.mm/OneSay_20261025_120000_2_orig.jpg'
 ShellPrograms.screenshotCmd(ui.screenshot,v4.1 G3)	screencap -p /sdcard/Pictures/bixbyui_shot.png
-ConsoleStatus.DAEMON_PROBE(v4.1 G7 模板)	a=DEAD; p=$(cat /data/local/tmp/.bixby_hijack.pid 2>/dev/null); if [ -n "$p" ] && grep -qa hijack_daemon /proc/$p/cmdline 2>/dev/null; then a=ALIVE; else for d in /proc/[0-9]*; do grep -qa hijack_daemon $d/cmdline 2>/dev/null && { a=ALIVE; break; }; done; fi; echo $a; M=/data/adb/modules/bixbykey_hijack; if [ -d $M ]; then echo MOD; else echo NOMOD; fi; head -n 6 $M/hijack_daemon.sh 2>/dev/null | grep -m1 'daemon - v' ; echo END

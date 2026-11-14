@@ -96,7 +96,13 @@ public class IslandGeometryTest {
         String full = file("app/AndroidManifest.xml");
         // ★ mika-plug（mika.a11y，B2 可选后端）：无障碍服务只许出现在 DEBUG-ONLY 段里；release 构建删掉该段后不得再有
         String m = full.replaceAll("(?s)<!-- DEBUG-ONLY-BEGIN.*?DEBUG-ONLY-END -->", "");
-        assertFalse("release Manifest 不再有无障碍服务", m.contains("BIND_ACCESSIBILITY_SERVICE"));
+        // [ci-1114] 开源版有意带一个用户手动开启的通用无障碍服务 OneSayA11yService（无 root 读屏 / 按键唤醒，见 Manifest 注释）。
+        //   断言收窄为：release Manifest 里有且只有这一个，且必须由 BIND_ACCESSIBILITY_SERVICE 保护（只有系统能绑定）
+        int a11y = m.split("android.permission.BIND_ACCESSIBILITY_SERVICE", -1).length - 1;
+        assertEquals("release Manifest 只有一个无障碍服务", 1, a11y);
+        int at = m.indexOf("android.permission.BIND_ACCESSIBILITY_SERVICE");
+        String svc = m.substring(m.lastIndexOf("<service", at), at);
+        assertTrue("唯一的无障碍服务是 OneSayA11yService", svc.contains("android:name=\"com.onesay.assistant.v2.a11y.OneSayA11yService\""));
         assertFalse("debug 段的无障碍服务也不能是岛服务", full.contains("IslandAccessibilityService"));
         assertFalse(m.contains("IslandAccessibilityService"));
         assertFalse("xml 配置已删", exists("app/res/xml/island_accessibility.xml"));
@@ -107,7 +113,9 @@ public class IslandGeometryTest {
         // ★ feat/planner-link：+1 条 com.onesay.plan.permission.ACCESS（计划 App 后门的 signature 权限）
         // ★ 开源版闹钟：+1 条 com.onesay.clock.permission.ALARM_CONTROL（OneSay 时钟闹钟接口的 signature 权限；SET_ALARM 改成正确的 com.android.alarm 名，条数不变）
         // ★ link-v2：+1 条 CHANGE_WIFI_MULTICAST_STATE（普通权限，电脑联动常连等电脑上线时收组播 announce 要拿 MulticastLock）
-        assertEquals("uses-permission 不变（51 条，含 fix/triage-fast 的 ACCESS_NOTIFICATION_POLICY、planner-link 的 bixbyplan ACCESS、时钟 ALARM_CONTROL、link-v2 的 CHANGE_WIFI_MULTICAST_STATE）", 51, perms);
+        // ★ [ci-1114] priv-llm（d0832e5）：+1 条 moe.shizuku.manager.permission.API_V23（Shizuku 特权插件调 Shizuku API 必需，由用户在 Shizuku 里授权）
+        assertTrue("新增的那条就是 Shizuku API 权限", m.contains("<uses-permission android:name=\"moe.shizuku.manager.permission.API_V23\""));
+        assertEquals("uses-permission 不变（52 条，含 fix/triage-fast 的 ACCESS_NOTIFICATION_POLICY、planner-link 的 bixbyplan ACCESS、时钟 ALARM_CONTROL、link-v2 的 CHANGE_WIFI_MULTICAST_STATE、priv-llm 的 Shizuku API_V23）", 52, perms);
         String ctl = file("app/src/com/onesay/assistant/v2/s1/IslandController.java");
         assertFalse(ctl.contains("TYPE_ACCESSIBILITY_OVERLAY"));
         assertFalse("不用挖孔模式", ctl.contains("LAYOUT_IN_DISPLAY_CUTOUT_MODE"));

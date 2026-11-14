@@ -1,4 +1,5 @@
-# BuiltinCapabilities 注册快照（顺序 | 全字段 SHA-256 前 8 字节）。共 116 条
+# BuiltinCapabilities 注册快照（顺序 | 全字段 SHA-256 前 8 字节）。共 114 条
+# [ci-1114] 按开源版去厂商化后的注册表重生成：删 settings.edge_lighting / smartcapture（厂商专有），aod 改通用并加 settings.ambient，torch.* 走 CameraManager，notes.new / store.* 去掉厂商包名
 settings.brightness.set | 5f15413a5aa357ad
 settings.brightness.up | d488d92863703188
 settings.brightness.down | ffc4c874191d6b94
@@ -52,8 +53,8 @@ browser.engine.open.google | e96b124e206107c8
 browser.engine.open.sogou | 8c1575a57505fce4
 browser.default.check | db9acdd84fd67725
 browser.default.set | fc4c464dcf09f460
-notes.new | b2f2a5dfd4f29328
-notes.new.text | 9422d1221dc7da40
+notes.new | 8ac032fe1e8a5382
+notes.new.text | a8ab4908d9c2b72b
 app.uninstall | c45dff7e808e1206
 time.now | 29fc69b41d602484
 date.today | 963621faa03cc7c0
@@ -64,9 +65,9 @@ alarm.cancel | 3208566368b4f101
 alarm.cancel.all | 64b7680aabc8eb64
 alarm.toggle.all | a7d9680617323c4c
 clock.timer.set | b1a2cab53c24d192
-torch.on | 8835c4a279d418d9
-torch.off | 99624c4b48716cf8
-torch.toggle | a423cb6fa0098e14
+torch.on | ac0a493b2012e077
+torch.off | a7a9a3aa6f2276f2
+torch.toggle | 2e64e8eaef876c89
 screen.lock | d54d9e6ecbdc8375
 ui.screenshot | a2638926f66dcd85
 phone.call | f1b45def614715e6
@@ -92,12 +93,10 @@ settings.haptic.on | 282da4052068c9cd
 settings.haptic.off | 41f6e2f8b1962faf
 battery.saver.on | 91d4a538520a77a9
 battery.saver.off | 5d5ff1e8d950b563
-settings.aod.on | 2ae8b25ff8b7deab
-settings.aod.off | 220f27d79daeacee
-settings.edge_lighting.on | 92de8b1b71b7d4fd
-settings.edge_lighting.off | ad78735726186062
-settings.smartcapture.on | 864beede865542b0
-settings.smartcapture.off | dc2edd4dda09cb42
+settings.aod.on | 910ec7c2d9d939f9
+settings.aod.off | f7236bc3d6db8e20
+settings.ambient.on | 64dee8f6c1223fcf
+settings.ambient.off | 16454bc6590a71f7
 settings.page.wifi | d723bcd97716d29e
 settings.page.sound | 32c00389d486defb
 settings.page.display | 07ae136a3c1dd024
@@ -108,10 +107,10 @@ settings.page.battery | 44d6c71ca2be4fc3
 settings.page.notification | a2cb833abf160b70
 settings.page.apps | 5d07b9760c2bb21e
 settings.page.accessibility | 2db8079dd5ad3a5f
-store.search.market | 19d46ab6733f6d55
-store.detail.market | d15d40fb3728cb74
+store.search.market | b94202f32bec7439
+store.detail.market | 811e5e568c3f9e57
 store.search.play | 5e176ee96c41807b
-store.status.check | f68e6b70dbc3013b
+store.status.check | 6ca75fac00fad78a
 vision.screen.understand | f1eed01d49904d79
 mail.inbox.latest | c481591e6900c5e9
 mail.draft.new | c265d3c99c37afe6

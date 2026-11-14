@@ -98,7 +98,8 @@ public class ArchIntegrateTest {
 
     @Test public void residentToolsSurviveGuiUnfoldReexport() throws Exception {
         ScriptedLlm llm = new ScriptedLlm();
-        llm.replies.add(call("store__search__samsung", "{\"keyword\":\"微信\"}"));
+        // [ci-1114] 厂商商店能力已去厂商化为 store.search.market（默认应用商店），工具名随之改
+        llm.replies.add(call("store__search__market", "{\"keyword\":\"微信\"}"));
         llm.replies.add(say("商店里没找到。"));
         String q = "下载微信";
         new AgentLoop(CapabilityRegistry.getInstance(), llm).run(q, new FakeExec(), 0);

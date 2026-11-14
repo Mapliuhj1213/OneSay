@@ -50,6 +50,26 @@ public final class NotifyClassifier {
     static final Set<String> MAPS = set("com.autonavi.minimap", "com.baidu.BaiduMap", "com.tencent.map", "com.google.android.apps.maps",
             "com.sogou.map.android.maps");
 
+    /**
+     * [ci-1114] 去厂商化后 DIALERS 只剩 AOSP / Google 包名，各厂商自带拨号盘（包名以 .dialer / .incallui 结尾）的来电通知
+     * 会被误当成 VoIP 邀请重复上岛。按包名后缀通用识别，不写死任何厂商包名。
+     */
+    static boolean isSystemDialer(String pkg) {
+        if (pkg == null) return false;
+        return DIALERS.contains(pkg) || pkg.endsWith(".dialer") || pkg.endsWith(".incallui");
+    }
+
+    /**
+     * [ci-1114] 同上：CLOCKS 去厂商化后只剩 AOSP / Google 时钟，各厂商自带时钟（包名里有含 clock 的一段，如 xxx.deskclock /
+     * xxx.alarmclock / xxx.clockpackage）的计时器通知认不出来。按包名段通用识别；是否真是闹钟 / 计时器仍由下面的分类与文案判定兜底。
+     */
+    static boolean isClockApp(String pkg) {
+        if (pkg == null) return false;
+        if (CLOCKS.contains(pkg)) return true;
+        for (String seg : pkg.toLowerCase(java.util.Locale.ROOT).split("\\.")) if (seg.contains("clock")) return true;
+        return false;
+    }
+
     static Set<String> set(String... a) {
         return new java.util.HashSet<String>(java.util.Arrays.asList(a));
     }
@@ -159,7 +179,7 @@ public final class NotifyClassifier {
         }
 
         // 3. 语音 / 视频通话邀请（系统拨号盘的交给电话状态）
-        if (p.voip && "call".equals(cat) && !DIALERS.contains(n.pkg)) {
+        if (p.voip && "call".equals(cat) && !isSystemDialer(n.pkg)) {
             IslandNotice x = new IslandNotice(IslandNotice.Source.NOTIFY, "nl:voip:" + n.keyHash, IslandNotice.Priority.HIGH,
                     appName(n) + " · " + (p.revealContent && title.length() > 0 ? title : "通话邀请"), p.revealContent ? text : "");
             x.sourceTag = "通话";
@@ -172,7 +192,7 @@ public final class NotifyClassifier {
         }
 
         // 4. 闹钟 / 计时器
-        boolean clock = CLOCKS.contains(n.pkg);
+        boolean clock = isClockApp(n.pkg);
         if (p.alarm && ("alarm".equals(cat) || clock)) {
             boolean timer = n.chronoCountDown || body.matches("(?s).*(计时器|倒计时|秒表|[Tt]imer|[Ss]topwatch).*");
             if (!timer && !"alarm".equals(cat) && !body.matches("(?s).*(闹钟|[Aa]larm|贪睡|稍后提醒).*")) return null;

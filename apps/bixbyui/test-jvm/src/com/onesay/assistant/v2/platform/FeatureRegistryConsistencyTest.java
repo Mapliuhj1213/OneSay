@@ -91,7 +91,8 @@ public class FeatureRegistryConsistencyTest {
                 assertFalse("未实现的项不应有开关", f.hasSwitch());
             }
         }
-        assertEquals(22, FeatureRegistry.all().size());
+        // [ci-1114] 开源版删了「厂商专有」分组 6 项、新增通用替代项（wake.key / wake.cue / diag.settings / city.home / store.default / errand.browser），共 21 项
+        assertEquals(21, FeatureRegistry.all().size());
         assertSame(FeatureRegistry.get("island"), FeatureRegistry.get("island"));
         assertNull(FeatureRegistry.get("nope"));
         int n = 0;
@@ -107,7 +108,8 @@ public class FeatureRegistryConsistencyTest {
             assertFalse("未实现项要写所需能力：" + f.id, f.requires.isEmpty());
             assertTrue("未实现项要写替代：" + f.id, f.alternative != null && f.alternative.length() > 0);
         }
-        assertEquals(6, n);
+        // [ci-1114] exec.shizuku（priv-llm 插件）与 wake.other_key（无障碍按键唤醒 wake.key）已实现，未实现项 6 → 4
+        assertEquals(4, n);
     }
 
     @Test public void wakeEntryOrderIdsExist() {

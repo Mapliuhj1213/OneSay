@@ -73,7 +73,8 @@ public class DeviceProfileAvailabilityTest {
                 FeatureAvailability a = FeatureAvailability.evaluate(f, p);
                 if (f.status == FeatureSpec.Status.NOT_BUILT) continue;
                 assertTrue("未探到不应置灰：" + f.id, a.switchEnabled());
-                assertEquals(f.id, FeatureAvailability.State.UNKNOWN, a.state);
+                // [ci-1114] 开源版新增了不依赖任何设备能力的项（wake.cue 等，requires 为空）：没东西可探 → 直接可用；其余仍是未知
+                assertEquals(f.id, f.requires.isEmpty() ? FeatureAvailability.State.AVAILABLE : FeatureAvailability.State.UNKNOWN, a.state);
             }
         }
     }
@@ -91,9 +92,9 @@ public class DeviceProfileAvailabilityTest {
         assertTrue(screen.reason().contains("需要 root"));
         String alt = FeatureRegistry.get("screen.ref").alternative;
         assertTrue(alt.contains("无障碍") && alt.contains("Shizuku"));
-        FeatureAvailability sb = FeatureAvailability.evaluate(FeatureRegistry.get("errand.samsung"), p);
-        assertFalse(sb.switchEnabled());
-        assertTrue(sb.reason().contains("三星浏览器"));
+        // [ci-1114] errand.samsung（厂商浏览器跑腿）已随去厂商化删除，改为 errand.browser（默认浏览器，无设备要求）
+        assertNull(FeatureRegistry.get("errand.samsung"));
+        assertTrue(FeatureAvailability.evaluate(FeatureRegistry.get("errand.browser"), p).switchEnabled());
         // 不依赖 root / 三星的照样可用
         assertTrue(FeatureAvailability.evaluate(FeatureRegistry.get("wake.kws"), p).switchEnabled());
         assertEquals(FeatureAvailability.State.AVAILABLE, FeatureAvailability.evaluate(FeatureRegistry.get("island"), p).state);
@@ -140,8 +141,9 @@ public class DeviceProfileAvailabilityTest {
     }
 
     @Test public void deriveStaticDoesNotOverride() {
-        DeviceProfile p = new DeviceProfile.Builder().manufacturer("Generic").sdkInt(0).set(DeviceCap.API_26, Tri.NO).deriveStatic().build();
-        assertEquals(Tri.NO, p.get(DeviceCap.API_26));
+        // [ci-1114] 原用厂商能力项（去厂商化时被机械替换成 API_26，自相矛盾）；改用 deriveStatic 也会推导的 ARM64 验「显式值不被覆盖」
+        DeviceProfile p = new DeviceProfile.Builder().manufacturer("Generic").sdkInt(0).abi("arm64-v8a").set(DeviceCap.ARM64, Tri.NO).deriveStatic().build();
+        assertEquals("显式设的值不被 deriveStatic 覆盖", Tri.NO, p.get(DeviceCap.ARM64));
         assertEquals("sdk 未知时不推版本能力", Tri.UNKNOWN, p.get(DeviceCap.API_26));
     }
 

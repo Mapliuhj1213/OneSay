@@ -104,7 +104,9 @@ public class ScreenshotJudgeTest {
         assertEquals("包名未知照常弹", "SHOW", judge(cand(P, 1080, 2220, 1000, 'A', true), e));
         e.locked = true;
         assertEquals("locked", judge(cand(P, 1080, 2220, 1000, 'A', true), e));
-        assertTrue(PrivateApps.defaults().contains("com.samsung.knox.securefolder"));
+        // [ci-1114] 开源版去厂商化，默认隐私名单不再列厂商专有的安全文件夹；改查通用的支付 / 密码管理器仍在名单里
+        assertTrue(PrivateApps.defaults().contains("com.eg.android.AlipayGphone"));
+        assertTrue(PrivateApps.defaults().contains("com.x8bit.bitwarden"));
     }
 
     @Test public void pathNorm() {

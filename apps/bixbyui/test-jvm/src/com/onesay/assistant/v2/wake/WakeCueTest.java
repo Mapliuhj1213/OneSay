@@ -32,16 +32,27 @@ public class WakeCueTest {
     }
 
     @Test public void vendorFirstCandidateWinsAndFallsBackInOrder() {
+        // [ci-1114] 开源版不再内置厂商原声候选（原厂商系统文件 / 厂商 raw），候选由 WakeCueLoader 按用户选择 / 系统默认通知音
+        //   注入（WakeCue.setCandidates）。这里注入三条通用候选，测的仍是「按顺序试、读不到 / 太短就跳过、第一个合格的胜出」
+        WakeCue.setCandidates(new WakeCue.Candidate[]{
+                new WakeCue.Candidate("file", null, "/system/media/audio/ui/Missing.ogg"),
+                new WakeCue.Candidate("raw", "com.example.tones", "too_short"),
+                new WakeCue.Candidate("uri", null, "content://media/internal/audio/media/42")});
         final List<String> tried = new ArrayList<String>();
-        String used = WakeCue.loadVendor(new WakeCue.Decoder() {
-            @Override public WakeCue.Decoded decode(WakeCue.Candidate c) {
-                tried.add(c.label());
-                if (c.label().endsWith("Bixby_BOS.ogg")) return null;   // 系统文件读不到（非三星 / 被精简）
-                if (c.name.equals("toneplay_bos")) return new WakeCue.Decoded(new short[100], 44100);   // 太短（4 ms）→ 跳过
-                return new WakeCue.Decoded(fakeBos(44100), 44100);
-            }
-        });
-        assertEquals("com.samsung.android.bixby.agent/raw/voice_bos", used);
+        String used;
+        try {
+            used = WakeCue.loadVendor(new WakeCue.Decoder() {
+                @Override public WakeCue.Decoded decode(WakeCue.Candidate c) {
+                    tried.add(c.label());
+                    if (c.label().endsWith("Missing.ogg")) return null;   // 系统文件读不到
+                    if (c.name.equals("too_short")) return new WakeCue.Decoded(new short[100], 44100);   // 太短（4 ms）→ 跳过
+                    return new WakeCue.Decoded(fakeBos(44100), 44100);
+                }
+            });
+        } finally {
+            WakeCue.setCandidates(null);
+        }
+        assertEquals("content://media/internal/audio/media/42", used);
         assertEquals(3, tried.size());
         assertEquals(WakeCue.Source.SYSTEM, WakeCue.effective());
         int ms = Earcon.durationMs(Earcon.wakeChime(), Earcon.SAMPLE_RATE);

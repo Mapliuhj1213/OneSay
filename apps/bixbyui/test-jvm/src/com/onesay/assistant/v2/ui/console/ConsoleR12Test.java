@@ -61,37 +61,8 @@ public class ConsoleR12Test {
         assertEquals("已暂停", ConsoleStatus.hero(s).word);
     }
 
-    static final String PROBE_ALIVE = "ALIVE\nMOD\n# Bixby key takeover daemon - v8.1 \"silent long press\" (2026-10-11, R10)\nEND\n";
-
-    @Test public void daemonProbeParse() {
-        Object[] d = ConsoleStatus.parseDaemon(PROBE_ALIVE);
-        assertEquals(Boolean.TRUE, d[0]);
-        assertEquals(Boolean.TRUE, d[1]);
-        assertEquals("v8.1", d[2]);
-        d = ConsoleStatus.parseDaemon("DEAD\nNOMOD\nEND\n");
-        assertEquals(Boolean.FALSE, d[0]);
-        assertEquals("NOMOD 不能被当成 MOD", Boolean.FALSE, d[1]);
-        assertNull(d[2]);
-        d = ConsoleStatus.parseDaemon("ALIVE\nMOD\n");
-        assertNull("没有 END = 输出被截断 → 全部未知", d[0]);
-        assertNull(ConsoleStatus.parseDaemon(null)[0]);
-        // v7 头（老守护）也能认
-        assertEquals("v7", ConsoleStatus.parseDaemon("ALIVE\nMOD\n# Bixby key takeover daemon - v7 \"K L2\" (2026-10-11)\nEND")[2]);
-    }
-
-    @Test public void daemonPillNeedsRoot() {
-        ConsoleStatus.Snapshot s = new ConsoleStatus.Snapshot();
-        s.daemonProbe = PROBE_ALIVE;
-        assertEquals("root 没测到 → 守护也是未知", ConsoleStatus.Level.UNKNOWN, ConsoleStatus.daemon(s).level);
-        s.rootOk = true;
-        assertEquals(ConsoleStatus.Level.OK, ConsoleStatus.daemon(s).level);
-        assertEquals("按键 v8.1", ConsoleStatus.daemon(s).label);
-        s.daemonProbe = "DEAD\nMOD\nEND";
-        assertEquals("按键 未运行", ConsoleStatus.daemon(s).label);
-        assertEquals(ConsoleStatus.Level.BAD, ConsoleStatus.hero(s).level);
-        s.daemonProbe = "DEAD\nNOMOD\nEND";
-        assertEquals("按键 未安装", ConsoleStatus.daemon(s).label);
-    }
+    // [ci-1114] 开源版已随 exec_daemon v4 移除按键守护胶囊（c2f9070，ConsoleStatus 不再有 daemon()/parseDaemon()/daemonProbe）：
+    //   原 daemonProbeParse / daemonPillNeedsRoot 这几条只测已删除的功能，按当前行为删去；其余状态卡断言保留。
 
     @Test public void bannersPriorityAndCap() {
         ConsoleStatus.Snapshot s = new ConsoleStatus.Snapshot();
@@ -109,8 +80,11 @@ public class ConsoleR12Test {
         assertEquals(4, ConsoleStatus.allProblems(s).size());
         s.islandEnabled = false;
         assertEquals("岛关着就不催悬浮窗", ConsoleStatus.Banner.ACT_BATTERY, ConsoleStatus.banners(s).get(1).actionId);
+        // [ci-1114] 开源版 root 可选（ConsoleStatus.ROOT_OPTIONAL，priv-llm）：没 root / Shizuku 只是灰色提示，不进提醒条
         s.rootOk = false;
-        assertEquals("Root 排在密钥前面", ConsoleStatus.Banner.ACT_STATUS, ConsoleStatus.banners(s).get(0).actionId);
+        s.shizukuOk = false;
+        assertEquals(ConsoleStatus.Level.WARN, ConsoleStatus.root(s).level);
+        assertEquals("没 root 不抢提醒条", ConsoleStatus.Banner.ACT_KEY, ConsoleStatus.banners(s).get(0).actionId);
         s.wakeRunning = false;
         assertEquals("唤醒服务最先", ConsoleStatus.Banner.ACT_WAKE, ConsoleStatus.banners(s).get(0).actionId);
     }
@@ -120,12 +94,12 @@ public class ConsoleR12Test {
         s.wakeRunning = true;
         s.micReady = true;
         s.rootOk = true;
-        s.daemonProbe = PROBE_ALIVE;
         s.llmConfigured = true;
         s.done = true;
         assertEquals("运行中", ConsoleStatus.hero(s).word);
         assertEquals(ConsoleStatus.Level.OK, ConsoleStatus.hero(s).level);
-        assertTrue(ConsoleStatus.heroHint(false, true).contains("长按 0.8 秒记一记"));
+        // [ci-1114] 开源版没有 厂商键长按了，记一记改为说「记一下」（heroHint 文案随之改）
+        assertTrue(ConsoleStatus.heroHint(false, true).contains("记一记"));
         assertFalse(ConsoleStatus.heroHint(false, false).contains("记一记"));
         assertTrue(ConsoleStatus.heroHint(true, true).contains("照常"));
     }
@@ -135,7 +109,8 @@ public class ConsoleR12Test {
         assertFalse("首页不再写死绿色", home.contains("#32D74B") || home.contains("#30D158"));
         assertTrue("胶囊来自 ConsoleStatus.pills(真实快照)", home.contains("ConsoleStatus.pills(s)"));
         String probe = src(CON + "StatusProbe.java");
-        assertTrue(probe.contains("WakeService.isServiceRunning()") && probe.contains("echo OK") && probe.contains("ConsoleStatus.DAEMON_PROBE"));
+        // [ci-1114] 按键守护探针 DAEMON_PROBE 已随按键守护移除，只查唤醒服务与 root 两路真实探测
+        assertTrue(probe.contains("WakeService.isServiceRunning()") && probe.contains("echo OK"));
         assertTrue("探测超时保留未知", probe.contains("DEADLINE_MS"));
     }
 

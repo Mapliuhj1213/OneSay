@@ -67,20 +67,17 @@ public class QuickNoteR10Test {
     }
 
     @Test public void wakeServiceDownIsSilent() throws Exception {
+        // [ci-1114] 开源版去掉了 厂商键守护 v8 的 down / press / long / up 热路径（hijack_daemon.v8 已删）；原始按键改由
+        //   key_daemon.sh 只写「按下」，WakeService 只认 PRESS 做双击判定。按当前行为改断言：按下以外的事件一律不唤醒。
         String w = src("app/src/com/onesay/assistant/v2/wake/WakeService.java");
-        int a = w.indexOf("if (kt.kind == KeyTrigger.Kind.DOWN) {");
-        int b = w.indexOf("return;", a);
-        assertTrue(a > 0 && b > a);
-        String body = w.substring(a, b);
-        assertFalse("按下只预热：不唤醒、不出声", body.contains("requestWakeInternal") || body.contains("playWakeSounds"));
+        int a = w.indexOf("KeyTrigger kt = KeyTrigger.parse(readSmall(triggerFile));");
+        assertTrue(a > 0);
+        String obs = w.substring(a, w.indexOf("mTriggerObserver.startWatching();", a));
+        assertTrue("非 PRESS 事件直接丢弃（不唤醒、不出声）", obs.contains("if (kt.kind != KeyTrigger.Kind.PRESS) return;"));
+        assertFalse("按键监听不绕过入口直接开窗", obs.contains("requestWakeInternal") || obs.contains("playWakeSounds"));
         assertTrue("v3 标记跟 v2 一起建", w.contains("KeyTrigger.GESTURE_FLAG_V3"));
         assertTrue("长按震动", w.contains("vibrateTick();"));
-        assertTrue("v7 兜底掐断唤醒音", w.contains("if (!silent) abortAckSound();"));
-        assertTrue("按住 ≥ 2 s = 随口记", w.contains("dispatchKeyGesture(getApplicationContext(), \"hold\"")   /* BUG-A1 起带 seq */);
-        assertTrue("短按延迟日志", w.contains("[KEY-LATENCY]"));
-        String v8 = src("tools/kdaemon/hijack_daemon.v8.sh");
-        assertTrue(v8.contains("bixby.gesture_v3") && v8.contains("echo \"down $seq $now\"") && v8.contains("echo \"press $seq $dur\""));
-        assertTrue("v8 离线测试脚本在", new File("tools/kdaemon/test_hijack_v8.sh").exists() || new File("../tools/kdaemon/test_hijack_v8.sh").exists());
+        assertTrue("原始按键守护脚本与离线测试在", new File("tools/kdaemon/key_daemon.sh").exists() && new File("tools/kdaemon/test_key_daemon.sh").exists());
     }
 
     // ---------------------------------------------------------------- P1 分类 v2
