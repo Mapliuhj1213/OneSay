@@ -1,13 +1,11 @@
 package com.onesay.desktop;
 
 import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -67,10 +65,7 @@ public final class LocalAsr {
         Path dir = Files.createTempDirectory("onesay-asr-ps");
         Path ps = dir.resolve("asr-local.ps1");
         try {
-            try (InputStream in = LocalAsr.class.getResourceAsStream("/onesay/asr-local.ps1")) {
-                if (in == null) throw new IllegalStateException("缺少资源 asr-local.ps1");
-                Files.copy(in, ps, StandardCopyOption.REPLACE_EXISTING);
-            }
+            PsScript.write("/onesay/asr-local.ps1", ps); // 带 BOM，理由见 PsScript
             ProcessBuilder pb = check
                     ? new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", ps.toString(), "-Check")
                     : new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", ps.toString(), "-Wav", wav.toString());

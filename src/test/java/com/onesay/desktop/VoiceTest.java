@@ -139,4 +139,95 @@ public class VoiceTest {
         assertEquals(8000, Recorder.rms(loud), 1);
         assertEquals(0.1, Recorder.seconds(new byte[3200]), 0.001);
     }
+
+    // ---- 内置 PowerShell 脚本：写盘带 BOM + 静态语法检查（2026-11-14 hotkey.ps1 在中文 Windows 上报 ParserError） ----
+
+    /**
+     * 很小的 PowerShell 词法检查：注释、'…'、"…"（` 转义、"" 转义）、here-string、<# #>，
+     * 以及 ( ) [ ] { } 配对。返回 null 表示没问题，否则返回第一处错误。沙箱里没有 pwsh，用它代替真解析器。
+     */
+    static String psLexCheck(String src) {
+        java.util.ArrayDeque<int[]> stack = new java.util.ArrayDeque<>();
+        int line = 1, n = src.length(), i = 0;
+        while (i < n) {
+            char c = src.charAt(i);
+            if (c == '\n') { line++; i++; continue; }
+            if (c == '<' && i + 1 < n && src.charAt(i + 1) == '#') {
+                int e = src.indexOf("#>", i + 2);
+                if (e < 0) return "第 " + line + " 行：块注释没结束";
+                for (int k = i; k < e; k++) if (src.charAt(k) == '\n') line++;
+                i = e + 2; continue;
+            }
+            if (c == '#') { while (i < n && src.charAt(i) != '\n') i++; continue; }
+            if (c == '@' && i + 1 < n && (src.charAt(i + 1) == '"' || src.charAt(i + 1) == '\'')) {
+                String end = "\n" + src.charAt(i + 1) + "@";
+                int e = src.indexOf(end, i + 2);
+                if (e < 0) return "第 " + line + " 行：here-string 没结束";
+                for (int k = i; k <= e; k++) if (src.charAt(k) == '\n') line++;
+                i = e + end.length(); continue;
+            }
+            if (c == '\'') {
+                int start = line; i++;
+                while (true) {
+                    if (i >= n) return "第 " + start + " 行：单引号字符串缺少终止符";
+                    char d = src.charAt(i);
+                    if (d == '\n') line++;
+                    if (d == '\'') { if (i + 1 < n && src.charAt(i + 1) == '\'') { i += 2; continue; } i++; break; }
+                    i++;
+                }
+                continue;
+            }
+            if (c == '"') {
+                int start = line; i++;
+                while (true) {
+                    if (i >= n) return "第 " + start + " 行：双引号字符串缺少终止符";
+                    char d = src.charAt(i);
+                    if (d == '\n') line++;
+                    if (d == '`') { i += 2; continue; }
+                    if (d == '"') { if (i + 1 < n && src.charAt(i + 1) == '"') { i += 2; continue; } i++; break; }
+                    i++;
+                }
+                continue;
+            }
+            if (c == '(' || c == '[' || c == '{') stack.push(new int[]{c, line});
+            else if (c == ')' || c == ']' || c == '}') {
+                char want = c == ')' ? '(' : c == ']' ? '[' : '{';
+                if (stack.isEmpty() || stack.peek()[0] != want) return "第 " + line + " 行：多出来的 " + c;
+                stack.pop();
+            }
+            if (c == '\uFFFD') return "第 " + line + " 行：有解不开的字节（编码不对）";
+            i++;
+        }
+        if (!stack.isEmpty()) return "第 " + stack.peek()[1] + " 行：" + (char) stack.peek()[0] + " 没有配对";
+        return null;
+    }
+
+    @Test public void builtInPs1ScriptsAreWrittenWithBomAndParse() throws Exception {
+        for (String res : new String[]{"/onesay/hotkey.ps1", "/onesay/asr-local.ps1"}) {
+            java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("ps1t");
+            java.nio.file.Path f = dir.resolve("x.ps1");
+            java.nio.file.Files.write(f, "旧内容".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            PsScript.write(res, f);
+            byte[] b = java.nio.file.Files.readAllBytes(f);
+            assertTrue(res + " 写盘要带 UTF-8 BOM", b.length > 3 && (b[0] & 0xFF) == 0xEF && (b[1] & 0xFF) == 0xBB && (b[2] & 0xFF) == 0xBF);
+            assertFalse(res + " 不能有两个 BOM", (b[3] & 0xFF) == 0xEF && (b[4] & 0xFF) == 0xBB);
+            String seen = PsScript.asPowerShell51Reads(b);
+            assertEquals(res + " PowerShell 5.1 读到的应和源文件一致",
+                    new String(PsScript.resource(res), java.nio.charset.StandardCharsets.UTF_8), seen);
+            assertNull(res + " 静态语法检查", psLexCheck(seen));
+            java.nio.file.Files.delete(f); java.nio.file.Files.delete(dir);
+        }
+    }
+
+    @Test public void lexCheckCatchesTheGbkQuoteSwallowRegression() {
+        // 11-14 用户电脑上的原样：无 BOM 时 GBK 把「：」的尾字节和后面的 " 拼成一个坏字，字符串不终止
+        byte[] raw = "try {\n  [Console]::Out.WriteLine(\"LOG 钩子出错：\" + $_.Exception.Message)\n} catch { exit 1 }\n"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        assertNotNull("无 BOM 按 GBK 读应查出错", psLexCheck(PsScript.asPowerShell51Reads(raw)));
+        assertNull("带 BOM 就按 UTF-8 读，没问题", psLexCheck(PsScript.asPowerShell51Reads(PsScript.withBom(raw))));
+        assertArrayEquals("withBom 幂等", PsScript.withBom(raw), PsScript.withBom(PsScript.withBom(raw)));
+        assertNotNull(psLexCheck("if ($a) { 'x' "));
+        assertNotNull(psLexCheck("'abc"));
+        assertNull(psLexCheck("<# 注释 \" #>\n$a = @\"\nx \" y\n\"@\n'it''s' + \"a`\"b\" # ( 注释\n"));
+    }
 }

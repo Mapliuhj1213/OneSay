@@ -77,7 +77,7 @@ public final class Voice {
             Files.createDirectories(dir);
             Path cs = dir.resolve("OneSayHotkey.cs"), ps = dir.resolve("hotkey.ps1");
             copy("/onesay/OneSayHotkey.cs", cs);
-            copy("/onesay/hotkey.ps1", ps);
+            PsScript.write("/onesay/hotkey.ps1", ps); // 带 BOM，否则中文 Windows 上 PowerShell 5.1 按 GBK 读，报 ParserError
             hook = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                     "-File", ps.toString(), "-Cs", cs.toString(), "-Skip", cfg.pttSkip).redirectErrorStream(true).start();
             // 标准输入一直开着：本程序一退出，管道断开，钩子进程自己卸钩退出
