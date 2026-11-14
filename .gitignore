@@ -78,3 +78,22 @@ Thumbs.db
 *.tmp
 *.bak
 *.orig
+
+# ---- 电脑端（apps/desktop）：运行时、下载工具、安装包、本地配置都不进仓库 ----
+apps/desktop/runtime/
+apps/desktop/jdk/
+apps/desktop/jre/
+apps/desktop/tools/
+*.exe
+*.msi
+*.zip
+!apps/*/vendor/**/*.zip
+ffmpeg*
+!**/*.java
+yt-dlp*
+*.sha256
+cookies.txt
+local-config.*
+!local-config.example
+onesay.properties
+cli.properties
