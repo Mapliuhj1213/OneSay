@@ -24,7 +24,16 @@ public final class LogText {
     public static String u(Object s, int debugMax) {
         if (s == null) return "null";
         if (!com.onesay.assistant.v2.BuildVariant.IS_DEBUG) return len(s);
-        String t = s.toString().replace('\n', ' ').replace('\r', ' ');
+        return debugText(s, debugMax);
+    }
+
+    /**
+     * debug 包的写法：单行、截断；[logcat-1114] 先过 {@link SafeLog#clean} 脱敏（手机号 / 身份证 / 银行卡 / 邮箱 / 验证码，含全角写法），
+     * debug 包也不把这些原样写进 logcat。单独成方法是为了 JVM（按 release 口径编译）也能测到这一支。
+     */
+    static String debugText(Object s, int debugMax) {
+        if (s == null) return "null";
+        String t = SafeLog.clean(s.toString()).replace('\n', ' ').replace('\r', ' ');
         return t.length() <= debugMax ? t : t.substring(0, Math.max(0, debugMax)) + "…(+" + (t.length() - debugMax) + ")";
     }
 

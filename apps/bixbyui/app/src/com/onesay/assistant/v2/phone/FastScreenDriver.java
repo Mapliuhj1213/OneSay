@@ -1,5 +1,6 @@
 package com.onesay.assistant.v2.phone;
 
+import com.onesay.assistant.v2.util.SafeLog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -9,7 +10,6 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.util.Log;
 import android.view.WindowManager;
 
 import com.onesay.assistant.v2.exec.ShieldOverlay;
@@ -102,11 +102,11 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         observeMsTotal += ms;
         observeMsMax = Math.max(observeMsMax, ms);
         if (t == null) {
-            Log.w(TAG, "[PHONE] 读屏失败：" + mFs.lastError());
+            SafeLog.w(TAG, "[PHONE] 读屏失败：" + mFs.lastError());
             return null;
         }
         UiTree u = mx != null && mx.f.screen ? mx.build(t, ids, mW, mH) : UiTree.from(t, ids, mW, mH);   // ★ mika-plug：Mika 元素表
-        Log.i(TAG, "[PHONE] 读屏 " + ms + "ms（助手内 " + t.ms + "ms）pkg=" + u.pkg + " 元素=" + u.els.size() + " 质量=" + u.quality()
+        SafeLog.i(TAG, "[PHONE] 读屏 " + ms + "ms（助手内 " + t.ms + "ms）pkg=" + u.pkg + " 元素=" + u.els.size() + " 质量=" + u.quality()
                 + (u.ime ? " ime" : ""));
         return u;
     }
@@ -116,7 +116,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();   // approve-not-block：机器人在点，这一会儿确认卡上的触摸不算真人
         if (mk(1)) {   // ★ mika-plug（mika.actchain）：节点或 ≤8 层可点祖先 ACTION_CLICK → （B1 无手势）→ 注入
             String how = com.onesay.assistant.plug.action.core.ActionChain.tap(port(), e.src, new int[]{e.l, e.t, e.r, e.b}, e.cls);
-            Log.i(TAG, "[PHONE] 点按 " + how);
+            SafeLog.i(TAG, "[PHONE] 点按 " + how);
             return !com.onesay.assistant.plug.action.core.ActionChain.NONE.equals(how);
         }
         if (mFs.click(e.cx(), e.cy())) {
@@ -283,7 +283,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
                     cm.setPrimaryClip(ClipData.newPlainText("bixbyui", text));
                     ok[0] = true;
                 } catch (Throwable t) {
-                    Log.w(TAG, "[PHONE] 设剪贴板失败: " + t);
+                    SafeLog.w(TAG, "[PHONE] 设剪贴板失败: " + t);
                 }
                 l.countDown();
             }
@@ -344,7 +344,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
                 return true;
             }
         } catch (Throwable t) {
-            Log.w(TAG, "[PHONE] 启动 " + pkg + " 失败，改走助手: " + t);
+            SafeLog.w(TAG, "[PHONE] 启动 " + pkg + " 失败，改走助手: " + t);
         }
         return FsProtocol.isPkg(pkg) && mFs.launch(pkg);
     }

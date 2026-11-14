@@ -193,7 +193,12 @@ public final class LinkPolicy {
             /** 想用远程消息 / 语音回答确认框（批准只认电脑本机的鼠标 / 键盘点击）。 */
             R_VOICE_APPROVAL_BLOCKED = "voice_approval_blocked",
             /** 付款 / 转账的最后一下（最终支付按钮）只能用户亲手点：远程指令、机器人都不能代点，批了也不行。 */
-            R_PAY_USER_TAP = "pay_needs_user_tap";
+            R_PAY_USER_TAP = "pay_needs_user_tap",
+            /**
+             * [回补-1114 ← 电脑 93bb42a / 手机 943e4c8] 写法可疑、守卫认不准（主机名里有全角 ／ ？ ＃ ＠、%2f 之类的编码、编码过的 IP…）：
+             * 升级成确认卡，不能被「以后这类不用问」记住；电脑端「从不询问」下拒绝。
+             */
+            R_SUSPICIOUS_FORM = "suspicious_form";
 
     /** 确认框多久没人点按拒绝（2026-11-10：30 秒 → 60 秒）；电脑和手机的确认卡同一个数。 */
     public static final long CONFIRM_TIMEOUT_MS = 60000;
@@ -453,6 +458,7 @@ public final class LinkPolicy {
         if (c == Cat.OPEN_URL) {
             UrlCheck u = f.url;
             if (u == null || u.malformed) return Decision.deny(R_UNTRUSTED_URL, u == null ? "网址没过检查" : u.why);
+            if (UrlCheck.RISK_SUSPICIOUS.equals(u.risk)) return askReason(ap, R_SUSPICIOUS_FORM, "打开网址：" + u.why); // [回补-1114] 不能记住，从不询问下拒绝
             if (!u.ok) return askOrDenyCode(ap, R_UNTRUSTED_URL, "打开有风险的网址：" + u.why, "pc.url.risky");
             if (u.trusted) return Decision.allow();
             if (ap == Approval.UNTRUSTED) return Decision.ask("打开网址：" + u.shown, "pc.url");
@@ -584,8 +590,9 @@ public final class LinkPolicy {
                     c == Cat.OPEN_APP ? "phone.blocked_app.open" : "phone.blocked_app.uninstall");
         if (c == Cat.OPEN_URL && f.url != null && !f.url.ok) {
             if (f.url.malformed) return Decision.deny(R_UNTRUSTED_URL, f.url.why);
+            if (UrlCheck.RISK_SUSPICIOUS.equals(f.url.risk)) return Decision.confirm(R_SUSPICIOUS_FORM, "打开网址：" + f.url.why); // [回补-1114 ← 电脑 / 手机] 不能记住
             if (UrlCheck.RISK_IP.equals(f.url.risk) && encodedIp(f.url.host))
-                return Decision.confirm("网址写法可疑：编码过的 IP（" + oneLine(f.url.host) + "），守卫认不准，先问你（这类不能记住）");
+                return Decision.confirm(R_SUSPICIOUS_FORM, "网址写法可疑：编码过的 IP（" + oneLine(f.url.host) + "），守卫认不准，先问你（这类不能记住）");
             if (UrlCheck.RISK_IP.equals(f.url.risk) || UrlCheck.RISK_PRIVATE.equals(f.url.risk)) return Decision.allow(); // 分档之前就不拦（家里 NAS、路由器）
             return Decision.ask("打开网址：" + f.url.why, "phone.url.risky");
         }
@@ -696,7 +703,8 @@ public final class LinkPolicy {
             "(\\bpm\\s+(grant|revoke|set-permission-flags|set-installer)\\b)|(\\bappops\\s+set\\b)|(\\bcmd\\s+appops\\b)"
                     + "|(enabled_accessibility_services)|(accessibility_enabled)|(enabled_notification_listeners)|(\\ballow_listener\\b)"
                     + "|(\\bdpm\\s+set-(active-admin|device-owner|profile-owner))|(\\bcmd\\s+device_policy\\b)"
-                    + "|(\\bshizuku\\b)|(moe\\.shizuku)|(\\bmagisk\\b.*\\b(--sqlite|policy)\\b)|(\\bsupolicy\\b)"
+                    + "|(\\bcmd\\s+package\\s+(grant|revoke|set-permission-flags|set-installer)\\b)" // [回补-1114 ← 电脑 / 手机] cmd package grant 和 pm grant 是同一件事
+                    + "|(\\bshizuku\\b)|(moe\\.shizuku)|(\\bmagisk\\b.*(--sqlite\\b|\\bpolic(y|ies)\\b))|(\\bsupolicy\\b)" // [回补-1114] 原 \\b--sqlite 永远匹配不上，policies 也漏了
                     + "|(\\bAdd-MpPreference\\b)|(\\bicacls\\b)|(\\btakeown\\b)|(\\bSet-Acl\\b)|(\\bnet\\s+localgroup\\b)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PHONE_SIMPLE = Pattern.compile(
@@ -1417,6 +1425,8 @@ public final class LinkPolicy {
     public static final class UrlCheck {
         /** 网址有风险的原因（ok = false 且不是 malformed 时）：IP 字面量 / 内网主机 / 带账号密码 / 疑似仿冒。 */
         public static final String RISK_IP = "ip", RISK_PRIVATE = "private", RISK_CREDENTIALS = "credentials", RISK_LOOKALIKE = "lookalike";
+        /** [回补-1114 ← 电脑 / 手机] 主机名写法可疑（全角 ／ ？ ＃ ＠、%2f 之类的编码）：浏览器怎么解释说不准，一律弹确认（不能「以后这类不用问」）。 */
+        public static final String RISK_SUSPICIOUS = "suspicious";
         public final boolean ok, trusted;
         /** 格式就不对（空、太长、控制字符、不是 http / https、主机名不合法…）：这不是风险而是坏输入，任何时候都不开。 */
         public final boolean malformed;
@@ -1494,6 +1504,8 @@ public final class LinkPolicy {
         }
         while (host.endsWith(".")) host = host.substring(0, host.length() - 1);
         if (host.length() == 0) return UrlCheck.bad("网址里没有主机名");
+        String odd = host.startsWith("[") ? null : oddHostChar(host); // [回补-1114 ← 电脑 / 手机] IPv6 的 %25zone 不算
+        if (odd != null) return UrlCheck.risky(UrlCheck.RISK_SUSPICIOUS, "", oneLine(host), "主机名里有" + odd + "，浏览器可能把它当成别的网站，守卫认不准");
         String ascii;
         try {
             ascii = IDN.toASCII(host, IDN.ALLOW_UNASSIGNED).toLowerCase(Locale.ROOT);
@@ -1512,6 +1524,8 @@ public final class LinkPolicy {
         } catch (Exception e) {
             // 路径部分有 URI 不收的字符：交给浏览器，但主机部分已经检查过
         }
+        if (!ascii.startsWith("[") && !ascii.matches("[a-z0-9._-]+")) // [回补-1114 ← 电脑 / 手机] 规范化后还有别的字符（如全角 ＠ 变成 @）：认不准
+            return UrlCheck.risky(UrlCheck.RISK_SUSPICIOUS, ascii, oneLine(ascii), "主机名规范化后有不该出现的字符（" + oneLine(ascii) + "），守卫认不准");
         boolean trusted = trustedHost(ascii, trustedDomains);
         if (isIpLiteral(ascii) && !trusted) return UrlCheck.risky(UrlCheck.RISK_IP, ascii, ascii, "是 IP 地址网址（" + ascii + "），不在信任列表");
         if (isPrivateHost(ascii) && !trusted) return UrlCheck.risky(UrlCheck.RISK_PRIVATE, ascii, ascii, "是内网 / 本机地址（" + ascii + "），不在信任列表");
@@ -1519,6 +1533,17 @@ public final class LinkPolicy {
         if (look != null) return UrlCheck.risky(UrlCheck.RISK_LOOKALIKE, ascii, uni + "（" + ascii + "）", "疑似仿冒域名（" + look + "）：" + uni + "（" + ascii + "）");
         String shown = uni.equals(ascii) ? ascii : uni + "（" + ascii + "）";
         return new UrlCheck(true, trusted, ascii, shown, "");
+    }
+
+    /** [回补-1114 ← 电脑 / 手机] 主机名里会被浏览器当成分隔符的全角 / 编码写法：返回给人看的说法，没有返回 null。 */
+    static String oddHostChar(String host) {
+        if (host.indexOf('%') >= 0) return "百分号编码（如 %2f）";
+        for (int i = 0; i < host.length(); i++) {
+            char c = host.charAt(i);
+            if (c == '\uff0f' || c == '\u2215' || c == '\u2044' || c == '\uff3c') return "全角 / 变体斜杠「" + c + "」";
+            if (c == '\uff1f' || c == '\uff03' || c == '\uff20' || c == '\ufe56' || c == '\ufe5f' || c == '\ufe6b') return "全角符号「" + c + "」";
+        }
+        return null;
     }
 
     /** 主机是否在信任列表里（等于某个信任域名，或是它的子域）。列表项可写成 *.example.com / example.com / https://example.com/。 */
@@ -1923,6 +1948,7 @@ public final class LinkPolicy {
 
     public static String reasonZh(String code) {
         if (R_DENIED_BY_LEVEL.equals(code)) return "执行级别不允许";
+        if (R_SUSPICIOUS_FORM.equals(code)) return "写法可疑，守卫认不准，需要你确认";
         if (R_CONFIRM_TIMEOUT.equals(code)) return "对方 60 秒内没确认，已拒绝";
         if (R_CONFIRM_DENIED.equals(code)) return "对方点了拒绝";
         if (R_UNTRUSTED_URL.equals(code)) return "网址没通过安全检查";

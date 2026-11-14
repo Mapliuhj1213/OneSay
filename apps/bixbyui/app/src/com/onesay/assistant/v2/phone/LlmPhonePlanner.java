@@ -1,7 +1,7 @@
 package com.onesay.assistant.v2.phone;
 
-import android.util.Log;
 
+import com.onesay.assistant.v2.util.SafeLog;
 import com.onesay.assistant.v2.net.LlmClient;
 import com.onesay.assistant.v2.net.LlmResponse;
 
@@ -31,10 +31,10 @@ public final class LlmPhonePlanner implements PhoneAgent.Planner {
             LlmResponse r = c.post(body);
             long ms = System.currentTimeMillis() - t0;
             callMs.add(ms);
-            Log.i(TAG, "[PHONE] 模型 " + ms + "ms 提示词 " + user.length() + " 字 ok=" + r.ok());
+            SafeLog.i(TAG, "[PHONE] 模型 " + ms + "ms 提示词 " + user.length() + " 字 ok=" + r.ok());
             return r.ok() ? r.content() : null;
         } catch (Throwable t) {
-            Log.w(TAG, "[PHONE] 模型调用异常: " + t);
+            SafeLog.w(TAG, "[PHONE] 模型调用异常: " + t);
             return null;
         }
     }

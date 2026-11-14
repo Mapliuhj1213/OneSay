@@ -25,7 +25,8 @@ public final class PcMedia {
     // ================================================================== 链接
 
     // 2026-11-14 对抗测试 P2-2：中文分享里包住链接的引号 / 书名号（“” ‘’ 《》 『』 〈〉 「」）和不换行 / 全角空格、零宽字符也是链接的边界
-    private static final Pattern URL = Pattern.compile("(?i)https?://[^\\s\\u00a0\\u2000-\\u200f\\u2028-\\u202f\\u205f-\\u2064\\u3000\\ufeff\"'<>`，。！？、；：）】」“”‘’《》『』〈〉「]+");
+    // [回补-1114 ← 电脑 93bb42a] U+2066–206F（方向隔离符等）也是边界
+    private static final Pattern URL = Pattern.compile("(?i)https?://[^\\s\\u00a0\\u2000-\\u200f\\u2028-\\u202f\\u205f-\\u2064\\u2066-\\u206f\\u3000\\ufeff\"'<>`，。！？、；：）】」“”‘’《》『』〈〉「]+");
     private static final Pattern BAD = Pattern.compile("[\\s;|`$<>\"'\\\\\\x00-\\x1f\\x7f{}^]");
 
     /**
@@ -67,11 +68,23 @@ public final class PcMedia {
     }
 
     /** 和电脑端同一套检查（电脑端会再查一遍）：没问题返回 null，否则返回原因。 */
+    /** [回补-1114 ← 电脑 / 手机] 看不见的字符：格式类（零宽、RLO、方向隔离符…）、控制字符、非 ASCII 空白、行 / 段分隔符、填充字。 */
+    static boolean invisible(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            int t = Character.getType(c);
+            if (t == Character.FORMAT || t == Character.CONTROL || t == Character.SPACE_SEPARATOR || t == Character.LINE_SEPARATOR
+                    || t == Character.PARAGRAPH_SEPARATOR || c == '\u115f' || c == '\u1160' || c == '\u3164' || c == '\uffa0') return true;
+        }
+        return false;
+    }
+
     public static String checkUrl(String raw) {
         if (raw == null || raw.length() == 0) return "没有链接";
         if (raw.length() > 2000) return "链接太长";
         if (raw.startsWith("-")) return "链接不能以 - 开头";
         if (BAD.matcher(raw).find()) return "链接里有空格或特殊字符，为防注入不接受";
+        if (invisible(raw)) return "链接里有看不见的字符或文字方向控制符，为防伪装不接受"; // [回补-1114 ← 电脑 / 手机，原 P2-9 观察]
         String low = raw.toLowerCase(Locale.ROOT);
         if (!low.startsWith("http://") && !low.startsWith("https://")) return "只接受 http / https 链接";
         try {

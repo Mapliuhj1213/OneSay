@@ -1,7 +1,7 @@
 package com.onesay.assistant.v2.phone;
 
+import com.onesay.assistant.v2.util.SafeLog;
 import android.content.Context;
-import android.util.Log;
 
 import com.onesay.assistant.v2.exec.ExecModeController;
 
@@ -84,7 +84,7 @@ public final class PhoneHooks {
     /** 设置里「清空记住的步骤」。 */
     public static void clearReplay(Context ctx) {
         replayStore(ctx).clear();
-        Log.i(TAG, "[PHONE] 已清空记住的成功步骤");
+        SafeLog.i(TAG, "[PHONE] 已清空记住的成功步骤");
     }
 
     public static boolean busy() {
@@ -156,13 +156,13 @@ public final class PhoneHooks {
             if (mika != null) {
                 drv.setMika(mika);
                 agent.mika = mika;
-                Log.i(TAG, "[PHONE] mika-plug 执行层：" + mika.f);
+                SafeLog.i(TAG, "[PHONE] mika-plug 执行层：" + mika.f);
             }
-            if (script != null) Log.i(TAG, "[PHONE] 用脚本化 planner（debug 直测，不调大模型）");
+            if (script != null) SafeLog.i(TAG, "[PHONE] 用脚本化 planner（debug 直测，不调大模型）");
             agent.legacyOneStep = legacy;
             if (settleEnabled(app)) {   // ★ stable-screen：动作后等画面稳定再读 + 执行前核对编号（偏好里可关，排查用）
                 agent.settle = StableRead.Params.defaults();
-                Log.i(TAG, "[PHONE] 画面稳定再读：" + agent.settle);
+                SafeLog.i(TAG, "[PHONE] 画面稳定再读：" + agent.settle);
             }
             if (replayEnabled(app) && !legacy) agent.replay = replayStore(app);   // ★ smart-replay：开关关 = null，原行为
             // ★ borrow-1112：发给模型前本地脱敏（默认开；映射只在这次任务的内存里）、本轮污染标记、等待期间画面变化进时间轴
@@ -177,7 +177,7 @@ public final class PhoneHooks {
                 }
             };
             redactorRef[0] = agent.redactor;
-            Log.i(TAG, "[PHONE] 开始：" + goal + " pkg=" + pkg + (legacy ? "（改前口径：单步 + 8 步上限）" : ""));
+            SafeLog.i(TAG, "[PHONE] 开始：" + com.onesay.assistant.v2.util.LogText.u(goal) + " pkg=" + pkg + (legacy ? "（改前口径：单步 + 8 步上限）" : ""));
             res = agent.run(goal, pkg);
             sSettleStats = "settle=" + (agent.settle != null) + " settleReads=" + agent.settleReads + " unstable=" + agent.settleUnstable
                     + " refStale=" + agent.refStale + " refMoved=" + agent.refMoved;
@@ -185,16 +185,16 @@ public final class PhoneHooks {
                     + " voided=" + agent.replayVoided + " handoff=" + agent.replayHandoff + " recorded=" + agent.replayRecorded
                     + " replayedSteps=" + agent.replaySteps + (agent.replayNote.length() > 0 ? " note=" + agent.replayNote : "")
                     + (agent.replay != null ? " | " + agent.replay.stats() : "");
-            if (agent.replay != null) Log.i(TAG, "[PHONE] 回放：" + sReplayStats);
+            if (agent.replay != null) SafeLog.i(TAG, "[PHONE] 回放：" + sReplayStats);
             if (agent.riskTightened > 0 || agent.taintConfirms > 0 || agent.tainted)
-                Log.i(TAG, "[PHONE] 风险：模型标高多问 " + agent.riskTightened + " 次，污染后发送类多问 " + agent.taintConfirms + " 次" + (agent.tainted ? "（" + agent.taintedBy + "）" : ""));
-            if (agent.redactor != null && agent.redactor.size() > 0) Log.i(TAG, "[PHONE] 脱敏：" + agent.redactor.kindsSummary());   // 只记类别和个数，不记值
-            Log.i(TAG, "[PHONE] 结束 " + res.status + " 模型 " + res.modelCalls + " 次 动作 " + res.actions + " 个 " + res.ms + "ms："
-                    + (res.answer.length() > 0 ? res.answer : res.reason));
+                SafeLog.i(TAG, "[PHONE] 风险：模型标高多问 " + agent.riskTightened + " 次，污染后发送类多问 " + agent.taintConfirms + " 次" + (agent.tainted ? "（" + agent.taintedBy + "）" : ""));
+            if (agent.redactor != null && agent.redactor.size() > 0) SafeLog.i(TAG, "[PHONE] 脱敏：" + agent.redactor.kindsSummary());   // 只记类别和个数，不记值
+            SafeLog.i(TAG, "[PHONE] 结束 " + res.status + " 模型 " + res.modelCalls + " 次 动作 " + res.actions + " 个 " + res.ms + "ms："
+                    + com.onesay.assistant.v2.util.LogText.u(res.answer.length() > 0 ? res.answer : res.reason));
             if (exec != null) exec.finish(res.status == PhoneAgent.Status.DONE, res.status == PhoneAgent.Status.DONE ? res.answer : res.reason);
             return res;
         } catch (Throwable t) {
-            Log.w(TAG, "[PHONE] 异常", t);
+            SafeLog.w(TAG, "[PHONE] 异常", t);
             if (exec != null) exec.finish(false, "出错了：" + t.getMessage());
             res = new PhoneAgent.Result();
             res.status = PhoneAgent.Status.FAILED;
@@ -240,7 +240,7 @@ public final class PhoneHooks {
             }
 
             @Override public boolean confirm(String title, String detail, String[] out) {
-                Log.i(TAG, "[PHONE] 无执行模式：敏感步骤一律拒绝 " + detail);
+                SafeLog.i(TAG, "[PHONE] 无执行模式：敏感步骤一律拒绝 " + detail);
                 return false;
             }
 

@@ -1,7 +1,7 @@
 package com.onesay.assistant.v2.router;
 
+import com.onesay.assistant.v2.util.SafeLog;
 import android.content.Context;
-import android.util.Log;
 
 import com.onesay.assistant.v2.capability.Capability;
 import com.onesay.assistant.v2.capability.CapabilityRegistry;
@@ -142,7 +142,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         com.onesay.assistant.v2.kernel.FeatureKernel.Hit direct = com.onesay.assistant.v2.kernel.FeatureKernel.get().l0(mContext, raw);
         if (direct != null) {
             String line = direct.plugin.l0Log(direct.inv);
-            if (line != null) Log.i(TAG, line);
+            if (line != null) SafeLog.i(TAG, line);
             return direct.inv;
         }
         List<String> variants = generateSpokenVariants(raw);
@@ -167,7 +167,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         Collections.sort(candidates);
         MatchCandidate best = candidates.get(0);
 
-        Log.i(TAG, "L0 命中能力: " + best.capability.sign + " (字面量权重=" + best.literalScore + ", 参数=" + best.args + ")");
+        SafeLog.i(TAG, "L0 命中能力: " + best.capability.sign + " (字面量权重=" + best.literalScore + ", 参数=" + com.onesay.assistant.v2.util.LogText.args(best.args) + ")");
         return new Invocation(best.capability.sign, best.args, 1.0, Invocation.RouteSource.L0_RULE, query);
     }
 
@@ -296,8 +296,8 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
                 //   明确还有一个宾语"必应"，是实打实的第二件事，必须交出去。
                 String residual = findResidualAction(app.trim());
                 if (residual != null) {
-                    Log.i(TAG, "app.launch 槽位残留第二动作，放弃抢占交 LLM: app=\""
-                            + app.trim() + "\" 残留动作=" + residual);
+                    SafeLog.i(TAG, "app.launch 槽位残留第二动作，放弃抢占交 LLM: app=\""
+                            + com.onesay.assistant.v2.util.LogText.u(app.trim()) + "\" 残留动作=" + residual);
                     return null;
                 }
                 slotLen += app.trim().length();
@@ -482,7 +482,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
             sb.append(c);
         }
         if (warned) {
-            Log.w(TAG, "[L0-TEMPLATE] 模板含未识别的槽位占位符（按字面量处理，不会匹配到用户口语）："
+            SafeLog.w(TAG, "[L0-TEMPLATE] 模板含未识别的槽位占位符（按字面量处理，不会匹配到用户口语）："
                     + template + "  仅支持 {app}/{n}/{m}/{url}/{content}");
         }
         return "^" + sb.toString() + "$";

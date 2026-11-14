@@ -1,5 +1,6 @@
 package com.onesay.assistant.v2.phone;
 
+import com.onesay.assistant.v2.util.SafeLog;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -810,7 +811,7 @@ public final class PhoneAgent {
         String line = "settle unstable " + what + " " + r.waitedMs + "ms reads=" + r.reads;
         if (mRes != null) mRes.trace.add(line);
         try {
-            android.util.Log.w("PhoneAgent", "[PHONE] 读屏 unstable：" + what + " 等了 " + r.waitedMs + "ms、读了 " + r.reads
+            SafeLog.w("PhoneAgent", "[PHONE] 读屏 unstable：" + what + " 等了 " + r.waitedMs + "ms、读了 " + r.reads
                     + " 次指纹仍不一致，用最后一次结果");
         } catch (Throwable ignored) {   // JVM 测试没有 Log 时不影响逻辑
         }
