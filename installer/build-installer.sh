@@ -4,10 +4,11 @@
 # 用法：
 #   ONESAY_BASE=<上一版 zip 或已解开的 OneSay 目录> bash installer/build-installer.sh [输出目录]
 #
-# ONESAY_BASE 提供 Windows 专用、在 Linux 上不重建的部分：
-#   OneSay.exe + OneSay.exe.config（launcher/ 的 C# 启动器）和 runtime\（jlink 精简 Temurin 17）。
-#   与 zip 交付做法相同：jar 每次从源码构建，这两样沿用上一版包里的。
-# 需要：JDK 17+（javac/jar，JAVA_HOME 或 PATH）、unzip、makensis 3.x（MAKENSIS 可指定路径）。
+# ONESAY_BASE 只提供 runtime\（jlink 精简 Temurin 17，在 Linux 上不重建，沿用上一版包里的）。
+# jar 每次从源码构建；启动器 OneSay.exe（launcher/，C#）也从源码构建（launcher/build-launcher.sh，要 .NET 8 SDK，
+#   DOTNET 可指定路径）。已经编好的可以用 ONESAY_LAUNCHER=<目录> 直接给（里面要有 build-launcher.sh 列出的 5 个文件）。
+#   2026-11-14 起启动器在本进程里跑 Java（jvm.dll）并用 WebView2 开窗口，旧包里的 OneSay.exe 不能再用。
+# 需要：JDK 17+（javac/jar，JAVA_HOME 或 PATH）、unzip、makensis 3.x（MAKENSIS 可指定路径）、.NET 8 SDK（或 ONESAY_LAUNCHER）。
 # 首版不签名（2026-11-13 定）：exe 和 Uninstall.exe 都没有代码签名，SmartScreen 会提示「未知发布者」。
 # 可选：installer 目录外的项目根有 LICENSE 文件时，安装程序显示协议页。
 set -euo pipefail
@@ -35,14 +36,22 @@ else
   mkdir -p "$WORK/base" && unzip -q "$BASE" -d "$WORK/base"
   BASEDIR="$WORK/base/OneSay"
 fi
-for f in OneSay.exe OneSay.exe.config runtime/bin/javaw.exe runtime/lib/modules; do
+for f in runtime/bin/javaw.exe runtime/bin/server/jvm.dll runtime/lib/modules; do
   [ -f "$BASEDIR/$f" ] || { echo "ONESAY_BASE 里缺 $f" >&2; exit 1; }
 done
 
 # 4) 组装待打包目录
 STAGE="$WORK/stage"
 mkdir -p "$STAGE/app"
-cp "$BASEDIR/OneSay.exe" "$BASEDIR/OneSay.exe.config" "$STAGE/"
+if [ -n "${ONESAY_LAUNCHER:-}" ]; then LAUNCHER="$ONESAY_LAUNCHER"
+else
+  LAUNCHER="$WORK/launcher"
+  bash launcher/build-launcher.sh "$LAUNCHER" >/dev/null
+fi
+for f in OneSay.exe OneSay.exe.config Microsoft.Web.WebView2.Core.dll Microsoft.Web.WebView2.WinForms.dll WebView2Loader.dll; do
+  [ -f "$LAUNCHER/$f" ] || { echo "启动器目录 $LAUNCHER 里缺 $f" >&2; exit 1; }
+  cp "$LAUNCHER/$f" "$STAGE/"
+done
 cp -r "$BASEDIR/runtime" "$STAGE/runtime"
 cp "$JAR" "$STAGE/app/onesay-desktop.jar"
 # 不再随附 source.zip（2026-11-13 定）。许可与第三方说明直接放在安装目录：

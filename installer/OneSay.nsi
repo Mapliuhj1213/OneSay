@@ -2,7 +2,7 @@
 ; 按用户安装：不要管理员、不弹 UAC、不写 HKLM。
 ; 由 installer/build-installer.sh 调用，必须传入：
 ;   -DVERSION=0.5.1        版本号（从构建出的 jar 的 Implementation-Version 读）
-;   -DSTAGE=/abs/stage     待打包目录（OneSay.exe、OneSay.exe.config、app\、runtime\）
+;   -DSTAGE=/abs/stage     待打包目录（OneSay.exe、OneSay.exe.config、WebView2 的 3 个 dll、app\、runtime\）
 ;   -DOUTFILE=/abs/x.exe   输出文件
 ;   -DICON=/abs/onesay.ico 图标
 ; 可选：
@@ -22,6 +22,8 @@ SetCompressorDictSize 64
 !define APPNAME   "OneSay"
 !define APPEXE    "OneSay.exe"
 !define UNINSTEXE "Uninstall.exe"
+; AppUserModelID，与 launcher/Program.cs、Host.java 相同
+!define APPID     "OneSay.Desktop"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\OneSay"
 !define RUNKEY    "Software\Microsoft\Windows\CurrentVersion\Run"
 
@@ -111,17 +113,20 @@ LangString TxtConfirmData  ${LANG_SIMPCHINESE} "将永久删除你这个账户�
 LangString TxtConfirmData  ${LANG_ENGLISH}     "This permanently deletes this account's OneSay settings, pairing keys, chats, workspace files and download tools. Files in OneSay\Downloads are kept.$\r$\n$\r$\nDelete them? Choose No to remove only the program and keep your data."
 
 ; ---------------------------------------------------------------- 公用：OneSay 是否在运行
-; 运行中的 exe 不能以写方式打开（共享冲突）：自带运行时的 javaw.exe / java.exe 打不开 = 正在运行。
+;   运行中的 exe 不能以写方式打开（共享冲突）：OneSay.exe（0.5.1 起 Java 在它进程里跑）或
+; 自带运行时的 javaw.exe / java.exe（旧版启动方式）打不开 = 正在运行。
 ; 不强杀，只提示用户自己退出。
 !macro CHECK_RUNNING_FN un
 Function ${un}CheckRunning
   retry:
   StrCpy $R1 0
-  ${ForEach} $R0 0 1 + 1
+  ${ForEach} $R0 0 2 + 1
     ${If} $R0 == 0
       StrCpy $R2 "$INSTDIR\runtime\bin\javaw.exe"
-    ${Else}
+    ${ElseIf} $R0 == 1
       StrCpy $R2 "$INSTDIR\runtime\bin\java.exe"
+    ${Else}
+      StrCpy $R2 "$INSTDIR\${APPEXE}"
     ${EndIf}
     ${If} ${FileExists} "$R2"
       ClearErrors
@@ -223,11 +228,15 @@ Section "$(SecStartName)" SecStart
   SetShellVarContext current
   ; 与程序自己核对的路径相同（%APPDATA%\Microsoft\Windows\Start Menu\Programs\OneSay.lnk），不会出现两个
   CreateShortcut "$SMPROGRAMS\OneSay.lnk" "$INSTDIR\${APPEXE}" "" "$INSTDIR\${APPEXE}" 0 SW_SHOWNORMAL "" "OneSay"
+  ; 写上 AppUserModelID（${APPID}，和程序进程里设置的相同），任务栏分组和固定图标才对得上。
+  ; NSIS 自己写不了这个属性，交给刚装好的 OneSay.exe --shortcut（只改快捷方式，不启动程序）。
+  ExecWait '"$INSTDIR\${APPEXE}" --shortcut "$SMPROGRAMS\OneSay.lnk"'
 SectionEnd
 
 Section "$(SecDesktopName)" SecDesktop
   SetShellVarContext current
   CreateShortcut "$DESKTOP\OneSay.lnk" "$INSTDIR\${APPEXE}" "" "$INSTDIR\${APPEXE}" 0 SW_SHOWNORMAL "" "OneSay"
+  ExecWait '"$INSTDIR\${APPEXE}" --shortcut "$DESKTOP\OneSay.lnk"'
 SectionEnd
 
 Section /o "$(SecAutoName)" SecAuto
@@ -298,6 +307,9 @@ Section "un.$(SecAppName)" UnSecApp
   RMDir /r "$INSTDIR\runtime"
   Delete "$INSTDIR\${APPEXE}"
   Delete "$INSTDIR\OneSay.exe.config"
+  Delete "$INSTDIR\Microsoft.Web.WebView2.Core.dll"
+  Delete "$INSTDIR\Microsoft.Web.WebView2.WinForms.dll"
+  Delete "$INSTDIR\WebView2Loader.dll"
   Delete "$INSTDIR\LICENSE.txt"
   Delete "$INSTDIR\NOTICE.txt"
   Delete "$INSTDIR\THIRD_PARTY_NOTICES.md"

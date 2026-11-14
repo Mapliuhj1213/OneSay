@@ -6,7 +6,9 @@
 ```sh
 ONESAY_BASE=/path/OneSay-0.5.0-windows-x64.zip bash installer/build-installer.sh [输出目录]
 ```
-- `ONESAY_BASE`：上一版 zip，或者解开后的 `OneSay` 目录。用到里面的 `OneSay.exe`、`OneSay.exe.config`（`launcher/` 编出来的启动器）和 `runtime\`（jlink 精简过的 Temurin 17）。这几样在 Linux 上不重新构建，做法和 zip 交付相同。jar 每次用 `build.sh` 从源码构建。
+- `ONESAY_BASE`：上一版 zip，或者解开后的 `OneSay` 目录。只用里面的 `runtime\`（jlink 精简过的 Temurin 17，要有 `runtime\bin\server\jvm.dll`），在 Linux 上不重新构建。jar 每次用 `build.sh` 从源码构建。
+- 启动器 `OneSay.exe` 每次用 `launcher/build-launcher.sh` 从源码构建（.NET 8 SDK，Linux 上就能编；`DOTNET=` 可指定路径），或者用 `ONESAY_LAUNCHER=<目录>` 给编好的。产物 5 个文件：`OneSay.exe`、`OneSay.exe.config`、`Microsoft.Web.WebView2.Core.dll`、`Microsoft.Web.WebView2.WinForms.dll`、`WebView2Loader.dll`。
+- **启动器的做法（2026-11-14 起）**：OneSay.exe 在自己进程里加载 `runtime\bin\server\jvm.dll`（JNI_CreateJavaVM，jpackage 同款），跑 jar 的 main，自己不退出；主窗口用 WebView2 开在 OneSay.exe 里（没有 WebView2 运行时才退回 Edge 应用窗口）。所以任务管理器、Windows 防火墙弹窗、按 exe 认程序的 Dock 软件看到的都是 OneSay（名字 / 图标 / 版本信息都是 OneSay），不再是「OpenJDK Platform binary / Eclipse Adoptium」。AppUserModelID 固定为 `OneSay.Desktop`，进程里设置，开始菜单和桌面快捷方式也写同一个（安装程序调用 `OneSay.exe --shortcut <lnk>` 写入）。
 - 版本号取构建出来的 jar 里的 `Implementation-Version`（由 `build.sh` 写入），不用另外填。
 - 需要：JDK 17+、unzip、makensis 3.x（可用 `MAKENSIS=` 指定路径）。Debian/Ubuntu 上装 `apt install nsis` 就行。
 - 默认输出到 `build/installer-out/`。中间文件在 `build/installer/`，这个目录已被 .gitignore 忽略。
@@ -28,7 +30,7 @@ ONESAY_BASE=/path/OneSay-0.5.0-windows-x64.zip bash installer/build-installer.sh
 - 根据 HKCU 卸载项里的 `DisplayVersion` / `InstallLocation` 判断有没有装过。装过的话跳过选组件和选目录两页，直接装到原来的目录。原来有没有桌面快捷方式、有没有开机自启，都照旧保留。
 - 只替换 `app\`、`runtime\` 和 exe，用户数据不在安装目录里，不会被动到。
 - 已装版本比这个安装包新时，会先问一句。
-- 安装前检查 OneSay 是否在运行：方法是看安装目录里的 `runtime\bin\javaw.exe` 能不能以写方式打开。打不开就提示用户从托盘退出，然后点「重试」，不会强行结束进程。
+- 安装前检查 OneSay 是否在运行：方法是看安装目录里的 `OneSay.exe`（新版）和 `runtime\bin\javaw.exe` / `java.exe`（旧版）能不能以写方式打开。打不开就提示用户从托盘退出，然后点「重试」，不会强行结束进程。
 - 支持静默安装：`OneSay-Setup-x.y.z-x64.exe /S`。OneSay 正在运行时，静默安装直接退出，返回码 2。
 
 ## 卸载

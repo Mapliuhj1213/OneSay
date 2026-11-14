@@ -5,6 +5,7 @@
 |---|---|---|---|
 | qrcode-generator（Kazuhiko Arase） | `src/main/resources/onesay/ui/qr.js` | MIT | 设置页二维码 |
 | Eclipse Temurin 17 运行时（jlink 精简） | Windows 包 `runtime\` | GPLv2 + Classpath Exception | 许可见 `runtime\legal`；不改动 |
+| Microsoft WebView2 SDK 1.0.4314.35（`Microsoft.Web.WebView2.Core.dll`、`Microsoft.Web.WebView2.WinForms.dll`、`WebView2Loader.dll`） | Windows 包安装目录 | BSD-3-Clause 式（Microsoft，原文见本文末尾） | OneSay.exe 用它在自己的进程里显示主窗口；网页引擎用的是 Windows 自带的 WebView2 运行时，不随包 |
 
 ## 运行时按需下载（不随安装包附带，由你在设置里点「安装」后从官方发布页下载到 %LOCALAPPDATA%\OneSay\tools）
 | 组件 | 来源 | 许可 | 说明 |
@@ -25,3 +26,34 @@
 | KDE Connect、Sefirah | GPL | 只在产品形态上参考（手机↔电脑互相下令、找手机），没有阅读或使用其代码 | — |
 
 以上「设计参考」的实现全部是本项目自己写的 Java 代码。若将来拷贝或改写上述 Apache-2.0 项目的代码，须在文件头保留许可与改动声明，并在此登记。
+
+## Microsoft WebView2 SDK 许可原文
+```
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * The name of Microsoft Corporation, or the names of its contributors 
+may not be used to endorse or promote products derived from this
+software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```

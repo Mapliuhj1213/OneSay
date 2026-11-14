@@ -137,6 +137,7 @@ public final class App {
         routes();
         if (!ui.start(uiPort()) && !ui.start(0)) throw new IOException("界面端口打不开");
         log.accept("界面 " + ui.url());
+        Host.ready(ui.url()); // OneSay.exe 托管时：记下地址，再次双击 OneSay.exe 就叫出窗口
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();
         new Thread(App::ensureShortcuts, "onesay-shortcuts").start();
@@ -298,7 +299,11 @@ public final class App {
     }
 
     // ---------- 开始菜单与桌面快捷方式（用 exe 启动时） ----------
-    /** 开始菜单的每次都核对（exe 搬了位置会跟着改）；桌面的只建一次，用户删了不再建。 */
+    /**
+     * 开始菜单的每次都核对（exe 搬了位置会跟着改）；桌面的只建一次，用户删了不再建。
+     * OneSay.exe 托管时由启动器写（带 AppUserModelID {@link Host#AUMID}，任务栏分组和固定图标对得上）；
+     * 不是托管时退回 PowerShell（WScript.Shell 写不了 AppUserModelID）。
+     */
     static void ensureShortcuts() {
         String exe = System.getProperty("onesay.exe", "");
         if (!isWindows() || exe.isEmpty() || !new File(exe).isFile()) return;
@@ -306,12 +311,20 @@ public final class App {
         if (appdata == null) return;
         Path start = Paths.get(appdata, "Microsoft", "Windows", "Start Menu", "Programs", "OneSay.lnk");
         Path marker = Config.defaultDir().resolve("desktop-shortcut.done");
+        boolean desk = !Files.exists(marker);
+        if (Host.present()) {
+            boolean ok = Host.shortcut(start.toString(), exe);
+            String d = desk ? Host.desktopDir() : null;
+            if (ok && desk && d != null && Host.shortcut(Paths.get(d, "OneSay.lnk").toString(), exe)) {
+                try { Files.createDirectories(marker.getParent()); Files.writeString(marker, "1"); } catch (Exception ignored) { }
+            }
+            if (ok) return;
+        }
         StringBuilder ps = new StringBuilder("$w=New-Object -ComObject WScript.Shell;");
         ps.append("function mk($p){$s=$w.CreateShortcut($p);$s.TargetPath=").append(psq(exe))
           .append(";$s.WorkingDirectory=").append(psq(new File(exe).getParent()))
           .append(";$s.IconLocation=").append(psq(exe + ",0")).append(";$s.Description='OneSay';$s.Save()};");
         ps.append("mk ").append(psq(start.toString())).append(";");
-        boolean desk = !Files.exists(marker);
         if (desk) ps.append("mk (Join-Path ([Environment]::GetFolderPath('Desktop')) 'OneSay.lnk');");
         try {
             String enc = Base64.getEncoder().encodeToString(ps.toString().getBytes(java.nio.charset.StandardCharsets.UTF_16LE));
@@ -718,8 +731,12 @@ public final class App {
     }
 
     // ---------- 窗口与托盘 ----------
-    /** 优先用 Edge 应用窗口（无地址栏、独立图标）；没有 Edge 就用默认浏览器。 */
+    /**
+     * OneSay.exe 托管时用它自己进程里的窗口（WebView2，窗口属于 OneSay.exe）；
+     * 否则 / 没有 WebView2 运行时：Edge 应用窗口（无地址栏、独立图标）；没有 Edge 就用默认浏览器。
+     */
     static void openWindow(String url) {
+        if (Host.open(url)) return;
         if (isWindows()) {
             List<String> cands = new ArrayList<>();
             for (String env : List.of("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")) {
