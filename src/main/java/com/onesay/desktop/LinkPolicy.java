@@ -193,7 +193,12 @@ public final class LinkPolicy {
             /** 想用远程消息 / 语音回答确认框（批准只认电脑本机的鼠标 / 键盘点击）。 */
             R_VOICE_APPROVAL_BLOCKED = "voice_approval_blocked",
             /** 付款 / 转账的最后一下（最终支付按钮）只能用户亲手点：远程指令、机器人都不能代点，批了也不行。 */
-            R_PAY_USER_TAP = "pay_needs_user_tap";
+            R_PAY_USER_TAP = "pay_needs_user_tap",
+            /**
+             * [sync-1114 ← 手机 943e4c8] 写法可疑、守卫认不准（shell 引号 / 转义拆词、主机名里有全角 ／ ？ ＃ 或 %2f…）：升级成确认卡，不能被「以后这类不用问」记住。
+             * 手机被控端回这个码时电脑端要能翻成中文（{@link #reasonZh}）。
+             */
+            R_SUSPICIOUS_FORM = "suspicious_form";
 
     /** 确认框多久没人点按拒绝（2026-11-10：30 秒 → 60 秒）；电脑和手机的确认卡同一个数。 */
     public static final long CONFIRM_TIMEOUT_MS = 60000;
@@ -270,6 +275,12 @@ public final class LinkPolicy {
          * 卡上写这一句原因；这类确认不能被「以后这类不用问」记住，记住过的类型也不跳过它。「从不询问」下拒绝（不静默执行）。
          */
         public String suspect = "";
+        /**
+         * [sync-1114 ← 开源 f46e99f] 手机 / 网址写法可疑的原因（引号 / 转义拆开命令、同形字、全角、零宽、编码过的 IP…），给人看的一句话。
+         * 和 {@link #suspect} 同一条原则：本来直接做或可记住的确认，一律改成<b>不能记住</b>的确认卡；硬规则（拒绝 / 只生成脚本）不受影响。
+         * 电脑被控端按 {@link #suspect} 处理（两项都填时原因合在一起），手机被控端回 {@link #R_SUSPICIOUS_FORM}。
+         */
+        public String oddWriting = "";
     }
 
     public static final class Decision {
@@ -389,13 +400,30 @@ public final class LinkPolicy {
      */
     public static Decision decide(Target t, Mode mode, Cat c, Facts f) {
         Decision d = decideCore(t, mode, c, f);
-        if (t != Target.PC || f == null || f.suspect == null || f.suspect.length() == 0) return d;
         if (d.verdict != Verdict.ALLOW && d.verdict != Verdict.CONFIRM) return d; // 拒绝 / 只生成脚本：照旧（硬规则不受影响）
+        if (t == Target.PHONE) {
+            // [sync-1114 ← 开源 f46e99f / 手机 943e4c8] 手机被控端只看 oddWriting（suspect 是电脑自己的事实：8.3 短名、可能联网…，手机不适用）：
+            // 弹手机确认卡，卡上写原因，不带「以后这类不用问」
+            String ow = f == null || f.oddWriting == null ? "" : f.oddWriting.trim();
+            if (ow.length() == 0) return d;
+            return Decision.confirm(R_SUSPICIOUS_FORM, ow + "，守卫认不准，先问你（这类不能记住）" + (d.text.length() > 0 ? "：" + d.text : ""));
+        }
+        String why = suspectWhy(f);
+        if (why.length() == 0) return d;
         if (d.verdict == Verdict.CONFIRM && d.kind.length() == 0 && c == Cat.SHORTCUT) return d; // 快捷指令按内容哈希批准，另有规则
         Approval ap = mode == null ? Mode.DEFAULT.approval : mode.approval;
         String what = d.text.length() > 0 && !d.headsUp ? d.text : "这条指令";
-        if (ap == Approval.NEVER) return denyNever(what + "（" + f.suspect + "）");
-        return new Decision(Verdict.CONFIRM, R_SUSPECT, what + "（" + f.suspect + "）", false, "", false);
+        if (ap == Approval.NEVER) return denyNever(what + "（" + why + "）");
+        return new Decision(Verdict.CONFIRM, R_SUSPECT, what + "（" + why + "）", false, "", false);
+    }
+
+    /** {@link Facts#suspect} 和 {@link Facts#oddWriting} 合起来的原因；都空返回 ""。 */
+    static String suspectWhy(Facts f) {
+        if (f == null) return "";
+        String a = f.suspect == null ? "" : f.suspect.trim(), b = f.oddWriting == null ? "" : f.oddWriting.trim();
+        if (a.length() == 0) return b;
+        if (b.length() == 0 || a.equals(b)) return a;
+        return a + "；" + b;
     }
 
     /** 可疑升级成确认时的原因码（只在确认卡 / 日志里；确认没过时回的仍是 confirm_denied / needs_confirm_timeout）。 */
@@ -449,6 +477,7 @@ public final class LinkPolicy {
         if (c == Cat.OPEN_URL) {
             UrlCheck u = f.url;
             if (u == null || u.malformed) return Decision.deny(R_UNTRUSTED_URL, u == null ? "网址没过检查" : u.why);
+            if (UrlCheck.RISK_SUSPICIOUS.equals(u.risk)) return askReason(ap, R_SUSPICIOUS_FORM, "打开网址：" + u.why); // [sync-1114] 不能记住，从不询问下拒绝
             if (!u.ok) return askOrDenyCode(ap, R_UNTRUSTED_URL, "打开有风险的网址：" + u.why, "pc.url.risky");
             if (u.trusted) return Decision.allow();
             if (ap == Approval.UNTRUSTED) return Decision.ask("打开网址：" + u.shown, "pc.url");
@@ -580,6 +609,9 @@ public final class LinkPolicy {
                     c == Cat.OPEN_APP ? "phone.blocked_app.open" : "phone.blocked_app.uninstall");
         if (c == Cat.OPEN_URL && f.url != null && !f.url.ok) {
             if (f.url.malformed) return Decision.deny(R_UNTRUSTED_URL, f.url.why);
+            if (UrlCheck.RISK_SUSPICIOUS.equals(f.url.risk)) return Decision.confirm(R_SUSPICIOUS_FORM, "打开网址：" + f.url.why); // [sync-1114 ← 手机] 不能记住
+            if (UrlCheck.RISK_IP.equals(f.url.risk) && encodedIp(f.url.host)) // [sync-1114 ← 开源] 编码过的 IP：不能记住的确认
+                return Decision.confirm(R_SUSPICIOUS_FORM, "网址写法可疑：编码过的 IP（" + oneLine(f.url.host) + "），守卫认不准，先问你（这类不能记住）");
             if (UrlCheck.RISK_IP.equals(f.url.risk) || UrlCheck.RISK_PRIVATE.equals(f.url.risk)) return Decision.allow(); // 分档之前就不拦（家里 NAS、路由器）
             return Decision.ask("打开网址：" + f.url.why, "phone.url.risky");
         }
@@ -655,7 +687,9 @@ public final class LinkPolicy {
     /** 屏幕上一个按钮的字是不是付款 / 转账的最后一下（给机器人点屏幕的地方用：这种按钮只能你亲手点）。 */
     public static boolean finalPayLabel(String label) {
         if (label == null) return false;
-        String t = label.replaceAll("[\\s\u00a0\u200b]+", "").toLowerCase(Locale.ROOT);
+        // [sync-1114 ← 开源 f46e99f P1-2] 先用 SafetyText.squash 规范化（NFKC 全角→半角、去零宽 / 格式字符、西里尔 / 希腊同形字→拉丁、繁→简、去空白和分隔标点），
+        // 「確認支付」「Pаy Now」「ＰａｙＮｏｗ」「确认 + U+200D + 支付」都和简体 / 半角写法一样认成付款最后一下。
+        String t = SafetyText.squash(label);
         if (t.length() == 0 || t.length() > 24) return false;
         return FINAL_PAY.matcher(t).find();
     }
@@ -688,7 +722,8 @@ public final class LinkPolicy {
             "(\\bpm\\s+(grant|revoke|set-permission-flags|set-installer)\\b)|(\\bappops\\s+set\\b)|(\\bcmd\\s+appops\\b)"
                     + "|(enabled_accessibility_services)|(accessibility_enabled)|(enabled_notification_listeners)|(\\ballow_listener\\b)"
                     + "|(\\bdpm\\s+set-(active-admin|device-owner|profile-owner))|(\\bcmd\\s+device_policy\\b)"
-                    + "|(\\bshizuku\\b)|(moe\\.shizuku)|(\\bmagisk\\b.*\\b(--sqlite|policy)\\b)|(\\bsupolicy\\b)"
+                    + "|(\\bcmd\\s+package\\s+(grant|revoke|set-permission-flags|set-installer)\\b)" // [sync-1114 ← 手机]
+                    + "|(\\bshizuku\\b)|(moe\\.shizuku)|(\\bmagisk\\b.*(--sqlite\\b|\\bpolic(y|ies)\\b))|(\\bsupolicy\\b)" // [sync-1114 ← 手机] 原 \\b--sqlite 永远匹配不上
                     + "|(\\bAdd-MpPreference\\b)|(\\bicacls\\b)|(\\btakeown\\b)|(\\bSet-Acl\\b)|(\\bnet\\s+localgroup\\b)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PHONE_SIMPLE = Pattern.compile(
@@ -701,6 +736,174 @@ public final class LinkPolicy {
             Pattern.CASE_INSENSITIVE);
     private static final Pattern SYS_APP_OP = Pattern.compile("\\bpm\\s+(uninstall|disable|disable-user|hide|clear|suspend)\\b", Pattern.CASE_INSENSITIVE);
 
+    // ------------------------------------------------------------------ [sync-1114] 手机 sys_exec 的规范化 / 写法可疑（和手机个人版、开源版同源）
+
+    /**
+     * [sync-1114 ← 手机 943e4c8] 手机 sys_exec 只为认红线做的规范化：去掉续行（反斜杠 + 换行）、反斜杠转义、单 / 双引号，{@code cmd package} 当成 {@code pm}。
+     * 不求和 shell 完全一致；认不准的写法另由 {@link #phoneShellSuspicious} 升级成确认卡。
+     */
+    static String phoneShellNormalize(String raw) {
+        String s = raw == null ? "" : raw;
+        if (s.length() > 64 * 1024) s = s.substring(0, 64 * 1024);
+        s = s.replace("\\\r\n", "").replace("\\\n", "");
+        StringBuilder b = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\\') {
+                if (i + 1 < s.length()) b.append(s.charAt(++i));
+                continue;
+            }
+            if (c == '\'' || c == '"') continue;
+            b.append(c);
+        }
+        return b.toString().replaceAll("(?i)\\bcmd\\s+package\\b", "pm");
+    }
+
+    private static final Pattern SUS_EXPAND = Pattern.compile("\\$[A-Za-z_{(@*#?!0-9'\"]|`");
+    private static final Pattern SUS_DECODE = Pattern.compile("\\b(eval|base64|xxd|uudecode|openssl\\s+enc)\\b", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * [sync-1114 ← 手机 943e4c8] 手机个人版 sys_exec 的命令写法可疑、守卫认不准它实际执行什么：返回一句原因，正常写法返回空串。
+     * 可疑 = 有反斜杠（转义 / 续行）、空引号（{@code p''m}）、一个词一半在引号里一半在外（{@code gr'an't}）、变量 / 命令替换（{@code $X}、反引号、{@code $(…)}）、
+     * eval / base64 之类的解码执行。整段放在引号里的参数（{@code -d "https://…"}）不算。手机据此弹不能记住的确认卡。
+     */
+    public static String phoneShellSuspicious(String raw) {
+        String s = raw == null ? "" : raw;
+        if (s.indexOf('\\') >= 0) return "命令里有反斜杠转义 / 续行";
+        if (s.contains("''") || s.contains("\"\"")) return "命令里有空引号拆开的词";
+        if (SUS_EXPAND.matcher(s).find()) return "命令里用了变量或命令替换，看不出真正执行什么";
+        if (SUS_DECODE.matcher(s).find()) return "命令里有 eval / 解码后执行";
+        char q = 0;
+        boolean quoted = false, bare = false;
+        for (int i = 0; i <= s.length(); i++) {
+            char c = i < s.length() ? s.charAt(i) : ' ';
+            if (q != 0) {
+                if (c == q) q = 0;
+                else quoted = true;
+                if (i == s.length()) return "命令里的引号没有配对";
+                continue;
+            }
+            if (c == '\'' || c == '"') {
+                q = c;
+                quoted = true;
+                continue;
+            }
+            if (Character.isWhitespace(c) || ";|&<>()".indexOf(c) >= 0) {
+                if (quoted && bare) return "命令里有被引号拆开的词";
+                quoted = bare = false;
+                continue;
+            }
+            bare = true;
+        }
+        return "";
+    }
+
+    /**
+     * [sync-1114 ← 开源 f46e99f] 手机 shell（sh）命令去引号 / 反斜杠：' 和 " 去掉，反斜杠去掉（它后面的字符留下），空白合成一个空格。只给红线匹配用，不拿去执行。
+     * 「'pm' grant」「p''m grant」「p\\m grant」「pm "grant"」→「pm grant」。
+     */
+    public static String unquoteShell(String raw) {
+        if (raw == null) return "";
+        StringBuilder b = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == '\'' || c == '"') continue;
+            if (c == '\\') {
+                if (i + 1 < raw.length()) b.append(raw.charAt(++i));
+                continue;
+            }
+            b.append(c);
+        }
+        return b.toString().replaceAll("[ \t\u00a0]+", " ").trim();
+    }
+
+    /**
+     * [sync-1114 ← 开源 f46e99f] 开源版手机 shell 命令写法可疑、守卫认不准的原因（给人看，一句话）；正常写法返回 ""。认的写法：
+     * 引号 / 反斜杠把一个词拆开（p''m、gr"a"nt、p\\m）、命令名加引号（'ls'）、零宽 / 格式字符、特殊空格（不换行 / 全角 / 窄空格）、
+     * 全角字母数字、西里尔 / 希腊字母（同形字）、变量或命令替换（$x、${x}、$(…)、反引号：展开后是什么看不准）。
+     */
+    public static String oddShellWriting(String raw) {
+        if (raw == null || raw.length() == 0) return "";
+        boolean quoteSplit = false, invisible = false, oddSpace = false, full = false, homo = false, expand = false;
+        char q = 0; // 当前在哪种引号里（0 = 不在）
+        boolean wordStart = true, cmdPos = true;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            char prev = i > 0 ? raw.charAt(i - 1) : ' ';
+            char next = i + 1 < raw.length() ? raw.charAt(i + 1) : ' ';
+            if (SafetyText.isInvisible(c)) invisible = true;
+            else if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && (Character.isSpaceChar(c) || Character.isWhitespace(c))) oddSpace = true;
+            if (c >= '\uff01' && c <= '\uff5e') full = true;
+            if ((c >= '\u0370' && c <= '\u03ff') || (c >= '\u0400' && c <= '\u052f')) homo = true;
+            if (q == '\'') {
+                if (c == '\'') { q = 0; if (shWordChar(next)) quoteSplit = true; }
+                continue;
+            }
+            if (c == '`') expand = true;
+            if (c == '$' && (next == '(' || next == '{' || next == '\'' || next == '"' || next == '@' || next == '*' || next == '_' || Character.isLetterOrDigit(next)))
+                expand = true;
+            if (q == '"') {
+                if (c == '\\') { i++; continue; }
+                if (c == '"') { q = 0; if (shWordChar(next)) quoteSplit = true; }
+                continue;
+            }
+            if (c == '\'' || c == '"') {
+                if (shWordChar(prev)) quoteSplit = true;
+                if (cmdPos && wordStart) quoteSplit = true; // 命令名本身加了引号
+                q = c;
+                wordStart = false;
+                continue;
+            }
+            if (c == '\\') {
+                if (shWordChar(prev) || shWordChar(next) || (cmdPos && wordStart)) quoteSplit = true;
+                i++;
+                wordStart = false;
+                continue;
+            }
+            if (c == ' ' || c == '\t') { if (!wordStart) cmdPos = false; wordStart = true; continue; }
+            if (c == ';' || c == '|' || c == '&' || c == '\n' || c == '(') { cmdPos = true; wordStart = true; continue; }
+            wordStart = false;
+        }
+        List<String> why = new ArrayList<String>();
+        if (quoteSplit) why.add("引号 / 反斜杠拆分");
+        if (invisible) why.add("夹了零宽 / 不可见字符");
+        if (oddSpace) why.add("用了特殊空格（不换行 / 全角）");
+        if (full) why.add("全角字符");
+        if (homo) why.add("同形字（西里尔 / 希腊字母）");
+        if (expand) why.add("变量 / 命令替换（$、反引号）");
+        return why.isEmpty() ? "" : "命令写法可疑：" + join(why, "、");
+    }
+
+    private static boolean shWordChar(char c) {
+        return c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != ';' && c != '|' && c != '&' && c != '(' && c != ')' && c != '<' && c != '>' && c != '=';
+    }
+
+    /**
+     * [sync-1114] 电脑端预判：一条发给手机的 sys_exec 在手机上会不会因为写法可疑弹不能记住的确认卡。两个手机版本（个人版 / 开源版）的认法取并集：
+     * 任何一边会问的，这里都返回原因（个人版的原因优先）；都不问返回 ""。只是预判（多等手机确认的时间、界面提示），真正的判定在手机上。
+     */
+    public static String phoneCmdSuspect(String raw) {
+        String a = phoneShellSuspicious(raw);
+        return a.length() > 0 ? a : oddShellWriting(raw);
+    }
+
+    /**
+     * [sync-1114 ← 开源 f46e99f] 编码过的 IP 写法（整数 2130706433、十六进制 0x7f.1、八进制 0177.0.0.1、少于 4 段的 127.1）：浏览器会照样解析成 IP，守卫认不准。
+     * 规范的四段十进制和 IPv6 不算。
+     */
+    public static boolean encodedIp(String asciiHost) {
+        if (asciiHost == null || !isIpLiteral(asciiHost)) return false;
+        String h = asciiHost.toLowerCase(Locale.ROOT);
+        if (h.startsWith("[") || h.indexOf(':') >= 0) return false;
+        String[] parts = h.split("\\.", -1);
+        if (parts.length != 4) return true;
+        for (String p : parts) {
+            if (!p.matches("0|[1-9]\\d{0,2}")) return true;
+            if (Integer.parseInt(p) > 255) return true;
+        }
+        return false;
+    }
+
     /** 把一条 shell 命令分类：先认红线（授权），再认电脑 A 类 / 手机简单设置 / 网络安全设置，其余都是 SHELL_EXEC。 */
     public static Cat classifyShell(Target t, String cmd) {
         String s = cmd == null ? "" : cmd;
@@ -712,8 +915,11 @@ public final class LinkPolicy {
             if (adminReason(n).length() > 0 || hkcuElevationReason(n).length() > 0) return Cat.SYSTEM_A;
             return Cat.SHELL_EXEC;
         }
-        if (SELF_GRANT.matcher(s).find()) return Cat.SELF_GRANT;
-        if (SYS_APP_OP.matcher(s).find()) return Cat.SHELL_EXEC; // 卸载 / 停用要走 uninstall_app（系统卸载界面），shell 形式按系统命令处理
+        // [sync-1114 ← 手机 943e4c8 / 开源 f46e99f] shell 会先去掉引号 / 反斜杠 / 续行再执行（'pm' grant、p''m grant、pm \\⏎grant、cmd package grant 都是 pm grant），
+        // 所以红线既看原文，也看两种规范化后的写法（手机版 phoneShellNormalize、开源版 unquoteShell；电脑分支用 normalizeCommand，同一个道理）
+        String pn = phoneShellNormalize(s), un = unquoteShell(s);
+        if (SELF_GRANT.matcher(s).find() || SELF_GRANT.matcher(pn).find() || SELF_GRANT.matcher(un).find()) return Cat.SELF_GRANT;
+        if (SYS_APP_OP.matcher(s).find() || SYS_APP_OP.matcher(pn).find() || SYS_APP_OP.matcher(un).find()) return Cat.SHELL_EXEC; // 卸载 / 停用要走 uninstall_app（系统卸载界面），shell 形式按系统命令处理
         // 多条命令拼接的（; && | 反引号 $()）一律按任意命令处理，不按其中一段放宽
         if (s.matches("(?s).*(;|&&|\\|\\||\\||`|\\$\\(|\\n|>|<).*")) return Cat.SHELL_EXEC;
         if (PHONE_SIMPLE.matcher(s).find()) return Cat.SIMPLE_SETTING;
@@ -1457,6 +1663,8 @@ public final class LinkPolicy {
     public static final class UrlCheck {
         /** 网址有风险的原因（ok = false 且不是 malformed 时）：IP 字面量 / 内网主机 / 带账号密码 / 疑似仿冒。 */
         public static final String RISK_IP = "ip", RISK_PRIVATE = "private", RISK_CREDENTIALS = "credentials", RISK_LOOKALIKE = "lookalike";
+        /** [sync-1114 ← 手机] 主机名写法可疑（全角 ／ ？ ＃ ＠、%2f 之类的编码）：浏览器怎么解释说不准，一律弹确认（不能「以后这类不用问」）。 */
+        public static final String RISK_SUSPICIOUS = "suspicious";
         public final boolean ok, trusted;
         /** 格式就不对（空、太长、控制字符、不是 http / https、主机名不合法…）：这不是风险而是坏输入，任何时候都不开。 */
         public final boolean malformed;
@@ -1512,6 +1720,12 @@ public final class LinkPolicy {
             if (k >= 0 && k < end) end = k;
         }
         String auth = rest.substring(0, end);
+        // [sync-1114 ← 开源 P2-1] 主机 / 端口里的不换行空格、全角空格、窄空格这类 Unicode 空白和零宽 / 格式字符也算坏输入（路径里的照旧交给浏览器）
+        for (int i = 0; i < auth.length(); i++) {
+            char ch = auth.charAt(i);
+            if (Character.isSpaceChar(ch) || Character.isWhitespace(ch) || SafetyText.isInvisible(ch))
+                return UrlCheck.bad("网址的主机部分有空白 / 不可见字符");
+        }
         if (auth.indexOf('@') >= 0) return UrlCheck.risky(UrlCheck.RISK_CREDENTIALS, "", auth.substring(auth.lastIndexOf('@') + 1), "网址里带了账号密码（user:pass@）");
         String hostPort = auth;
         String host;
@@ -1523,9 +1737,12 @@ public final class LinkPolicy {
             int pc = hostPort.lastIndexOf(':');
             host = pc >= 0 ? hostPort.substring(0, pc) : hostPort;
             if (pc >= 0 && !hostPort.substring(pc + 1).matches("\\d{0,5}")) return UrlCheck.bad("端口不对");
+            if (pc >= 0 && hostPort.length() > pc + 1 && Integer.parseInt(hostPort.substring(pc + 1)) > 65535) return UrlCheck.bad("端口不对（超过 65535）"); // [sync-1114 ← 开源]
         }
         while (host.endsWith(".")) host = host.substring(0, host.length() - 1);
         if (host.length() == 0) return UrlCheck.bad("网址里没有主机名");
+        String odd = host.startsWith("[") ? null : oddHostChar(host); // [sync-1114 ← 手机] IPv6 的 %25zone 不算
+        if (odd != null) return UrlCheck.risky(UrlCheck.RISK_SUSPICIOUS, "", oneLine(host), "主机名里有" + odd + "，浏览器可能把它当成别的网站，守卫认不准");
         String ascii;
         try {
             ascii = IDN.toASCII(host, IDN.ALLOW_UNASSIGNED).toLowerCase(Locale.ROOT);
@@ -1544,6 +1761,8 @@ public final class LinkPolicy {
         } catch (Exception e) {
             // 路径部分有 URI 不收的字符：交给浏览器，但主机部分已经检查过
         }
+        if (!ascii.startsWith("[") && !ascii.matches("[a-z0-9._-]+")) // [sync-1114 ← 手机]
+            return UrlCheck.risky(UrlCheck.RISK_SUSPICIOUS, ascii, oneLine(ascii), "主机名规范化后有不该出现的字符（" + oneLine(ascii) + "），守卫认不准");
         boolean trusted = trustedHost(ascii, trustedDomains);
         if (isIpLiteral(ascii) && !trusted) return UrlCheck.risky(UrlCheck.RISK_IP, ascii, ascii, "是 IP 地址网址（" + ascii + "），不在信任列表");
         if (isPrivateHost(ascii) && !trusted) return UrlCheck.risky(UrlCheck.RISK_PRIVATE, ascii, ascii, "是内网 / 本机地址（" + ascii + "），不在信任列表");
@@ -1551,6 +1770,17 @@ public final class LinkPolicy {
         if (look != null) return UrlCheck.risky(UrlCheck.RISK_LOOKALIKE, ascii, uni + "（" + ascii + "）", "疑似仿冒域名（" + look + "）：" + uni + "（" + ascii + "）");
         String shown = uni.equals(ascii) ? ascii : uni + "（" + ascii + "）";
         return new UrlCheck(true, trusted, ascii, shown, "");
+    }
+
+    /** [sync-1114 ← 手机] 主机名里会被浏览器当成分隔符的全角 / 编码写法：返回给人看的说法，没有返回 null。 */
+    static String oddHostChar(String host) {
+        if (host.indexOf('%') >= 0) return "百分号编码（如 %2f）";
+        for (int i = 0; i < host.length(); i++) {
+            char c = host.charAt(i);
+            if (c == '\uff0f' || c == '\u2215' || c == '\u2044' || c == '\uff3c') return "全角 / 变体斜杠「" + c + "」";
+            if (c == '\uff1f' || c == '\uff03' || c == '\uff20' || c == '\ufe56' || c == '\ufe5f' || c == '\ufe6b') return "全角符号「" + c + "」";
+        }
+        return null;
     }
 
     /** 主机是否在信任列表里（等于某个信任域名，或是它的子域）。列表项可写成 *.example.com / example.com / https://example.com/。 */
@@ -1957,6 +2187,7 @@ public final class LinkPolicy {
     public static String reasonZh(String code) {
         if (R_DENIED_BY_LEVEL.equals(code)) return "执行级别不允许";
         if (R_SUSPECT.equals(code)) return "写法可疑、认不准，要你在电脑上确认（不能「以后这类不用问」）";
+        if (R_SUSPICIOUS_FORM.equals(code)) return "写法可疑，守卫认不准，需要你确认";
         if (R_CONFIRM_TIMEOUT.equals(code)) return "对方 60 秒内没确认，已拒绝";
         if (R_CONFIRM_DENIED.equals(code)) return "对方点了拒绝";
         if (R_UNTRUSTED_URL.equals(code)) return "网址没通过安全检查";

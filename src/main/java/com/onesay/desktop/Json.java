@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 /** 极简 JSON：解析为 Map(TreeMap)/List/String/Long/Double/Boolean/null；输出时键按字典序，便于签名规范化。 */
 public final class Json {
@@ -84,6 +85,10 @@ public final class Json {
         }
         sb.append('"');
     }
+
+    /** [sync-1114] JSON 数字语法：-?(0|[1-9]数字*)(.数字+)?([eE][+-]?数字+)?；和手机 PcJson 同一条。 */
+    private static final Pattern NUMBER = Pattern.compile("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?");
+    private static final Pattern HEX4 = Pattern.compile("[0-9A-Fa-f]{4}");
 
     private static final class P {
         final String s;
@@ -167,7 +172,8 @@ public final class Json {
                         case 'b': sb.append('\b'); break;
                         case 'f': sb.append('\f'); break;
                         case 'u':
-                            if (i + 4 > s.length()) throw new IllegalArgumentException("bad \\u");
+                            // [sync-1114 ← 手机 / 开源 P2] 必须正好 4 位十六进制（parseInt 会收 +041、-001 这种，JSON 不收）
+                            if (i + 4 > s.length() || !HEX4.matcher(s.substring(i, i + 4)).matches()) throw new IllegalArgumentException("bad \\u");
                             sb.append((char) Integer.parseInt(s.substring(i, i + 4), 16));
                             i += 4;
                             break;
@@ -182,11 +188,14 @@ public final class Json {
             if (peek() == '-') i++;
             while (i < s.length() && "0123456789.eE+-".indexOf(s.charAt(i)) >= 0) i++;
             String t = s.substring(st, i);
-            if (t.isEmpty() || t.equals("-")) throw new IllegalArgumentException("bad value at " + st);
+            // [sync-1114 ← 手机 / 开源 P2] 只收 RFC 8259 的数字写法（不收 01、+1、.5、1.），超出 double 范围（1e400）当坏数据，不变成 Infinity
+            if (!NUMBER.matcher(t).matches()) throw new IllegalArgumentException("bad value at " + st);
             if (t.indexOf('.') < 0 && t.indexOf('e') < 0 && t.indexOf('E') < 0) {
                 try { return Long.parseLong(t); } catch (NumberFormatException ignored) { }
             }
-            return Double.parseDouble(t);
+            double d = Double.parseDouble(t);
+            if (Double.isNaN(d) || Double.isInfinite(d)) throw new IllegalArgumentException("non-finite number at " + st);
+            return d;
         }
     }
 }

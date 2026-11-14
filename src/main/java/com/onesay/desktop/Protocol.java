@@ -115,7 +115,12 @@ public final class Protocol {
         if (!(sig instanceof String)) return Check.NO_SIG;
         TreeMap<String, Object> b = new TreeMap<>(body);
         b.remove("sig");
-        String want = sign(key, id, from, to, b);
+        String want;
+        try {
+            want = sign(key, id, from, to, b);
+        } catch (RuntimeException e) {
+            return Check.BAD_SIG; // [sync-1114 ← 手机 / 开源] 签不出来（Infinity / NaN 这种 JSON 写不出的值）= 不是合法报文，不抛给收帧循环
+        }
         if (!MessageDigest.isEqual(want.getBytes(StandardCharsets.US_ASCII), ((String) sig).getBytes(StandardCharsets.US_ASCII))) return Check.BAD_SIG;
         Object v = body.get("v");
         if (!(v instanceof Number) || ((Number) v).intValue() != VERSION) return Check.BAD_VERSION;

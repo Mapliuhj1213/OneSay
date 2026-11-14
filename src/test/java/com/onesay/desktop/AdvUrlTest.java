@@ -154,6 +154,12 @@ public class AdvUrlTest {
                 else if (CRED.equals(expect) || LOOK.equals(expect)) {
                     assertEquals(name, LinkPolicy.Verdict.CONFIRM, d.verdict);
                     assertEquals("phone.url.risky", d.kind);
+                } else if (f.url != null && LinkPolicy.UrlCheck.RISK_IP.equals(f.url.risk) && LinkPolicy.encodedIp(f.url.host)) {
+                    // [sync-1114] 按用户 11-14 原则（写法可疑的一律弹确认）和开源版 f46e99f 的 AdvUrlCheckTest 同步改期望：编码过的 IP（2130706433、0177.0.0.1…）
+                    // 手机端从「放行」改成「弹不能记住的确认卡」。只会更严；规范四段 IP / IPv6 / 内网照旧放行（下一支）。
+                    assertEquals(name + "（编码 IP 改成确认）", LinkPolicy.Verdict.CONFIRM, d.verdict);
+                    assertFalse(name, d.rememberable());
+                    assertEquals(name, LinkPolicy.R_SUSPICIOUS_FORM, d.reason);
                 } else assertEquals(name + "（手机上 IP / 内网不拦）", LinkPolicy.Verdict.ALLOW, d.verdict);
                 break;
             }

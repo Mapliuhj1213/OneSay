@@ -62,6 +62,7 @@ public final class MediaArgs {
             String what = Character.isWhitespace(c) ? "空格 / 换行" : c < 0x20 || c == 0x7f ? "控制字符" : "「" + c + "」";
             return "链接里有" + what + "，为防注入不接受";
         }
+        if (invisible(raw)) return "链接里有看不见的字符或文字方向控制符，为防伪装不接受";
         String low = raw.toLowerCase(Locale.ROOT);
         if (!low.startsWith("http://") && !low.startsWith("https://")) return "只接受 http / https 链接";
         URI u;
@@ -77,19 +78,40 @@ public final class MediaArgs {
     }
 
     /**
+     * [sync-1114 ← 手机 943e4c8 P2-5] 看不见 / 改文字方向的字符（零宽、软连字符、BOM、RLO / LRI…）和非 ASCII 空白：确认卡上的链接可能被它们伪装
+     * （RLO 把 gnp.4pm 显示成 mp4.png）。和手机 PcMedia.checkUrl、本仓 LinkPolicy.checkUrl 一样拒收。
+     */
+    static boolean invisible(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            int t = Character.getType(c);
+            if (t == Character.FORMAT || t == Character.CONTROL || t == Character.SPACE_SEPARATOR || t == Character.LINE_SEPARATOR
+                    || t == Character.PARAGRAPH_SEPARATOR || c == '\u115f' || c == '\u1160' || c == '\u3164' || c == '\uffa0') return true;
+        }
+        return false;
+    }
+
+    /**
+     * [sync-1114 ← 开源 f46e99f P2-2] 中文分享里包住链接的引号 / 书名号（“” ‘’ 《》 『』 〈〉 「」）、全角冒号、不换行 / 全角空格、零宽字符和
+     * 文字方向控制符（RLO、LRI…）都是链接的边界，不带进链接。开源版范围之外多切了 U+2066–206F（方向隔离符等），这些留在链接里 checkUrl 也会拒。
+     */
+    static final Pattern TIDY_URL = Pattern.compile(
+            "(?i)https?://[^\\s\\u00a0\\u2000-\\u200f\\u2028-\\u202f\\u205f-\\u2064\\u2066-\\u206f\\u3000\\ufeff\"'<>`，。！？、；：）】」“”‘’《》『』〈〉「]+");
+
+    /**
      * 分享文字 / 语音 / 输入框里拿到的一段文字 → 第一个 http(s) 链接，去掉 # 片段（只在浏览器里用，不发给网站）和明显的来源跟踪参数
      * （utm_*、spm、spm_id_from、fbclid、gclid、igshid），其余查询参数（如 YouTube 的 &amp;t=10、&amp;list=）原样保留，再过 {@link #checkUrl}。
      * 这是界面上的整理，整理后的链接会显示给你看；下载端照样按 {@link #checkUrl} 严格检查。没有返回 null。
      */
     public static String tidy(String text) {
         if (text == null) return null;
-        Matcher m = Pattern.compile("(?i)https?://[^\\s\"'<>`，。！？、；）】」]+").matcher(text);
+        Matcher m = TIDY_URL.matcher(text);
         if (!m.find()) return null;
         String u = m.group();
         int hash = u.indexOf('#');
         if (hash >= 0) u = u.substring(0, hash);
         u = dropTracking(u);
-        while (u.endsWith("?") || u.endsWith("&") || u.endsWith(".") || u.endsWith(",")) u = u.substring(0, u.length() - 1);
+        while (u.length() > 0 && "?&.,…".indexOf(u.charAt(u.length() - 1)) >= 0) u = u.substring(0, u.length() - 1); // [sync-1114 ← 开源] 加了「…」
         return u.isEmpty() ? null : u;
     }
 
