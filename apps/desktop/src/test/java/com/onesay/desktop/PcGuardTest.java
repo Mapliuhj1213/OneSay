@@ -1,0 +1,332 @@
+package com.onesay.desktop;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+import org.junit.Test;
+
+/** link-v2 · 电脑作为被控端：严格矩阵、A 类只生成脚本、给自己授权只生成脚本、确认超时、工作区越界、端到端（手机→电脑）原因码。 */
+public class PcGuardTest {
+
+    static final LinkPolicy.Verdict A = LinkPolicy.Verdict.ALLOW, C = LinkPolicy.Verdict.CONFIRM, D = LinkPolicy.Verdict.DENY, S = LinkPolicy.Verdict.SCRIPT;
+
+    static final class Stub implements PcGuard.Confirmer {
+        int answer = PcGuard.TIMEOUT;
+        final List<String> asked = new ArrayList<>();
+
+        @Override public int ask(String from, String cmd, String detail, long timeoutMs) {
+            asked.add(cmd + "|" + detail);
+            assertEquals(PcGuard.CONFIRM_MS, timeoutMs); // [approve-not-block] 30 秒 → 60 秒（方案 4）
+            return answer;
+        }
+    }
+
+    static Config cfg(String level) throws Exception {
+        Config c = new Config(Files.createTempFile("pcg", ".properties"));
+        c.deviceId = "pc-g";
+        c.pairKey = Protocol.newKey();
+        c.pcLevel = level;
+        c.workspaceDir = Files.createTempDirectory("pcws").toFile().getCanonicalPath();
+        return c;
+    }
+
+    static Map<String, Object> m(Object... kv) {
+        Map<String, Object> x = new TreeMap<>();
+        for (int i = 0; i < kv.length; i += 2) x.put((String) kv[i], kv[i + 1]);
+        return x;
+    }
+
+    static String reason(PcGuard.Outcome o) {
+        return o.reply == null ? "" : String.valueOf(o.reply.data.get("reason"));
+    }
+
+    @Test public void strictPcMatrix() {
+        LinkPolicy.Target t = LinkPolicy.Target.PC;
+        Object[][] rows = {
+                {LinkPolicy.Cat.QUERY, A, A, A}, {LinkPolicy.Cat.READ_PRIVATE, D, A, A}, {LinkPolicy.Cat.HARMLESS, D, A, A},
+                {LinkPolicy.Cat.SIMPLE_SETTING, D, C, C}, {LinkPolicy.Cat.POWER, D, C, C}, {LinkPolicy.Cat.SYSTEM_A, S, S, S},
+                // [两轴] 改：只读档不再生成脚本（只读 = 什么都不写，B.4）→ D；完全访问档按当前用户权限放行（B.4）：命令先确认、工作区外写入直接写
+                // [第二轮] 改：工作区可写档（旧「自动」）的命令、工作区外写入、跑工作区脚本从「只生成脚本 / 拒绝」改成「确认后按你自己的权限执行」（用户决定 1）
+                {LinkPolicy.Cat.NET_SEC_SETTING, S, S, S}, {LinkPolicy.Cat.SHELL_EXEC, D, C, C}, {LinkPolicy.Cat.OUTSIDE_WRITE, D, C, A},
+                {LinkPolicy.Cat.OPEN_APP, D, A, A}, {LinkPolicy.Cat.WORKSPACE_WRITE, D, A, A}, {LinkPolicy.Cat.UNINSTALL_APP, D, C, C},
+                {LinkPolicy.Cat.APP_OPERATE, D, D, A}, {LinkPolicy.Cat.RUN_WS_SCRIPT, D, C, C}, {LinkPolicy.Cat.SELF_GRANT, S, S, S},
+                // [approve-not-block] 改：系统程序从「任何档位拒」改成「问你」（只读档照旧拒）（方案 1/3）
+                {LinkPolicy.Cat.SYSTEM_APP_OP, D, C, C}, {LinkPolicy.Cat.UNKNOWN, D, D, D},
+                {LinkPolicy.Cat.SHORTCUT, D, D, D}}; // 没有事实 = 不在快捷指令列表里 → 一律拒
+        for (Object[] r : rows) {
+            int i = 1;
+            for (LinkPolicy.Level l : LinkPolicy.Level.values()) {
+                assertEquals(r[0] + " " + l, r[i++], LinkPolicy.decide(t, l, (LinkPolicy.Cat) r[0], new LinkPolicy.Facts()).verdict);
+            }
+        }
+        // 电脑端所有已有能力都登记了类别（没登记的会被一律拒绝）
+        for (String cap : new String[]{"ping", "caps", "info", "screenshot", "clipboard_get", "clipboard_set", "file_get", "file_list", "lock", "media",
+                "open_app", "open_url", "shortcut_list", "shortcut_run", "shutdown", "shutdown_abort", "sleep", "volume", "notify", "memory_sync", "echo"})
+            assertFalse(cap, LinkPolicy.pcCat(cap) == LinkPolicy.Cat.UNKNOWN);
+    }
+
+    @Test public void guardDecisionsAuto() throws Exception {
+        Config c = cfg("auto");
+        Stub st = new Stub();
+        PcGuard g = new PcGuard(c, st);
+        assertNull(g.check("phone", "ping", null).reply);
+        assertNull(g.check("phone", "screenshot", null).reply);
+        assertNull(g.check("phone", "echo", m("text", "x")).reply);
+        assertEquals(LinkPolicy.R_UNKNOWN, reason(g.check("phone", "format_c", null)));
+
+        // B 类：音量要电脑上确认；30 秒没人点 = 拒绝
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "volume", m("action", "up"))));
+        assertTrue(st.asked.get(0), st.asked.get(0).startsWith("volume|phone 请求："));
+        st.answer = PcGuard.DENY;
+        assertEquals(LinkPolicy.R_CONFIRM_DENIED, reason(g.check("phone", "shutdown", m("confirm", true))));
+        st.answer = PcGuard.ALLOW;
+        assertNull(g.check("phone", "sleep", m("confirm", true)).reply);
+
+        // 快捷指令单独一类：列表里没有的不认；有但没批准的先问（没人点 = 不执行）
+        assertEquals(LinkPolicy.R_UNKNOWN, reason(g.check("phone", "shortcut_run", m("name", "x"))));
+        c.scriptsDir = Files.createTempDirectory("pcsc-auto").toString();
+        Files.writeString(Path.of(c.scriptsDir, "x.ps1"), "Start-Process notepad");
+        int asked0 = st.asked.size(), ans0 = st.answer;
+        st.answer = PcGuard.TIMEOUT;
+        assertEquals(LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL, reason(g.check("phone", "shortcut_run", m("name", "x"))));
+        assertEquals(asked0 + 1, st.asked.size());
+        st.answer = ans0;
+        assertTrue(g.approvals().isEmpty());
+        assertEquals(LinkPolicy.R_DENIED_BY_LEVEL, reason(g.check("phone", "app_close", m("name", "notepad"))));
+
+        // 网址 / 剪贴板信任检查
+        // [approve-not-block] 改：IP 网址从 untrusted_url 拒绝改成「问你」（没人点 = needs_confirm_timeout），确认框写明原因（方案 1/3）
+        st.answer = PcGuard.TIMEOUT;
+        int n0 = st.asked.size();
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "open_url", m("url", "http://127.0.0.1:8080/"))));
+        assertTrue(st.asked.get(n0), st.asked.get(n0).contains("IP"));
+        assertEquals(LinkPolicy.R_UNTRUSTED_URL, reason(g.check("phone", "open_url", m("url", "file:///C:/Windows/System32/calc.exe"))));
+        int n = st.asked.size();
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "open_url", m("url", "https://example.org/"))));
+        assertTrue("确认框显示域名", st.asked.get(n).contains("example.org"));
+        c.trusted = "example.org";
+        assertNull(g.check("phone", "open_url", m("url", "https://www.example.org/x")).reply);
+        // [approve-not-block] 改：像命令的剪贴板、支付 / 密码类程序从直接拒（clipboard_rejected / blocked_app）改成「问你」（没人点 = needs_confirm_timeout）（方案 1/2/3）
+        st.answer = PcGuard.TIMEOUT;
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "clipboard_set", m("text", "powershell -enc AAAA"))));
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "open_app", m("name", "支付宝"))));
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "open_app", m("name", "x", "path", "C:\\Program Files\\KeePassXC\\KeePassXC.exe"))));
+        assertEquals("电脑带来的下划线参数被丢掉", null, g.check("phone", "echo", m("_from", "spoof")).args.get("_from"));
+        Map<String, Object> d = g.decorate(null);
+        assertEquals("auto", d.get("level"));
+    }
+
+    @Test public void categoryAIsScriptOnlyAtEveryLevelAndNeverExecuted() throws Exception {
+        String[] cmds = {"reg add HKLM\\Software\\Policies\\X /v Y /t REG_DWORD /d 1 /f", "netsh advfirewall set allprofiles state off",
+                "Set-DnsClientServerAddress -InterfaceIndex 12 -ServerAddresses 1.1.1.1", "sc config WinDefend start= disabled",
+                "notepad C:\\Windows\\System32\\drivers\\etc\\hosts", "netsh wlan connect name=Cafe", "pnputil /add-driver evil.inf /install"};
+        for (LinkPolicy.Level l : LinkPolicy.Level.values()) {
+            Config c = cfg(l.id);
+            Stub st = new Stub();
+            st.answer = PcGuard.ALLOW; // 就算有人点允许也不该被问到
+            PcGuard g = new PcGuard(c, st);
+            List<String> notes = new ArrayList<>();
+            g.notify = notes::add;
+            for (String cmd : cmds) {
+                PcGuard.Outcome o = g.check("phone", "sys_exec", m("command", cmd));
+                // [插件] 改：原因码 script_generated → needs_admin_script（B.2 / B.10），仍是只生成脚本、不问、不执行
+                assertEquals(l + " " + cmd, LinkPolicy.R_NEEDS_ADMIN_SCRIPT, reason(o));
+                assertFalse(o.reply.ok);
+                String rel = String.valueOf(o.reply.data.get("path"));
+                File f = new File(c.workspaceDir, rel);
+                assertTrue(rel, rel.startsWith("scripts/") && rel.endsWith(".ps1") && f.isFile());
+                String body = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+                assertTrue("BOM + 中文头注释", body.startsWith("\uFEFF# 由 OneSay 远程指令生成，没有执行"));
+                assertTrue(body.contains(cmd));
+                assertTrue(o.reply.text, o.reply.text.contains("已生成脚本，需你自己用管理员身份执行"));
+            }
+            assertEquals("A 类从不问、从不执行", 0, st.asked.size());
+            assertEquals(cmds.length, notes.size());
+            // [两轴] 删：原来「builtin 也不执行系统命令」—— 完全访问档确认后要真的执行普通命令（B.4），builtin 现在会执行；
+            // 不执行的保证改由判定层负责（上面 A 类从不问、从不执行），另见 PcPluginTest.adminNeverReachesExecutor
+        }
+    }
+
+    @Test public void selfGrantRefusedAtAllLevels() throws Exception {
+        String[] cmds = {"icacls C:\\Users\\me\\OneSay /grant Everyone:F", "Add-MpPreference -ExclusionPath C:\\Users\\me\\OneSay",
+                "net localgroup administrators onesay /add", "takeown /f C:\\Windows\\System32\\x.dll", "pm grant com.onesay.assistant android.permission.READ_SMS",
+                "appops set com.onesay.assistant SYSTEM_ALERT_WINDOW allow", "dpm set-active-admin com.onesay/.Admin"};
+        for (LinkPolicy.Level l : LinkPolicy.Level.values()) {
+            PcGuard g = new PcGuard(cfg(l.id), new Stub());
+            for (String cmd : cmds) {
+                assertEquals(cmd, LinkPolicy.Cat.SELF_GRANT, LinkPolicy.classifyShell(LinkPolicy.Target.PC, cmd));
+                // [插件] 改：原因码从 script_generated 换成新的 needs_admin_script（B.10），结论仍是只生成脚本
+                assertEquals(l + " " + cmd, LinkPolicy.R_NEEDS_ADMIN_SCRIPT, reason(g.check("phone", "sys_exec", m("command", cmd))));
+            }
+        }
+    }
+
+    @Test public void fullAccessOnlyAddsWorkspaceScriptsAndThirdPartyApps() throws Exception {
+        Config c = cfg("full");
+        Stub st = new Stub();
+        PcGuard g = new PcGuard(c, st);
+        st.answer = PcGuard.TIMEOUT;
+        assertEquals("完全访问运行脚本仍每次确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "script_run", m("name", "x"))));
+        assertTrue(st.asked.get(0).contains("运行工作区脚本"));
+        assertEquals("快捷指令列表里没有的完全访问也不认", LinkPolicy.R_UNKNOWN, reason(g.check("phone", "shortcut_run", m("name", "x"))));
+        assertEquals(1, st.asked.size());
+        assertNull(g.check("phone", "app_close", m("name", "notepad")).reply);
+        // [approve-not-block] 改：系统程序从 system_app 直接拒改成「问你」（没人点 = needs_confirm_timeout）（方案 1/3）
+        assertEquals(LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "app_close", m("name", "explorer"))));
+        assertEquals("B 类在完全访问也要确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "volume", m("action", "mute"))));
+        // [插件] 改：例子从 HKCU 换成 HKLM —— HKCU 普通键现在放开（B.3），要管理员的仍只生成脚本（原因码 needs_admin_script）
+        assertEquals("要管理员的完全访问也不放开", LinkPolicy.R_NEEDS_ADMIN_SCRIPT, reason(g.check("phone", "sys_exec", m("command", "reg delete HKLM\\SOFTWARE\\X /f"))));
+        // [两轴] 改：完全访问档普通命令按当前用户权限执行，先确认（B.4）；原来是「只生成脚本」
+        assertEquals("普通命令完全访问先确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "sys_exec", m("command", "dir C:\\"))));
+        assertEquals("HKCU 普通键完全访问先确认", LinkPolicy.R_CONFIRM_TIMEOUT, reason(g.check("phone", "sys_exec", m("command", "reg delete HKCU\\X /f"))));
+        // [两轴] 改：完全访问档写工作区以外按 Windows ACL 放行（B.4）；原来是「只生成脚本」
+        assertNull("完全访问写工作区外放行（由 Windows 权限把关）", g.check("phone", "file_write", m("path", "C:\\Windows\\x.txt", "text", "x")).reply);
+        List<String> heads = new ArrayList<>();
+        g.notify = heads::add;
+        assertNull(g.check("phone", "open_url", m("url", "https://example.net/")).reply);
+        assertEquals("不在信任列表：提醒一下", 1, heads.size());
+    }
+
+    @Test public void readOnly() throws Exception {
+        PcGuard g = new PcGuard(cfg("read_only"), new Stub());
+        assertNull(g.check("phone", "ping", null).reply);
+        assertNull(g.check("phone", "info", null).reply);
+        assertNull(g.check("phone", "caps", null).reply);
+        for (String c : new String[]{"screenshot", "lock", "media", "open_url", "open_app", "clipboard_set", "file_write"})
+            assertEquals(c, LinkPolicy.R_DENIED_BY_LEVEL, reason(g.check("phone", c, m("url", "https://a.com", "name", "x", "text", "x", "path", "a.txt"))));
+        assertEquals("read_only", g.decorate(null).get("level"));
+    }
+
+    @Test public void workspaceWritesAndContainment() throws Exception {
+        Config c = cfg("auto");
+        PcGuard g = new PcGuard(c, new Stub());
+        assertNull(g.check("phone", "file_write", m("path", "notes/todo.txt", "text", "买牛奶")).reply);
+        assertTrue(g.builtin("file_write", m("path", "notes/todo.txt", "text", "买牛奶")).ok);
+        assertEquals("买牛奶", Files.readString(Path.of(c.workspaceDir, "notes", "todo.txt")));
+        for (String bad : new String[]{"../evil.txt", "notes/../../evil.txt", "C:\\Windows\\win.ini", "C:evil.txt", "\\\\server\\share\\x.txt", "//server/share/x",
+                "\\\\?\\C:\\x", "/etc/passwd", "NUL", "a.txt:ads"}) {
+            assertEquals(bad, LinkPolicy.Cat.OUTSIDE_WRITE, PcGuard.category("file_write", m("path", bad), new File(c.workspaceDir)));
+            // [插件] 改：UNC（\\\\server、//server）现在先被「沙箱默认断网」拦（plugin_blocked）
+            // [第二轮] 改：其余从「只生成脚本」改成「先在电脑上确认」（Stub 不点 = 超时拒绝，没写进去）（用户决定 1）
+            String want = bad.startsWith("\\\\server") || bad.startsWith("//server") ? LinkPolicy.R_PLUGIN_BLOCKED : LinkPolicy.R_CONFIRM_TIMEOUT;
+            assertEquals(bad, want, reason(g.check("phone", "file_write", m("path", bad, "text", "x"))));
+            assertFalse(g.builtin("file_write", m("path", bad, "text", "x")).ok);
+        }
+        assertFalse(new File(new File(c.workspaceDir).getParentFile(), "evil.txt").exists());
+        // 符号链接跳出工作区
+        Path outside = Files.createTempDirectory("pcout");
+        try {
+            Files.createSymbolicLink(Path.of(c.workspaceDir, "out"), outside);
+            assertEquals(LinkPolicy.Cat.OUTSIDE_WRITE, PcGuard.category("file_write", m("path", "out/x.txt"), new File(c.workspaceDir)));
+            assertFalse(g.builtin("file_write", m("path", "out/x.txt", "text", "x")).ok);
+            assertFalse(Files.exists(outside.resolve("x.txt")));
+        } catch (UnsupportedOperationException | java.io.IOException e) {
+            // 文件系统不支持符号链接：跳过这一段
+        }
+        Map<String, Object> ls = g.builtin("script_list", m()).data;
+        assertNotNull(ls.get("scripts"));
+        assertFalse(g.builtin("script_run", m("name", "../x.ps1")).ok);
+        assertFalse(g.builtin("script_run", m("name", "nope.ps1")).ok);
+    }
+
+    @Test public void workspaceDefaultPath() throws Exception {
+        assertEquals("C:\\Users\\me\\OneSay\\workspace", LinkPolicy.pcWorkspaceDir("C:\\Users\\me", "C:\\ProgramData"));
+        assertEquals("C:\\ProgramData\\OneSay\\workspace", LinkPolicy.pcWorkspaceDir("C:\\Users\\王小明", "C:\\ProgramData"));
+        Config c = new Config(Files.createTempFile("pcw", ".properties"));
+        c.workspaceDir = "";
+        assertTrue(c.workspace().toString().replace('\\', '/').endsWith("OneSay/workspace"));
+        c.pcLevel = "full";
+        c.trusted = "a.com,b.com";
+        c.save();
+        Config back = Config.load(c.file);
+        assertEquals("full", back.pcLevel);
+        assertEquals("a.com,b.com", back.trusted);
+        assertEquals("默认 自动", "auto", new Config(Files.createTempFile("pcw2", ".properties")).pcLevel);
+    }
+
+    @Test public void confirmsRegistryTimeoutIsDeny() throws Exception {
+        PcGuard.Confirms cf = new PcGuard.Confirms();
+        long t0 = System.currentTimeMillis();
+        assertEquals(PcGuard.TIMEOUT, cf.ask("phone", "volume", "调音量", 200));
+        assertTrue(System.currentTimeMillis() - t0 >= 150);
+        assertEquals(0, cf.list().size());
+        Thread t = new Thread(() -> {
+            for (int i = 0; i < 100 && cf.list().isEmpty(); i++) try { Thread.sleep(10); } catch (InterruptedException ignored) { }
+            Map<?, ?> x = (Map<?, ?>) cf.list().get(0);
+            assertEquals("调音量", x.get("detail"));
+            // [确认框防误点] 改：先让界面报「已显示」并等过 0.7 秒再点（只改点击方式，断言不变）
+            ApprovalGuardTest.click(cf, ((Number) x.get("id")).intValue(), true, false);
+        });
+        t.start();
+        assertEquals(PcGuard.ALLOW, cf.ask("phone", "volume", "调音量", 5000));
+        t.join();
+        assertFalse("过期的编号不能再点", cf.resolve(1, true));
+    }
+
+    /** 端到端：手机（另一端）经局域网下令，电脑回带原因码的签名结果。 */
+    @Test public void endToEndReasonCodes() throws Exception {
+        int port = LanTest.freePortPair();
+        Config pcCfg = LanTest.pc(port);
+        pcCfg.workspaceDir = Files.createTempDirectory("pcws-e2e").toFile().getCanonicalPath();
+        StringBuilder log = new StringBuilder();
+        Agent agent = new Agent(pcCfg, new Main.TestActions(), s -> { synchronized (log) { log.append(s).append('\n'); } });
+        agent.confirms.onNew = d -> { };
+        agent.start();
+        Thread.sleep(300);
+        Path out = Files.createTempDirectory("e2e");
+        try {
+            Config cli = LanTest.client(pcCfg, "127.0.0.1:" + port);
+            assertEquals(0, Cli.send(cli, "pc-lan", "echo", m("text", "hi"), out, 10));
+            // [第二轮] 改：工作区可写档下普通命令现在要先确认后执行；这里换成要管理员的命令，测「只生成脚本 = 没执行」这条路（needs_admin_script）
+            assertEquals("要管理员的命令只生成脚本 = 没执行", 1, Cli.send(cli, "pc-lan", "sys_exec", m("command", "reg add HKLM\\Software\\X /f"), out, 10));
+            File[] sc = new File(pcCfg.workspaceDir, "scripts").listFiles();
+            assertNotNull(sc);
+            assertEquals(1, sc.length);
+            assertEquals("列表里没有的快捷指令不跑", 1, Cli.send(cli, "pc-lan", "shortcut_run", m("name", "x"), out, 10));
+            // [approve-not-block] 改：内网 IP 现在走确认（会等 60 秒），这里换成格式不对的网址测 untrusted_url 这条路（方案 1/3）
+            assertEquals(1, Cli.send(cli, "pc-lan", "open_url", m("url", "http:///x"), out, 10));
+            assertEquals(0, Cli.send(cli, "pc-lan", "file_write", m("path", "inbox/a.txt", "text", "来自手机"), out, 10));
+            assertEquals("来自手机", Files.readString(Path.of(pcCfg.workspaceDir, "inbox", "a.txt")));
+            String l = log.toString();
+            assertTrue(l, l.contains("没执行 sys_exec") && l.contains(LinkPolicy.R_NEEDS_ADMIN_SCRIPT)); // [第二轮] 改：同上，原因码 script_generated → needs_admin_script
+            assertTrue(l, l.contains("没执行 shortcut_run") && l.contains(LinkPolicy.R_UNKNOWN));
+            assertTrue(l, l.contains(LinkPolicy.R_UNTRUSTED_URL));
+        } finally {
+            agent.stop();
+        }
+    }
+
+    @Test public void reasonTextForChat() {
+        Map<String, Object> d = new TreeMap<>();
+        d.put("reason", LinkPolicy.R_CONFIRM_TIMEOUT);
+        // [approve-not-block] 改：原因码说明 30 秒 → 60 秒（方案 4）
+        assertEquals("手机上 60 秒没人确认，已拒绝（对方 60 秒内没确认，已拒绝）", PhoneCmds.withReason(new Actions.Result(false, "手机上 60 秒没人确认，已拒绝", d)));
+        d.put("reason", LinkPolicy.R_SCRIPT_GENERATED);
+        assertEquals("已生成脚本，需你自己执行：scripts/a.sh", PhoneCmds.withReason(new Actions.Result(false, "已生成脚本，需你自己执行：scripts/a.sh", d)));
+        d.put("reason", LinkPolicy.R_UNTRUSTED_URL);
+        assertEquals("网址没通过安全检查", PhoneCmds.withReason(new Actions.Result(false, "", d)));
+        assertEquals("好", PhoneCmds.withReason(Actions.Result.ok("好")));
+        for (String code : new String[]{"denied_by_level", "needs_confirm_timeout", "untrusted_url", "blocked_app", "clipboard_rejected", "script_generated",
+                "shortcut_needs_approval", "shortcut_changed", "shortcut_category_blocked"})
+            assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
+        // [恢复手机] 改：手机作为被控端恢复成分档之前（D）：不再在手机上确认，电脑不用多等 40 秒；手机端的 8 个新指令不再有
+        // [approve-not-block] 改：手机上可能弹确认卡的（网址 / App / 卸载 / 系统命令）电脑多等 60 秒确认 + 5 秒（方案 3/4）
+        assertEquals(8_000L + 65_000L, PhoneCmds.timeoutMs("open_url"));
+        assertEquals(8_000L, PhoneCmds.timeoutMs("status"));
+        // [第二轮] 改：8 个手机指令按「每项一个开关、不分档」加回来了（用户决定 3），电脑又能发出它们
+        assertTrue(PhoneCmds.ALL.contains("flashlight") && PhoneCmds.ALL.contains("sys_exec"));
+        for (String code : new String[]{"plugin_blocked", "needs_admin_script", "self_grant_blocked"}) assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
+    }
+}

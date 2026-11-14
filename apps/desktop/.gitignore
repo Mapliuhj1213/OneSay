@@ -1,0 +1,4 @@
+build/
+*.properties
+launcher/obj/
+launcher/bin/
