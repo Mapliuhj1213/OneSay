@@ -14,7 +14,7 @@ if grep -l "import android\." $(find "$ROOT/app/src/com/onesay/clock/core" -name
 # 每个测试类一段（各自一个 JVM，段内 ≤100 类）；任一段失败整体失败
 cd "$ROOT" || exit 1
 rc=0
-for cls in com.onesay.clock.core.CoreTest com.onesay.clock.core.RainTest com.onesay.clock.core.BorrowTest com.onesay.clock.core.LinkTest; do   # [integ] 2026-11-13 borrow-1112 +BorrowTest 与 companion-link +LinkTest 都跑
+for cls in com.onesay.clock.core.CoreTest com.onesay.clock.core.RainTest com.onesay.clock.core.BorrowTest com.onesay.clock.core.LinkTest com.onesay.clock.core.AdvTest; do   # [integ] 2026-11-13 borrow-1112 +BorrowTest 与 companion-link +LinkTest 都跑；[adv] 2026-11-14 +AdvTest（找茬式对抗测试）
   "$JDK/java" -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Shanghai -Dbc.assets="$ROOT/app/assets" -cp "$OUT:$JSON" "$cls" || rc=1
 done
 exit $rc
