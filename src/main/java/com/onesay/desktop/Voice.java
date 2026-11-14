@@ -63,8 +63,23 @@ public final class Voice {
 
     /** 能不能开钩子：仅云端要有 Key；自动 / 仅本机在 Windows 上总能试（本机识别能不能用到识别时再看）。 */
     static String cannotStart(AsrRoute.Pref pref, boolean keySet) {
+        return cannotStart(pref, keySet, true);
+    }
+
+    /**
+     * [fix-1114 实测 P1-4] 没有任何可用识别时不抢空格：仅云端没 Key；仅本机但没装中文离线识别；自动但既没 Key 也没装离线识别。
+     * localOk = 中文离线识别能用（{@link LocalAsr#available}）。返回 null = 可以开钩子。
+     */
+    static String cannotStart(AsrRoute.Pref pref, boolean keySet, boolean localOk) {
         if (pref == AsrRoute.Pref.CLOUD && !keySet) return "识别设成「仅云端」但没填识别 Key（设置里填），不抢空格";
+        if (pref == AsrRoute.Pref.LOCAL && !localOk) return "识别设成「仅本机」但这台电脑没有中文离线识别，不抢空格（装好后重开 OneSay，或改用云端）";
+        if (pref == AsrRoute.Pref.AUTO && !keySet && !localOk) return "没有可用的识别（没填识别 Key，也没有中文离线识别），不抢空格";
         return null;
+    }
+
+    /** 要不要先看本机离线识别能不能用（这一步要跑 PowerShell，最多十几秒，放后台）。 */
+    static boolean needsLocalCheck(AsrRoute.Pref pref, boolean keySet) {
+        return pref == AsrRoute.Pref.LOCAL || (pref == AsrRoute.Pref.AUTO && !keySet);
     }
 
     public void start() {
@@ -72,6 +87,25 @@ public final class Voice {
         if (!System.getProperty("os.name", "").toLowerCase().contains("win")) { status = "仅 Windows 支持"; return; }
         String no = cannotStart(asr.pref(), !cfg.asrKey.isEmpty());
         if (no != null) { status = no; log.accept("按住说话：" + status); return; }
+        if (needsLocalCheck(asr.pref(), !cfg.asrKey.isEmpty())) {
+            // 没 Key 的「自动」/「仅本机」：先在后台看中文离线识别在不在，没有就不开钩子（长按空格照常是空格）
+            status = "正在看有没有可用的识别";
+            Thread t = new Thread(() -> {
+                boolean ok;
+                try { ok = asr.localAvailable.getAsBoolean(); } catch (Throwable e) { ok = false; }
+                String why = cannotStart(asr.pref(), !cfg.asrKey.isEmpty(), ok);
+                if (why != null) { status = why; log.accept("按住说话：" + status); return; }
+                startHook();
+            }, "onesay-asr-check");
+            t.setDaemon(true);
+            t.start();
+            return;
+        }
+        startHook();
+    }
+
+    private synchronized void startHook() {
+        if (stopped) return;
         try {
             Path dir = cfg.file.getParent().resolve("hotkey");
             Files.createDirectories(dir);
@@ -92,7 +126,12 @@ public final class Voice {
         }
     }
 
-    public void stop() { if (hook != null) hook.destroy(); }
+    private volatile boolean stopped;
+
+    public void stop() {
+        synchronized (this) { stopped = true; }
+        if (hook != null) hook.destroy();
+    }
 
     private static void copy(String res, Path to) throws Exception {
         try (InputStream in = Voice.class.getResourceAsStream(res)) {

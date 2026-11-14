@@ -163,10 +163,33 @@ public final class MediaCookies {
         try {
             AclFileAttributeView v = Files.getFileAttributeView(p, AclFileAttributeView.class);
             if (v == null) return;
-            UserPrincipal owner = Files.getOwner(p);
-            AclEntry e = AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(owner)
+            UserPrincipal me = currentUser(p);
+            AclEntry e = AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(me)
                     .setPermissions(EnumSet.allOf(AclEntryPermission.class)).build();
             v.setAcl(List.of(e));
         } catch (Exception ignored) { }
+    }
+
+    /**
+     * [fix-1114 实测 P2-6] 当前登录的账户（不是「文件所有者」）：内置 Administrator 建的文件所有者是 BUILTIN\Administrators 组，
+     * 按所有者设 ACL 等于全体管理员可读。按「域\用户名」→「用户名」查；都查不到才退回所有者（总比不设强）。
+     */
+    static UserPrincipal currentUser(Path p) throws IOException {
+        var look = p.getFileSystem().getUserPrincipalLookupService();
+        for (String name : userNames()) {
+            try { return look.lookupPrincipalByName(name); } catch (Exception ignored) { }
+        }
+        return Files.getOwner(p);
+    }
+
+    static List<String> userNames() {
+        List<String> out = new java.util.ArrayList<>();
+        String user = System.getenv("USERNAME"), dom = System.getenv("USERDOMAIN");
+        if (user == null || user.isBlank()) user = System.getProperty("user.name", "");
+        if (user != null && !user.isBlank()) {
+            if (dom != null && !dom.isBlank()) out.add(dom + "\\" + user);
+            out.add(user);
+        }
+        return out;
     }
 }

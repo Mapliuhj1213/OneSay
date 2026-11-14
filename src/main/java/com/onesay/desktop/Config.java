@@ -81,8 +81,7 @@ public final class Config {
     public static Config load(Path file) throws IOException {
         Config c = new Config(file);
         if (!Files.exists(file)) return c;
-        Properties p = new Properties();
-        try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) { p.load(r); }
+        Properties p = readProps(Files.readAllBytes(file));
         try { c.lanPort = Integer.parseInt(p.getProperty("lan_port", String.valueOf(LanServer.DEFAULT_PORT)).trim()); } catch (NumberFormatException e) { c.lanPort = LanServer.DEFAULT_PORT; }
         c.lanHosts = p.getProperty("lan_hosts", "").trim();
         c.lanLast = p.getProperty("lan_last", "").trim();
@@ -96,7 +95,7 @@ public final class Config {
         c.kind = p.getProperty("kind", "pc").trim();
         c.peers = p.getProperty("peers", "").trim();
         String k = p.getProperty("pair_key", "").trim();
-        c.pairKey = k.isEmpty() ? new byte[0] : Base64.getUrlDecoder().decode(k);
+        try { c.pairKey = k.isEmpty() ? new byte[0] : Base64.getUrlDecoder().decode(k); } catch (IllegalArgumentException e) { c.pairKey = new byte[0]; } // 坏值回落默认（没钥匙 = 要重新配对），不让程序起不来
         c.filesDir = p.getProperty("files_dir", "").trim();
         c.scriptsDir = p.getProperty("scripts_dir", "").trim();
         c.apps = p.getProperty("apps", "").trim();
@@ -131,6 +130,33 @@ public final class Config {
         c.mediaQuality = MediaArgs.quality(p.getProperty("media_quality", "best"));
         c.mediaDir = p.getProperty("media_dir", "").trim();
         return c;
+    }
+
+    /**
+     * [fix-1114 B14] 读设置文件，坏的写法一律回落而不是抛异常让程序起不来：
+     * 不是合法 UTF-8（比如用记事本另存为 ANSI = GBK）就按 GBK 读（没有 GBK 就把坏字节换成替换符）；
+     * 坏的 {@code \\uXXXX} 转义当成普通文字（原样留下反斜杠后的内容）。下次存盘统一写回 UTF-8。
+     */
+    static Properties readProps(byte[] raw) {
+        String text;
+        try {
+            text = StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(raw)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            java.nio.charset.Charset gbk;
+            try { gbk = java.nio.charset.Charset.forName("GBK"); } catch (Exception x) { gbk = StandardCharsets.UTF_8; }
+            text = new String(raw, gbk);
+        }
+        if (text.startsWith("\uFEFF")) text = text.substring(1);
+        Properties p = new Properties();
+        try {
+            p.load(new java.io.StringReader(text));
+        } catch (IllegalArgumentException | IOException e) {
+            // 坏的 \\u 转义：把不是「\\u + 4 位十六进制」的 \\u 前面再加一个反斜杠，按普通文字读
+            p = new Properties();
+            try { p.load(new java.io.StringReader(text.replaceAll("\\\\u(?![0-9A-Fa-f]{4})", "\\\\\\\\u"))); } catch (Exception x) { p = new Properties(); }
+        }
+        return p;
     }
 
     public void save() throws IOException {

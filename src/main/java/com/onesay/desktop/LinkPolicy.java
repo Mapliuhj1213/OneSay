@@ -265,6 +265,11 @@ public final class LinkPolicy {
         public boolean mediaToolsMissing;
         /** 链接下载：链接没过检查的原因（非空 = 拒绝，不弹卡）。 */
         public String mediaBad = "";
+        /**
+         * [fix-1114] 写法可疑、守卫认不准的（8.3 短名、可能联网但认不出、…）：非空 = 本来直接执行或可记住的确认，一律升级成「每次都要确认」，
+         * 卡上写这一句原因；这类确认不能被「以后这类不用问」记住，记住过的类型也不跳过它。「从不询问」下拒绝（不静默执行）。
+         */
+        public String suspect = "";
     }
 
     public static final class Decision {
@@ -383,6 +388,20 @@ public final class LinkPolicy {
      * 手机作为被控端不走两轴（见 {@link #phoneLegacy}：分档之前的语义，只看手机上的逐项开关，危险的弹手机确认卡）。
      */
     public static Decision decide(Target t, Mode mode, Cat c, Facts f) {
+        Decision d = decideCore(t, mode, c, f);
+        if (t != Target.PC || f == null || f.suspect == null || f.suspect.length() == 0) return d;
+        if (d.verdict != Verdict.ALLOW && d.verdict != Verdict.CONFIRM) return d; // 拒绝 / 只生成脚本：照旧（硬规则不受影响）
+        if (d.verdict == Verdict.CONFIRM && d.kind.length() == 0 && c == Cat.SHORTCUT) return d; // 快捷指令按内容哈希批准，另有规则
+        Approval ap = mode == null ? Mode.DEFAULT.approval : mode.approval;
+        String what = d.text.length() > 0 && !d.headsUp ? d.text : "这条指令";
+        if (ap == Approval.NEVER) return denyNever(what + "（" + f.suspect + "）");
+        return new Decision(Verdict.CONFIRM, R_SUSPECT, what + "（" + f.suspect + "）", false, "", false);
+    }
+
+    /** 可疑升级成确认时的原因码（只在确认卡 / 日志里；确认没过时回的仍是 confirm_denied / needs_confirm_timeout）。 */
+    public static final String R_SUSPECT = "suspect_needs_confirm";
+
+    static Decision decideCore(Target t, Mode mode, Cat c, Facts f) {
         if (f == null) f = new Facts();
         if (mode == null) mode = Mode.DEFAULT;
         if (c == null) c = Cat.UNKNOWN;
@@ -739,8 +758,14 @@ public final class LinkPolicy {
     }
 
     /** 看不出真实内容的写法（编码命令、动态执行），没法按严格规则检查。 */
+    /**
+     * [fix-1114 B1/B16] PowerShell 的 -EncodedCommand：它认任何不歧义的前缀（-e、-ec、-en、-enc、-enco … -encodedcomman），
+     * 这些一律按编码命令处理（和 -enc 同一条规则：先解码检查，再按「看不出内容」拦）。不限长度（很短的 base64 也是编码命令）；
+     * 只在命令里有 powershell / pwsh 时认，免得把 grep -e 这类别的程序的参数误当成编码命令。
+     */
+    static final String ENC_FLAG = "(?:powershell|pwsh)(?:\\.exe)?\\b[^|;&\\n]*?\\s[-\u2013\u2014](?:ec|e(?:n(?:c(?:o(?:d(?:e(?:d(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?)?)?)?)?)?)?)?)(?::|\\s+)";
     private static final Pattern OPAQUE = Pattern.compile(
-            "(-(e|ec|enc|encodedcommand)\\s+[A-Za-z0-9+/=]{16,})|(\\bFromBase64String\\b)|(\\bInvoke-Expression\\b)|(\\biex\\b)",
+            "(" + ENC_FLAG + "[A-Za-z0-9+/=]{2,})|(\\bFromBase64String\\b)|(\\bInvoke-Expression\\b)|(\\biex\\b)",
             Pattern.CASE_INSENSITIVE);
 
     private static String firstHit(Pattern p, String s) {
@@ -902,7 +927,7 @@ public final class LinkPolicy {
 
     // ------------------------------------------------------------------ 规范化
 
-    private static final Pattern ENC_B64 = Pattern.compile("-(e|ec|enc|encodedcommand)\\s+([A-Za-z0-9+/=]{16,})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ENC_B64 = Pattern.compile("(" + ENC_FLAG + ")([A-Za-z0-9+/=]{2,})", Pattern.CASE_INSENSITIVE);
     private static final Pattern ENV_PCT = Pattern.compile("%([A-Za-z_][A-Za-z0-9_()]*)%");
     private static final Pattern ENV_PS = Pattern.compile("\\$\\{?env:([A-Za-z_][A-Za-z0-9_]*)\\}?", Pattern.CASE_INSENSITIVE);
     private static final Pattern SHORT_83 = Pattern.compile("([A-Za-z0-9]{1,6})~([0-9]{1,2})");
@@ -1055,29 +1080,100 @@ public final class LinkPolicy {
             }
             return out.toString();
         }
-        // <# ... #> 块注释
-        StringBuilder noBlock = new StringBuilder();
-        int depth = 0;
-        for (int i = 0; i < s.length(); i++) {
-            if (i + 1 < s.length() && s.charAt(i) == '<' && s.charAt(i + 1) == '#') { depth++; i++; continue; }
-            if (depth > 0 && i + 1 < s.length() && s.charAt(i) == '#' && s.charAt(i + 1) == '>') { depth--; i++; continue; }
-            if (depth == 0) noBlock.append(s.charAt(i));
-        }
-        for (String line : noBlock.toString().split("\n", -1)) {
-            char quote = 0;
-            StringBuilder kept = new StringBuilder();
-            for (int i = 0; i < line.length(); i++) {
-                char c = line.charAt(i);
-                if (quote != 0) {
-                    kept.append(c);
-                    if (c == quote) quote = 0;
+        // [fix-1114 B5] 按 PowerShell 的记号规则剥：引号（含 here-string）里的 <# #> 和 # 不算注释；# 只在记号开头才算（词中间的 x# 不是注释）。
+        // 认不准（引号没配对、块注释 / here-string 没结束、词中间出现 <#）→ 不剥，按全文检查（宁可多查）。
+        String r = stripPsComments(s);
+        return r == null ? s : r;
+    }
+
+    private static boolean psSingleQuote(char c) { return c == '\'' || c == '\u2018' || c == '\u2019' || c == '\u201a' || c == '\u201b'; }
+
+    private static boolean psDoubleQuote(char c) { return c == '"' || c == '\u201c' || c == '\u201d' || c == '\u201e'; }
+
+    /** 这个位置是不是一个记号的开头（行首、空白或分隔符后面）。 */
+    private static boolean psTokenStart(String s, int i) {
+        if (i == 0) return true;
+        char p = s.charAt(i - 1);
+        return Character.isWhitespace(p) || ";(){}|&,".indexOf(p) >= 0;
+    }
+
+    /** .ps1 剥注释；认不准返回 null（调用方按全文检查）。 */
+    static String stripPsComments(String s) {
+        StringBuilder out = new StringBuilder(s.length());
+        int n = s.length(), i = 0;
+        while (i < n) {
+            char c = s.charAt(i);
+            // here-string：@' 或 @" 后面到行尾只有空白；到行首的 '@ / "@ 结束（原样保留，里面的 # 不是注释）
+            if (c == '@' && i + 1 < n && (psSingleQuote(s.charAt(i + 1)) || psDoubleQuote(s.charAt(i + 1)))) {
+                int j = i + 2;
+                while (j < n && (s.charAt(j) == ' ' || s.charAt(j) == '\t')) j++;
+                if (j < n && s.charAt(j) == '\n') {
+                    boolean sq = psSingleQuote(s.charAt(i + 1));
+                    int e = -1;
+                    for (int k = s.indexOf('\n', j); k >= 0; k = s.indexOf('\n', k + 1)) {
+                        if (k + 2 < n && (sq ? psSingleQuote(s.charAt(k + 1)) : psDoubleQuote(s.charAt(k + 1))) && s.charAt(k + 2) == '@') { e = k + 3; break; }
+                    }
+                    if (e < 0) return null;
+                    out.append(s, i, e);
+                    i = e;
                     continue;
                 }
-                if (c == '\'' || c == '"') { quote = c; kept.append(c); continue; }
-                if (c == '#') break; // 行内注释到行尾
-                kept.append(c);
+                if (j >= n) return null;
             }
-            out.append(kept).append('\n');
+            if (psSingleQuote(c)) {
+                int j = i + 1;
+                boolean closed = false;
+                while (j < n) {
+                    if (psSingleQuote(s.charAt(j))) {
+                        if (j + 1 < n && psSingleQuote(s.charAt(j + 1))) { j += 2; continue; }
+                        closed = true;
+                        break;
+                    }
+                    j++;
+                }
+                if (!closed) return null;
+                out.append(s, i, j + 1);
+                i = j + 1;
+                continue;
+            }
+            if (psDoubleQuote(c)) {
+                int j = i + 1;
+                boolean closed = false;
+                while (j < n) {
+                    char d = s.charAt(j);
+                    if (d == '`') { j += 2; continue; }
+                    if (psDoubleQuote(d)) {
+                        if (j + 1 < n && psDoubleQuote(s.charAt(j + 1))) { j += 2; continue; }
+                        closed = true;
+                        break;
+                    }
+                    j++;
+                }
+                if (!closed) return null;
+                out.append(s, i, j + 1);
+                i = j + 1;
+                continue;
+            }
+            if (c == '<' && i + 1 < n && s.charAt(i + 1) == '#') {
+                if (!psTokenStart(s, i)) return null; // 词中间的 <#：拿不准是不是注释
+                int e = s.indexOf("#>", i + 2);
+                if (e < 0) return null;
+                out.append(' ');
+                i = e + 2;
+                continue;
+            }
+            if (c == '#' && psTokenStart(s, i)) {
+                int e = s.indexOf('\n', i);
+                i = e < 0 ? n : e;
+                continue;
+            }
+            if (c == '`' && i + 1 < n) {
+                out.append(c).append(s.charAt(i + 1));
+                i += 2;
+                continue;
+            }
+            out.append(c);
+            i++;
         }
         return out.toString();
     }
@@ -1087,7 +1183,7 @@ public final class LinkPolicy {
     /** 想提权 / 触发 UAC / 走 UAC 绕过程序。 */
     private static final Pattern ELEVATE = Pattern.compile(
             "(\\brunas\\b)|(-verb\\s+runas)|(verb\\s*[:=]\\s*runas)|(shellexecute\\w*\\s*\\([^)]*runas)|(\\bgsudo\\b)|(\\bsudo\\b)"
-                    + "|(\\bpsexec(\\.exe)?\\b)|(\\bfodhelper\\b)|(\\beventvwr\\b)|(\\bcomputerdefaults\\b)|(\\bsdclt\\b)|(\\bslui\\b)"
+                    + "|(\\b(psexec|paexec)(64)?(\\.exe)?\\b)|(\\bfodhelper\\b)|(\\beventvwr\\b)|(\\bcomputerdefaults\\b)|(\\bsdclt\\b)|(\\bslui\\b)"
                     + "|(\\bwsreset\\b)|(\\bcmstp\\b)|(\\bdccw\\b)|(\\bsilentcleanup\\b)|(-runlevel\\s+highest)|(/rl\\s+highest)"
                     + "|(\\bstart-process\\b[^|;]*\\bas\\s*administrator\\b)", Pattern.CASE_INSENSITIVE);
 
@@ -1099,17 +1195,23 @@ public final class LinkPolicy {
     /** 需要管理员的事：机器级注册表、服务与驱动、防火墙 / 网卡 / DNS / 系统级代理 / hosts、系统级计划任务、磁盘与启动项。 */
     private static final Pattern ADMIN_REG = Pattern.compile(
             "(\\bhklm[:\\\\])|(hkey_local_machine)|(\\bhkcr[:\\\\])|(hkey_classes_root)|(\\bhku[:\\\\])|(hkey_users)"
-                    + "|(\\breg(\\.exe)?\\s+(load|unload|restore|import|copy)\\b)", Pattern.CASE_INSENSITIVE);
+                    + "|(\\breg(\\.exe)?\\s+(load|unload|restore|import|copy)\\b)"
+                    // [fix-1114 B6] .NET 注册表 API：[Microsoft.Win32.Registry]::LocalMachine、RegistryKey::OpenBaseKey('LocalMachine', …)
+                    + "|(\\]\\s*::\\s*(localmachine|classesroot|users)\\b)|(\\bopen(remote)?basekey\\s*\\(\\s*(\\[[a-z0-9.]*registryhive\\]\\s*::\\s*)?(localmachine|classesroot|users)\\b)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern ADMIN_SVC = Pattern.compile(
-            "(\\bsc(\\.exe)?\\s+(create|config|delete|start|stop|failure|sdset|qc)\\b)|(\\b(new|set|start|stop|restart|remove|suspend|resume)-service\\b)"
-                    + "|(\\bnet\\s+(start|stop)\\s+\\S)|(\\bpnputil\\b)|(\\bdevcon\\b)|(\\bdriverquery\\b)|(\\bbcdedit\\b)", Pattern.CASE_INSENSITIVE);
+            "(\\bsc(\\.exe)?\\s+(\\\\\\\\\\S+\\s+)?(create|config|delete|start|stop|pause|continue|failure|sdset|qc)\\b)|(\\b(new|set|start|stop|restart|remove|suspend|resume)-service\\b)"
+                    // [fix-1114 B7] 服务 cmdlet 的别名（sasv = Start-Service、spsv = Stop-Service）、net1（和 net 同一个程序）、远程 sc \\主机
+                    + "|(\\b(sasv|spsv)\\b)|(\\bnet1?(\\.exe)?\\s+(start|stop|pause|continue)\\s+\\S)|(\\bpnputil\\b)|(\\bdevcon\\b)|(\\bdriverquery\\b)|(\\bbcdedit\\b)", Pattern.CASE_INSENSITIVE);
     private static final Pattern ADMIN_NET = Pattern.compile(
             "(\\bnetsh\\b)|(\\b(new|set|remove|enable|disable|restart|rename)-net[a-z]+\\b)|(\\bset-dnsclient\\w*\\b)|(\\bdrivers\\\\etc\\\\hosts\\b)"
                     + "|(\\broute(\\.exe)?\\s+(add|delete|change)\\b)|(\\bipconfig\\s+/(release|renew)\\b)|(\\bbitsadmin\\s+/util\\s+/setieproxy\\b)"
                     + "|(\\bset-netipinterface\\b)|(\\barp\\s+-d\\b)|(\\bnetcfg\\b)", Pattern.CASE_INSENSITIVE);
     private static final Pattern ADMIN_TASK = Pattern.compile(
-            "(\\bschtasks\\b[^|;]*(/ru\\s+(system|administrator|nt authority)|/rl\\s+highest))"
-                    + "|(\\bregister-scheduledtask\\b[^|;]*(-user\\s+system|-runlevel\\s+highest))|(\\bat\\s+[0-9]{1,2}:[0-9]{2}\\b)", Pattern.CASE_INSENSITIVE);
+            "(\\bschtasks\\b[^|;]*(/ru\\s+(system|localsystem|administrator|nt authority|s-1-5-(18|19|20)\\b)|/rl\\s+highest))"
+                    // [fix-1114 B8] Register-ScheduledTask -User 'NT AUTHORITY\SYSTEM' / S-1-5-18、New-ScheduledTaskPrincipal -UserId SYSTEM
+                    + "|(\\bregister-scheduledtask\\b[^|;]*(-user\\s+(system|localsystem|nt authority|s-1-5-(18|19|20)\\b)|-runlevel\\s+highest))"
+                    + "|(\\bnew-scheduledtaskprincipal\\b[^|;]*(-userid\\s+(system|localsystem|nt authority|s-1-5-(18|19|20)\\b)|-groupid\\s+(administrators|s-1-5-32-544)|-runlevel\\s+highest))|(\\bat\\s+[0-9]{1,2}:[0-9]{2}\\b)", Pattern.CASE_INSENSITIVE);
     private static final Pattern ADMIN_DISK = Pattern.compile(
             "(\\bdiskpart\\b)|(\\bformat\\s+[a-z]:)|(\\bvssadmin\\b)|(\\bdism\\b)|(\\bsfc\\s+/)|(\\bchkdsk\\s+[a-z]:\\s*/)|(\\bwbadmin\\b)"
                     + "|(\\breagentc\\b)|(\\bbootrec\\b)|(\\bmountvol\\b)|(\\bfsutil\\b)|(\\bwusa\\b)|(\\bsecedit\\b)|(\\bauditpol\\b)"
@@ -1161,8 +1263,11 @@ public final class LinkPolicy {
     /** 远程想改 OneSay 自己的策略 / 配置 / 信任列表 / 插件开关，或把 OneSay 关掉。 */
     private static final Pattern SELF_CFG = Pattern.compile(
             "(desktop\\.properties)|(shortcut_approvals)|(pc_sandbox)|(pc_approval)|(pc_level)|(trusted_domains)|(plugin_enabled)"
-                    + "|(plugin_encoded)|(plugin_net_allow)|(\\btaskkill\\b[^|;]*onesay)|(\\bstop-process\\b[^|;]*onesay)"
-                    + "|(appdata[\\\\]onesay)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts|remembered))|(approve_kinds)|(clip_autoclear)",
+                    + "|(plugin_encoded)|(plugin_net_allow)|(\\b(taskkill|tskill|pskill|kill|spps|stop-process)\\b[^|;]*onesay)"
+                    // [fix-1114 B10] 关掉 OneSay 的其它写法：Get-Process onesay | Stop-Process、wmic … onesay … delete、Invoke-CimMethod Terminate
+                    + "|(\\b(get-process|gps|ps)\\b[^|;]*onesay[^;]*\\|\\s*(stop-process|spps|kill)\\b)|(\\b(wmic|get-wmiobject|gwmi|get-ciminstance|gcim)\\b[^;]*onesay[^;]*\\b(delete|terminate)\\b)"
+                    // [fix-1114 B12] OneSay 的数据目录：%APPDATA% 展开后的真实路径 AppData\Roaming\OneSay（还有 Local / LocalLow 下的 OneSay）
+                    + "|(appdata[\\\\/]onesay)|(appdata[\\\\/](roaming|local|locallow)[\\\\/]onesay\\b)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts|remembered))|(approve_kinds)|(clip_autoclear)",
             Pattern.CASE_INSENSITIVE);
 
     public static String selfAuthorizeReason(String normalized, List<String> selfPaths) {
@@ -1204,6 +1309,55 @@ public final class LinkPolicy {
         return null;
     }
 
+    /**
+     * [fix-1114 B3] 「默认断网」只认常见下载命令；这些也可能联网，但认不全，所以不拒绝，在确认卡上提示「此命令可能联网」（不能被「以后这类不用问」记住）。
+     */
+    private static final Pattern NET_MAYBE = Pattern.compile(
+            "(\\bgit(\\.exe)?\\s+(clone|fetch|pull|push|ls-remote|submodule|remote\\s+add|archive\\s+--remote)\\b)"
+                    + "|(\\b(nslookup|resolve-dnsname|test-netconnection|tnc|test-connection|ping|tracert|pathping|telnet|ssh|scp|sftp|tftp|ncat|netcat|nc|rsync|plink|pscp|psftp)(\\.exe)?\\b)"
+                    + "|(\\bmshta(\\.exe)?\\b)|(\\bregsvr32\\b[^|;]*/i\\s*:)|(\\brundll32\\b[^|;]*(https?:|javascript:|url\\.dll))"
+                    + "|(\\b(system\\.)?net\\.(webclient|webrequest|httpwebrequest|ftpwebrequest|http\\.|sockets\\.|dns\\b))|(\\b(httpclient|webclient|tcpclient|udpclient)\\b)"
+                    + "|(\\b(invoke-command|enter-pssession|new-pssession|new-cimsession)\\b)|(\\b(winget|choco|scoop|pip[0-9.]*|npm|npx|yarn|pnpm|gem|cargo|nuget|go)(\\.exe)?\\s+(install|add|get|update|upgrade|download|restore|i)\\b)"
+                    + "|(\\b(python[0-9.]*|py|pythonw|node|perl|ruby|php|java|wscript|cscript)(\\.exe)?\\b[^|;]*(urllib|requests\\.|http\\.client|socket|fetch\\(|net::http|lwp::|msxml2\\.|winhttp))",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern LOOPBACK_PROBE = Pattern.compile(
+            "(ping|tracert|pathping|test-connection|test-netconnection|tnc|nslookup|resolve-dnsname)(\\.exe)?(\\s+-{1,2}[a-z]+(\\s+[0-9]+)?)*\\s+(127(\\.[0-9]+){0,3}|localhost|::1|\\[::1\\])(\\s+-{1,2}[a-z]+(\\s+[0-9]+)?)*\\s*($|[;&|])",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern ANY_URL = Pattern.compile("\\b(https?|ftps?|wss?|git|ssh|sftp|smb)://([^/\\s'\"]+)", Pattern.CASE_INSENSITIVE);
+
+    /** 命令可能联网但「默认断网」认不出来 → 原因（给确认卡写一句）；不像联网 / 访问的都是白名单主机 → 空串。 */
+    public static String netMaybeReason(String normalized, List<String> allow) {
+        String s = normalized == null ? "" : normalized;
+        if (s.length() == 0) return "";
+        Matcher nm = NET_MAYBE.matcher(s);
+        while (nm.find()) {
+            // ping / tracert / nslookup 只指向本机（127.x、localhost、::1）的不算联网
+            if (LOOPBACK_PROBE.matcher(s.substring(nm.start())).lookingAt()) continue;
+            String h = oneLine(nm.group());
+            if (h.length() > 40) h = h.substring(0, 40) + "…";
+            return "此命令可能联网（" + h + "）；沙箱默认断网只拦认得出的下载命令，这条认不准，请确认";
+        }
+        Matcher m = ANY_URL.matcher(s);
+        while (m.find()) {
+            String host = cleanHost(m.group(2));
+            if (!trustedHost(host, allow)) return "此命令可能联网（要访问 " + oneLine(host) + "）；沙箱默认断网只拦认得出的下载命令，这条认不准，请确认";
+        }
+        return "";
+    }
+
+    /** URL 的 authority → 主机：先截掉 # ? \\，再按最后一个 @ 切，去掉端口。 */
+    static String cleanHost(String authority) {
+        String host = authority == null ? "" : authority;
+        int cut = host.length();
+        for (char ch : new char[]{'#', '?', '\\'}) { int q = host.indexOf(ch); if (q >= 0 && q < cut) cut = q; }
+        host = host.substring(0, cut);
+        int at = host.lastIndexOf('@');
+        if (at >= 0) host = host.substring(at + 1);
+        int colon = host.lastIndexOf(':');
+        if (colon > 0 && host.indexOf('[') < 0) host = host.substring(0, colon);
+        return host.toLowerCase(Locale.ROOT);
+    }
+
     public static String netReason(String normalized, List<String> allow) {
         String s = normalized == null ? "" : normalized;
         String unc = uncHost(s);
@@ -1213,12 +1367,8 @@ public final class LinkPolicy {
         List<String> hosts = new ArrayList<String>();
         Matcher m = URL_HOST.matcher(s);
         while (m.find()) {
-            String host = m.group(1);
-            int at = host.indexOf('@');
-            if (at >= 0) host = host.substring(at + 1);
-            int colon = host.lastIndexOf(':');
-            if (colon > 0 && host.indexOf('[') < 0) host = host.substring(0, colon);
-            hosts.add(host.toLowerCase(Locale.ROOT));
+            // [fix-1114 B2] 先截掉 # ? \ 再按 @ 切（cleanHost）：https://evil.com#@example.com 真正连的是 evil.com
+            hosts.add(cleanHost(m.group(1)));
         }
         if (hosts.isEmpty()) return "要联网（" + h + "），但看不出访问哪个域名；沙箱默认断网，已拒绝";
         for (String host : hosts) if (!trustedHost(host, allow)) return "要访问 " + oneLine(host) + "；沙箱默认断网，只放行白名单里的域名";
@@ -1235,8 +1385,25 @@ public final class LinkPolicy {
         for (String part : rel.replace('\\', '/').split("/")) {
             String p = part.trim().toLowerCase(Locale.ROOT);
             for (String k : WS_READONLY) if (p.equals(k)) return true;
+            // [fix-1114 B4] 8.3 短名（GIT~1、CODEX~1 …）可能就是 .git / .codex / .agents：含「~数字」的路径段一律按只读处理（要确认）
+            if (SHORT_SEG.matcher(p).find()) return true;
         }
         return false;
+    }
+
+    /** 路径段里的 8.3 短名记号「~数字」。 */
+    private static final Pattern SHORT_SEG = Pattern.compile("~[0-9]");
+    /** 命令里的 8.3 短名（PROGRA~1、GIT~1 …）：路径段里出现「~数字」。 */
+    private static final Pattern SHORT_IN_CMD = Pattern.compile("(^|[\\s\\\\/\"'=:])[^\\s\\\\/\"'=:]{1,8}~[0-9]{1,6}([\\s\\\\/\"'.]|$)");
+
+    /** 路径段含「~数字」（8.3 短名）返回原因，否则空串。确认卡上写这一句，这类确认不能被「以后这类不用问」记住。 */
+    public static String shortNameReason(String pathOrCommand, boolean isPath) {
+        String t = pathOrCommand == null ? "" : pathOrCommand;
+        boolean hit = false;
+        if (isPath) {
+            for (String part : t.replace('\\', '/').split("/")) if (SHORT_SEG.matcher(part).find()) { hit = true; break; }
+        } else hit = SHORT_IN_CMD.matcher(t).find();
+        return hit ? "路径里有 8.3 短名（GIT~1 这类），可能指向 .git 等只读目录，认不准，请确认" : "";
     }
 
     // ================================================================== 禁止类 App
@@ -1405,6 +1572,7 @@ public final class LinkPolicy {
         if (t.startsWith("http://")) t = t.substring(7);
         else if (t.startsWith("https://")) t = t.substring(8);
         if (t.startsWith("*.")) t = t.substring(2);
+        if (t.indexOf("://") >= 0) return null; // [fix-1114 B15] 别的协议（ftp:// 等）不合法，不能存成 "ftp:"
         int k = t.indexOf('/');
         if (k >= 0) t = t.substring(0, k);
         while (t.endsWith(".")) t = t.substring(0, t.length() - 1);
@@ -1614,7 +1782,7 @@ public final class LinkPolicy {
         return base + "\\OneSay\\workspace";
     }
 
-    private static final Pattern WIN_RESERVED = Pattern.compile("(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9]|conin\\$|conout\\$)(\\..*)?$");
+    private static final Pattern WIN_RESERVED = Pattern.compile("(?i)^(con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]|conin\\$|conout\\$)(\\..*)?$");
 
     /**
      * 远程给的相对路径 → 工作区里的真实文件；越界返回 null。拒绝：空、绝对路径（/x、\x）、盘符（C:\、C:x）、UNC（\\server、//server）、
@@ -1788,6 +1956,7 @@ public final class LinkPolicy {
 
     public static String reasonZh(String code) {
         if (R_DENIED_BY_LEVEL.equals(code)) return "执行级别不允许";
+        if (R_SUSPECT.equals(code)) return "写法可疑、认不准，要你在电脑上确认（不能「以后这类不用问」）";
         if (R_CONFIRM_TIMEOUT.equals(code)) return "对方 60 秒内没确认，已拒绝";
         if (R_CONFIRM_DENIED.equals(code)) return "对方点了拒绝";
         if (R_UNTRUSTED_URL.equals(code)) return "网址没通过安全检查";

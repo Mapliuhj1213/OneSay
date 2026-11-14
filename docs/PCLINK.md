@@ -171,6 +171,7 @@ onesay://pair?key=<32B base64url>&peer=<电脑id>&lan=<ip:port,...>[&relay=..&to
 - **工作区**：`%USERPROFILE%\OneSay\workspace`（用户目录非 ASCII 时 `%ProgramData%\OneSay\accounts\<账户标记>\workspace`）；工作区里的 `.git`、`.codex`、`.agents` 只读。
 - **工作区可写档下的命令（第二轮，2026-11-08 用户决定）**：Windows 上 Java 没法把子进程关在工作区里（没有系统级沙箱），你知道这一点，所以命令、跑工作区脚本、工作区外写入改成「**电脑上确认后，按你自己的权限执行**」，不再只生成脚本。审批策略照常：分类 / 按需 → 先确认（30 秒不点 = 拒），从不 → 直接拒。安全插件规则全部在确认之前、照旧优先（永不提权、需要管理员只生成 .ps1、禁止自授权、默认断网、编码命令拦截）；OneSay 自己是管理员时确认了也拒。操作第三方程序仍只在完全访问档。
 - **默认断网**：只读 / 工作区可写档下，命令要联网（curl / wget / Invoke-WebRequest / WebClient / bitsadmin / certutil -urlcache / UNC `\\主机\共享`…）时，域名必须在白名单 `net_allow` 里（含子域），否则 `plugin_blocked`。完全访问档不断网。
+- **认不准的可能联网命令（fix-1114，用户 2026-11-14 定「这类问题弹出确认就行」）**：纯 Java 做不了系统级断网，「默认断网」只认得出常见下载命令。git clone / nslookup / mshta / regsvr32 /i:http / .NET HttpClient / python urllib / 命令里带不在白名单的网址这类，不拒绝，而是升级成每次确认：确认框写「此命令可能联网」，不能勾「以后这类不用问」，记住过 pc.shell_exec 也照样问；从不询问档拒绝。同一条规则也管 8.3 短名（含「~数字」的路径段，可能是 .git）和剥注释认不准的 .ps1（按全文检查）。完全访问档本来不断网，不加这句提示。
 
 ### 安全插件（默认开，只收紧不放宽）
 

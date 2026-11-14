@@ -326,8 +326,12 @@ public final class PcGuard {
 
     /** 安全插件当前的规则（可关项从配置读；三条硬规则不在里面）。 */
     public LinkPolicy.Rules rules() {
-        LinkPolicy.Rules r = new LinkPolicy.Rules(cfg.pluginEnabled && cfg.pluginEncoded, LinkPolicy.parseDomains(cfg.netAllow),
-                List.of(cfg.file == null ? "" : cfg.file.toAbsolutePath().toString()));
+        List<String> self = new ArrayList<>();
+        self.add(cfg.file == null ? "" : cfg.file.toAbsolutePath().toString());
+        // [fix-1114 B12] 配置所在的 OneSay 数据目录（%APPDATA%\OneSay：钥匙、日志、WebView2 数据）也算「自己的」；只认名字就叫 OneSay 的目录
+        Path dir = cfg.file == null ? null : cfg.file.toAbsolutePath().getParent();
+        if (dir != null && dir.getFileName() != null && dir.getFileName().toString().equalsIgnoreCase("onesay")) self.add(dir.toString() + File.separator);
+        LinkPolicy.Rules r = new LinkPolicy.Rules(cfg.pluginEnabled && cfg.pluginEncoded, LinkPolicy.parseDomains(cfg.netAllow), self);
         // 沙箱默认断网（Codex：只读 / 工作区可写没有网络，完全访问有）：这是沙箱档的事，和插件开关无关
         r.net = cfg.mode().sandbox != LinkPolicy.Sandbox.FULL_ACCESS;
         return r;
@@ -399,6 +403,7 @@ public final class PcGuard {
             try { f.mediaToolsMissing = mediaToolsMissing.getAsBoolean(); } catch (Throwable t) { f.mediaToolsMissing = true; } // 判断不了 = 当缺（多问一次）
         }
         if (cat == LinkPolicy.Cat.WORKSPACE_WRITE) f.protectedPath = LinkPolicy.protectedWorkspacePath(str(a, "path"));
+        f.suspect = suspect(cmd, a, cat);
         if (cat == LinkPolicy.Cat.OUTSIDE_WRITE) a.put("_outside", Boolean.TRUE); // 判定过的工作区外写入（手机自己带的 _ 参数上面已经丢掉）
         Shortcut sc = null;
         if (cat == LinkPolicy.Cat.SHORTCUT) {
@@ -436,6 +441,7 @@ public final class PcGuard {
             }
             case CONFIRM: {
                 String detail = from + " 请求：" + detail(cmd, a, d.text);
+                if (!f.suspect.isEmpty() && !detail.contains(f.suspect)) detail += "\n⚠ " + f.suspect; // 可疑升级的确认：卡上写一句原因
                 Confirmer c = confirmer;
                 boolean offer = sc != null;
                 String rk = d.rememberable() ? d.kind : "";
@@ -486,6 +492,40 @@ public final class PcGuard {
                 if (f.mediaToolsMissing && cat == LinkPolicy.Cat.MEDIA_DOWNLOAD) a.put("_media_install_ok", Boolean.TRUE); // 完全访问 + 从不询问 / 记住过「安装下载工具」
                 o.pass = new Pass(cmd, a);
                 return o;
+        }
+    }
+
+    /**
+     * [fix-1114] 写法可疑、守卫认不准的 → 原因（非空时 {@link LinkPolicy#decide} 把直接执行 / 可记住的确认升级成「每次确认、不能记住」）：
+     * 路径 / 命令里的 8.3 短名（GIT~1 …）；沙箱默认断网开着时，认不出的可能联网命令（git clone、nslookup、mshta、.NET HttpClient …），工作区脚本内容同样看。
+     * 自己出错 = 当可疑（多问一次）。
+     */
+    String suspect(String cmd, Map<String, Object> a, LinkPolicy.Cat cat) {
+        try {
+            LinkPolicy.Rules r = rules();
+            switch (cmd) {
+                case "file_write":
+                    return LinkPolicy.shortNameReason(str(a, "path"), true);
+                case "sys_exec": {
+                    String raw = str(a, "command");
+                    String why = LinkPolicy.shortNameReason(raw, false);
+                    if (why.isEmpty() && r.net) why = LinkPolicy.netMaybeReason(LinkPolicy.normalizeCommand(raw), r.netAllow);
+                    return why;
+                }
+                case "script_run": {
+                    if (!r.net) return "";
+                    File f = scriptFile(str(a, "name"));
+                    if (f == null || f.length() > SHORTCUT_MAX) return "";
+                    String n = str(a, "name").toLowerCase(Locale.ROOT);
+                    String body = LinkPolicy.normalizeCommand(LinkPolicy.stripComments(LinkPolicy.decodeScript(Files.readAllBytes(f.toPath())), n.endsWith(".bat") || n.endsWith(".cmd")));
+                    String why = LinkPolicy.netMaybeReason(body, r.netAllow);
+                    return why.isEmpty() ? "" : "脚本内容" + why;
+                }
+                default:
+                    return "";
+            }
+        } catch (Throwable t) {
+            return "检查时出错（" + t.getClass().getSimpleName() + "），按可疑处理";
         }
     }
 
@@ -685,7 +725,9 @@ public final class PcGuard {
             String why2 = LinkPolicy.adminReason(LinkPolicy.normalizeCommand(command));
             risk = (why2.isEmpty() ? "系统级改动" : why2) + "：可能让电脑断网、变得不安全或无法启动。OneSay 不会自己提权，这一步要你自己用管理员身份运行";
         } else if ("file_write".equals(cmd)) {
-            command = "$text = @'\n" + String.valueOf(a.get("text")).replace("\n'@", "\n '@") + "\n'@\nSet-Content -LiteralPath '" + str(a, "path").replace("'", "''") + "' -Value $text -Encoding UTF8";
+            // [fix-1114 B13] 先把单独的 CR 统一成 LF，再给每一行（含第一行）开头的 '@ 前面加空格：here-string 只能在正文后面结束
+            String body = ("\n" + String.valueOf(a.get("text")).replace("\r\n", "\n").replace('\r', '\n')).replace("\n'@", "\n '@").substring(1);
+            command = "$text = @'\n" + body + "\n'@\nSet-Content -LiteralPath '" + str(a, "path").replace("'", "''") + "' -Value $text -Encoding UTF8";
             risk = "写工作区以外的文件，会覆盖同名文件";
         } else {
             command = "# " + cmd + " " + LinkPolicy.oneLine(String.valueOf(a));

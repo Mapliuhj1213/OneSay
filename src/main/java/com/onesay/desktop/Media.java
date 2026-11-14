@@ -53,6 +53,8 @@ public final class Media {
         volatile Process proc;
         volatile boolean cancel;
         volatile boolean installOk, previewed;
+        /** yt-dlp 这次写的目标文件（[download] Destination: …），取消时据此清掉 .part / .ytdl / 中间文件；值 = 开始前就已存在（不删它本身）。 */
+        final Map<Path, Boolean> dests = new java.util.LinkedHashMap<>();
 
         Task(int id, String url, String quality, String audio, String from) {
             this.id = id;
@@ -251,7 +253,7 @@ public final class Media {
                 t.state = State.DOWNLOADING;
                 record(t, argv);
                 Run r = run(t, argv, t, 0);
-                if (t.cancel) { t.state = State.CANCELED; return; }
+                if (t.cancel) { t.state = State.CANCELED; cleanupPartial(t); return; }
                 if (r.exit == 0) {
                     if (!r.file.isEmpty()) t.file = r.file;
                     t.percent = 100;
@@ -318,6 +320,7 @@ public final class Media {
                 if (MediaArgs.rateLimited(line)) r.limited = true;
                 if (line.startsWith("ERROR:")) r.error = line.substring(6).trim();
                 if (line.startsWith(MediaArgs.FILE_TAG)) { r.file = line.substring(MediaArgs.FILE_TAG.length()).trim(); continue; }
+                noteDest(t, line);
                 if (progress != null) {
                     MediaArgs.Progress g = MediaArgs.progress(line);
                     if (g != null) {
@@ -337,6 +340,54 @@ public final class Media {
         t.proc = null;
         if (r.error.length() > 300) r.error = r.error.substring(0, 300);
         return r;
+    }
+
+    private static final java.util.regex.Pattern DEST = java.util.regex.Pattern.compile("^\\[(?:download|ExtractAudio|Merger|VideoConvertor)\\]\\s+(?:Destination:|Merging formats into)\\s+\"?(.+?)\"?\\s*$");
+
+    /** 记下 yt-dlp 说要写的文件（只认下载文件夹里的）。 */
+    void noteDest(Task t, String line) {
+        java.util.regex.Matcher m = DEST.matcher(line);
+        if (!m.find()) return;
+        try {
+            Path p = Paths.get(m.group(1)).toAbsolutePath().normalize();
+            Path dir = outDir().toAbsolutePath().normalize();
+            if (!p.startsWith(dir)) return;
+            synchronized (t.dests) { t.dests.putIfAbsent(p, Files.exists(p)); }
+        } catch (Exception ignored) { }
+    }
+
+    /**
+     * [fix-1114 实测 P2] 取消后清掉这次下载留下的半截文件：目标文件的 .part / .ytdl / .part-FragN，以及这次新出现的中间文件（只认下载文件夹里的；
+     * 开始前就有的完整文件不删）。Windows 上进程刚退出时句柄可能还没放，删不掉就稍等再试几次。
+     */
+    void cleanupPartial(Task t) {
+        List<Path> ds;
+        synchronized (t.dests) { ds = new ArrayList<>(t.dests.keySet()); }
+        int removed = 0;
+        for (Path d : ds) {
+            boolean existed;
+            synchronized (t.dests) { existed = Boolean.TRUE.equals(t.dests.get(d)); }
+            List<Path> victims = new ArrayList<>();
+            victims.add(Paths.get(d + ".part"));
+            victims.add(Paths.get(d + ".ytdl"));
+            if (!existed) victims.add(d);
+            try (var s = Files.newDirectoryStream(d.getParent(), d.getFileName().toString().replace("[", "\\[").replace("]", "\\]").replace("{", "\\{").replace("}", "\\}").replace("*", "\\*").replace("?", "\\?") + ".part-Frag*")) {
+                for (Path f : s) victims.add(f);
+            } catch (Exception ignored) { }
+            for (Path v : victims) if (deleteRetry(v)) removed++;
+        }
+        if (removed > 0) log.accept("链接下载 #" + t.id + " 已取消，清掉了 " + removed + " 个没下完的文件");
+    }
+
+    static boolean deleteRetry(Path p) {
+        for (int i = 0; i < 5; i++) {
+            try {
+                return Files.deleteIfExists(p);
+            } catch (Exception e) {
+                try { Thread.sleep(200); } catch (InterruptedException x) { Thread.currentThread().interrupt(); return false; }
+            }
+        }
+        return false;
     }
 
     public boolean cancel(int id) {

@@ -26,6 +26,7 @@ public final class Main {
     static final String VERSION = "0.5.1";
 
     public static void main(String[] argv) throws Exception {
+        AwtFonts.prepare(); // 必须在任何 AWT 之前：托盘菜单中文不变方块（根因见 AwtFonts）
         List<String> a = new ArrayList<>(List.of(argv));
         Path cfgFile = Config.defaultDir().resolve("desktop.properties");
         int ci = a.indexOf("--config");

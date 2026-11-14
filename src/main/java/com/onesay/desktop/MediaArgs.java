@@ -29,6 +29,8 @@ public final class MediaArgs {
     public static final String FILE_TAG = "[onesay-file] ";
     public static final String COOKIE_MASK = "<cookies:已打码>";
     public static final int MAX_URL = 2000;
+    /** 输出文件名。[fix-1114 实测 P1-2] 仅音频单独加「 仅音频」：yt-dlp -x 抽完音频会删掉同名的中间文件，和视频同名时会把你之前下好的视频当中间文件删掉。 */
+    public static final String OUT_VIDEO = "%(title).80B [%(id)s].%(ext)s", OUT_AUDIO = "%(title).80B [%(id)s] 仅音频.%(ext)s";
 
     /** 清晰度：不认识的回落「最佳」。 */
     public static String quality(Object q) {
@@ -175,7 +177,7 @@ public final class MediaArgs {
         a.add("-P");
         a.add(outDir);
         a.add("-o");
-        a.add("%(title).80B [%(id)s].%(ext)s");
+        a.add(audio.isEmpty() ? OUT_VIDEO : OUT_AUDIO);
         a.add("--print");
         a.add("after_move:" + FILE_TAG + "%(filepath)s");
         a.add("--");
