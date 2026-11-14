@@ -232,7 +232,7 @@ public class BrowserAgentTest {
     }
 
     @Test
-    public void unloadable_start_is_blocked_for_samsung_fallback() {
+    public void unloadable_start_is_blocked_for_browser_fallback() {
         World w = new World();
         w.blocked = "站点返回 HTTP 403";
         BrowseResult r = new BrowserAgent(w, new Script(), null, null, new FakeClock()).run(READ, "https://nope.example.com/", null);

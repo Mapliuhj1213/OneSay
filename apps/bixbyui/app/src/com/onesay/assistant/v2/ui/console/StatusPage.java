@@ -62,7 +62,7 @@ final class StatusPage extends Console.BuiltPage {
         LinearLayout g = k.group(col, "核心");
         ConsoleStatus.Pill w = ConsoleStatus.wake(s);
         if (w.level == ConsoleStatus.Level.BAD) {
-            k.actionRow(g, "唤醒服务", "前台服务：麦克风 + Bixby 键", "启动", new Runnable() {
+            k.actionRow(g, "唤醒服务", "前台服务：麦克风与唤醒入口", "启动", new Runnable() {
                 @Override public void run() {
                     c.startWakeService();
                 }
@@ -70,15 +70,11 @@ final class StatusPage extends Console.BuiltPage {
         } else {
             String v = w.level == ConsoleStatus.Level.OK ? "运行中" : w.level == ConsoleStatus.Level.OFF ? "已暂停"
                     : w.level == ConsoleStatus.Level.WARN ? "启动中" : unknown(s);
-            k.valueRow(g, "唤醒服务", s.paused ? "已暂停：唤醒与按键不响应" : "前台服务：麦克风 + Bixby 键", v, tone(w.level));
+            k.valueRow(g, "唤醒服务", s.paused ? "已暂停：唤醒与按键不响应" : "前台服务：麦克风与唤醒入口", v, tone(w.level));
         }
-        ConsoleStatus.Pill d = ConsoleStatus.daemon(s);
-        Object[] dp = ConsoleStatus.parseDaemon(s.daemonProbe);
-        String dv = d.level == ConsoleStatus.Level.OK ? "运行中" + (dp[2] != null ? " · " + dp[2] : "")
-                : d.level == ConsoleStatus.Level.BAD ? d.label.replace("按键 ", "") : unknown(s);
-        k.valueRow(g, "按键守护", "Magisk 模块 bixbykey_hijack", dv, tone(d.level));
         ConsoleStatus.Pill r = ConsoleStatus.root(s);
-        k.valueRow(g, "Root 通道", "系统设置类操作靠它", s.rootOk == null ? unknown(s) : (s.rootOk ? "就绪" : "未就绪"), tone(r.level));
+        k.valueRow(g, "特权通道", "系统设置类操作靠它（root 或 Shizuku 特权）", s.rootOk == null && s.shizukuOk == null ? unknown(s)
+                : ConsoleStatus.privilegeText(s), tone(r.level));
 
         LinearLayout m = k.group(col, "云端");
         if (Boolean.FALSE.equals(s.llmConfigured)) {

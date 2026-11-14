@@ -147,6 +147,64 @@ public final class PhonePlugin extends FeaturePlugin {
     @Override public boolean enabled(Context ctx) { return PhoneHooks.enabled(ctx); }
 
     @Override public String debugStatus(Context ctx) {
-        return "enabled=" + enabled(ctx) + " fastscreen=" + FastScreen.enabled(ctx) + " " + FastScreen.get(ctx).status() + " busy=" + PhoneHooks.busy();
+        return "enabled=" + enabled(ctx) + " fastscreen=" + FastScreen.enabled(ctx) + " " + FastScreen.get(ctx).status() + " busy=" + PhoneHooks.busy()
+                + " replay=" + PhoneHooks.replayEnabled(ctx) + " " + PhoneHooks.replayStore(ctx).stats();
+    }
+
+    // ------------------------------------------------------------------ ★ smart-replay：控制台（功能行 + 细项页：回放开关 / 一键清空）
+
+    static final String PAGE = "phone";
+
+    @Override public void addConsoleEntries(final com.onesay.assistant.v2.kernel.ConsoleHost host, String page, android.widget.LinearLayout root) {
+        final android.app.Activity act = host.activity();
+        boolean killed = com.onesay.assistant.v2.kernel.FeatureSwitch.killFilePresent(act, "phone.off");
+        if (com.onesay.assistant.v2.kernel.ConsoleHost.PAGE_FEATURES.equals(page)) {
+            com.onesay.assistant.v2.kernel.ConsoleRows.featureRow(host, root, title(), "在 App 界面里替你点按；付款 / 发送 / 删除等步骤先问你", killed,
+                    mainPref(act), PAGE, title());
+            return;
+        }
+        if (!PAGE.equals(page)) return;
+        com.onesay.assistant.v2.kernel.ConsoleRows.detailPage(host, root, "使用替你操作 App", killed, mainPref(act),
+                new String[]{"记住成功的步骤，下次直接照做", "控屏状态颜色"},
+                new String[]{"同一句话、同一个 App 再说一次时先按上次的步骤做，画面对不上就交回模型；只存在本机",
+                        "替你操作时屏幕边框和灵动岛描边按谁在控屏变色：蓝紫 = 助手在操作，琥珀 = 等你确认，绿 = 你接手了"},
+                new com.onesay.assistant.v2.kernel.ConsoleRows.Pref[]{new com.onesay.assistant.v2.kernel.ConsoleRows.Pref() {
+                    @Override public boolean get() { return PhoneHooks.replayPref(act); }
+                    @Override public void set(boolean on) { PhoneHooks.setReplay(act, on); }
+                }, new com.onesay.assistant.v2.kernel.ConsoleRows.Pref() {   // ★ borrow-1112
+                    @Override public boolean get() {
+                        return act.getSharedPreferences(com.onesay.assistant.v2.exec.ControlColor.PREF, Context.MODE_PRIVATE)
+                                .getBoolean(com.onesay.assistant.v2.exec.ControlColor.KEY, com.onesay.assistant.v2.exec.ControlColor.DEFAULT_ON);
+                    }
+                    @Override public void set(boolean on) { com.onesay.assistant.v2.exec.ControlColor.SWITCH.set(act, on); }
+                }},
+                new boolean[]{PhoneHooks.replayKilled(act), com.onesay.assistant.v2.exec.ControlColor.SWITCH.killed(act)}, null);
+        android.widget.LinearLayout g = host.group(root, "记住的步骤");
+        final com.onesay.assistant.v2.kernel.ConsoleHost.Row count = host.valueRow(g, "已记住", "最多 " + com.onesay.assistant.v2.phone.SmartReplay.MAX_PATHS
+                + " 条，久不用的先删", PhoneHooks.replayStore(act).size() + " 条", com.onesay.assistant.v2.kernel.ConsoleHost.TONE_NORMAL);
+        host.actionRow(g, "清空记住的步骤", "删掉后会重新从头记", "清空", new Runnable() {
+            @Override public void run() {
+                host.confirm("清空记住的步骤？", "所有记住的成功步骤都会删掉，下次重新由模型来做。", "清空", new Runnable() {
+                    @Override public void run() {
+                        PhoneHooks.clearReplay(act);
+                        count.setValue("0 条", com.onesay.assistant.v2.kernel.ConsoleHost.TONE_NORMAL);
+                        host.toast("已清空");
+                    }
+                });
+            }
+        });
+        host.footer(root, "付款 / 转账类任务不记也不照做；验证码、密码、个人信息不存原文，做到那一步交回模型。需要你确认的步骤照做时也会再问你。");
+    }
+
+    private static com.onesay.assistant.v2.kernel.ConsoleRows.Pref mainPref(final Context ctx) {
+        return new com.onesay.assistant.v2.kernel.ConsoleRows.Pref() {
+            @Override public boolean get() {
+                return ctx.getSharedPreferences(PhoneHooks.PREF, Context.MODE_PRIVATE).getBoolean(PhoneHooks.KEY_ENABLED, true);
+            }
+
+            @Override public void set(boolean on) {
+                ctx.getSharedPreferences(PhoneHooks.PREF, Context.MODE_PRIVATE).edit().putBoolean(PhoneHooks.KEY_ENABLED, on).apply();
+            }
+        };
     }
 }

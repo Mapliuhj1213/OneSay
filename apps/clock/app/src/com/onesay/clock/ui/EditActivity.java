@@ -41,6 +41,9 @@ public class EditActivity extends Activity {
     private TextView[] dayV = new TextView[7];
     private TextView when;
     private View rowSnooze, rowSound;
+    private View rowRule, rowPause;          // [borrow-1112]
+    private TextView previewV;
+    private LinearLayout daysRow;
     private EditText name;
 
     int dp(float v) { return Ui.dp(this, v); }
@@ -100,7 +103,23 @@ public class EditActivity extends Activity {
             dayV[i] = t;
         }
         tcard.addView(days);
+        daysRow = days;
         col.addView(tcard, Ui.cardLp(this));
+
+        // [borrow-1112] 重复规则 / 暂停 / 预览接下来 5 次
+        LinearLayout rcard = Ui.card(this);
+        final Runnable changed = new Runnable() { public void run() { refreshDays(); refreshWhen(); } };
+        rowRule = Ui.add(rcard, Ui.row(this, "重复规则", "", null, new View.OnClickListener() {
+            public void onClick(View v) { syncTime(); RuleUi.pickRule(EditActivity.this, a, changed); }
+        }));
+        rowPause = Ui.add(rcard, Ui.row(this, "暂停", "", null, new View.OnClickListener() {
+            public void onClick(View v) { syncTime(); RuleUi.pickPause(EditActivity.this, a, changed); }
+        }));
+        previewV = Ui.text(this, "", 13.5f, Ui.T2, Ui.regular());
+        previewV.setLineSpacing(dp(4), 1f);
+        previewV.setPadding(dp(24), dp(6), dp(24), dp(18));
+        rcard.addView(previewV);
+        col.addView(rcard, Ui.cardLp(this));
 
         // 选项卡片
         LinearLayout card = Ui.card(this);
@@ -113,7 +132,7 @@ public class EditActivity extends Activity {
         name.setBackground(null);
         name.setPadding(dp(24), dp(18), dp(24), dp(18));
         card.addView(name);
-        Ui.add(card, Ui.row(this, "智能播报", "响铃时播报时间、天气和 5 条新闻（Bixby 简报样式）", Ui.sw(this, a.brief,
+        Ui.add(card, Ui.row(this, "智能播报", "响铃时播报时间、天气和 5 条新闻", Ui.sw(this, a.brief,
                 new CompoundButton.OnCheckedChangeListener() { public void onCheckedChanged(CompoundButton x, boolean on) { a.brief = on; } }), null));
         rowSnooze = Ui.add(card, Ui.row(this, "稍后提醒", "", Ui.sw(this, a.snoozeOn,
                 new CompoundButton.OnCheckedChangeListener() { public void onCheckedChanged(CompoundButton x, boolean on) { a.snoozeOn = on; refreshSnooze(); } }),
@@ -154,6 +173,8 @@ public class EditActivity extends Activity {
     }
 
     void refreshDays() {
+        // [borrow-1112] 星期圆点只对「每周」和「大小周」（这一周）有意义
+        daysRow.setVisibility(a.rule == com.onesay.clock.core.RepeatRule.WEEKLY || a.rule == com.onesay.clock.core.RepeatRule.BIWEEKLY ? View.VISIBLE : View.GONE);
         for (int i = 0; i < 7; i++) {
             boolean on = a.onDay(i);
             dayV[i].setTextColor(on ? Color.WHITE : (i == 0 ? Ui.WARN : Ui.T1));
@@ -161,11 +182,25 @@ public class EditActivity extends Activity {
         }
     }
 
+    void syncTime() { a.hour = tp.getHour(); a.minute = tp.getMinute(); }
+
+    /** 草稿：当前编辑内容（含规则与暂停）、时间取滚轮、视为开着。 */
+    Alarm draft() {
+        Alarm t;
+        try { t = Alarm.fromJson(a.toJson()); } catch (Exception e) { t = new Alarm(); t.days = a.days; }
+        t.hour = tp.getHour(); t.minute = tp.getMinute(); t.on = true;
+        return t;
+    }
+
     void refreshWhen() {
-        Alarm t = new Alarm();
-        t.hour = tp.getHour(); t.minute = tp.getMinute(); t.days = a.days;
+        Alarm t = draft();
         long now = System.currentTimeMillis();
-        when.setText(Alarm.daysLabel(a.days) + " · " + AlarmMath.untilLabel(AlarmMath.next(t, now, TimeZone.getDefault()), now));
+        when.setText(com.onesay.clock.core.RepeatRule.label(t) + " · " + AlarmMath.untilLabel(AlarmMath.next(t, now, TimeZone.getDefault()), now));
+        if (rowRule != null) {   // [borrow-1112]
+            Ui.setSub(rowRule, com.onesay.clock.core.RepeatRule.label(t));
+            Ui.setSub(rowPause, RuleUi.pauseSub(t));
+            previewV.setText(RuleUi.preview(t));
+        }
     }
 
     void refreshSnooze() { Ui.setSub(rowSnooze, a.snoozeOn ? a.snoozeMin + " 分钟" : "关"); }
@@ -202,6 +237,11 @@ public class EditActivity extends Activity {
         a.minute = tp.getMinute();
         a.label = name.getText().toString().trim();
         a.on = true;
+        // [borrow-1112] 按规则根本不会响（如大小周两周都没选日子）就不存，免得以为设好了
+        if (a.repeats() && com.onesay.clock.core.RepeatRule.next(a, System.currentTimeMillis(), TimeZone.getDefault()) <= 0) {
+            Toast.makeText(this, "按这个规则不会响铃，请检查重复规则", Toast.LENGTH_SHORT).show();
+            return;
+        }
         prefs.put(a);
         Sched.rescheduleNow(this, isNew ? "add" : "edit");
         long now = System.currentTimeMillis();

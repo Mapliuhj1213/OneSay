@@ -520,7 +520,7 @@ public class CommonSenseTest {
         assertEquals(com.onesay.assistant.v2.wake.WakeCue.Source.LEGACY, com.onesay.assistant.v2.wake.WakeCue.parse("legacy"));
         com.onesay.assistant.v2.wake.WakeCue.Source before = com.onesay.assistant.v2.wake.WakeCue.pref();
         try {
-            com.onesay.assistant.v2.wake.WakeCue.setPref(com.onesay.assistant.v2.wake.WakeCue.Source.VENDOR);
+            com.onesay.assistant.v2.wake.WakeCue.setPref(com.onesay.assistant.v2.wake.WakeCue.Source.SYSTEM);
             if (com.onesay.assistant.v2.wake.WakeCue.vendorFrom() == null) {
                 assertEquals("厂商原声没加载 → 退回方案 A，不能没声", com.onesay.assistant.v2.wake.WakeCue.Source.A, com.onesay.assistant.v2.wake.WakeCue.effective());
             }

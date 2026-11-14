@@ -53,17 +53,28 @@ public class MainActivity extends Activity implements com.onesay.assistant.v2.qu
         if (mConsole != null) mConsole.onStop();
     }
 
+    /**
+     * 唤醒修复：<b>推到本轮主线程消息之后</b>再 startForegroundService。
+     * <p>startForegroundService 一调用系统就开始计时，而服务的 onCreate / onStartCommand 也跑在这条主线程上 ——
+     * 旧实现在 onCreate 中途就调，计时期间主线程还要建控制台、插件、首帧（重装后第一次冷启动 dex 没优化，要好几秒），
+     * 11-08 真机因此 ANR + 崩溃。推迟后从调用到服务 startForeground 之间主线程上只剩服务自己的创建消息。
+     * 调用点仍在 onCreate 里、mConsole.start() 之前（IN-3：am start MainActivity 照样拉起服务）。
+     */
     private void ensureWakeServiceStarted() {
-        try {
-            Intent it = new Intent(this, com.onesay.assistant.v2.wake.WakeService.class);
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                startForegroundService(it);
-            } else {
-                startService(it);
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+            @Override public void run() {
+                try {
+                    Intent it = new Intent(MainActivity.this, com.onesay.assistant.v2.wake.WakeService.class);
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        startForegroundService(it);
+                    } else {
+                        startService(it);
+                    }
+                } catch (Throwable t) {
+                    android.util.Log.w("MainActivity", "启动 WakeService 异常: " + t.getMessage());
+                }
             }
-        } catch (Throwable t) {
-            android.util.Log.w("MainActivity", "启动 WakeService 异常: " + t.getMessage());
-        }
+        });
     }
 
     // ------------------------------------------------------------------ ★ R10 记一记页（QuickNotePage，不新增 Activity）

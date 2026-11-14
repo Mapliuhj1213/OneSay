@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 无障碍服务配置：照 Mika app/src/main/res/xml/accessibility_service.xml（Apache-2.0，Copyright 2026 wangzan101）改写——
+     事件类型收窄（不收 hover 一类高频事件），去掉 canTakeScreenshot（API 30 才有），适配 Android 8 单屏。 -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeWindowsChanged|typeViewClicked|typeViewTextChanged|typeViewScrolled|typeViewFocused"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds|flagIncludeNotImportantViews"
+    android:canRequestFilterKeyEvents="true"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="50"
+    android:description="@string/onesay_a11y_desc" />

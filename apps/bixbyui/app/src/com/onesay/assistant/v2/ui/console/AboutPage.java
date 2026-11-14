@@ -10,7 +10,7 @@ import com.onesay.assistant.v2.kernel.ConsoleHost;
 
 import java.security.MessageDigest;
 
-/** [console R12] 关于：版本（连点 7 次 = 开发者模式）、构建类型、签名证书指纹前 8 位、用到的开源组件。 */
+/** ★ console-align：关于 = 版本 / 构建 / 签名 / 包名 + 外观 + 设备能力 + 开源组件。[console R12] 关于：版本（连点 7 次 = 开发者模式）、构建类型、签名证书指纹前 8 位、用到的开源组件。 */
 final class AboutPage extends Console.BuiltPage {
 
     AboutPage(Console c) {
@@ -40,6 +40,19 @@ final class AboutPage extends Console.BuiltPage {
         k.valueRow(g, "构建", null, Console.debugBuild() ? "debug" : "release", ConsoleHost.TONE_NORMAL);
         k.valueRow(g, "签名证书", "SHA-256 前 8 位", certPrefix(), ConsoleHost.TONE_NORMAL);
         k.valueRow(g, "包名", null, c.act.getPackageName(), ConsoleHost.TONE_NORMAL);
+
+        // ★ console-align 2026-11-12：「外观」从「模型与密钥」搬来（开关、prefs 不变）
+        LinearLayout look = k.group(col, "外观");
+        k.switchRow(look, "浅色外观", "默认深色；灵动岛始终是黑色", !k.t.dark, new ConsoleHost.Toggle() {
+            @Override public void onToggle(final boolean on) {
+                // 等开关动画走完再整页换色
+                c.act.getWindow().getDecorView().postDelayed(new Runnable() {
+                    @Override public void run() {
+                        c.setThemeMode(on ? ConsoleTheme.MODE_LIGHT : ConsoleTheme.MODE_DARK);
+                    }
+                }, 220);
+            }
+        });
 
         // ★ refactor/oss：设备能力探测 + 功能注册表生成的开关页（只读写原有开关，不改默认值）
         LinearLayout caps = k.group(col, null);

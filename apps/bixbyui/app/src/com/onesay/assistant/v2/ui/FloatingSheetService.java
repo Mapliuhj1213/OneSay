@@ -1,5 +1,6 @@
 package com.onesay.assistant.v2.ui;
 
+import com.onesay.assistant.v2.util.SafeLog;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -17,7 +18,6 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -66,6 +66,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     public static final String ACTION_LISTEN = "com.onesay.assistant.v2.action.LISTEN";
     /** [s3] 闹钟 / 开机 / 改时间后处理到期的定时任务（BootReceiver → 本服务；不导出，同 uid）。 */
     public static final String ACTION_S3_FIRE = "com.onesay.assistant.v2.action.S3_FIRE";
+    /** ★ feat/api-first：点「调用中：X」前台通知 → 安静地挂回面板（不清内容、不放唤醒水光）。 */
+    public static final String ACTION_OPEN_PANEL = "com.onesay.assistant.v2.action.OPEN_PANEL";
     public static final String EXTRA_QUERY = "query";
     public static final String EXTRA_PROMPT = "prompt";
 
@@ -100,7 +102,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             mCardRemovalScheduled = false;
             long t0 = SystemClock.uptimeMillis();
             removeSheetWindowOnly("形变落定后");
-            Log.i(TAG, "[WAKE-MORPH] 摘卡片窗用时 " + (SystemClock.uptimeMillis() - t0) + "ms");
+            SafeLog.i(TAG, "[WAKE-MORPH] 摘卡片窗用时 " + (SystemClock.uptimeMillis() - t0) + "ms");
         }
     };
 
@@ -137,7 +139,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     private final Runnable mConversationExpire = new Runnable() {
         @Override public void run() {
             boolean ended = com.onesay.assistant.v2.router.ConversationMemory.getInstance().expireIfIdle();
-            Log.i(TAG, "[CONV] 会话保持期满检查：" + (ended ? "超时，会话结束" : "期间有新一轮，继续保持"));
+            SafeLog.i(TAG, "[CONV] 会话保持期满检查：" + (ended ? "超时，会话结束" : "期间有新一轮，继续保持"));
         }
     };
 
@@ -151,13 +153,13 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         m.onPanelClosed();
         mMainHandler.removeCallbacks(mConversationExpire);
         mMainHandler.postDelayed(mConversationExpire, m.keepMs() + 1000L);
-        Log.i(TAG, "[CONV] 面板离屏：会话保留 " + (m.keepMs() / 1000) + " 秒（历史 " + m.size() + " 轮），期间再唤醒接着上轮");
+        SafeLog.i(TAG, "[CONV] 面板离屏：会话保留 " + (m.keepMs() / 1000) + " 秒（历史 " + m.size() + " 轮），期间再唤醒接着上轮");
     }
 
     private final Runnable mAutoHideRunnable = new Runnable() {
         @Override
         public void run() {
-            Log.i(TAG, "自动延时定时器触发 -> 滑出收起悬浮面板");
+            SafeLog.i(TAG, "自动延时定时器触发 -> 滑出收起悬浮面板");
             hideSheet();
         }
     };
@@ -176,7 +178,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             if (!com.onesay.assistant.v2.ui.ErrorStatePolicy.stillNeutral(isPanelOnScreen(), isConfirmPendingAnywhere(),
                     com.onesay.assistant.v2.s1.S1Hooks.isTaskRunning())) return;
             mSheetView.resetToNeutral(mErrorClearTranscript);
-            Log.i(TAG, "[ERR-UI] 错误态已复位为中性态");
+            SafeLog.i(TAG, "[ERR-UI] 错误态已复位为中性态");
         }
     };
 
@@ -186,10 +188,10 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             if (mSheetView == null) return;
             if (!com.onesay.assistant.v2.ui.ErrorStatePolicy.stillHide(isPanelOnScreen(), isConfirmPendingAnywhere(),
                     com.onesay.assistant.v2.s1.S1Hooks.isTaskRunning(), mSheetView.isTextModeActive())) {
-                Log.i(TAG, "[ERR-UI] 到点复核不收起（确认卡/任务/文字输入/已离屏）");
+                SafeLog.i(TAG, "[ERR-UI] 到点复核不收起（确认卡/任务/文字输入/已离屏）");
                 return;
             }
-            Log.i(TAG, "[ERR-UI] 错误态到时自动收起面板");
+            SafeLog.i(TAG, "[ERR-UI] 错误态到时自动收起面板");
             mSheetView.resetToNeutral(mErrorClearTranscript);
             WakeService.cancelCaptureFromUi();
             hideSheet();
@@ -213,7 +215,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
      */
     private final PanelPresence mPresence = new PanelPresence(new PanelPresence.Sink() {
         @Override public void onPanelVisibility(boolean on, String why) {
-            Log.i(TAG, "[PANEL] panel(" + on + ") ← " + why);
+            SafeLog.i(TAG, "[PANEL] panel(" + on + ") ← " + why);
             com.onesay.assistant.v2.s1.S1Hooks.onPanelVisibility(on);
         }
     }, new PanelPresence.Poster() {
@@ -274,11 +276,11 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                             locked = km != null && km.isKeyguardLocked();
                         } catch (Throwable ignored) {
                         }
-                        Log.i(TAG, "[KB-LOCK] 托底退出（" + why + "）locked=" + locked + " panel=" + isPanelOnScreen());
+                        SafeLog.i(TAG, "[KB-LOCK] 托底退出（" + why + "）locked=" + locked + " panel=" + isPanelOnScreen());
                         if (mSheetView == null || !com.onesay.assistant.v2.ui.ime.KbLockPolicy.collapseOnHostGone(locked, isPanelOnScreen())) return;
                         mSheetView.hideSoftKeyboard();
                         hideSheet(true);
-                        Log.i(TAG, "[KB-LOCK] 锁屏回来 → 收键盘、收起面板（不留孤立键盘）");
+                        SafeLog.i(TAG, "[KB-LOCK] 锁屏回来 → 收键盘、收起面板（不留孤立键盘）");
                     }
                 });
             }
@@ -303,7 +305,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         com.onesay.assistant.v2.ui.ErrorStatePolicy.Plan plan = com.onesay.assistant.v2.ui.ErrorStatePolicy.plan(source,
                 isPanelOnScreen(), isConfirmPendingAnywhere(), com.onesay.assistant.v2.s1.S1Hooks.isTaskRunning(),
                 mSheetView.isTextModeActive());
-        Log.i(TAG, "[ERR-UI] " + source + " → " + plan);
+        SafeLog.i(TAG, "[ERR-UI] " + source + " → " + plan);
         if (!plan.apply) return;
         if (plan.clearSuggestions) mSheetView.setSuggestionsVisible(false);
         mErrorClearTranscript = plan.clearTranscriptOnNeutral;
@@ -321,7 +323,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         com.onesay.assistant.v2.ui.ConfirmRejectPolicy.Plan plan = com.onesay.assistant.v2.ui.ConfirmRejectPolicy.plan(path,
                 isPanelOnScreen(), isConfirmPendingAnywhere(), com.onesay.assistant.v2.s1.S1Hooks.isTaskRunning(),
                 mSheetView.isTextModeActive());
-        Log.i(TAG, "[REJECT-UI] " + path + " → " + plan);
+        SafeLog.i(TAG, "[REJECT-UI] " + path + " → " + plan);
         if (!plan.apply) return;
         mErrorClearTranscript = false;   // 收起前保留「你说：…」，只收掉「已拒绝」卡
         if (plan.neutralAfterMs >= 0) mMainHandler.postDelayed(mErrorNeutralRunnable, plan.neutralAfterMs);
@@ -395,7 +397,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             if (mPendingStreamText == null || mSheetView == null) return;
             mLastStreamFlushAt = SystemClock.elapsedRealtime();
             mSheetView.setAskStreamText(mPendingStreamText);
-            Log.i(TAG, "[STREAM-UI] 增量上屏 " + mPendingStreamText.length() + " 字");
+            SafeLog.i(TAG, "[STREAM-UI] 增量上屏 " + mPendingStreamText.length() + " 字");
         }
     };
 
@@ -411,7 +413,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             mStreamFlushScheduled = false;
             mLastStreamFlushAt = now;
             mSheetView.setAskStreamText(text);
-            Log.i(TAG, "[STREAM-UI] 增量上屏 " + (text != null ? text.length() : 0) + " 字");
+            SafeLog.i(TAG, "[STREAM-UI] 增量上屏 " + (text != null ? text.length() : 0) + " 字");
             return;
         }
         if (!mStreamFlushScheduled) {
@@ -444,14 +446,14 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 && com.onesay.assistant.v2.router.AgentPreemption.teardownCancelsAgent(mActiveAgentSeq, mRequestSeq, mYieldNoCancel);
         if (c != null && (c != agent || agentToo)) {
             c.cancel();
-            Log.i(TAG, "已作废在途流式请求（面板已收起或新指令到达）");
+            SafeLog.i(TAG, "已作废在途流式请求（面板已收起或新指令到达）");
         }
         if (agentToo) {
             agent.cancel();
             mActiveAgent = null;
-            Log.i(TAG, "[AGENT-LOOP] 收尾：复合任务还占着卡片，一并取消");
+            SafeLog.i(TAG, "[AGENT-LOOP] 收尾：复合任务还占着卡片，一并取消");
         } else if (agent != null && c == agent) {
-            Log.i(TAG, "[AGENT-LOOP] 新请求不进 AgentLoop：复合任务转后台继续（卡片让给新请求）");
+            SafeLog.i(TAG, "[AGENT-LOOP] 新请求不进 AgentLoop：复合任务转后台继续（卡片让给新请求）");
         }
         mActiveStream = null;
         mPendingStreamText = null;
@@ -502,22 +504,22 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         boolean cold = sInstance == null;
         try {
             if (cold && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Log.i(TAG, "[COLD] 面板服务未运行，以前台服务方式启动: " + intent.getAction());
+                SafeLog.i(TAG, "[COLD] 面板服务未运行，以前台服务方式启动: " + intent.getAction());
                 context.startForegroundService(intent);
             } else {
                 context.startService(intent);
             }
         } catch (IllegalStateException ise) {
-            Log.w(TAG, "[COLD] startService 被后台启动限制拒绝，改用 startForegroundService: " + ise.getMessage());
+            SafeLog.w(TAG, "[COLD] startService 被后台启动限制拒绝，改用 startForegroundService: " + ise.getMessage());
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 try {
                     context.startForegroundService(intent);
                 } catch (Throwable t) {
-                    Log.e(TAG, "[COLD] 面板服务启动失败，指令丢失: " + t.getMessage());
+                    SafeLog.e(TAG, "[COLD] 面板服务启动失败，指令丢失: " + t.getMessage());
                 }
             }
         } catch (Throwable t) {
-            Log.e(TAG, "[COLD] 面板服务启动失败: " + t.getMessage());
+            SafeLog.e(TAG, "[COLD] 面板服务启动失败: " + t.getMessage());
         }
     }
 
@@ -539,7 +541,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 //   绝不能借它把面板重新弹出来停在「正在想」—— 2026-10-13 飞行模式下的「第二次唤醒卡在正在想」就是这样来的
                 //   （根因在 WakeService 收窗误判在途，已修；这里是第二道闸）。
                 if (mUseV2 && !newWake && prompt != null && prompt.contains("识别中") && !isPanelOnScreen()) {
-                    Log.w(TAG, "[WAKE-UI] 面板已不在屏上，忽略识别中提示（不复活面板）: " + com.onesay.assistant.v2.util.LogText.u(prompt));
+                    SafeLog.w(TAG, "[WAKE-UI] 面板已不在屏上，忽略识别中提示（不复活面板）: " + com.onesay.assistant.v2.util.LogText.u(prompt));
                     return;
                 }
                 showSheet();
@@ -684,10 +686,10 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                 if (i.resolveActivity(getPackageManager()) == null) continue;
                 startActivity(i);
-                Log.i(TAG, "[OFFLINE] 已打开网络设置：" + a + "（飞行模式=" + airplane + "）");
+                SafeLog.i(TAG, "[OFFLINE] 已打开网络设置：" + a + "（飞行模式=" + airplane + "）");
                 return true;
             } catch (Throwable t) {
-                Log.w(TAG, "[OFFLINE] 打开 " + a + " 失败：" + t);
+                SafeLog.w(TAG, "[OFFLINE] 打开 " + a + " 失败：" + t);
             }
         }
         return false;
@@ -774,7 +776,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 mSheetView.setDismissLabel("✕ 关闭");
                 boolean setup = com.onesay.assistant.v2.asr.AsrFailure.needsSetup(kind);
                 boolean retry = canRetry && com.onesay.assistant.v2.asr.AsrFailure.retryable(kind);
-                Log.i(TAG, com.onesay.assistant.v2.asr.AsrFailure.logTag(kind) + " 卡片 quiet=" + quiet + " 重试=" + retry);
+                SafeLog.i(TAG, com.onesay.assistant.v2.asr.AsrFailure.logTag(kind) + " 卡片 quiet=" + quiet + " 重试=" + retry);
                 if (!quiet) playVoiceCue(com.onesay.assistant.v2.tts.VoiceTemplate.forAsrFailure(kind));   // ★ r2/voice-templates
                 applyErrorPolicy(setup ? com.onesay.assistant.v2.ui.ErrorStatePolicy.Source.ASR_NEEDS_SETUP
                         : retry ? com.onesay.assistant.v2.ui.ErrorStatePolicy.Source.ASR_RETRYABLE
@@ -846,7 +848,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             it.putExtra("title", "语音识别 Key");
             startActivity(it);
         } catch (Throwable t) {
-            Log.w(TAG, "[ASR-FAIL] 打开控制台失败: " + t.getMessage());
+            SafeLog.w(TAG, "[ASR-FAIL] 打开控制台失败: " + t.getMessage());
         }
         hideSheet(false);
     }
@@ -857,6 +859,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         mCreatedAt = SystemClock.elapsedRealtime();
         sInstance = this;
         registerSystemDialogsReceiver();   // ★ r2/sysux P1-4：按 Home / 最近任务 → 收起面板
+        com.onesay.assistant.v2.timeline.TimelineNotes.add(mTimelineNotes);   // ★ borrow-1112：等待期间画面变化 / 已切换到备用模型 → 时间轴说明行
         com.onesay.assistant.v2.contacts.ContactSource.installFor(this);   // AgentLoop 的人名 → 号码（本机解析）
         com.onesay.assistant.plug.richout.host.RichOutHost.install(this);
         com.onesay.assistant.v2.router.ctx.ContextPrefs.apply(this);   // ★ int/1102：会话历史 token 预算 / 模型窗口覆盖（prefs bixby_conv）   // [richout] 富内容回答插件开关接上 prefs / kill 文件
@@ -900,7 +903,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     private long mCreatedAt;
 
     private void startColdWarmup() {
-        Log.i(TAG, "[COLD] 面板服务 onCreate 完成（" + (SystemClock.elapsedRealtime() - mCreatedAt) + "ms），后台预热路由层…");
+        SafeLog.i(TAG, "[COLD] 面板服务 onCreate 完成（" + (SystemClock.elapsedRealtime() - mCreatedAt) + "ms），后台预热路由层…");
         com.onesay.assistant.v2.util.Threads.start("FssColdWarmup", new Runnable() {
             @Override
             public void run() {
@@ -910,7 +913,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     com.onesay.assistant.v2.s2.S2Hooks.engine(FloatingSheetService.this);   // 记忆库 + 默认应用角色快照
                     com.onesay.assistant.v2.router.TriageDecider.decide("现在几点", com.onesay.assistant.v2.router.TriageDecider.Signals.offline());
                 } catch (Throwable t) {
-                    Log.w(TAG, "[COLD] 预热异常（不影响就绪）: " + t.getMessage());
+                    SafeLog.w(TAG, "[COLD] 预热异常（不影响就绪）: " + t.getMessage());
                 }
                 final long warm = SystemClock.elapsedRealtime() - t0;
                 mMainHandler.post(new Runnable() {
@@ -927,14 +930,14 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         long now = SystemClock.elapsedRealtime();
         mMainHandler.removeCallbacks(mColdTimeoutRunnable);
         com.onesay.assistant.v2.util.ReadyQueue.Drain<String> d = mColdQueue.markReady(now);
-        Log.i(TAG, "[COLD] 面板服务就绪（" + why + "，创建后 " + (now - mCreatedAt) + "ms），排队指令 "
+        SafeLog.i(TAG, "[COLD] 面板服务就绪（" + why + "，创建后 " + (now - mCreatedAt) + "ms），排队指令 "
                 + d.ready.size() + " 条待补发" + (d.expired.isEmpty() ? "" : "，" + d.expired.size() + " 条已超时丢弃"));
         replayCold(d, now);
     }
 
     private void replayCold(com.onesay.assistant.v2.util.ReadyQueue.Drain<String> d, long now) {
         for (com.onesay.assistant.v2.util.ReadyQueue.Item<String> it : d.expired) {
-            Log.w(TAG, "[COLD] 排队指令等待 " + it.waitedMs(now) + "ms 超时，丢弃: " + it.value);
+            SafeLog.w(TAG, "[COLD] 排队指令等待 " + it.waitedMs(now) + "ms 超时，丢弃: " + it.value);
         }
         if (!d.expired.isEmpty() && d.ready.isEmpty() && mSheetView != null) {
             mSheetView.updateState("没听清", Color.parseColor("#FF9F0A"), "启动较慢，刚才的指令没来得及执行，请再说一次");
@@ -946,7 +949,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             final long waited = it.waitedMs(now);
             mMainHandler.postDelayed(new Runnable() {
                 @Override public void run() {
-                    Log.i(TAG, "[COLD] 补发排队指令（排队 " + waited + "ms）: " + it.value);
+                    SafeLog.i(TAG, "[COLD] 补发排队指令（排队 " + waited + "ms）: " + it.value);
                     onSubmitCommand(it.value);
                 }
             }, delay);
@@ -961,7 +964,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             boolean wasReady = mColdQueue.isReady();
             com.onesay.assistant.v2.util.ReadyQueue.Drain<String> d = mColdQueue.expire(now, true);
             if (!wasReady) {
-                Log.w(TAG, "[COLD] 预热 " + COLD_QUEUE_TIMEOUT_MS + "ms 未完成，放行闸门（fail-open），补发 "
+                SafeLog.w(TAG, "[COLD] 预热 " + COLD_QUEUE_TIMEOUT_MS + "ms 未完成，放行闸门（fail-open），补发 "
                         + d.ready.size() + " 条、丢弃 " + d.expired.size() + " 条");
             }
             replayCold(d, now);
@@ -972,6 +975,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     public boolean isColdReady() {
         return mColdQueue.isReady();
     }
+
+    /** ★ feat/api-first：任务通知标题（与面板常驻通知同一个应用名）。 */
+    static final String PANEL_NOTIFY_TITLE = com.onesay.assistant.v2.BuildVariant.APP_TITLE_V2;
 
     private Notification buildServiceNotification() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -1043,7 +1049,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 mCardRemovalScheduled = true;
                 mMainHandler.removeCallbacks(mDeferredCardRemoval);
                 mMainHandler.postDelayed(mDeferredCardRemoval, 1500);
-                Log.i(TAG, "[WAKE-MORPH] 卡片窗已隐藏（舞台第一帧已画出），稍后摘窗");
+                SafeLog.i(TAG, "[WAKE-MORPH] 卡片窗已隐藏（舞台第一帧已画出），稍后摘窗");
             }
 
             @Override
@@ -1115,18 +1121,18 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         long sinceShown = SystemClock.elapsedRealtime() - mShownAt;
         long guard = mUseV2 ? OUTSIDE_TAP_GUARD_V2_MS : OUTSIDE_TAP_GUARD_MS;
         if (mShownAt > 0 && sinceShown < guard) {
-            Log.i(TAG, "外部触摸事件落在滑入保护期内（挂载后 " + sinceShown
+            SafeLog.i(TAG, "外部触摸事件落在滑入保护期内（挂载后 " + sinceShown
                     + "ms < " + guard + "ms），忽略，不收面板");
             return true;
         }
         // [richout] 阅读器 / 全屏看图 / 离开确认框叠在面板上方：那上面的触摸对面板是「外部」，不算用户想收面板
         if (com.onesay.assistant.plug.richout.host.RichOutHost.overlayOpen()) {
-            Log.i(TAG, "外部触摸落在富内容浮层上（阅读器 / 看图），不收面板");
+            SafeLog.i(TAG, "外部触摸落在富内容浮层上（阅读器 / 看图），不收面板");
             return true;
         }
         // [s1] 长任务（AgentLoop）在跑：点外部 = 转后台、面板收成胶囊，而不是取消任务
         if (com.onesay.assistant.v2.s1.S1Hooks.onOutsideTap(FloatingSheetService.this)) return true;
-        Log.i(TAG, "检测到点击外部屏幕区域 -> 立即收起浮层（挂载后 "
+        SafeLog.i(TAG, "检测到点击外部屏幕区域 -> 立即收起浮层（挂载后 "
                 + sinceShown + "ms）");
         WakeService.cancelCaptureFromUi();
         dismissByUser(); // 用户主动触外：旧界面立即强退；新界面卡片沉下退场（同样立即结束会话）
@@ -1165,6 +1171,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 com.onesay.assistant.v2.kernel.FeatureKernel.get().onWake(this);
                 mNextListenIsWake = true;   // ★ R13：这一次是新唤醒（新界面清卡片、点亮边缘光）
                 setListeningPrompt(prompt);
+            } else if (ACTION_OPEN_PANEL.equals(action)) {
+                SafeLog.i(TAG, "[TASK-NOTIFY] 点了任务通知 → 挂回面板");
+                s1AttachSheet();   // ★ feat/api-first：回到面板看时间轴（任务照跑）
             } else if (ACTION_SHOW.equals(action)) {
                 // 只有明确 ACTION_SHOW 才弹出面板（防止预启动/系统重启时意外弹出）
                 showSheet();
@@ -1187,7 +1196,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     private final Runnable mHideFallbackRunnable = new Runnable() {
         @Override
         public void run() {
-            Log.w(TAG, "hideSheet 动画超时兜底触发，强制移除悬浮窗");
+            SafeLog.w(TAG, "hideSheet 动画超时兜底触发，强制移除悬浮窗");
             detachFromWindowImmediate();
         }
     };
@@ -1220,7 +1229,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             mSheetView.setSuggestionsVisible(true);   // ★ M-2：下次挂载从干净状态开始
             if (mSheetView.getParent() != null || mIsAttached) {
                 removeSheetWindow("detach");
-                Log.i(TAG, "已从 WindowManager 立即卸载底部 Sheet 悬浮面板");
+                SafeLog.i(TAG, "已从 WindowManager 立即卸载底部 Sheet 悬浮面板");
             }
         }
         mIsAttached = false;
@@ -1295,7 +1304,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 mRippleAttached = true;
                 mRippleView.startRipple();
             } catch (Throwable t) {
-                Log.w(TAG, "挂载光效层异常: " + t.getMessage());
+                SafeLog.w(TAG, "挂载光效层异常: " + t.getMessage());
             }
         } else if (mRippleView != null) {
             mRippleView.startRipple();
@@ -1310,9 +1319,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 // ★//   记录挂载时刻，供外部点击收起判定加一道保护窗。
                 mShownAt = SystemClock.elapsedRealtime();
                 mSheetView.animateShow();
-                Log.i(TAG, "已成功挂载底部 Sheet 悬浮面板并触发物理弹簧入场");
+                SafeLog.i(TAG, "已成功挂载底部 Sheet 悬浮面板并触发物理弹簧入场");
             } catch (Throwable t) {
-                Log.e(TAG, "挂载悬浮窗失败: " + t.getMessage());
+                SafeLog.e(TAG, "挂载悬浮窗失败: " + t.getMessage());
             }
         }
     }
@@ -1332,7 +1341,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
         // 用户主动取消 -> 立即强制销毁，绝不等待任何动画，绝不受 mHiding 阻塞！
         if (immediate) {
-            Log.i(TAG, "用户主动触发取消/关闭 -> 立即强制销毁悬浮面板与光效层");
+            SafeLog.i(TAG, "用户主动触发取消/关闭 -> 立即强制销毁悬浮面板与光效层");
             detachFromWindowImmediate();
             return;
         }
@@ -1347,7 +1356,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         }
 
         if (mHiding) {
-            Log.d(TAG, "hideSheet 已经在执行收起中");
+            SafeLog.d(TAG, "hideSheet 已经在执行收起中");
             return;
         }
 
@@ -1405,7 +1414,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             com.onesay.assistant.v2.util.ReadyQueue.Offer o = mColdQueue.offer(command, now);
             if (o != com.onesay.assistant.v2.util.ReadyQueue.Offer.RUN_NOW) {
                 com.onesay.assistant.v2.util.ReadyQueue.Item<String> dropped = mColdQueue.takeDropped();
-                Log.i(TAG, "[COLD] 面板服务未就绪（创建后 " + (now - mCreatedAt) + "ms），指令排队（第 "
+                SafeLog.i(TAG, "[COLD] 面板服务未就绪（创建后 " + (now - mCreatedAt) + "ms），指令排队（第 "
                         + mColdQueue.size() + " 条）: " + command
                         + (dropped != null ? "；队列满，丢弃最早一条: " + dropped.value : ""));
                 if (mSheetView != null) mSheetView.updateState("正在解析", Color.parseColor("#0A84FF"), "“" + command + "” · 正在启动…");
@@ -1423,7 +1432,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             String[] ans = com.onesay.assistant.v2.agent.AskUserSupport.interceptVoice(command);
             if (ans != null && com.onesay.assistant.v2.s1.S1Hooks.answerAskUser(ans[0], ans[1])) {
                 WakeService.claimVoiceTurn(command);
-                Log.i(TAG, "[ASK-USER] 用户回答已回填 " + ans[0]);
+                SafeLog.i(TAG, "[ASK-USER] 用户回答已回填 " + ans[0]);
                 if (mSheetView != null) mSheetView.updateState("正在处理", Color.parseColor("#5E5CE6"), "收到：" + ans[1]);
                 return;
             }
@@ -1437,7 +1446,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (mActiveAgent != null && com.onesay.assistant.v2.tts.VoiceSyncPolicy.isCancelPhrase(command)) {
             UnifiedRouter.Cancel running = mActiveAgent;
             running.cancel();
-            Log.i(TAG, "[VOICE-SYNC] 任务在跑时说「" + com.onesay.assistant.v2.util.LogText.u(command) + "」→ 停掉复合任务");
+            timelineStopped();   // ★ feat/api-first：时间轴记「已停止」、通知复原
+            SafeLog.i(TAG, "[VOICE-SYNC] 任务在跑时说「" + com.onesay.assistant.v2.util.LogText.u(command) + "」→ 停掉复合任务");
             if (mSheetView != null) mSheetView.updateState("已停止", Color.parseColor("#8E8E93"), com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED.text);
             TtsSpeaker.get(this).speakReplyTemplate(com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED);
             return;
@@ -1445,13 +1455,13 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         // ★ mika-plug（mika.inbox，照 Mika RunInbox）：复合任务跑着时再说一句 = 追加给当前任务，不打断、不开新任务
         if (mActiveAgent != null && com.onesay.assistant.v2.mikaplug.LoopPlugs.steering()
                 && com.onesay.assistant.v2.mikaplug.LoopPlugs.steer("u" + System.currentTimeMillis(), command) != null) {
-            Log.i(TAG, "[MIKA-PLUG] 任务在跑，插话追加给当前任务：" + com.onesay.assistant.v2.util.LogText.u(command));
+            SafeLog.i(TAG, "[MIKA-PLUG] 任务在跑，插话追加给当前任务：" + com.onesay.assistant.v2.util.LogText.u(command));
             if (mSheetView != null) mSheetView.updateState("正在执行", Color.parseColor("#5E5CE6"), "收到补充：" + command);
             return;
         }
         cancelActiveStream(true);   // 新一轮指令到达 → 上一轮在途流式作废；r2/fixes 14：复合任务只在新请求也进 AgentLoop 时取消
         beginForegroundRequest();   // ★ LC-5：卡片在岛上时新建卡片接住这条请求（岛上任务不动）
-        Log.i(TAG, "收到前端输入指令: " + com.onesay.assistant.v2.util.LogText.u(command));
+        SafeLog.i(TAG, "收到前端输入指令: " + com.onesay.assistant.v2.util.LogText.u(command));
         mSheetView.setSuggestionsVisible(true);   // ★ M-2：离开错误态，恢复推荐芯片
         mSheetView.updateState("正在解析", Color.parseColor("#0A84FF"), "“" + command + "”");
         // [kernel] 插件输入拦截：[s1] 「圈一下 / 框选（这是什么）」→ 圈选即问；
@@ -1478,11 +1488,11 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         //   判据保守（L0 未命中 + 复合信号），L0/L1 快路径不受任何影响。
         // 分诊（TriageDecider，可能含一次 ≤1.5s 的 LLM 兜底分类）挪到后台线程，
         //   主线程只做 UI。ASK 永不进 AgentLoop（走 AskEngine → L1 → 流式问答）。
-        com.onesay.assistant.v2.util.Threads.start("RouteStream", new Runnable() {
+        com.onesay.assistant.v2.util.Threads.start("RouteStream", com.onesay.assistant.v2.net.StopScope.wrap(cancel.scope(), new Runnable() {   // ★ feat/api-first：停止键真中断
             @Override
             public void run() {
                 if (mRouter.shouldUseAgentLoop(command)) {
-                    Log.i(TAG, "[AGENT-LOOP] 分诊判定交给 AgentLoop: " + com.onesay.assistant.v2.util.LogText.u(command));
+                    SafeLog.i(TAG, "[AGENT-LOOP] 分诊判定交给 AgentLoop: " + com.onesay.assistant.v2.util.LogText.u(command));
                     // ★ arch/island-progress：分诊决定要不要一开始就上岛（单步请求不包成岛上的任务；triage 5 s 内复用，不重算）
                     final boolean islandNow = com.onesay.assistant.v2.router.TriageDecider.islandUpFront(mRouter.triage(command).decision);
                     mMainHandler.post(new Runnable() {
@@ -1512,7 +1522,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                             mNudged = true;
                                             mSheetView.setAskStreamStage("还在想，快好了…");
                                             try { TtsSpeaker.get(FloatingSheetService.this).playCue(com.onesay.assistant.v2.tts.VoiceTemplate.STILL_WORKING, null); } catch (Throwable ignored) {}
-                                            Log.i(TAG, "[THINK] 8 s 未出字，催一次「还在弄，快好了」");
+                                            SafeLog.i(TAG, "[THINK] 8 s 未出字，催一次「还在弄，快好了」");
                                         }
                                     }, com.onesay.assistant.v2.tts.VoiceSyncPolicy.STILL_WORKING_MS);
                                     return;
@@ -1545,7 +1555,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                             public void run() {
                                 // 已被用户收起：迟到的结果不再弹面板（避免"关掉又自己冒出来"）
                                 if (cancel.isCancelled()) {
-                                    Log.i(TAG, "面板已收起，丢弃迟到的路由结果: "
+                                    SafeLog.i(TAG, "面板已收起，丢弃迟到的路由结果: "
                                             + (inv != null ? inv.sign : "null"));
                                     return;
                                 }
@@ -1556,7 +1566,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     }
                 }, cancel);
             }
-        });
+        }));
     }
 
     /**
@@ -1719,7 +1729,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         boolean onIsland = com.onesay.assistant.v2.s1.S1Hooks.onAskUser(id, question, options, timeoutSec);
         final boolean onCard = agentOwnsCard(agentSeq);
         if (!onIsland && !onCard) {
-            Log.i(TAG, "[ASK-USER] " + id + " 卡片已转后台、岛接不了 → no_answer");
+            SafeLog.i(TAG, "[ASK-USER] " + id + " 卡片已转后台、岛接不了 → no_answer");
             com.onesay.assistant.v2.s1.S1Hooks.cancelAskUser(id);
             return null;
         }
@@ -1754,7 +1764,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 }
             });
         }
-        Log.i(TAG, "[ASK-USER] " + id + " 等回答（" + timeoutSec + " 秒，岛=" + onIsland + " 卡片=" + onCard + "）");
+        SafeLog.i(TAG, "[ASK-USER] " + id + " 等回答（" + timeoutSec + " 秒，岛=" + onIsland + " 卡片=" + onCard + "）");
         String a = com.onesay.assistant.v2.agent.AskUserSupport.await(com.onesay.assistant.v2.s1.S1Hooks.askBroker(), id, timeoutSec * 1000L,
                 new com.onesay.assistant.v2.agent.AskUserSupport.Cancel() {
                     @Override public boolean isCancelled() {
@@ -1777,7 +1787,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 }
             }
         });
-        Log.i(TAG, "[ASK-USER] " + id + (a == null ? " 没有回答（no_answer）" : " 已回答"));
+        SafeLog.i(TAG, "[ASK-USER] " + id + (a == null ? " 没有回答（no_answer）" : " 已回答"));
         return a;
     }
 
@@ -1786,7 +1796,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         UnifiedRouter.Cancel old = mActiveAgent;
         if (old != null && old != keep && com.onesay.assistant.v2.router.AgentPreemption.newRequestCancelsAgent(true)) {
             old.cancel();
-            Log.i(TAG, "[AGENT-LOOP] 取消旧的复合任务（" + why + "）");
+            SafeLog.i(TAG, "[AGENT-LOOP] 取消旧的复合任务（" + why + "）");
         }
         mActiveAgent = null;
     }
@@ -1823,7 +1833,14 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         final Capability[] alarmCap = {null};
         final com.onesay.assistant.v2.executor.ExecutionResult[] alarmRes = {null};
 
-        com.onesay.assistant.v2.util.Threads.start("AgentLoop", new Runnable() {
+        // ★ feat/api-first：执行时间轴（回答上方「正在调用 X ▲」）+ 停止键真中断（取消 = 断开在途请求、停掉点屏代理）
+        final com.onesay.assistant.v2.timeline.ExecTimeline tl = mSheetView.timelineBegin();
+        cancel.scope().register(new Runnable() {
+            @Override public void run() {
+                stopGuiAgent("复合任务取消");
+            }
+        });
+        com.onesay.assistant.v2.util.Threads.start("AgentLoop", com.onesay.assistant.v2.net.StopScope.wrap(cancel.scope(), new Runnable() {
             @Override
             public void run() {
                 AgentLoop.Result result;
@@ -1841,6 +1858,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         public void onToolStep(final String text, boolean counts) {
                             if (counts) com.onesay.assistant.v2.s1.S1Hooks.onTaskStep(text);
                             else com.onesay.assistant.v2.s1.S1Hooks.onTaskNote(text);
+                            if (counts) tl.toolStart(text);   // ★ feat/api-first：时间轴一步
+                            else tl.note(text);
+                            timelineTouched(tl);
                             if (counts && mSheetView != null && agentOwnsCard(agentSeq)) mSheetView.progressStep(text);   // ★ 11-04 午：面板「执行中：步骤 · 计时」
                             mMainHandler.post(new Runnable() {
                                 @Override public void run() {
@@ -1855,6 +1875,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         @Override
                         public void onThinking(boolean on) {
                             com.onesay.assistant.v2.s1.S1Hooks.onThinking(on);
+                            tl.thinking(on);   // ★ feat/api-first
+                            timelineTouched(tl);
                             if (mSheetView != null && agentOwnsCard(agentSeq)) mSheetView.progressThinking(on);
                         }
 
@@ -1862,6 +1884,13 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         @Override
                         public String askUser(String id, String question, java.util.List<String> options, int timeoutSec) {
                             return askUserFromLoop(id, question, options, timeoutSec, cancel, agentSeq);
+                        }
+
+                        // ★ feat/api-first：每次工具调用结束的成败（失败带原因）→ 时间轴 ✓ / ✗
+                        @Override
+                        public void onToolResult(String sign, boolean ok, String reasonOrDetail) {
+                            tl.toolResult(ok, reasonOrDetail);
+                            timelineTouched(tl);
                         }
 
                         // [s1] 胶囊停止键 / ✕ / 新指令接管：循环据此在下一轮前收尾（ErrorCode.CANCELLED）
@@ -1953,12 +1982,14 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                             }
                             // r2/fixes 14：卡片已被新请求接管（任务在后台跑）→ 不把确认卡弹到别的请求上面，按未授权处理
                             if (!agentOwnsCard(agentSeq)) {
-                                Log.i(TAG, "[CONFIRM] 复合任务已转后台，需确认的步骤按未授权处理: " + cap.sign);
+                                SafeLog.i(TAG, "[CONFIRM] 复合任务已转后台，需确认的步骤按未授权处理: " + cap.sign);
                                 return com.onesay.assistant.v2.router.AgentLoop.ConfirmVerdict.DENY;
                             }
 
                             final PendingLoopConfirm pending = new PendingLoopConfirm(cap, args);
                             synchronized (mConfirmLock) { mPendingLoopConfirm = pending; }
+                            tl.approval(cap.summary != null && cap.summary.length() > 0 ? cap.summary : cap.sign);   // ★ feat/api-first：确认卡也算一步
+                            timelineTouched(tl);
 
                             mMainHandler.post(new Runnable() {
                                 @Override public void run() {
@@ -1974,7 +2005,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                     playConfirmPrompt();
                                 }
                             });
-                            Log.i(TAG, "[CONFIRM] 循环步骤挂起等待用户决策: " + cap.sign
+                            SafeLog.i(TAG, "[CONFIRM] 循环步骤挂起等待用户决策: " + cap.sign
                                     + "（最长 " + (CONFIRM_WAIT_TIMEOUT_MS / 1000) + " 秒）");
 
                             long deadline = SystemClock.elapsedRealtime() + CONFIRM_WAIT_TIMEOUT_MS;
@@ -1995,9 +2026,11 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 if (mPendingLoopConfirm == pending) mPendingLoopConfirm = null;
                             }
                             com.onesay.assistant.v2.s1.S1Hooks.onConfirmResolved();   // [s1]
+                            tl.approvalResolved(decided && pending.verdict == PendingLoopConfirm.VERDICT_ALLOW);   // ★ feat/api-first
+                            timelineTouched(tl);
                             if (!decided) {
                                 final boolean byCancel = cancel.isCancelled();
-                                Log.w(TAG, "[CONFIRM] 等待超时/取消，按未授权处理: " + cap.sign);
+                                SafeLog.w(TAG, "[CONFIRM] 等待超时/取消，按未授权处理: " + cap.sign);
                                 if (!byCancel) {
                                     mMainHandler.post(new Runnable() {
                                         @Override public void run() {
@@ -2012,15 +2045,15 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 return com.onesay.assistant.v2.router.AgentLoop.ConfirmVerdict.DENY;
                             }
                             if (pending.verdict == PendingLoopConfirm.VERDICT_ALLOW) {
-                                Log.i(TAG, "[CONFIRM] 用户已授权，继续执行: " + cap.sign);
+                                SafeLog.i(TAG, "[CONFIRM] 用户已授权，继续执行: " + cap.sign);
                                 return com.onesay.assistant.v2.router.AgentLoop.ConfirmVerdict.ALLOW;
                             }
-                            Log.i(TAG, "[CONFIRM] 用户拒绝，通知模型收尾: " + cap.sign);
+                            SafeLog.i(TAG, "[CONFIRM] 用户拒绝，通知模型收尾: " + cap.sign);
                             return com.onesay.assistant.v2.router.AgentLoop.ConfirmVerdict.DENY;
                         }
                     }, 0);
                 } catch (Throwable t) {
-                    Log.e(TAG, "[AGENT-LOOP] 异常: " + t.getMessage());
+                    SafeLog.e(TAG, "[AGENT-LOOP] 异常: " + t.getMessage());
                     result = null;
                 }
 
@@ -2040,13 +2073,17 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 fr == null ? "任务处理失败" : islandWhy, needsCard);   // [island]
                         com.onesay.assistant.v2.s1.S1Hooks.onTaskEnded(FloatingSheetService.this, cancel.isCancelled(), navExecuted[0]);
                         if (mActiveAgent == cancel) mActiveAgent = null;   // r2/fixes 14
+                        // ★ feat/api-first：时间轴收尾（取消 = 已停止；否则按结局折叠成「已完成 / 没完成」），通知复原
+                        if (cancel.isCancelled()) tl.stopped();
+                        else tl.finish(fr != null && fr.finished);
+                        timelineTouched(tl);
                         if (cancel.isCancelled()) {
-                            Log.i(TAG, "[AGENT-LOOP] 面板已收起，丢弃循环结果");
+                            SafeLog.i(TAG, "[AGENT-LOOP] 面板已收起，丢弃循环结果");
                             return;
                         }
                         // r2/fixes 14：卡片已被新请求接管 → 结论不盖住新请求的卡片（岛 / 胶囊已收到 onTaskOutcome），只回喂会话记忆
                         if (!agentOwnsCard(agentSeq)) {
-                            Log.i(TAG, "[AGENT-LOOP] [LC-5] 卡片已被新请求接管（请求号 " + agentSeq + " → " + mRequestSeq
+                            SafeLog.i(TAG, "[AGENT-LOOP] [LC-5] 卡片已被新请求接管（请求号 " + agentSeq + " → " + mRequestSeq
                                     + "），结论不写卡片");
                             if (fr != null && command != null && command.trim().length() > 0) {
                                 com.onesay.assistant.v2.router.ConversationMemory.getInstance().record(command,
@@ -2095,7 +2132,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                             }
                             com.onesay.assistant.v2.router.ConversationMemory.getInstance()
                                     .record(command, receipt.toString(), fr.tainted);   // ★ LOGIC-1
-                            Log.i(TAG, "[FEEDBACK] Agent 循环结果已回喂会话上下文（"
+                            SafeLog.i(TAG, "[FEEDBACK] Agent 循环结果已回喂会话上下文（"
                                     + fr.steps.size() + " 次调用）");
                         }
 
@@ -2145,7 +2182,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     }
                 });
             }
-        });
+        }));
     }
 
     /**
@@ -2158,7 +2195,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     private void executePlan(final Invocation plan) {
         cancelAutoHide();
         final java.util.List<Invocation> steps = plan.steps;
-        Log.i(TAG, "收到混合任务计划，共 " + steps.size() + " 步");
+        SafeLog.i(TAG, "收到混合任务计划，共 " + steps.size() + " 步");
         // ★ fix/triage-fast：显示子目标（「调低亮度 · 开勿扰 · 10分钟后提醒我」），不再是「共 N 步」
         String headline = com.onesay.assistant.v2.router.CompoundSplitter.planHeadline(plan);
         mSheetView.updateState("正在执行", Color.parseColor("#5E5CE6"),
@@ -2204,7 +2241,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                             com.onesay.assistant.v2.executor.ExecutionGate.evaluate(cap, step.args, step.tainted);
                     if (gate.decision != com.onesay.assistant.v2.executor.ToolGate.Decision.ALLOW) {
                         com.onesay.assistant.v2.executor.ExecutionGate.reject(gate.token);
-                        Log.w(TAG, "混合计划中出现需确认或被拦截动作，中止整条计划: " + cap.sign + " (reason: " + gate.reason + ")");
+                        SafeLog.w(TAG, "混合计划中出现需确认或被拦截动作，中止整条计划: " + cap.sign + " (reason: " + gate.reason + ")");
                         summary.append("· 检测到【").append(cap.summary)
                                 .append("】被安全策略拦截（").append(gate.reason).append("），已中止后续步骤。");
                         allOk = false;
@@ -2242,7 +2279,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                            .append(summary);
                     com.onesay.assistant.v2.router.ConversationMemory.getInstance()
                             .record(plan.originalQuery, receipt.toString(), planTainted);   // ★ LOGIC-1
-                    Log.i(TAG, "[FEEDBACK] 已回喂多步计划结果到会话上下文（"
+                    SafeLog.i(TAG, "[FEEDBACK] 已回喂多步计划结果到会话上下文（"
                             + (aborted ? "中止" : (allOk ? "全成" : "部分完成")) + "）");
                 }
 
@@ -2360,11 +2397,29 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         mSheetView.progressStep(com.onesay.assistant.v2.island.IslandStepText.forTool(cap.sign, args, cap.summary));   // ★ 11-04 午：快路径单步「执行中：设闹钟 3:53」
         if (com.onesay.assistant.v2.executor.AlarmBridge.isAlarmSign(cap.sign)) mAlarmReqSeq = mRequestSeq;
 
-        com.onesay.assistant.v2.util.Threads.start("ExecSingle", new Runnable() {
+        // ★ feat/api-first：单步执行也有停止范围与时间轴（反悔开关 query=null：手指直接操作，不起时间轴）
+        final com.onesay.assistant.v2.net.StopScope execScope = new com.onesay.assistant.v2.net.StopScope("exec");
+        mExecScope = execScope;
+        final com.onesay.assistant.v2.timeline.ExecTimeline stl = query != null ? mSheetView.timelineBegin() : null;
+        if (stl != null) {
+            stl.toolStart(com.onesay.assistant.v2.island.IslandStepText.forTool(cap.sign, args, cap.summary));
+            timelineTouched(stl);
+        }
+
+        com.onesay.assistant.v2.util.Threads.start("ExecSingle", com.onesay.assistant.v2.net.StopScope.wrap(execScope, new Runnable() {
             @Override
             public void run() {
                 // 令牌入口（token=null 表示无需确认；需确认却无有效令牌 → RISK_GATED，不执行）
                 final ExecutionResult result = mExecutor.execute(cap, args, token, isTainted);
+                if (mExecScope == execScope) mExecScope = null;
+                if (stl != null) {   // ★ feat/api-first：单步结局写时间轴
+                    if (execScope.isStopped()) stl.stopped();
+                    else {
+                        stl.toolResult(result != null && result.ok, result == null ? "" : result.userMessage);
+                        stl.finish(result != null && result.ok);
+                    }
+                    timelineTouched(stl);
+                }
                 // 执行结果回报路由层 —— 技能缓存只在"执行成功之后"写入，
                 //   缓存回放失败计数/隔离也在这里结算（只用 ExecutionResult 的 ok/code/verified）。
                 if (query != null) mRouter.reportExecution(query, cap.sign, result);
@@ -2393,7 +2448,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 mMainHandler.postDelayed(new Runnable() {
                                     @Override
                                     public void run() {
-                                        Log.i(TAG, "已启动目标应用/跳转界面，立即收起悬浮面板");
+                                        SafeLog.i(TAG, "已启动目标应用/跳转界面，立即收起悬浮面板");
                                         hideSheet();
                                     }
                                 }, 220);
@@ -2442,7 +2497,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     }
                 });
             }
-        });
+        }));
     }
 
     // =====================================================================
@@ -2465,7 +2520,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             org.json.JSONObject dump = new org.json.JSONObject(detail);
             mSheetView.showAlarmCards(buildAlarmCardItems(dump), dump.optInt("lastId", -1), alarmSummary(dump));
         } catch (Throwable t) {
-            Log.w(TAG, "闹钟卡片渲染失败: " + t);
+            SafeLog.w(TAG, "闹钟卡片渲染失败: " + t);
         }
     }
 
@@ -2533,13 +2588,13 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         // ★ LOGIC-1：读取类成功 / 远端回执 → 外部内容进了记忆 → tainted
         com.onesay.assistant.v2.router.ConversationMemory.getInstance().record(query, sb.toString(),
                 com.onesay.assistant.v2.router.AgentLoop.taintsAfter(cap, r));
-        Log.i(TAG, "[FEEDBACK] 已回喂执行结果到会话上下文: " + sb);
+        SafeLog.i(TAG, "[FEEDBACK] 已回喂执行结果到会话上下文: " + sb);
     }
 
     private void playAckDone() {
         // ★ r2/voice-templates：这一轮会播回答模板（「已完成」「好了，看屏幕」…）→ 不再单独响 ack_done，免得连说两句
         if (TtsSpeaker.shouldSkipAckDone(this)) {
-            Log.i(TAG, "[ACK] 跳过 ack_done（本轮由回答模板出声）");
+            SafeLog.i(TAG, "[ACK] 跳过 ack_done（本轮由回答模板出声）");
             return;
         }
         // ★ R14.1 卡顿：MediaPlayer 的 setDataSource + prepare() 是同步的，原来在主线程、正好落在 思考→结果 的卡片动画上 → 挪到后台线程
@@ -2554,7 +2609,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     private void playAckDoneSync() {
         try {
             // 埋点：用于区分"语音路径该响"与"开关路径不该响"（开关走 vibrateFeedback）
-            Log.i(TAG, "[ACK] 播放完成应答音 ack_done.wav");
+            SafeLog.i(TAG, "[ACK] 播放完成应答音 ack_done.wav");
             final MediaPlayer mp = new MediaPlayer();
             // ★ 完成应答音同样走助手/系统音通道，不跟随媒体音量（与 WakeService 对齐）
             mp.setAudioAttributes(new android.media.AudioAttributes.Builder()
@@ -2573,7 +2628,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             });
             mp.start();
         } catch (Throwable t) {
-            Log.w(TAG, "playAckDone 异常: " + t.getMessage());
+            SafeLog.w(TAG, "playAckDone 异常: " + t.getMessage());
         }
     }
 
@@ -2629,6 +2684,20 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         });
     }
 
+    /** 本地功能（如设置诊断的读屏查找）把一段结果上卡片。任何线程。 */
+    public void showLocalReply(final String question, final String answer, final String title) {
+        mMainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (mSheetView == null) return;
+                mSheetView.showAskReply(question, answer, StatusLinePolicy.Source.LOCAL);
+                if (title != null) mSheetView.updateState(title, Color.parseColor("#5E5CE6"), null);
+                mSheetView.setDismissLabel("✕ 关闭");
+                cancelAutoHide();
+            }
+        });
+    }
+
     public void debugShowAskReplyNow(String question, String answer, String title, String sub) {
         if (!com.onesay.assistant.v2.BuildVariant.IS_DEBUG || mSheetView == null) return;
         mSheetView.showAskReply(question, answer, StatusLinePolicy.Source.LOCAL);
@@ -2644,7 +2713,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     private void playVoiceCueAsset(com.onesay.assistant.v2.tts.VoiceTemplate t) {
         try {
-            Log.i(TAG, "[ACK] 播放提示短句「" + t.text + "」" + t.asset);
+            SafeLog.i(TAG, "[ACK] 播放提示短句「" + t.text + "」" + t.asset);
             final MediaPlayer mp = new MediaPlayer();
             mp.setAudioAttributes(new android.media.AudioAttributes.Builder()
                     .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
@@ -2662,7 +2731,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             });
             mp.start();
         } catch (Throwable e) {
-            Log.w(TAG, "playVoiceCue 异常: " + e.getMessage());
+            SafeLog.w(TAG, "playVoiceCue 异常: " + e.getMessage());
         }
     }
 
@@ -2679,7 +2748,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         try {
             Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
             if (v == null || !v.hasVibrator()) {
-                Log.w(TAG, "[HAPTIC] 设备无震动马达，跳过");
+                SafeLog.w(TAG, "[HAPTIC] 设备无震动马达，跳过");
                 return;
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -2687,9 +2756,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             } else {
                 v.vibrate(ms);   // API 24/25 的旧接口
             }
-            Log.i(TAG, "[HAPTIC] 震动反馈 " + ms + "ms");
+            SafeLog.i(TAG, "[HAPTIC] 震动反馈 " + ms + "ms");
         } catch (Throwable t) {
-            Log.w(TAG, "震动反馈异常: " + t.getMessage());
+            SafeLog.w(TAG, "震动反馈异常: " + t.getMessage());
         }
     }
 
@@ -2708,7 +2777,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     public void onConfirmChoice(Capability cap, JSONObject args, boolean isTainted, int choice) {
         String choiceText = choice == FloatingSheetView.CHOICE_ALWAYS ? "始终允许"
                 : choice == FloatingSheetView.CHOICE_ONCE ? "允许单次" : "拒绝";
-        Log.i(TAG, "[CONFIRM] 用户选择「" + choiceText + "」"
+        SafeLog.i(TAG, "[CONFIRM] 用户选择「" + choiceText + "」"
                 + (cap != null ? " → " + cap.sign : ""));
         vibrateFeedback(CONFIRM_VIBRATE_MS);   // 手指操作 → 震动受理确认，不播“已完成”
 
@@ -2749,7 +2818,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         // 批准卡片绑定的一次性令牌后凭令牌执行；令牌过期/缺失 → 不执行，请用户重说
         com.onesay.assistant.v2.executor.PendingConfirm.Approved ap = mPendingConfirm.allow();
         if (!ap.ok()) {
-            Log.w(TAG, "[CONFIRM] 确认令牌已失效（超时 >"
+            SafeLog.w(TAG, "[CONFIRM] 确认令牌已失效（超时 >"
                     + (com.onesay.assistant.v2.executor.ExecutionGate.TOKEN_TTL_MS / 1000) + "s 或无挂起卡），不执行");
             mSheetView.updateState("确认已过期", Color.parseColor("#FF9F0A"), "请再说一次指令");
             return;
@@ -2801,10 +2870,10 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         final String target = baseSign + (newState ? ".on" : ".off");
         Capability cap = CapabilityRegistry.getInstance().describe(target);
         if (cap == null) {
-            Log.w(TAG, "反悔开关目标能力不存在: " + target);
+            SafeLog.w(TAG, "反悔开关目标能力不存在: " + target);
             return;
         }
-        Log.i(TAG, "用户拨动反悔开关 → 执行 " + target + "（静默，仅震动反馈）");
+        SafeLog.i(TAG, "用户拨动反悔开关 → 执行 " + target + "（静默，仅震动反馈）");
         vibrateFeedback(TOGGLE_VIBRATE_MS);   // 立即触觉反馈，不等执行结果
         executeCapability(cap, new org.json.JSONObject(), null, false, true);
     }
@@ -2819,7 +2888,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
      */
     @Override
     public void onAlarmToggle(final int id, final boolean on) {
-        Log.i(TAG, "[UI-ACTION] 闹钟卡片开关: id=" + id + " on=" + on);
+        SafeLog.i(TAG, "[UI-ACTION] 闹钟卡片开关: id=" + id + " on=" + on);
         vibrateFeedback(TOGGLE_VIBRATE_MS);   // 手指操作 → 立即触觉反馈
         com.onesay.assistant.v2.util.Threads.start("AlarmToggle", new Runnable() {
             @Override
@@ -2857,7 +2926,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
      */
     @Override
     public void onAlarmOpen(final int id) {
-        Log.i(TAG, "[UI-ACTION] 打开 OneSay 时钟: id=" + id);
+        SafeLog.i(TAG, "[UI-ACTION] 打开 OneSay 时钟: id=" + id);
         vibrateFeedback(TOGGLE_VIBRATE_MS);
         mMainHandler.postDelayed(new Runnable() {
             @Override
@@ -2871,10 +2940,10 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(launch);
             } else {
-                Log.w(TAG, "没有安装 OneSay 时钟，打不开闹钟编辑页");
+                SafeLog.w(TAG, "没有安装 OneSay 时钟，打不开闹钟编辑页");
             }
         } catch (Throwable t) {
-            Log.w(TAG, "打开 OneSay 时钟失败: " + t);
+            SafeLog.w(TAG, "打开 OneSay 时钟失败: " + t);
         }
     }
 
@@ -2908,7 +2977,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     @Override
     public void onCancelAction() {
-        Log.i(TAG, "用户点击取消，立即收起面板并重置唤醒捕获");
+        SafeLog.i(TAG, "用户点击取消，立即收起面板并重置唤醒捕获");
         WakeService.cancelCaptureFromUi();
         dismissByUser();
         endSessionOnClose(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CloseReason.USER_CLOSE); // ★ 旧界面立即强制收起；新界面卡片沉下退场（会话同样立即结束）
@@ -2916,7 +2985,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     @Override
     public void onDismiss() {
-        Log.i(TAG, "用户触发退出/取消，立即收起面板并重置唤醒捕获");
+        SafeLog.i(TAG, "用户触发退出/取消，立即收起面板并重置唤醒捕获");
         WakeService.cancelCaptureFromUi();
         dismissByUser();
         endSessionOnClose(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CloseReason.USER_CLOSE); // ★ 旧界面立即强制收起；新界面卡片沉下退场（会话同样立即结束）
@@ -2936,7 +3005,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     mMainHandler.post(new Runnable() {
                         @Override public void run() {
                             if (!isCardShowing()) return;
-                            Log.i(TAG, "[SYSKEY] 系统关闭对话框 reason=" + reason + " → 收起面板");
+                            SafeLog.i(TAG, "[SYSKEY] 系统关闭对话框 reason=" + reason + " → 收起面板");
                             WakeService.cancelCaptureFromUi("Home/最近任务");
                             dismissByUser();
                             endSessionOnClose(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CloseReason.USER_HOME);
@@ -2946,7 +3015,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             };
             registerReceiver(mSysDialogsReceiver, new android.content.IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
         } catch (Throwable t) {
-            Log.w(TAG, "[SYSKEY] 注册 CLOSE_SYSTEM_DIALOGS 失败: " + t);
+            SafeLog.w(TAG, "[SYSKEY] 注册 CLOSE_SYSTEM_DIALOGS 失败: " + t);
             mSysDialogsReceiver = null;
         }
     }
@@ -2980,7 +3049,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (!isCardShowing()) return;
         cancelAutoHide();
         mSheetView.switchToVoiceModeQuiet();   // 续听不算「接着说」边界（真开口提交才进对话窗）
-        Log.i(TAG, "[FOLLOWUP] 卡片 → 聆听态（续听）");
+        SafeLog.i(TAG, "[FOLLOWUP] 卡片 → 聆听态（续听）");
     }
 
     /** 续听窗没人说话：回到结果态（光效收起），面板按原策略保留。任何线程。 */
@@ -2989,7 +3058,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             @Override public void run() {
                 if (mSheetView == null || !isCardShowing()) return;
                 mSheetView.endFollowUpListening();
-                Log.i(TAG, "[FOLLOWUP] 续听结束 → 回结果态");
+                SafeLog.i(TAG, "[FOLLOWUP] 续听结束 → 回结果态");
             }
         });
     }
@@ -2997,7 +3066,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     /** 助手侧结束整轮（续听里说「好了 / 谢谢」）：和用户点 ✕ 一样收起。 */
     public void dismissFromAssistant(String why) {
         if (!isCardShowing()) return;
-        Log.i(TAG, "[FOLLOWUP] " + why + " → 收起面板");
+        SafeLog.i(TAG, "[FOLLOWUP] " + why + " → 收起面板");
         dismissByUser();
         endSessionOnClose(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CloseReason.ASSISTANT_DONE);
     }
@@ -3031,9 +3100,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             }
             mParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
             mWindowManager.updateViewLayout(mSheetView, mParams);
-            Log.i(TAG, "[SYSKEY] 结果已上屏、识屏已完成 → 卡片窗可获焦（返回键收起面板）");
+            SafeLog.i(TAG, "[SYSKEY] 结果已上屏、识屏已完成 → 卡片窗可获焦（返回键收起面板）");
         } catch (Throwable t) {
-            Log.w(TAG, "[SYSKEY] 切可获焦异常: " + t.getMessage());
+            SafeLog.w(TAG, "[SYSKEY] 切可获焦异常: " + t.getMessage());
         }
     }
 
@@ -3049,7 +3118,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         int n = m.size();
         m.clear();
         mMainHandler.removeCallbacks(mConversationExpire);
-        Log.i(TAG, "[CONV] 用户关闭面板（" + why + "）→ 会话结束（清 " + n + " 轮），下次唤醒全新开始");
+        SafeLog.i(TAG, "[CONV] 用户关闭面板（" + why + "）→ 会话结束（清 " + n + " 轮），下次唤醒全新开始");
     }
 
     /** 用户主动收起（✕ / 点外部 / 返回键）：旧界面 = hideSheet(true) 原样；新界面 = DISMISS 弹簧退场（不弹），会话立即结束。 */
@@ -3063,7 +3132,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     @Override
     public void onVoiceModeRequested() {
-        Log.i(TAG, "[UI-ACTION] 用户点击「✦ 语音」按钮 -> 在当前会话中继续聆听");
+        SafeLog.i(TAG, "[UI-ACTION] 用户点击「✦ 语音」按钮 -> 在当前会话中继续聆听");
         vibrateFeedback(TOGGLE_VIBRATE_MS);
         if (mRippleView != null && !mUseV2) {
             mRippleView.startRipple();
@@ -3077,7 +3146,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     @Override
     public void onTextModeRequested() {
-        Log.i(TAG, "[UI-ACTION] 用户点击「⌨ 文字」按钮 -> 切换文字输入");
+        SafeLog.i(TAG, "[UI-ACTION] 用户点击「⌨ 文字」按钮 -> 切换文字输入");
         com.onesay.assistant.v2.kernel.FeatureKernel.get().onTextMode(this);   // [kernel] TEXT_MODE —— [screenref] 要打字了，立刻还焦点
         vibrateFeedback(TOGGLE_VIBRATE_MS);
         WakeService.cancelCaptureFromUi();
@@ -3091,10 +3160,10 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     public void onFinishListening() {
         // ★ r2/input：点问句卡 / 波形 = 说完了。还没开口（没有人声、没有流式文字）→ 不做任何事（不当成误触收起）
         if (!WakeService.canFinishCapture()) {
-            Log.i(TAG, "[UI-ACTION] 点按卡片结束收音：还没听到说话，忽略");
+            SafeLog.i(TAG, "[UI-ACTION] 点按卡片结束收音：还没听到说话，忽略");
             return;
         }
-        Log.i(TAG, "[UI-ACTION] 点按卡片 → 说完了，马上识别");
+        SafeLog.i(TAG, "[UI-ACTION] 点按卡片 → 说完了，马上识别");
         vibrateFeedback(TOGGLE_VIBRATE_MS);
         WakeService.finishCaptureFromUi("点按卡片");
     }
@@ -3102,7 +3171,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     /** ★ 综合包：🎤 收音中再点、还没开口 → 停止收音，卡片回结果态（不清上一轮问答，整轮焦点归还）。 */
     @Override
     public void onStopListening() {
-        Log.i(TAG, "[UI-ACTION] 🎤 收音中再点 → 停止收音（不清屏）");
+        SafeLog.i(TAG, "[UI-ACTION] 🎤 收音中再点 → 停止收音（不清屏）");
         vibrateFeedback(TOGGLE_VIBRATE_MS);
         WakeService.cancelCaptureFromUi();
         // 对话窗开着时停录音绝不收起（之前上一轮已冻结进历史 → hasVisibleResult=false → 误收起）
@@ -3116,7 +3185,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     @Override
     public void onScreenModeRequested() {
-        Log.i(TAG, "[UI-ACTION] 用户点击「◎ 识屏」按钮 -> 触发多模态识屏");
+        SafeLog.i(TAG, "[UI-ACTION] 用户点击「◎ 识屏」按钮 -> 触发多模态识屏");
         vibrateFeedback(TOGGLE_VIBRATE_MS);
         WakeService.cancelCaptureFromUi();   // ★ R14：先干净地停掉收音（流式会话 / 窗到点回调一并撤），再识屏
         triggerScreenVision(null);
@@ -3131,7 +3200,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     @Override
     public void onCameraModeRequested() {
-        Log.i(TAG, "[UI-ACTION] 用户点击「相机」按钮 -> 进入相机对话");
+        SafeLog.i(TAG, "[UI-ACTION] 用户点击「相机」按钮 -> 进入相机对话");
         vibrateFeedback(TOGGLE_VIBRATE_MS);
         boolean wasText = mSheetView != null && mSheetView.isTextModeActive();
         com.onesay.assistant.v2.ui.live.LiveInputMode.get().enterCamera(wasText
@@ -3145,7 +3214,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             startActivity(it);
         } catch (Throwable t) {
-            Log.w(TAG, "[CAMERA-LIVE] 拉起相机对话失败: " + t);
+            SafeLog.w(TAG, "[CAMERA-LIVE] 拉起相机对话失败: " + t);
             onCameraModeExit();
         }
     }
@@ -3165,7 +3234,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             if (mGlowView != null) mGlowView.setVisibility(View.INVISIBLE);
             mCamSuspended = true;
         } catch (Throwable t) {
-            Log.w(TAG, "[CAMERA-LIVE] 卡片隐身异常: " + t.getMessage());
+            SafeLog.w(TAG, "[CAMERA-LIVE] 卡片隐身异常: " + t.getMessage());
         }
     }
 
@@ -3175,7 +3244,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             @Override
             public void run() {
                 com.onesay.assistant.v2.ui.live.LiveInputMode.Mode back = com.onesay.assistant.v2.ui.live.LiveInputMode.get().exitCamera();
-                Log.i(TAG, "[CAMERA-LIVE] 相机对话结束 → 回到 " + back);
+                SafeLog.i(TAG, "[CAMERA-LIVE] 相机对话结束 → 回到 " + back);
                 if (mSheetView == null) return;
                 if (mCamSuspended) {
                     mCamSuspended = false;
@@ -3185,7 +3254,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         if (mSheetView.getParent() != null) mWindowManager.updateViewLayout(mSheetView, mParams);
                         if (mGlowView != null) mGlowView.setVisibility(View.VISIBLE);
                     } catch (Throwable t) {
-                        Log.w(TAG, "[CAMERA-LIVE] 卡片恢复异常: " + t.getMessage());
+                        SafeLog.w(TAG, "[CAMERA-LIVE] 卡片恢复异常: " + t.getMessage());
                     }
                 }
                 if (back == com.onesay.assistant.v2.ui.live.LiveInputMode.Mode.TEXT) {
@@ -3207,7 +3276,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     public void triggerScreenVision(final String userQuestion) {
         cancelAutoHide();
         cancelActiveStream(true);   // r2/fixes 14：识屏是新请求，不取消后台复合任务
-        Log.i(TAG, "[VISION] 启动多模态识屏流程，问题=" + (userQuestion != null ? userQuestion : "通用总结"));
+        SafeLog.i(TAG, "[VISION] 启动多模态识屏流程，问题=" + (userQuestion != null ? userQuestion : "通用总结"));
 
         final String promptDisplay = (userQuestion != null && userQuestion.trim().length() > 0)
                 ? userQuestion.trim()
@@ -3253,7 +3322,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         receipt.append("[视觉识屏回执] 屏幕识别完成：\n").append(answer);
                         com.onesay.assistant.v2.router.ConversationMemory.getInstance()
                                 .record(userQuestion != null ? userQuestion : "识别屏幕", receipt.toString(), true);   // ★ LOGIC-1：识屏内容不可信
-                        Log.i(TAG, "[FEEDBACK] 识屏结果已回喂会话上下文，字数=" + answer.length());
+                        SafeLog.i(TAG, "[FEEDBACK] 识屏结果已回喂会话上下文，字数=" + answer.length());
                     }
                 });
             }
@@ -3327,7 +3396,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 boolean chat = mSheetView.chatActive();
                 boolean open = WakeService.captureOpen();
                 if (!com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.rewakeNeedsCapture(chat, open)) return;
-                Log.i(TAG, "[CHAT] 对话窗再次唤醒：捕获窗没开 → 在当前对话窗补开一轮录音");
+                SafeLog.i(TAG, "[CHAT] 对话窗再次唤醒：捕获窗没开 → 在当前对话窗补开一轮录音");
                 mSheetView.switchToVoiceMode();
                 WakeService.requestContinueListening();
             }
@@ -3348,9 +3417,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             it.putExtra(com.onesay.assistant.v2.ui.chat.ChatImagePickActivity.EXTRA_CAMERA, camera);
             it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             startActivity(it);
-            Log.i(TAG, "[CHAT-IMG] 拉起" + (camera ? "相机" : "相册"));
+            SafeLog.i(TAG, "[CHAT-IMG] 拉起" + (camera ? "相机" : "相册"));
         } catch (Throwable t) {
-            Log.w(TAG, "[CHAT-IMG] 拉起选图失败: " + t);
+            SafeLog.w(TAG, "[CHAT-IMG] 拉起选图失败: " + t);
             chatImageResult(null, null);
         }
     }
@@ -3387,7 +3456,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         mCamSuspended = false;
         final com.onesay.assistant.v2.s1.IslandController isl = com.onesay.assistant.v2.s1.S1Hooks.island();
         if (isl != null) isl.setCaptureHidden(true);
-        Log.i(TAG, "[CHAT-IMG] 识屏：浮层已隐身，准备截屏");
+        SafeLog.i(TAG, "[CHAT-IMG] 识屏：浮层已隐身，准备截屏");
         mMainHandler.postDelayed(new Runnable() {
             @Override public void run() {
                 com.onesay.assistant.v2.util.Threads.start("ScreenAttach", new Runnable() {
@@ -3407,10 +3476,10 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 chatResumeAfterPick(path, r == null ? null : r.thumb, true);
                                 if (path == null) {
                                     String why = r == null || r.error == null ? com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.SCREEN_CAPTURE_FAILED : r.error;
-                                    Log.w(TAG, "[CHAT-IMG] 识屏截屏失败：" + why);
+                                    SafeLog.w(TAG, "[CHAT-IMG] 识屏截屏失败：" + why);
                                     android.widget.Toast.makeText(FloatingSheetService.this, why, android.widget.Toast.LENGTH_LONG).show();
                                 } else {
-                                    Log.i(TAG, "[CHAT-IMG] 识屏截屏完成 via=" + r.via);
+                                    SafeLog.i(TAG, "[CHAT-IMG] 识屏截屏完成 via=" + r.via);
                                 }
                             }
                         });
@@ -3429,7 +3498,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 if (mSheetView.getParent() != null) mWindowManager.updateViewLayout(mSheetView, mParams);
                 if (mGlowView != null) mGlowView.setVisibility(View.VISIBLE);
             } catch (Throwable t) {
-                Log.w(TAG, "[CHAT-IMG] 卡片恢复异常: " + t.getMessage());
+                SafeLog.w(TAG, "[CHAT-IMG] 卡片恢复异常: " + t.getMessage());
             }
         }
         if (mSheetView == null) return;
@@ -3464,7 +3533,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         com.onesay.assistant.v2.ui.InstallPromptView.hideIn(mSheetView);
         mSheetView.chatNoteRoute((screen ? "识屏问答 · " : "看图问答 · ") + ScreenVisionEngine.effectiveModel(this));
         mSheetView.beginAskStream(question, screen ? "正在看屏幕…" : "正在看图…");
-        Log.i(TAG, "[CHAT-IMG] " + (screen ? "识屏" : "带图") + "提问（" + question.length() + "字）");
+        SafeLog.i(TAG, "[CHAT-IMG] " + (screen ? "识屏" : "带图") + "提问（" + question.length() + "字）");
         String prompt = screen ? com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.screenPrompt(question)
                 : com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.imagePrompt(question);
         ScreenVisionEngine.getInstance(this).recognizeImage(path, prompt,
@@ -3524,7 +3593,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             ch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(ch);
         } catch (Throwable t) {
-            Log.w(TAG, "[CHAT] 分享失败: " + t.getClass().getSimpleName());
+            SafeLog.w(TAG, "[CHAT] 分享失败: " + t.getClass().getSimpleName());
         }
     }
 
@@ -3536,7 +3605,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             mParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
             mWindowManager.updateViewLayout(mSheetView, mParams);
         } catch (Throwable t) {
-            Log.w(TAG, "[CHAT] 放开焦点异常: " + t.getMessage());
+            SafeLog.w(TAG, "[CHAT] 放开焦点异常: " + t.getMessage());
         }
     }
     // ===== ★ ui-K1 对话窗服务侧能力 END =====
@@ -3605,7 +3674,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     public synchronized void s1DetachForCapsule() {
         // ★ ui-K1：对话窗模式下长任务不再飞进灵动岛 —— 留在窗里显示进度（「好，我来处理 · 执行中…」）
         if (mSheetView != null && !com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.allowIslandMorph(mSheetView.chatActive())) {
-            Log.i(TAG, "[CHAT] 对话窗开着：长任务留在窗里显示进度，不收进岛");
+            SafeLog.i(TAG, "[CHAT] 对话窗开着：长任务留在窗里显示进度，不收进岛");
             return;
         }
         cancelAutoHide();
@@ -3625,7 +3694,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         }
         mIsAttached = false;
         detachRipple();
-        Log.i(TAG, "[S1] 面板已收成胶囊（任务继续在后台执行）");
+        SafeLog.i(TAG, "[S1] 面板已收成胶囊（任务继续在后台执行）");
     }
 
     /** [s1] 安静地挂回面板（不放唤醒水光、不清内容）：胶囊展开 / 任务完成 / 剪贴板芯片 / 圈选结果。 */
@@ -3656,10 +3725,148 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             mShownAt = SystemClock.elapsedRealtime();
             mSheetView.animateShow();
             if (mUseV2) mSheetView.v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.RETURN_FROM_ISLAND);
-            Log.i(TAG, "[S1] 面板已挂回（安静模式）");
+            SafeLog.i(TAG, "[S1] 面板已挂回（安静模式）");
         } catch (Throwable t) {
-            Log.e(TAG, "[S1] 挂回面板失败: " + t.getMessage());
+            SafeLog.e(TAG, "[S1] 挂回面板失败: " + t.getMessage());
         }
+    }
+
+    // ===================================================================== ★ feat/api-first：停止键 / 时间轴 / 任务通知
+
+    /** 单步执行（ExecSingle）的停止范围；没有在跑 → null。 */
+    private volatile com.onesay.assistant.v2.net.StopScope mExecScope;
+    private final Object mTaskNotifyLock = new Object();
+    private com.onesay.assistant.v2.timeline.ExecTimeline mNotifyTl;
+    private String mNotifyLine;
+
+    /**
+     * 停止键（输入条 / 对话窗底栏）：真中断当前任务 —— 取消复合任务与在途流式请求（停止范围里登记的连接立刻断开）、
+     * 停掉单步执行的范围与点屏代理、挂起的确认按未授权放行；时间轴记「已停止」，状态行「已停止」，前台通知复原。任意线程。
+     */
+    public void stopCurrentTask(final String why) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mMainHandler.post(new Runnable() {
+                @Override public void run() {
+                    stopCurrentTask(why);
+                }
+            });
+            return;
+        }
+        UnifiedRouter.Cancel agent = mActiveAgent;
+        UnifiedRouter.Cancel stream = mActiveStream;
+        com.onesay.assistant.v2.net.StopScope es = mExecScope;
+        boolean any = false;
+        if (agent != null && !agent.isCancelled()) {
+            agent.cancel();
+            any = true;
+        }
+        if (stream != null && stream != agent && !stream.isCancelled()) {
+            stream.cancel();
+            any = true;
+        }
+        if (es != null && !es.isStopped()) {
+            es.stop(why);
+            any = true;
+        }
+        if (stopGuiAgent(why)) any = true;
+        resolvePendingLoopConfirm(PendingLoopConfirm.VERDICT_DENY);
+        try {
+            ScreenVisionEngine.getInstance(this).cancelInFlight();
+        } catch (Throwable ignored) {
+        }
+        mActiveStream = null;
+        SafeLog.i(TAG, "[STOP] 停止键（" + why + "）" + (any ? "：已中断当前任务" : "：没有在跑的任务"));
+        timelineStopped();
+        if (mSheetView != null) {
+            mSheetView.setTaskRunning(false);
+            mSheetView.updateState("已停止", Color.parseColor("#8E8E93"), com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED.text);
+            mSheetView.setDismissLabel("✕ 关闭");
+        }
+        cancelAutoHide();
+    }
+
+    /** 停掉正在点屏的执行模式（没有 / 已停 → false）。 */
+    private boolean stopGuiAgent(String why) {
+        try {
+            com.onesay.assistant.v2.exec.ExecModeController ex = com.onesay.assistant.v2.exec.ExecModeController.current();
+            if (ex == null || ex.state.stopped()) return false;
+            ex.stop(why == null ? "停止" : why);
+            return true;
+        } catch (Throwable t) {
+            SafeLog.w(TAG, "[STOP] 停点屏代理失败: " + t);
+            return false;
+        }
+    }
+
+    /** ★ borrow-1112：别处补来的说明行（点屏代理等待期间画面变化、已切换到备用模型）写进正在跑的那份时间轴（屏上的，或通知跟着的）。 */
+    private final com.onesay.assistant.v2.timeline.TimelineNotes.Listener mTimelineNotes = new com.onesay.assistant.v2.timeline.TimelineNotes.Listener() {
+        @Override public void onNote(String text) {
+            com.onesay.assistant.v2.timeline.ExecTimeline tl = mSheetView == null ? null : mSheetView.timeline();
+            if (tl == null || !tl.live()) {
+                synchronized (mTaskNotifyLock) { tl = mNotifyTl; }
+            }
+            if (tl == null || !tl.live()) return;
+            tl.info(text);
+            timelineTouched(tl);
+        }
+    };
+
+    /** 屏上这一轮的时间轴（和通知跟着的那份）记「已停止」。 */
+    private void timelineStopped() {
+        com.onesay.assistant.v2.timeline.ExecTimeline tl = mSheetView == null ? null : mSheetView.timeline();
+        if (tl != null && tl.live()) tl.stopped();
+        com.onesay.assistant.v2.timeline.ExecTimeline n;
+        synchronized (mTaskNotifyLock) { n = mNotifyTl; }
+        if (n != null && n != tl && n.live()) n.stopped();
+        if (tl != null) timelineTouched(tl);
+        if (n != null && n != tl) timelineTouched(n);
+    }
+
+    /** 时间轴数据变了（任意线程）：面板重画（只画屏上那一份）+ 前台通知「调用中：X」。 */
+    private void timelineTouched(com.onesay.assistant.v2.timeline.ExecTimeline tl) {
+        if (tl == null) return;
+        FloatingSheetView v = mSheetView;
+        if (v != null && v.timeline() == tl) v.timelineChanged();
+        updateTaskNotification(tl);
+    }
+
+    /** 前台通知：任务在跑 →「调用中：X / 等你确认」，点了回面板；跑完 → 复原成常驻通知。只在文字变了时重发。 */
+    private void updateTaskNotification(com.onesay.assistant.v2.timeline.ExecTimeline tl) {
+        String line;
+        synchronized (mTaskNotifyLock) {
+            if (tl != null && tl.live()) {
+                mNotifyTl = tl;
+                line = tl.statusLine();
+            } else {
+                if (tl != null && mNotifyTl != null && mNotifyTl != tl) return;   // 别的任务的收尾，不动当前任务的通知
+                mNotifyTl = null;
+                line = null;
+            }
+            if (line == null ? mNotifyLine == null : line.equals(mNotifyLine)) return;
+            mNotifyLine = line;
+        }
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(2027, line == null ? buildServiceNotification() : buildTaskNotification(line));
+        } catch (Throwable t) {
+            SafeLog.w(TAG, "[TASK-NOTIFY] 更新通知失败: " + t.getMessage());
+        }
+    }
+
+    private Notification buildTaskNotification(String line) {
+        Intent open = new Intent(this, FloatingSheetService.class);
+        open.setAction(ACTION_OPEN_PANEL);
+        android.app.PendingIntent pi = android.app.PendingIntent.getService(this, 2028, open,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, "bixby_sheet_channel") : new Notification.Builder(this);
+        return b.setContentTitle(PANEL_NOTIFY_TITLE)
+                .setContentText(line)
+                .setSmallIcon(getApplicationInfo().icon)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setContentIntent(pi)
+                .build();
     }
 
     /** [s1] 停止后台任务：与用户点 ✕ 同一个汇点（取消在途任务 + 结束会话）。 */
@@ -3717,7 +3924,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (!mUseV2 || mSheetView == null || !mSheetView.isV2()) return;
         com.onesay.assistant.v2.ui.wake.WakeStage.Stage st = mSheetView.v2Stage();
         if (!com.onesay.assistant.v2.ui.wake.WakeStage.newRequestLeavesIsland(st)) return;
-        Log.i(TAG, "[LC-5] 新请求接管卡片（stage=" + st + "，请求号 " + mRequestSeq + "；岛上任务不动）");
+        SafeLog.i(TAG, "[LC-5] 新请求接管卡片（stage=" + st + "，请求号 " + mRequestSeq + "；岛上任务不动）");
         if (!mIsAttached || mSheetView.getParent() == null || mHiding) showSheet();
         mSheetView.v2BeginRequest();
     }
@@ -3729,7 +3936,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             mSheetView.clearPreviousRound();
             com.onesay.assistant.v2.ui.InstallPromptView.hideIn(mSheetView);
         } catch (Throwable t) {
-            Log.w(TAG, "[AUDIT-J5] 清上一轮卡片异常: " + t.getMessage());
+            SafeLog.w(TAG, "[AUDIT-J5] 清上一轮卡片异常: " + t.getMessage());
         }
     }
 
@@ -3747,7 +3954,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         boolean restore = e != null && mSheetView != null
                 && com.onesay.assistant.v2.ui.wake.TaskResultRouting.restoreOnView(e.seq, mRequestSeq);
         boolean onScreen = mIsAttached && mSheetView != null && mSheetView.getParent() != null && !mHiding;
-        if (restore) Log.i(TAG, "[LC-5] 「查看」" + resultId + "：卡片已被新请求接管过，先重画任务结论");
+        if (restore) SafeLog.i(TAG, "[LC-5] 「查看」" + resultId + "：卡片已被新请求接管过，先重画任务结论");
         if (restore && !onScreen) mSheetView.showAskReply(e.question, e.answer);
         s1AttachSheet();
         if (restore && onScreen) mSheetView.showAskReply(e.question, e.answer);
@@ -3787,7 +3994,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             if (mUseV2) mParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
             else mParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         } catch (Throwable t) {
-            Log.w(TAG, "[WAKE-UI] 预设窗口 flag 异常: " + t.getMessage());
+            SafeLog.w(TAG, "[WAKE-UI] 预设窗口 flag 异常: " + t.getMessage());
         }
     }
 
@@ -3807,9 +4014,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     }
                 }, 120L);
             }
-            Log.i(TAG, "[WAKE-UI] 文字模式：卡片窗改为可获焦");
+            SafeLog.i(TAG, "[WAKE-UI] 文字模式：卡片窗改为可获焦");
         } catch (Throwable t) {
-            Log.w(TAG, "[WAKE-UI] 放开焦点异常: " + t.getMessage());
+            SafeLog.w(TAG, "[WAKE-UI] 放开焦点异常: " + t.getMessage());
         }
     }
 
@@ -3817,7 +4024,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         mUiChosenAt = android.os.SystemClock.elapsedRealtime();
         boolean v2 = com.onesay.assistant.v2.ui.wake.WakeUiSettings.useNew(this);
         boolean instant = !com.onesay.assistant.v2.ui.wake.WakeUiSettings.animatorsEnabled(this);
-        if (v2 != mUseV2) Log.i(TAG, "[WAKE-UI] 唤醒界面 → " + (v2 ? "新（R13）" : "旧（classic）") + " " + com.onesay.assistant.v2.ui.wake.WakeUiSettings.dump(this));
+        if (v2 != mUseV2) SafeLog.i(TAG, "[WAKE-UI] 唤醒界面 → " + (v2 ? "新（R13）" : "旧（classic）") + " " + com.onesay.assistant.v2.ui.wake.WakeUiSettings.dump(this));
         mUseV2 = v2;
         if (mSheetView != null) {
             mSheetView.setV2(v2);
@@ -3853,7 +4060,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             mWindowManager.addView(mGlowView, mRippleParams);
             mGlowAttached = true;
         } catch (Throwable t) {
-            Log.w(TAG, "[WAKE-UI] 挂载光晕窗异常: " + t.getMessage());
+            SafeLog.w(TAG, "[WAKE-UI] 挂载光晕窗异常: " + t.getMessage());
         }
     }
 
@@ -3884,7 +4091,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             boolean cardUp = mSheetView != null && mSheetView.getParent() != null && mIsAttached;
             if (cardUp) return;   // 卡片又回来了（新一轮）：光晕窗归它
             if (mGlowView.idle() || ++mGlowDetachTries >= GLOW_DETACH_MAX_TRIES) {
-                if (!mGlowView.idle()) Log.w(TAG, "[WAKE-UI] 光晕窗 3 s 仍未静止，强制摘下");
+                if (!mGlowView.idle()) SafeLog.w(TAG, "[WAKE-UI] 光晕窗 3 s 仍未静止，强制摘下");
                 detachGlow();
             } else {
                 mMainHandler.postDelayed(this, 120);
@@ -3916,7 +4123,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 if (dl >= 0) mMainHandler.postDelayed(this, Math.max(50L, dl - now));
                 return;
             }
-            Log.w(TAG, "[WAKE-WD] 状态 " + st + " 停留超时（进入 " + (now - mWdEnterAt) + "ms / 距上次事件 " + (now - mWdLastEventAt)
+            SafeLog.w(TAG, "[WAKE-WD] 状态 " + st + " 停留超时（进入 " + (now - mWdEnterAt) + "ms / 距上次事件 " + (now - mWdLastEventAt)
                     + "ms）→ " + a);
             if (a == com.onesay.assistant.v2.ui.wake.StageWatchdog.Action.TIMEOUT_ERROR && isPanelOnScreen()) {
                 WakeService.cancelCaptureFromUi();
@@ -3982,7 +4189,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 v.vibrate(pattern, -1);
             }
         } catch (Throwable t) {
-            Log.w(TAG, "[HAPTIC] 震动异常: " + t.getMessage());
+            SafeLog.w(TAG, "[HAPTIC] 震动异常: " + t.getMessage());
         }
     }
 
@@ -4014,7 +4221,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         @Override
         public void run() {
             if (!mHiding) return;
-            Log.w(TAG, "[WAKE-UI] 退场动画超时兜底，强制摘窗");
+            SafeLog.w(TAG, "[WAKE-UI] 退场动画超时兜底，强制摘窗");
             detachFromWindowImmediate();
         }
     };
@@ -4025,7 +4232,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         try { com.onesay.assistant.v2.ui.motion.ViewSpring.cancel(mSheetView); } catch (Throwable ignore) {}
         removeSheetWindow("morph:" + why);
         mSheetView.v2RevealAfterUnmorph();   // 复位 alpha / 平移，下次挂回从干净状态开始
-        Log.i(TAG, "[WAKE-MORPH] 卡片窗已摘（" + why + "）");
+        SafeLog.i(TAG, "[WAKE-MORPH] 卡片窗已摘（" + why + "）");
     }
 
     /** 去程：能做形变就做（返回 true = 已接管 DETACH_SHEET）。 */
@@ -4039,7 +4246,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         android.graphics.Bitmap snap = mSheetView.snapshotCard();
         android.graphics.RectF card = mSheetView.cardRectOnScreen();
         if (snap == null || card.width() < 2f) return false;
-        Log.i(TAG, "[WAKE-MORPH] 卡片快照 " + snap.getWidth() + "x" + snap.getHeight() + " 用时 " + (SystemClock.uptimeMillis() - t0) + "ms");
+        SafeLog.i(TAG, "[WAKE-MORPH] 卡片快照 " + snap.getWidth() + "x" + snap.getHeight() + " 用时 " + (SystemClock.uptimeMillis() - t0) + "ms");
         com.onesay.assistant.v2.s1.S1Hooks.armIslandMorph();
         ensureGlowAttached();
         mSheetView.v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.COLLAPSE_TO_ISLAND);
@@ -4047,7 +4254,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         mIsAttached = false;
         mCardRemovalPending = true;
         mGlowView.startMorph(snap, card, mSheetView.cardRadius(), target);
-        Log.i(TAG, "[S1] 卡片形变飞进岛（任务继续在后台执行）");
+        SafeLog.i(TAG, "[S1] 卡片形变飞进岛（任务继续在后台执行）");
         return true;
     }
 
@@ -4070,7 +4277,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             mHiding = false;
             mShownAt = SystemClock.elapsedRealtime();
         } catch (Throwable t) {
-            Log.e(TAG, "[WAKE-MORPH] 回程挂卡片窗失败: " + t.getMessage());
+            SafeLog.e(TAG, "[WAKE-MORPH] 回程挂卡片窗失败: " + t.getMessage());
             return false;
         }
         mSheetView.v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.RETURN_FROM_ISLAND);
@@ -4086,7 +4293,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 return true;
             }
         });
-        Log.i(TAG, "[S1] 结果从岛流回卡片");
+        SafeLog.i(TAG, "[S1] 结果从岛流回卡片");
         return true;
     }
 
@@ -4101,7 +4308,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     mSheetView.prewarmV2();
                     if (mGlowView != null) mGlowView.prewarm();
                 } catch (Throwable t) {
-                    Log.w(TAG, "[WAKE-UI] 预热失败（首次唤醒时再烘焙）: " + t.getMessage());
+                    SafeLog.w(TAG, "[WAKE-UI] 预热失败（首次唤醒时再烘焙）: " + t.getMessage());
                 }
             }
         }, 1500);
@@ -4131,6 +4338,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     @Override
     public void onDestroy() {
+        com.onesay.assistant.v2.timeline.TimelineNotes.remove(mTimelineNotes);   // ★ borrow-1112
         // ★ BUG-I2b：先摘面板并同步报 panel(false)（岛在下面的 [s1] onServiceDestroy 里才拆，post 的回调等不到）
         cancelAutoHide();
         hideSheet(true);

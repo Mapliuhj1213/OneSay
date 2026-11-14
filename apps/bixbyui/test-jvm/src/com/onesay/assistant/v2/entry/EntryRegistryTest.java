@@ -1,6 +1,5 @@
 package com.onesay.assistant.v2.entry;
 
-import com.onesay.assistant.vendor.samsung.BixbyKeyEntry;
 import com.onesay.plugin.api.entry.EntryEnv;
 import com.onesay.plugin.api.entry.EntryRegistry;
 import com.onesay.plugin.api.entry.EntryTrigger;
@@ -44,7 +43,6 @@ public class EntryRegistryTest {
         BuiltinEntries.registerAll(new BuiltinEntries.ComponentSwitch() {
             public void setComponentEnabled(String id, boolean on) { switched.add(id + "=" + on); }
         });
-        EntryRegistry.register(new BixbyKeyEntry());
     }
 
     @After public void tearDown() { EntryRegistry.reset(); }
@@ -53,7 +51,7 @@ public class EntryRegistryTest {
         List<String> ids = new ArrayList<String>();
         for (EntryTrigger t : EntryRegistry.all()) ids.add(t.id());
         assertEquals(java.util.Arrays.asList(BuiltinEntries.ASSISTANT, BuiltinEntries.QS_TILE, BuiltinEntries.WIDGET,
-                BuiltinEntries.SHORTCUT, BuiltinEntries.WAKE_WORD, BuiltinEntries.INTENT, BixbyKeyEntry.ID), ids);
+                BuiltinEntries.SHORTCUT, BuiltinEntries.WAKE_WORD, BuiltinEntries.INTENT, BuiltinEntries.KEY_WAKE), ids);
     }
 
     @Test public void defaults_micListenersAndPublicIntentOff() {
@@ -63,7 +61,7 @@ public class EntryRegistryTest {
         assertTrue(EntryRegistry.isEnabled(BuiltinEntries.SHORTCUT));
         assertFalse("唤醒词常驻开麦，默认关", EntryRegistry.isEnabled(BuiltinEntries.WAKE_WORD));
         assertFalse("任何 App 都能发的公开 Intent 默认关", EntryRegistry.isEnabled(BuiltinEntries.INTENT));
-        assertFalse("厂商按键劫持默认关", EntryRegistry.isEnabled(BixbyKeyEntry.ID));
+        assertFalse("按键唤醒默认关", EntryRegistry.isEnabled(BuiltinEntries.KEY_WAKE));
     }
 
     @Test public void fire_dropsDisabledAndUnknown() {
@@ -95,14 +93,24 @@ public class EntryRegistryTest {
         assertTrue(EntryRegistry.get(BuiltinEntries.WAKE_WORD).unavailableReason(env).contains("MIC"));
     }
 
-    @Test public void bixbyKey_needsSamsungKeyRootDaemon_andIsOptIn() {
-        EntryRegistry.setEnabled(BixbyKeyEntry.ID, true);
-        env.caps.put("BIXBY_KEY", EntryTrigger.Tri.NO);
-        assertFalse("非三星：开了也不能触发", EntryRegistry.canFire(BixbyKeyEntry.ID));
-        env.caps.put("BIXBY_KEY", EntryTrigger.Tri.YES); env.caps.put("ROOT", EntryTrigger.Tri.YES); env.caps.put("KEY_DAEMON", EntryTrigger.Tri.YES);
-        assertTrue(EntryRegistry.canFire(BixbyKeyEntry.ID));
-        EntryRegistry.setEnabled(BixbyKeyEntry.ID, false);
-        assertFalse(EntryRegistry.canFire(BixbyKeyEntry.ID));
+    @Test public void keyWake_needsAccessibility_andIsOptIn() {
+        EntryRegistry.setEnabled(BuiltinEntries.KEY_WAKE, true);
+        env.caps.put("ACCESSIBILITY", EntryTrigger.Tri.NO);
+        assertFalse("无障碍服务没开：开了也不能触发", EntryRegistry.canFire(BuiltinEntries.KEY_WAKE));
+        env.caps.put("ACCESSIBILITY", EntryTrigger.Tri.YES);
+        assertTrue(EntryRegistry.canFire(BuiltinEntries.KEY_WAKE));
+        assertTrue(EntryRegistry.fire(BuiltinEntries.KEY_WAKE, EntryTrigger.Mode.SCREEN));
+        assertEquals("entry.key_wake/SCREEN", summoned.get(summoned.size() - 1));
+        EntryRegistry.setEnabled(BuiltinEntries.KEY_WAKE, false);
+        assertFalse(EntryRegistry.canFire(BuiltinEntries.KEY_WAKE));
+        assertFalse("用户界面文字不出现 Bixby", EntryRegistry.get(BuiltinEntries.KEY_WAKE).label().contains("Bixby"));
+    }
+
+    @Test public void parseMode_supportsScreen() {
+        assertEquals(EntryTrigger.Mode.SCREEN, BuiltinEntries.parseMode("screen"));
+        assertEquals(EntryTrigger.Mode.TEXT, BuiltinEntries.parseMode(" TEXT "));
+        assertEquals(EntryTrigger.Mode.VOICE, BuiltinEntries.parseMode(null));
+        assertEquals(EntryTrigger.Mode.VOICE, BuiltinEntries.parseMode("xx"));
     }
 
     @Test public void apply_startsAndStopsComponents() {

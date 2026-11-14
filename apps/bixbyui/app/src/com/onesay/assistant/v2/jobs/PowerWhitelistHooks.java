@@ -52,9 +52,11 @@ public final class PowerWhitelistHooks {
     public static void ensure(final Context ctx) {
         if (!com.onesay.assistant.v2.BuildVariant.IS_DEBUG) return;
         final Context app = ctx.getApplicationContext();
-        if (!PowerWhitelist.shouldAutoApply(true, autoOn(app), sp(app).getString(K_ORIGINAL, ""))) return;
+        // 唤醒修复（11-08 真机 ANR traces）：读 prefs 也挪进后台线程 —— 服务 onCreate 在主线程调本方法，
+        //   重装后 prefs 首次加载慢，主线程卡在 SharedPreferencesImpl.awaitLoadedLocked，排在后面的 WakeService 赶不上前台时限。
         com.onesay.assistant.v2.util.Threads.start("power-wl", new Runnable() {
             @Override public void run() {
+                if (!PowerWhitelist.shouldAutoApply(true, autoOn(app), sp(app).getString(K_ORIGINAL, ""))) return;
                 Log.i(TAG, "[POWER-WL] " + apply(app));
             }
         });

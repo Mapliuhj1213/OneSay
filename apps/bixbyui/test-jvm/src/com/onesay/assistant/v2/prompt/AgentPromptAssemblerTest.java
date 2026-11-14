@@ -28,7 +28,7 @@ public class AgentPromptAssemblerTest {
 
     static final List<String> FOLDED = AgentPromptAssembler.DEFAULT_MOUNT;
     static final List<String> EXPANDED = Arrays.asList("probe.apps", "probe.app_intents", "probe.shell_read", "app.launch",
-            "vision.screen.understand", "settings.brightness.set", "store.search.samsung", "web.search", "web.read",
+            "vision.screen.understand", "settings.brightness.set", "store.search.market", "web.search", "web.read",
             "memory.search", ToolTiers.SIGN_GUI_OPERATE);
     static final List<String> API_ONLY = Arrays.asList("settings.brightness.set", "time.now");
 
@@ -107,7 +107,7 @@ public class AgentPromptAssemblerTest {
         String inv = AgentPromptAssembler.tierInventory(m);
         assertTrue(inv, inv.startsWith("接口 "));
         assertTrue(inv, inv.contains("查信息：vision.screen.understand、web.search、web.read、memory.search"));
-        assertTrue(inv, inv.contains("深链：app.launch、store.search.samsung"));
+        assertTrue(inv, inv.contains("深链：app.launch、store.search.market"));
         assertTrue(inv, inv.contains("点界面：phone.operate"));
         assertTrue(AgentPromptAssembler.tierInventory(new AgentPromptAssembler.Mounted(API_ONLY)).contains("点界面：本轮不可用"));
     }

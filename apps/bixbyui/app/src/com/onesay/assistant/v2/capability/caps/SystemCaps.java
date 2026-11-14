@@ -26,9 +26,7 @@ public final class SystemCaps {
                 .category("sys")
                 .sideEffect(SideEffect.DEVICE_CONTROL)
                 .risk(1, false)
-                .executor("shell")
-                .cmd("echo 1 > /sys/class/leds/torch-sec1/brightness")
-                .check("cat /sys/class/leds/torch-sec1/brightness", "1")
+                .executor("custom")   // SysActionBackend：CameraManager.setTorchMode（通用，不要 root）
                 // 补「闪光灯」与「开/关在后」的说法，走 L0 直出
                 .say("打开手电筒", "开手电筒", "手电筒打开", "照亮一下",
                         "打开手电", "开手电", "手电筒开", "打开闪光灯", "开闪光灯", "闪光灯打开", "闪光灯开")
@@ -43,9 +41,7 @@ public final class SystemCaps {
                 .category("sys")
                 .sideEffect(SideEffect.DEVICE_CONTROL)
                 .risk(1, false)
-                .executor("shell")
-                .cmd("echo 0 > /sys/class/leds/torch-sec1/brightness")
-                .check("cat /sys/class/leds/torch-sec1/brightness", "0")
+                .executor("custom")
                 .say("关闭手电筒", "关掉手电筒", "关手电筒",
                         "关闭手电", "关手电", "手电筒关", "手电筒关闭", "手电筒关掉",
                         "关闭闪光灯", "关掉闪光灯", "关闪光灯", "闪光灯关闭", "闪光灯关掉", "闪光灯关")
@@ -53,7 +49,7 @@ public final class SystemCaps {
                 .build());
 
         // 「手电筒」光名词此前 L0 不命中（rule#7-toggle-noun, l0=-），
-        //   退化进 AgentLoop。光名词 / 「切换」= 翻转当前状态（与 torch.on/off 同一个 sysfs 节点）。
+        //   退化进 AgentLoop。光名词 / 「切换」= 翻转当前状态（CameraManager 手电筒回调记录的状态）。
         //   回读输出 on/off（不用 0/1：replyMap 是 contains 匹配，"10" 之类会同时含 0 和 1）。
         reg.register(new Capability.Builder("torch.toggle", "切换手电筒（开着就关、关着就开）")
                 .domain("settings")
@@ -63,12 +59,7 @@ public final class SystemCaps {
                 .category("sys")
                 .sideEffect(SideEffect.DEVICE_CONTROL)
                 .risk(1, false)
-                .executor("shell")
-                .cmd("if [ \"$(cat /sys/class/leds/torch-sec1/brightness)\" = \"0\" ]; "
-                        + "then echo 1 > /sys/class/leds/torch-sec1/brightness; "
-                        + "else echo 0 > /sys/class/leds/torch-sec1/brightness; fi")
-                .check("if [ \"$(cat /sys/class/leds/torch-sec1/brightness)\" = \"0\" ]; then echo off; else echo on; fi",
-                        "on|off")
+                .executor("custom")
                 .say("手电筒", "手电", "闪光灯", "切换手电筒", "切换闪光灯", "手电筒切换", "开关手电筒")
                 .addReplyMapping("off", "手电筒已关闭")
                 .addReplyMapping("on", "手电筒已打开")

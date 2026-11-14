@@ -291,7 +291,6 @@ com/onesay/assistant/v2/errand/web/PlannerPrompt.java
 com/onesay/assistant/v2/errand/web/LlmPlanner.java
 com/onesay/assistant/v2/errand/web/WebViewDriver.java
 com/onesay/assistant/v2/errand/web/CheckoutGuard.java
-com/onesay/assistant/vendor/samsung/SamsungBrowser.java
 com/onesay/assistant/v2/vision/screenref/NumberedRefs.java
 # ---- lane-a 第 7 项：P1 事件触发 + root 省电白名单（纯 Java 部分）
 com/onesay/assistant/v2/events/EventTask.java
@@ -396,6 +395,8 @@ com/onesay/assistant/v2/phone/TaskBudget.java
 com/onesay/assistant/v2/phone/SensitiveGuard.java
 com/onesay/assistant/v2/phone/PhonePrompt.java
 com/onesay/assistant/v2/phone/PhoneAgent.java
+com/onesay/assistant/v2/phone/StableRead.java
+com/onesay/assistant/v2/phone/SmartReplay.java
 com/onesay/assistant/v2/exec/ExecState.java
 com/onesay/assistant/v2/ui/ime/ImeGeometry.java
 com/onesay/assistant/v2/ui/ime/KbLockPolicy.java
@@ -610,7 +611,6 @@ com/onesay/assistant/v2/platform/FeatureAvailability.java
 com/onesay/assistant/v2/platform/FeatureRegistry.java
 com/onesay/assistant/v2/platform/WakeEntry.java
 com/onesay/assistant/v2/platform/RootOps.java
-com/onesay/assistant/v2/platform/VendorServices.java
 com/onesay/assistant/v2/platform/DeviceCapabilityProbe.java
 com/onesay/assistant/v2/vision/screenref/ScreenRefSettings.java
 com/onesay/assistant/v2/errand/ErrandSettings.java
@@ -632,6 +632,96 @@ com/onesay/assistant/v2/rain/RainService.java
 com/onesay/assistant/v2/ui/KeysActivity.java
 com/onesay/assistant/v2/net/LlmEndpoints.java
 com/onesay/assistant/v2/entry/BuiltinEntries.java
-com/onesay/assistant/vendor/samsung/BixbyKeyEntry.java
 com/onesay/assistant/v2/net/UserEndpoint.java
-com/onesay/assistant/vendor/samsung/SamsungWakeCue.java
+com/onesay/assistant/v2/entry/keywake/KeyWake.java
+com/onesay/assistant/v2/entry/keywake/PowerDoubleDetector.java
+com/onesay/assistant/v2/entry/keywake/LongPressDetector.java
+com/onesay/assistant/v2/entry/keywake/DoubleTap.java
+com/onesay/assistant/v2/errand/DefaultBrowser.java
+com/onesay/assistant/v2/diag/SettingsNav.java
+com/onesay/assistant/v2/city/WeatherAppCity.java
+
+# 电脑联动协议（纯 Java，与电脑端 OneSay 逐字节兼容）
+com/onesay/assistant/v2/pclink/PcJson.java
+com/onesay/assistant/v2/pclink/PcB64.java
+com/onesay/assistant/v2/pclink/PcProtocol.java
+com/onesay/assistant/v2/pclink/PcPairing.java
+com/onesay/assistant/v2/pclink/PcWs.java
+com/onesay/assistant/v2/pclink/PcLanClient.java
+com/onesay/assistant/v2/pclink/PcForward.java
+com/onesay/assistant/v2/pclink/PcVoice.java
+com/onesay/assistant/v2/pclink/PcMedia.java
+# link-v2（2026-11-08）：TLS 证书 / 指纹、电脑 → 手机常连通道与指令开关（纯 Java）
+com/onesay/assistant/v2/pclink/PcTls.java
+com/onesay/assistant/v2/pclink/PcRx.java
+com/onesay/assistant/v2/pclink/PcRxPolicy.java
+com/onesay/assistant/v2/pclink/LinkPolicy.java
+# approve-not-block（2026-11-10）：手机屏幕上的确认卡（纯 Java 规则）
+com/onesay/assistant/v2/pclink/PcConfirm.java
+# feat/api-first（2026-11-11）：接口优先路由层 / 执行时间轴 / 停止键真中断 / 可点追问短语（纯 Java）
+com/onesay/assistant/v2/apifirst/RouteTier.java
+com/onesay/assistant/v2/apifirst/ApiIntent.java
+com/onesay/assistant/v2/apifirst/DeepLinks.java
+com/onesay/assistant/v2/apifirst/ApiFirstRouter.java
+com/onesay/assistant/v2/apifirst/RouteTool.java
+com/onesay/assistant/v2/timeline/ExecTimeline.java
+com/onesay/assistant/v2/net/StopScope.java
+com/onesay/assistant/v2/util/FollowupMarks.java
+# ★ borrow-1112：社区借鉴（回执 / 风险标签 / 脱敏 / 备用模型 / 语音完成待办 / 控屏颜色）
+com/onesay/assistant/v2/phone/StepReceipt.java
+com/onesay/assistant/v2/phone/RiskLabel.java
+com/onesay/assistant/v2/privacy/Redactor.java
+com/onesay/assistant/v2/privacy/RedactingLlm.java
+com/onesay/assistant/v2/privacy/PrivacySettings.java
+com/onesay/assistant/v2/timeline/TimelineNotes.java
+com/onesay/assistant/v2/exec/ControlColor.java
+com/onesay/assistant/v2/net/LlmFallback.java
+com/onesay/assistant/v2/net/BackupModelConfig.java
+com/onesay/assistant/v2/planner/TodoVoiceDone.java
+com/onesay/assistant/v2/planner/TodoVoiceFlow.java
+com/onesay/assistant/v2/planner/RecentReminds.java
+com/onesay/assistant/v2/planner/TodoDoneLink.java
+# ★ console-align：主模型地址可改 + 控制台两端对齐
+com/onesay/assistant/v2/net/MainModelEndpoint.java
+com/onesay/assistant/v2/ui/console/ConsoleStyle.java
+
+# ---- priv-llm（2026-11-08）：自带 Key 服务商层 + Shizuku 特权插件 ----
+com/onesay/assistant/v2/llm/ProviderKind.java
+com/onesay/assistant/v2/llm/ProviderPreset.java
+com/onesay/assistant/v2/llm/WireRequest.java
+com/onesay/assistant/v2/llm/ProviderUrls.java
+com/onesay/assistant/v2/llm/ProviderErrors.java
+com/onesay/assistant/v2/llm/ProviderAdapter.java
+com/onesay/assistant/v2/llm/Adapters.java
+com/onesay/assistant/v2/llm/OpenAiCompatAdapter.java
+com/onesay/assistant/v2/llm/AnthropicAdapter.java
+com/onesay/assistant/v2/llm/GeminiAdapter.java
+com/onesay/assistant/v2/llm/ProviderHttp.java
+com/onesay/assistant/v2/llm/ProviderCheck.java
+com/onesay/assistant/v2/llm/ProviderRoute.java
+com/onesay/assistant/v2/llm/ProviderRouting.java
+com/onesay/assistant/v2/llm/ProviderStore.java
+com/onesay/assistant/v2/platform/ExecTierRouter.java
+com/onesay/assistant/v2/platform/ShizukuActions.java
+com/onesay/assistant/v2/ui/console/ConsoleStatus.java
+# 2026-11-08 compat-vyrse：VYRSE 兼容插件 core（纯 Java + org.json）+ 适配层（只编译，确保接线能过 javac）
+com/onesay/assistant/plug/vyrse/core/VyrseProtocol.java
+com/onesay/assistant/plug/vyrse/core/VyrseHttp.java
+com/onesay/assistant/plug/vyrse/core/VyrsePairing.java
+com/onesay/assistant/plug/vyrse/core/PhoneAbilities.java
+com/onesay/assistant/plug/vyrse/core/AppGuard.java
+com/onesay/assistant/plug/vyrse/core/RingController.java
+com/onesay/assistant/plug/vyrse/core/VyrseDispatcher.java
+com/onesay/assistant/plug/vyrse/core/VyrseLink.java
+com/onesay/assistant/v2/vyrse/VyrseSettings.java
+com/onesay/assistant/v2/vyrse/VyrseAbilities.java
+com/onesay/assistant/v2/vyrse/VyrseLinkService.java
+com/onesay/assistant/v2/vyrse/VyrseUi.java
+com/onesay/assistant/v2/kernel/plugins/VyrsePlugin.java
+# [companion] 伴侣连接（纯 Java 部分）
+com/onesay/assistant/v2/companion/CompanionContract.java
+com/onesay/assistant/v2/companion/CompanionHandshake.java
+com/onesay/assistant/v2/companion/CompanionIntent.java
+com/onesay/assistant/v2/companion/CompanionRouter.java
+com/onesay/assistant/v2/companion/CompanionAlarm.java
+com/onesay/assistant/v2/companion/CompanionDescriptor.java

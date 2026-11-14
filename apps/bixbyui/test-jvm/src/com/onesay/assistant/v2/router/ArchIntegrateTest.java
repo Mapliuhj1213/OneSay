@@ -49,7 +49,7 @@ public class ArchIntegrateTest {
 
     @Test public void loopToolsSectionFitsBudgetAndKeepsAppChoiceLast() {
         List<String> full = plus(Arrays.asList("probe.apps", "probe.app_intents", "probe.shell_read", "app.launch",
-                "vision.screen.understand", "settings.brightness.set", "store.search.samsung", "memory.search",
+                "vision.screen.understand", "settings.brightness.set", "store.search.market", "memory.search",
                 ToolTiers.SIGN_GUI_OPERATE), RESIDENT_ALL);
         AgentPromptAssembler.Result r = assemble(full);
         assertTrue("超预算段 " + r.overBudget, r.overBudget.isEmpty());

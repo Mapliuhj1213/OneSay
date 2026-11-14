@@ -269,10 +269,13 @@ final class Editors {
         final long[] due = {r == null ? 0 : r.l("due_at")};
         whenField(f, due, true, "不设截止");
         final Switch remind = toggle(f, "到截止时提醒我", r == null || r.l("remind", 1) != 0);
+        // [borrow-1112] 强提醒：到点像闹钟一样响铃、整屏，音量键稍后、电源键停止（思路来源 涛声 TaoSheng，MIT）
+        final Switch strong = toggle(f, "强提醒（到点像闹钟一样响，直到处理）", r != null && r.l("strong") != 0);
         final EditText note = field(f, "备注（可不填）", r == null ? "" : r.s("note"));
         dialog(r == null ? "新建待办" : "编辑待办", scroll(f), r, Contract.T_TODOS, new Saver() {
             @Override public Row collect() {
-                return new Row().with("title", str(title)).with("due_at", due[0]).with("remind", remind.isChecked() ? 1 : 0).with("note", str(note));
+                return new Row().with("title", str(title)).with("due_at", due[0]).with("remind", remind.isChecked() ? 1 : 0).with("note", str(note))
+                        .with("strong", strong.isChecked() ? 1 : 0);
             }
         });
     }
@@ -399,7 +402,7 @@ final class Editors {
     static final String[] AUTO_REPEATS = {"只一次", "每天", "每周（同一天）", "工作日"};
     static final String[] TRIG = {"charging", "wifi", "bluetooth", "notification"};
     static final String[] TRIG_ZH = {"充电（插上）", "连上 Wi‑Fi", "连上蓝牙", "收到通知（含关键词）"};
-    static final String[] ACTS = {"提醒我", "让 Bixby 去做"};
+    static final String[] ACTS = {"提醒我", "让 OneSay 去做"};
 
     void auto(final Row r) {
         LinearLayout f = form();
@@ -439,9 +442,9 @@ final class Editors {
         });
         label(f, "做什么");
         final Spinner act = spinner(f, ACTS, r != null && Contract.ACT_AGENT.equals(r.s("action_type")) ? 1 : 0);
-        final EditText action = field(f, "提醒的话 / 给 Bixby 的指令", r == null ? "" : r.s("action"));
+        final EditText action = field(f, "提醒的话 / 给 OneSay 的指令", r == null ? "" : r.s("action"));
         final Switch on = toggle(f, "开启", r == null || r.l("enabled", 1) != 0);
-        if (r != null && Contract.ACT_BUILTIN.equals(r.s("action_type"))) label(f, "这是 Bixby 内置任务（" + r.s("action") + "），这里只能开关和改时间");
+        if (r != null && Contract.ACT_BUILTIN.equals(r.s("action_type"))) label(f, "这是 OneSay 内置任务（" + r.s("action") + "），这里只能开关和改时间");
         dialog(r == null ? "新建自动任务" : "编辑自动任务", scroll(f), r, Contract.T_AUTOMATIONS, new Saver() {
             @Override public Row collect() {
                 boolean time = mode.getSelectedItemPosition() == 0;
@@ -498,7 +501,7 @@ final class Editors {
     void importNow() {
         File f = new File(new File(a.getFilesDir(), "import"), "bixbyui.json");
         if (!f.exists()) {
-            new AlertDialog.Builder(a).setTitle("没找到导入包").setMessage("让 Bixby 导出一次（装好新版 OneSay 后它会自动导），或用 root 把 bixbyui.json 放进计划 App 的 files/import/ 里。")
+            new AlertDialog.Builder(a).setTitle("没找到导入包").setMessage("让 OneSay 导出一次（装好新版 OneSay 后它会自动导），或用 root 把 bixbyui.json 放进计划 App 的 files/import/ 里。")
                     .setPositiveButton("知道了", null).show();
             return;
         }
@@ -507,7 +510,7 @@ final class Editors {
             RawImport.Plan p = RawImport.map(b, System.currentTimeMillis(), tz);
             Store.ImportResult res = Store.importPlan(a, p, null);
             com.onesay.plan.data.Settings.markImported(a, res.summary());
-            if (!f.renameTo(new File(f.getPath() + ".done"))) android.util.Log.w("BixbyPlan", "改名失败");
+            if (!f.renameTo(new File(f.getPath() + ".done"))) android.util.Log.w("OneSayPlan", "改名失败");
             new AlertDialog.Builder(a).setTitle("导入完成").setMessage(res.detail()).setPositiveButton("好", null).show();
         } catch (Exception e) {
             Toast.makeText(a, "导入失败：" + e.getMessage(), Toast.LENGTH_LONG).show();

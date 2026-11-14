@@ -19,6 +19,8 @@ public final class SearchConfig {
     private static final String K_PROVIDER = "provider";
     private static final String K_TAVILY_KEY = "tavily_key";
     private static final String K_BOCHA_KEY = "bocha_key";
+    /** ★ feat/api-first：海纳开放平台（gw-openapi.zhidemai.com）商品检索的 key，与 Tavily 同一套 SecretPrefs 加密存。 */
+    private static final String K_HAINA_KEY = "haina_key";
     /** R15：天气类问句没带地点时补的城市；空 = 不补（代码不写死城市）。 */
     private static final String K_HOME_CITY = "home_city";
 
@@ -88,6 +90,15 @@ public final class SearchConfig {
         { android.content.SharedPreferences.Editor e = sp().edit(); com.onesay.assistant.v2.security.SecretPrefs.put(e, K_BOCHA_KEY, v == null ? "" : v.trim()); e.apply(); }
     }
 
+    /** ★ feat/api-first：海纳商品检索 key（路由层第 ② 档；没填 = 跳过这一档）。 */
+    public String getHainaKey() {
+        return com.onesay.assistant.v2.security.SecretPrefs.get(sp(), K_HAINA_KEY);
+    }
+
+    public void setHainaKey(String v) {
+        { android.content.SharedPreferences.Editor e = sp().edit(); com.onesay.assistant.v2.security.SecretPrefs.put(e, K_HAINA_KEY, v == null ? "" : v.trim()); e.apply(); }
+    }
+
     /** 一行摘要（已脱敏），供日志与自测展示。 */
     public String describe() {
         StringBuilder sb = new StringBuilder();
@@ -95,6 +106,7 @@ public final class SearchConfig {
         sb.append(", provider=").append(getProvider());
         sb.append(", tavily=").append(mask(getTavilyKey()));
         sb.append(", bocha=").append(mask(getBochaKey()));
+        sb.append(", haina=").append(mask(getHainaKey()));
         return sb.toString();
     }
 

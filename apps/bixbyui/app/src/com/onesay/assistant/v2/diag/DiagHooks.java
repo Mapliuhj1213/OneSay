@@ -271,8 +271,45 @@ public final class DiagHooks {
             if (page != null) svc.screenRefExecute(page, new JSONObject(), c.label);
             return;
         }
+        if (f.kind == DiagKnowledge.FixKind.UI_FIND) {
+            runUiFind(svc, f);
+            return;
+        }
         // 写设置：动态能力（summary = 改前 → 改后），risk 2 + confirm → 黄卡确认 → 令牌 → UnifiedExecutor → DiagBackend
         svc.screenRefExecute(DiagCapabilities.fix(f, c.summary), DiagCapabilities.fixArgs(f.id), query.length() > 0 ? query : c.label);
+    }
+
+    /** 厂商各自命名的设置项：读设置页控件树找到它并报告；是开关就给「帮我打开 / 关闭」芯片，点了（= 本次确认）才代点。 */
+    static void runUiFind(final FloatingSheetService svc, final DiagKnowledge.Fix f) {
+        final Context app = svc.getApplicationContext();
+        com.onesay.assistant.v2.util.Threads.start("diag-uifind", new Runnable() {
+            @Override public void run() {
+                final SettingsNavDriver.Result r = SettingsNavDriver.locate(app, f.target, f.capSign);
+                Log.i(TAG, "[DIAG] 设置页查找 " + f.target + " → " + (r.found ? r.match : "未找到"));
+                svc.showLocalReply(f.label, r.message, "设置诊断");
+                if (!r.found || r.match == null || r.match.toggleNode < 0) return;
+                final boolean on = Boolean.TRUE.equals(r.match.checked);
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+                    @Override public void run() {
+                        ActionChipsView v = ensureChipsView(svc);
+                        if (v == null) return;
+                        List<String> labels = new ArrayList<String>();
+                        labels.add(on ? "帮我关闭" : "帮我打开");
+                        v.setListener(new ActionChipsView.Listener() {
+                            @Override public void onChipClicked(int index) {
+                                hideChips(svc);
+                                com.onesay.assistant.v2.util.Threads.start("diag-uitoggle", new Runnable() {
+                                    @Override public void run() {
+                                        svc.showLocalReply(f.label, SettingsNavDriver.toggle(app, f.target), "设置诊断");
+                                    }
+                                });
+                            }
+                        });
+                        v.showChips(labels);
+                    }
+                });
+            }
+        });
     }
 
     /** [D-H5] 主线程：修复执行成功 → 显示「撤销」芯片。 */

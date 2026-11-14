@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"parts":[{"text":"今天"}],"role":"model"},"index":0}],"modelVersion":"gemini-2.5-flash"}
+
+data: {"candidates":[{"content":{"parts":[{"text":"天气晴。"}],"role":"model"},"finishReason":"STOP","index":0}],"modelVersion":"gemini-2.5-flash"}
+
+data: {"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":6,"totalTokenCount":16},"modelVersion":"gemini-2.5-flash"}
+

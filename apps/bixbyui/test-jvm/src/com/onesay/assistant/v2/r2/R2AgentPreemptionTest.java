@@ -50,7 +50,8 @@ public class R2AgentPreemptionTest {
         assertTrue(s.contains("cancelActiveStream(true);   // r2/fixes 14：识屏是新请求"));
         // 后台任务不写卡片：进度、确认、收工
         assertTrue(s.contains("!cancel.isCancelled() && agentOwnsCard(agentSeq)"));
-        assertTrue(s.contains("if (!agentOwnsCard(agentSeq)) {\n                                Log.i(TAG, \"[CONFIRM] 复合任务已转后台"));
+        // [logcat-1114] 这个类的日志改走 SafeLog（写 logcat 前先脱敏），只跟着改名：仍要求紧跟在 agentOwnsCard 判断之后、同一句日志
+        assertTrue(s.contains("if (!agentOwnsCard(agentSeq)) {\n                                SafeLog.i(TAG, \"[CONFIRM] 复合任务已转后台"));
         int fin = s.indexOf("if (mActiveAgent == cancel) mActiveAgent = null;   // r2/fixes 14");
         assertTrue(fin > 0);
         int own = s.indexOf("if (!agentOwnsCard(agentSeq)) {", fin);

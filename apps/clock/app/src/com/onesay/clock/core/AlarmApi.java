@@ -77,7 +77,8 @@ public final class AlarmApi {
             String lb = cleanLabel(label);
             for (Alarm a : as) {
                 if (AlarmMath.isDebugId(a.id)) continue;
-                if (a.hour == hour && a.minute == minute && a.days == days) {   // 同一时刻同一重复：打开它，不重复建
+                // [borrow-1112] 只认「每周几」规则的闹钟：大小周 / 每月 / 每隔 N 天的闹钟 days 含义不同，不能被当成同一个
+                if (a.rule == RepeatRule.WEEKLY && a.hour == hour && a.minute == minute && a.days == days) {   // 同一时刻同一重复：打开它，不重复建
                     a.on = true;
                     if (lb.length() > 0) a.label = lb;
                     return new Result(RC_OK, as, true, a.id);
@@ -113,16 +114,35 @@ public final class AlarmApi {
         return AlarmMath.isDebugId(n) ? -1 : n;
     }
 
-    /** 标签：去控制 / 双向覆盖字符，截断 30 字。 */
+    /**
+     * 标签：去控制 / 双向覆盖字符和落单的代理，截断 30 字。
+     * 2026-11-14 对抗测试 P2-8：按码点计数、按字素（BreakIterator 字符边界）整段截，不把 emoji / 生僻字的代理对或组合序列切开。
+     */
     static String cleanLabel(String s) {
         if (s == null) return "";
-        StringBuilder b = new StringBuilder();
-        for (int i = 0; i < s.length() && b.length() < MAX_LABEL; i++) {
+        StringBuilder f = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
+            if (Character.isHighSurrogate(c) && i + 1 < s.length() && Character.isLowSurrogate(s.charAt(i + 1))) {
+                f.append(c).append(s.charAt(++i));
+                continue;
+            }
+            if (Character.isSurrogate(c)) continue; // 落单的半个代理对
             if (Character.isISOControl(c) || (c >= '\u202A' && c <= '\u202E') || (c >= '\u2066' && c <= '\u2069')) continue;
-            b.append(c);
+            f.append(c);
+            if (f.length() > MAX_LABEL * 16) break; // 够截了，后面不用再看
         }
-        return b.toString().trim();
+        String t = f.toString();
+        java.text.BreakIterator it = java.text.BreakIterator.getCharacterInstance(java.util.Locale.ROOT);
+        it.setText(t);
+        int cps = 0, end = 0;
+        for (int st = it.first(), nx = it.next(); nx != java.text.BreakIterator.DONE; st = nx, nx = it.next()) {
+            int n = t.codePointCount(st, nx);
+            if (cps + n > MAX_LABEL) break;
+            cps += n;
+            end = nx;
+        }
+        return t.substring(0, end).trim();
     }
 
     /** 结果 JSON（OneSay 闹钟卡片直接用这个格式渲染）。 */
@@ -134,6 +154,7 @@ public final class AlarmApi {
                 arr.put(new JSONObject().put("id", a.id).put("h", a.hour).put("m", a.minute).put("d", a.days & 0x7F)
                         .put("on", a.on).put("r", a.brief ? "smart" : "ring").put("next", AlarmMath.next(a, now, tz))
                         .put("label", a.label == null ? "" : a.label));
+                if (a.rule != RepeatRule.WEEKLY) arr.getJSONObject(arr.length() - 1).put("rule", RepeatRule.label(a));   // [borrow-1112] 只在新规则时附带
             }
             return new JSONObject().put("ts", now).put("count", arr.length()).put("lastId", lastId).put("alarms", arr).toString();
         } catch (Exception e) {

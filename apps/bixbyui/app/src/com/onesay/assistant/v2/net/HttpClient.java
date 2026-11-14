@@ -205,8 +205,17 @@ public final class HttpClient {
         long t0 = System.nanoTime();
         HttpURLConnection conn = null;
         boolean clean = false;
+        // ★ feat/api-first [api-first]：停止键真中断 —— 已停就不发；发出去的连接登记进当前停止范围，停止时立刻断开
+        if (StopScope.currentStopped()) return new Response(-1, "", new java.io.InterruptedIOException("已停止"), 0L);
+        Runnable unregister = StopScope.NOOP;
         try {
             conn = (HttpURLConnection) new URL(req.url).openConnection();
+            final HttpURLConnection fc = conn;
+            unregister = StopScope.onStop(new Runnable() {
+                @Override public void run() {
+                    fc.disconnect();
+                }
+            });
             conn.setRequestMethod(req.method);
             conn.setConnectTimeout(req.connectTimeoutMs);
             conn.setReadTimeout(req.readTimeoutMs);
@@ -241,8 +250,11 @@ public final class HttpClient {
             clean = true;
             return new Response(code, body, null, ms(t0));
         } catch (Throwable t) {
+            // ★ [api-first] 被停止键断开的连接按「已取消」报（不是网络错误）
+            if (StopScope.currentStopped()) t = new java.io.InterruptedIOException("已停止");
             return new Response(-1, "", t, ms(t0));
         } finally {
+            unregister.run();
             if (conn != null && (!clean || !KEEP_ALIVE)) conn.disconnect();
         }
     }

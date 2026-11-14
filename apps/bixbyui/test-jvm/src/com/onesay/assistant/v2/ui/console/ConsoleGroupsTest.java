@@ -29,7 +29,8 @@ public class ConsoleGroupsTest {
     @Test public void groupsAreTheAgreedList() {
         List<String> titles = new ArrayList<String>();
         for (String[] g : ConsoleGroups.GROUPS) titles.add(g[1]);
-        assertEquals(Arrays.asList("模型", "功能", "语音唤醒", "朗读", "灵动岛", "主动建议", "权限保活", "隐私"), titles);
+        // [console-align] 2026-11-12 分组表改成两端同一份（docs/CONSOLE.md）；原为 模型 / 功能 / 语音唤醒 / 朗读 / 灵动岛 / 主动建议 / 权限保活 / 隐私
+        assertEquals(Arrays.asList("连接", "权限与审批", "模型与密钥", "语音", "替你操作", "功能", "下载", "插件"), titles);
         for (String[] g : ConsoleGroups.GROUPS) {
             assertEquals(g[1], ConsoleGroups.title(g[0]));
             assertTrue("副标题不空 " + g[1], g[2].length() > 0);
@@ -62,10 +63,14 @@ public class ConsoleGroupsTest {
         assertTrue("点标题行切换", h.contains("setDevExpanded(!mDevExpanded);"));
         int fill = h.indexOf("private void fillDev()");
         String body = h.substring(fill, h.indexOf("private void setDevExpanded", fill));
-        for (String s : new String[]{"\"诊断与摘要\"", "\"功能插件\"", "\"调试工具\"", "new GroupPages.DevFeaturesPage(c)",
-                "new AdvancedPage.PluginsPage(c)", "new DeveloperPage(c)"}) {
+        // [console-align]「功能插件」搬到设置区「插件」：开发者里不再有它（原断言要求开发者里有 "功能插件" 与 new AdvancedPage.PluginsPage(c)）
+        for (String s : new String[]{"\"诊断与摘要\"", "\"调试工具\"", "new GroupPages.DevFeaturesPage(c)", "new DeveloperPage(c)"}) {
             assertTrue("开发者里有 " + s, body.contains(s));
         }
+        assertFalse("[console-align] 插件列表不在开发者里重复", body.contains("new AdvancedPage.PluginsPage(c)"));
+        int set = h.indexOf("k.group(col, \"设置\")");
+        assertTrue("[console-align] 插件列表在设置区「插件」", h.indexOf("k.linkRow(g1, \"插件\"", set) > set
+                && h.indexOf("new AdvancedPage.PluginsPage(c)", set) > h.indexOf("k.linkRow(g1, \"插件\"", set));
         assertTrue("开发者模式变了会重画", h.contains("if (mDevBuiltFor != c.devMode()) fillDev();"));
         assertTrue("开发者模式提示指向新位置", DevMode.hint(0).contains("开发者"));
         assertFalse(DevMode.hint(0).contains("模型与密钥"));
@@ -78,9 +83,12 @@ public class ConsoleGroupsTest {
         assertEquals(ConsoleGroups.DEV, ConsoleGroups.groupOfFeaturePlugin("summary"));
         assertEquals(ConsoleGroups.SUGGEST, ConsoleGroups.groupOfFeaturePlugin("suggest"));
         assertEquals("suggest = SuggestPlug.ID", com.onesay.assistant.plug.suggest.core.SuggestPlug.ID, ConsoleGroups.SUGGEST_PLUGINS[0]);
-        for (String id : new String[]{"planner", "sched", "s3", "callback", "brief", "conn", "errand", "phongent", "以后新加的"}) {
+        // [console-align] conn / phongent 进「连接」，errand 进「替你操作」（原断言三者都在「功能」）
+        for (String id : new String[]{"planner", "sched", "s3", "callback", "brief", "rain", "以后新加的"}) {
             assertEquals(id, ConsoleGroups.FEATURES, ConsoleGroups.groupOfFeaturePlugin(id));
         }
+        for (String id : new String[]{"pclink", "phongent", "conn"}) assertEquals(id, ConsoleGroups.CONNECT, ConsoleGroups.groupOfFeaturePlugin(id));
+        for (String id : new String[]{"phone", "apifirst", "errand"}) assertEquals(id, ConsoleGroups.ACT, ConsoleGroups.groupOfFeaturePlugin(id));
         // FeatureKernel.pickedFor：include 优先；否则按 exclude
         assertTrue(FeatureKernel.pickedFor("diag", ConsoleGroups.DEV_PLUGINS, null));
         assertFalse(FeatureKernel.pickedFor("sched", ConsoleGroups.DEV_PLUGINS, null));
@@ -99,13 +107,18 @@ public class ConsoleGroupsTest {
             if (FeatureKernel.pickedFor(id, null, ConsoleGroups.FEATURES_EXCLUDE)) n++;
             if (FeatureKernel.pickedFor(id, ConsoleGroups.DEV_PLUGINS, null)) n++;
             if (FeatureKernel.pickedFor(id, ConsoleGroups.SUGGEST_PLUGINS, null)) n++;
+            if (FeatureKernel.pickedFor(id, ConsoleGroups.CONNECT_PLUGINS, null)) n++;   // [console-align] 新增两页也要计数
+            if (FeatureKernel.pickedFor(id, ConsoleGroups.ACT_PLUGINS, null)) n++;
             assertEquals(id + " 只画在一页", 1, n);
         }
         assertTrue(src(CON + "FeaturesPage.java").contains("ConsoleHost.PAGE_FEATURES, feats, null, ConsoleGroups.FEATURES_EXCLUDE"));
         String gp = src(CON + "GroupPages.java");
         assertTrue(gp.contains("ConsoleHost.PAGE_FEATURES, g, ConsoleGroups.DEV_PLUGINS, null"));
         assertTrue(gp.contains("ConsoleHost.PAGE_FEATURES, g, ConsoleGroups.SUGGEST_PLUGINS, null"));
-        assertTrue("屏幕与剪贴板整页搬到隐私", gp.contains("addConsolePage(c, ConsoleHost.PAGE_SCREEN, screen)"));
+        assertTrue(gp.contains("ConsoleHost.PAGE_FEATURES, g, ConsoleGroups.CONNECT_PLUGINS, null"));
+        assertTrue(gp.contains("ConsoleHost.PAGE_FEATURES, g, ConsoleGroups.ACT_PLUGINS, null"));
+        // [console-align] 说明文字「搬到隐私」→「搬到权限与审批」（判断内容不变）
+        assertTrue("屏幕与剪贴板整页搬到权限与审批", gp.contains("addConsolePage(c, ConsoleHost.PAGE_SCREEN, screen)"));
         assertTrue("旧 v1 卡片仍有地方画", gp.contains("addConsoleCards(c, legacy)"));
     }
 
@@ -131,10 +144,12 @@ public class ConsoleGroupsTest {
                 "声纹", "取消录制", "语音问就语音答", "朗读完整回答", "打字问也读出来", "回答后接着听", "显示「正在听 / 识别中」",
                 "唤醒手感", "按下即听", "息屏唤醒时说「我在」", "抢话不丢字", "自适应断句", "思考模式", "唤醒提示音",
                 // 模型与密钥
-                "API 密钥", "视觉模型", "读数类问题直接回答", "邮箱（IMAP）", "浅色外观", "功能插件",
+                // [console-align]「API 密钥」一行拆成「主模型 › API Key」与「其他模型与密钥 › 语音识别 Key」（都进 API 密钥面板）
+                "API Key", "语音识别 Key", "视觉模型", "读数类问题直接回答", "邮箱（IMAP）", "浅色外观", "功能插件",
         };
         String all = src(CON + "HomePage.java") + src(CON + "FeaturesPage.java") + src(CON + "GroupPages.java")
-                + src(CON + "VoicePage.java") + src(CON + "AdvancedPage.java") + src(CON + "DeveloperPage.java");
+                + src(CON + "VoicePage.java") + src(CON + "AdvancedPage.java") + src(CON + "DeveloperPage.java")
+                + src(CON + "AboutPage.java");   // [console-align]「外观」搬到「关于」页
         for (String t : old) assertTrue("旧入口「" + t + "」还找得到", all.contains("\"" + t + "\""));
         // 开发者页本身（调试动作 / 关停文件 / 日志）原样保留
         String dev = src(CON + "DeveloperPage.java");

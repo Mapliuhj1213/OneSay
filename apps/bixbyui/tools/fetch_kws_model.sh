@@ -9,7 +9,8 @@ BASE=https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 curl -fsSL -o "$TMP/$NAME.tar.bz2" "$BASE/$NAME.tar.bz2"
 curl -fsSL -o "$TMP/checksum.txt" "$BASE/checksum.txt"
-want="$(grep "$NAME.tar.bz2" "$TMP/checksum.txt" | awk '{print $1}' | head -1)"
+# checksum.txt 两种排版都可能（"hash  name" 或 "name hash"）：取该行里 64 位十六进制那一段
+want="$(grep "$NAME.tar.bz2" "$TMP/checksum.txt" | tr -s ' \t' '\n' | grep -E '^[0-9a-f]{64}$' | head -1)"
 got="$(sha256sum "$TMP/$NAME.tar.bz2" | awk '{print $1}')"
 [ -n "$want" ] && [ "$want" = "$got" ] || { echo "sha256 不一致（want=${want:-无} got=$got）" >&2; exit 1; }
 tar -xjf "$TMP/$NAME.tar.bz2" -C "$TMP"

@@ -56,7 +56,6 @@ public class SettingsActivity extends Activity {
         LinearLayout c1 = Ui.card(this);
         rowPregen = Ui.add(c1, Ui.row(this, "提前准备", "", null, new View.OnClickListener() { public void onClick(View v) { pickPregen(); } }));
         flagRow(c1, Flags.NEWS_MISS_LINE, "新闻取不到时说一句", "「今天的新闻暂时没取到。」关闭时直接跳到结束语");
-        flagRow(c1, Flags.X_ROOT_WEATHER, "使用手机天气", "读三星天气 App 的数据（与天气 App 一致）；读不到时改用网络天气");
         rowCity = Ui.add(c1, Ui.row(this, "网络天气位置", "", null, new View.OnClickListener() { public void onClick(View v) { pickCity(); } }));
         rowRain = flagRow(c1, Flags.X_RAIN_LINE, "播报降雨提醒", "");
         rowQwKey = Ui.add(c1, Ui.row(this, "和风天气 API Key", "", null, new View.OnClickListener() { public void onClick(View v) { keys(); } }));
@@ -91,6 +90,10 @@ public class SettingsActivity extends Activity {
         LinearLayout c4 = Ui.card(this);
         Ui.add(c4, Ui.row(this, "权限与引导", "电池优化、通知、定位", null, new View.OnClickListener() {
             public void onClick(View v) { startActivity(new Intent(SettingsActivity.this, OnboardActivity.class)); }
+        }));
+        // [borrow-1112] 可靠性检查
+        Ui.add(c4, Ui.row(this, "可靠性检查", "闹钟和提醒权限、电池优化、闹钟音量、勿扰、通知", null, new View.OnClickListener() {
+            public void onClick(View v) { startActivity(new Intent(SettingsActivity.this, CheckActivity.class)); }
         }));
         Ui.add(c4, Ui.row(this, "关于", "com.onesay.clock " + Ui.version(this) + "· 开源版不带预合成语音件，播报用你配置的云端音色现合成并缓存", null, null));
         col.addView(c4, Ui.cardLp(this));

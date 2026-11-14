@@ -194,6 +194,7 @@ public class ConsentPolicy {
     public static boolean acceptsAlwaysAllow(Capability cap) {
         if (cap == null || cap.sign == null) return false;
         if (RED_SIGNS.contains(cap.sign)) return false;
+        if (ToolGate.oddSign(cap.sign).length() > 0) return false; // 名字写法可疑的工具：每次都问，不能记住
         if (CommsRisk.isComms(cap.sign)) return false;
         if (cap.sideEffect == com.onesay.assistant.v2.capability.SideEffect.PUBLIC_COMMS) return false;   // [conn] 对外发送每次都要确认
         if (isRemoteConnTool(cap)) return false;
@@ -236,7 +237,23 @@ public class ConsentPolicy {
         }
     }
 
-    /** 撤销「始终允许」（自测/调试用）。 */
+    /** ★ console-align：「以后这类不用问」清单（控制台 › 权限与审批，按名字排序的副本）。 */
+    public static java.util.List<String> alwaysAllowedList() {
+        synchronized (LOCK) {
+            java.util.List<String> l = new java.util.ArrayList<String>(sAlwaysAllow);
+            Collections.sort(l);
+            return l;
+        }
+    }
+
+    /** 已经读过落盘文件（服务或控制台调过 {@link #init}）。 */
+    public static boolean initialized() {
+        synchronized (LOCK) {
+            return sFile != null;
+        }
+    }
+
+    /** 撤销「始终允许」（自测/调试用；★ console-align 起控制台「权限与审批」也用）。 */
     public static void revoke(String sign) {
         if (sign == null) return;
         synchronized (LOCK) {

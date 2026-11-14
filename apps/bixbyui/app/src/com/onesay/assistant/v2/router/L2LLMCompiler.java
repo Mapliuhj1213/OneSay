@@ -138,7 +138,7 @@ public class L2LLMCompiler implements IRouter {
         this.mContext = context.getApplicationContext();
         this.mRegistry = CapabilityRegistry.getInstance();
         com.onesay.assistant.v2.net.LlmEndpoints.load(this.mContext);   // 用户配置的大模型端点（https，DeepSeek 预置）
-        this.mClient = new com.onesay.assistant.v2.net.LlmClient(com.onesay.assistant.v2.net.LlmEndpoints.deepseekChatUrl(),
+        this.mClient = new com.onesay.assistant.v2.net.LlmClient(com.onesay.assistant.v2.net.LlmClient.DEEPSEEK_URL,   // ★ console-align：请求时现取主模型地址
                 new com.onesay.assistant.v2.net.LlmClient.KeyProvider() {
                     @Override public String apiKey() { return getApiKey(); }
                 }, com.onesay.assistant.v2.net.LlmClient.DEFAULT_CONNECT_MS, com.onesay.assistant.v2.net.LlmClient.DEFAULT_FIRST_BYTE_MS);   // ★ 11-03：连接 10 s / 首字节 20 s（原 8 s / 12 s 读超时）
@@ -146,6 +146,9 @@ public class L2LLMCompiler implements IRouter {
             @Override public void line(String s) { Log.i("LlmClient", s); }
         });
         com.onesay.assistant.v2.soul.SoulHooks.attach(this.mContext);   // [soul] 人设 / 长期记忆注入与会话整理
+        com.onesay.assistant.v2.net.MainModelEndpoint.load(this.mContext);   // ★ console-align：用户配置的主模型地址（https；debug 包也认 http）
+        Log.i(TAG, com.onesay.assistant.v2.net.MainModelEndpoint.logLine());
+        com.onesay.assistant.v2.net.LlmFallback.setSource(new com.onesay.assistant.v2.net.BackupModelConfig(this.mContext));   // ★ borrow-1112：主模型超时 / 5xx / 限流 → 已配置的备用模型
     }
 
     /** 共用客户端（分诊 LLM 兜底等同端点调用复用它，不再各写一份 HTTP）。 */
@@ -159,6 +162,14 @@ public class L2LLMCompiler implements IRouter {
     }
 
     public String getApiKey() {
+        String routed = com.onesay.assistant.v2.llm.ProviderRouting.mainKeyOverride();   // ★ priv-llm：主对话选了别家 → 那家的 Key
+        if (routed != null) return routed;
+        SharedPreferences sp = mContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        return com.onesay.assistant.v2.security.SecretPrefs.get(sp, KEY_API_KEY);
+    }
+
+    /** ★ priv-llm：DeepSeek 自己存的 Key（不受「主对话服务商」影响；DeepSeek Key 编辑框用）。 */
+    public String getDeepseekKey() {
         SharedPreferences sp = mContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         return com.onesay.assistant.v2.security.SecretPrefs.get(sp, KEY_API_KEY);
     }
@@ -366,7 +377,7 @@ public class L2LLMCompiler implements IRouter {
             // 这里挡住重复回调，免得白刷 UI 和日志。
             final String[] lastShown = { null };
             SseStream.Result sr = SseStream.post(
-                    com.onesay.assistant.v2.net.LlmEndpoints.deepseekChatUrl(), getApiKey(),
+                    com.onesay.assistant.v2.net.LlmClient.DEEPSEEK_URL, getApiKey(),   // ★ console-align：请求时现取主模型地址
                     buildBody(system, history, userContent, com.onesay.assistant.plug.richout.host.RichOutHost.askMaxTokens(ASK_MAX_TOKENS), true, com.onesay.assistant.v2.net.ThinkingMode.Purpose.ASK),
                     new SseStream.ThinkingSink() {
                         @Override

@@ -54,7 +54,8 @@ public class ConsolePlanSectionTest {
         String h = src(CON + "HomePage.java");
         assertTrue("插件列表 / 开发者入口搬到首页「开发者」", h.contains("new AdvancedPage.PluginsPage(c)") && h.contains("new DeveloperPage(c)"));
         assertTrue("唤醒卡片深链仍进这一页", src(CON + "Console.java").contains("nav.push(new AdvancedPage(this));"));
-        assertTrue("没配 Key 的提示跟着改名", src("app/src/com/onesay/assistant/v2/router/UnifiedRouter.java").contains("设置 › 模型与密钥 › API 密钥 › DeepSeek"));
+        // [console-align] 路径跟着改名：原为「设置 › 模型与密钥 › API 密钥 › DeepSeek」
+        assertTrue("没配 Key 的提示跟着改名", src("app/src/com/onesay/assistant/v2/router/UnifiedRouter.java").contains("设置 › 模型与密钥 › 主模型 › API Key"));
     }
 
     /** 日程 / 定时任务 / 待办的开关属设置：仍在「功能与权限」（PAGE_FEATURES）里，首页计划区只放入口不放开关。 */

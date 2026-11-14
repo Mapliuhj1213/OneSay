@@ -17,6 +17,22 @@ This product includes software derived from Mika
     com.onesay.assistant.plug.{screen,action,guard,evidence,outbox,intent,inbox,outcome,appkb}.core,
     apps/bixbyui/app/assets/kb_app_*.md, com.onesay.assistant.v2.a11y
 
+This product includes software derived from Mika (bring-your-own-key model provider layer)
+  https://github.com/wangzan101/mika (upstream revision 8d61573eaed7d36fa37093bab233c94a5e79dd4d)
+  Mika
+  Copyright 2026 wangzan101
+  Licensed under the Apache License, Version 2.0.
+  Ported parts (Kotlin -> Java 7 + org.json, modified; each file carries a
+  "Portions derived from Mika" header naming the upstream file):
+    com.onesay.assistant.v2.llm.{ProviderKind,ProviderPreset,ProviderErrors,
+      OpenAiCompatAdapter,AnthropicAdapter,GeminiAdapter}
+
+This product includes the Shizuku API library 13.1.5 (apps/bixbyui/libs/shizuku-api-13.1.5.jar,
+unmodified classes of dev.rikka.shizuku:api/provider/aidl/shared 13.1.5), used by the optional
+"Shizuku 特权" plugin (default off)
+  https://github.com/RikkaApps/Shizuku-API
+  Copyright (c) 2021 RikkaW. Licensed under the MIT License (licenses/MIT-Shizuku-API.txt).
+
 This product includes software derived from phongent (based on Mika)
   https://github.com/mylea1/phongent (reference commit 0b57e35)
   NOTICE: Mika, Copyright 2026 wangzan101; extensions by mylea.
@@ -40,6 +56,66 @@ This product includes sherpa-onnx (Java sources and prebuilt JNI)
   Copyright (c) Xiaomi Corporation and contributors
   Licensed under the Apache License, Version 2.0.
 
-Other third-party components (ONNX Runtime - MIT, Jakarta Mail/Activation -
+Design references (no code copied) for the assistant, community borrowing 2026-11-12 (borrow-1112):
+  Agent-VScreen  https://github.com/kilolonion/agent-vscreen  (MIT License):
+    per-step structured receipts (ok / code / next, STALE_ELEMENT), "wait until"
+    conditions with a timeline of screen changes while waiting, and a border
+    colour that shows who is controlling the screen.
+    Implementation is original: com.onesay.assistant.v2.phone.StepReceipt,
+    PhoneAgent.waitUntil, com.onesay.assistant.v2.exec.ControlColor.
+  OpenPhoneUse  https://github.com/joungminsung/OpenPhoneUse  (MIT License):
+    model-declared risk on each action where keyword rules may only tighten it,
+    always confirming a send after external text was read, and reporting
+    unverifiable actions as "requested". Its "delete one named item without
+    confirmation" was not adopted.
+    Implementation is original: com.onesay.assistant.v2.phone.RiskLabel,
+    com.onesay.assistant.v2.executor.ToolGate (send under taint).
+  TaoSheng  https://github.com/0xCoach/TaoSheng  (MIT License): switching to a
+    configured backup model when the main model fails, and saying "done" to
+    mark the reminded to-do complete.
+    Implementation is original: com.onesay.assistant.v2.net.{LlmFallback,
+    BackupModelConfig}, com.onesay.assistant.v2.planner.{TodoVoiceDone,TodoVoiceFlow}.
+  android-remote-control-mcp  https://github.com/danielealbano/android-remote-control-mcp
+    (GPL-3.0-or-later): idea source only (its documentation was read; no code
+    read into or copied from it): replace personal data with stable placeholders
+    before text goes to the model, and swap them back locally when typing.
+    Implementation is original: com.onesay.assistant.v2.privacy.{Redactor,RedactingLlm}.
+
+This product includes software derived from VYRSE (MIT License)
+  https://github.com/felixthosharon/vyrse (reference commit 41c5651)
+  Copyright (c) 2026 VYRSE contributors. Licensed under the MIT License
+  (full text in THIRD_PARTY_NOTICES.md). Phone-link protocol constants, action
+  semantics, result format and the blocked-app list were re-implemented in Java 7
+  (each file carries a change notice):
+    (paths relative to apps/bixbyui/)
+    app/src/com/onesay/assistant/plug/vyrse/core/*.java
+    app/src/com/onesay/assistant/v2/vyrse/VyrseAbilities.java
+
+Other third-party components (ONNX Runtime - MIT, VYRSE - MIT, Jakarta Mail/Activation -
 EPL-2.0 or GPL-2.0 with Classpath Exception, mermaid - MIT, Chart.js - MIT)
 are listed with their licenses in THIRD_PARTY_NOTICES.md.
+
+Design references (no code copied) for the PC-link protocol v2 (link-v2):
+  LocalSend  https://github.com/localsend/localsend  (Apache License 2.0)
+    multicast discovery in 224.0.0.0/24, announce-then-respond, per-device
+    self-signed certificates identified by their SHA-256 fingerprint.
+    The separate protocol-docs repo (localsend/protocol) has no license:
+    read only, nothing copied.
+  Home Assistant Companion for Android  https://github.com/home-assistant/android
+    (Apache License 2.0): notification-command set (screen on, volume level,
+    launch app, open URL) and "ring at max alarm-stream volume" to find the phone.
+  KDE Connect / Sefirah (GPL): product-level ideas only; code neither read nor used.
+  Implementation is original: com.onesay.assistant.v2.pclink.{PcTls,PcRx,PcRxPolicy,PcRxAndroid}.
+
+Design references (no code copied) for the Clock and Plan apps (2026-11-12):
+  TaoSheng  https://github.com/0xCoach/TaoSheng  (MIT License): strong to-do
+    reminders that ring like an alarm with a full-screen page (volume key =
+    snooze, power key = stop) and "mark the reminded to-do done" by voice.
+    Implementation is original: apps/plan com.onesay.plan.{core.StrongAlert,
+    core.RemindLink, remind.StrongRingService, ui.StrongAlertActivity, data.RemindCalls}.
+  Wake Me / WeckMich  https://github.com/anka1981/WeckMich  (GPL-3.0-only):
+    idea source only (feature descriptions were read; no code read into or
+    copied from it): repeat rules with preview, pause instead of delete,
+    reliability self-check and missed-alarm notice.
+    Implementation is original: apps/clock com.onesay.clock.core.{RepeatRule,
+    Pause,Missed,Health}, com.onesay.clock.ui.{CheckActivity,RuleUi}.

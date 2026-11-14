@@ -12,12 +12,12 @@ import static org.junit.Assert.*;
 public class WakeCueTest {
 
     @org.junit.Before public void vendorPref() {
-        WakeCue.setPref(WakeCue.Source.VENDOR);   // OneSay 默认是方案 A；这些用例测的是可选的厂商来源
+        WakeCue.setPref(WakeCue.Source.SYSTEM);   // OneSay 默认是方案 A；这些用例测的是可选的厂商来源
     }
 
     @After public void reset() {
         WakeCue.setVendor(null, null);
-        WakeCue.setPref(WakeCue.Source.VENDOR);
+        WakeCue.setPref(WakeCue.Source.SYSTEM);
     }
 
     /** 假「Bixby_BOS」：44.1 kHz、立体声已下混、前后各 20 ms 静音、中间 300 ms 的 1.5 kHz + 2.2 kHz。 */
@@ -43,7 +43,7 @@ public class WakeCueTest {
         });
         assertEquals("com.samsung.android.bixby.agent/raw/voice_bos", used);
         assertEquals(3, tried.size());
-        assertEquals(WakeCue.Source.VENDOR, WakeCue.effective());
+        assertEquals(WakeCue.Source.SYSTEM, WakeCue.effective());
         int ms = Earcon.durationMs(Earcon.wakeChime(), Earcon.SAMPLE_RATE);
         assertTrue("去首尾静音后约 300 ms：" + ms, ms >= 290 && ms <= 320);
     }
@@ -61,7 +61,7 @@ public class WakeCueTest {
 
     @Test public void prefSelectsSource() {
         WakeCue.setVendor(WakeCue.resample(WakeCue.trimSilence(fakeBos(44100), WakeCue.SILENCE_THR), 44100, Earcon.SAMPLE_RATE), "/system/media/audio/ui/Bixby_BOS.ogg");
-        assertEquals(WakeCue.Source.VENDOR, WakeCue.parse("vendor"));
+        assertEquals(WakeCue.Source.SYSTEM, WakeCue.parse("vendor"));
         assertEquals(WakeCue.Source.A, WakeCue.parse("A"));
         assertEquals(WakeCue.Source.LEGACY, WakeCue.parse("legacy"));
         assertEquals("乱写 = 默认方案 A（OneSay）", WakeCue.Source.A, WakeCue.parse("xx"));
@@ -69,8 +69,8 @@ public class WakeCueTest {
         assertArrayEquals(Earcon.chimeA(Earcon.SAMPLE_RATE), Earcon.wakeChime());
         WakeCue.setPref(WakeCue.Source.LEGACY);
         assertArrayEquals(Earcon.legacyChime(Earcon.SAMPLE_RATE), Earcon.wakeChime());
-        WakeCue.setPref(WakeCue.Source.VENDOR);
-        assertEquals(WakeCue.Source.VENDOR, WakeCue.effective());
+        WakeCue.setPref(WakeCue.Source.SYSTEM);
+        assertEquals(WakeCue.Source.SYSTEM, WakeCue.effective());
         assertTrue(WakeCue.describe().contains("Bixby_BOS"));
     }
 

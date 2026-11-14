@@ -96,23 +96,19 @@ public class HomeCityPolicyTest {
         assertEquals("", HomeCityPolicy.parseNominatim("{}"));
     }
 
-    @Test public void copyCommandNeverTouchesShm() {
-        String c = HomeCityPolicy.copyCommand("/data/user/0/com.onesay.assistant/files/wdb/");
-        assertTrue(c.startsWith("cat '/data/data/com.sec.android.daemonapp/databases/WeatherClock' > '/data/user/0/com.onesay.assistant/files/wdb/WeatherClock'"));
-        assertTrue(c.contains("WeatherClock-wal"));
-        assertFalse("不复制 -shm（SIGBUS）", c.contains("-shm"));
-        assertFalse("不用 cp（root 新建文件标签不对）", c.contains("cp "));
-        assertTrue(c.contains("SZ "));
-        String q = HomeCityPolicy.copyCommand("/x/it's");
-        assertTrue("单引号转义", q.contains("'/x/it'\\''s/WeatherClock'"));
+    @Test public void cityFromWeatherAppScreen() {
+        assertTrue(HomeCityPolicy.cityFromScreen(Arrays.asList("天气", "江北区", "23°", "多云")).startsWith("江北"));
+        assertEquals("苏州", HomeCityPolicy.cityFromScreen(Arrays.asList("苏州市", "18℃", "空气良")));
+        assertEquals("定位图标旁的短名", "南浔", HomeCityPolicy.cityFromScreen(Arrays.asList("当前位置", "南浔", "晴 20°")));
+        assertEquals("常见地名表", "杭州", HomeCityPolicy.cityFromScreen(Arrays.asList("15:30", "杭州", "小雨")));
+        assertEquals("天气字段不当城市", "", HomeCityPolicy.cityFromScreen(Arrays.asList("今天", "空气质量", "湿度 80%")));
+        assertEquals("", HomeCityPolicy.cityFromScreen(null));
     }
 
-    @Test public void parseCopyEcho() {
-        long[] sz = HomeCityPolicy.parseCopyEcho("SZ 4096 716800\n");
-        assertEquals(4096L, sz[0]);
-        assertEquals(716800L, sz[1]);
-        assertNull(HomeCityPolicy.parseCopyEcho("cat: permission denied"));
-        assertNull(HomeCityPolicy.parseCopyEcho(null));
-        assertNull(HomeCityPolicy.parseCopyEcho("SZ x y"));
+    @Test public void pickWeatherAppByLabel() {
+        assertEquals(1, WeatherAppCity.pickWeatherApp(Arrays.asList("相机", "天气", "Weather")));
+        assertEquals(0, WeatherAppCity.pickWeatherApp(Arrays.asList("My Weather")));
+        assertEquals(-1, WeatherAppCity.pickWeatherApp(Arrays.asList("时钟")));
+        assertEquals(-1, WeatherAppCity.pickWeatherApp(null));
     }
 }

@@ -15,7 +15,7 @@ import static com.onesay.assistant.v2.platform.DeviceCap.*;
  * <h3>约定</h3>
  * <ul>
  *   <li>只<b>登记</b>，不改任何功能的默认值和运行逻辑。有开关的项绑定到它原来的 prefs 键（JVM 测试逐项比对原 Settings 类）；</li>
- *   <li>新功能如果依赖 root / 三星 / 特定系统版本，必须在这里加一项，写清所需能力和无 root 替代；</li>
+ *   <li>新功能如果依赖 root / 特定系统版本，必须在这里加一项，写清所需能力和无 root 替代；</li>
  *   <li>{@link FeatureSpec.Status#NOT_BUILT} 是以前因系统限制没做或砍掉的功能，留在表里给移植 / 以后实现时对照。</li>
  * </ul>
  */
@@ -26,11 +26,10 @@ public final class FeatureRegistry {
     public static final String G_WAKE = "唤醒入口";
     public static final String G_EXEC = "执行与读屏";
     public static final String G_DISPLAY = "显示与提醒";
-    public static final String G_VENDOR = "厂商专属";
     public static final String G_NOT_BUILT = "受限未实现";
 
     /** 分组顺序（页面按这个顺序画）。 */
-    public static final String[] GROUPS = {G_WAKE, G_EXEC, G_DISPLAY, G_VENDOR, G_NOT_BUILT};
+    public static final String[] GROUPS = {G_WAKE, G_EXEC, G_DISPLAY, G_NOT_BUILT};
 
     private static final String ALT_SCREEN = "无障碍服务读控件树（debug 已有 B2 后端）· Shizuku 以 shell 身份跑 uiautomator dump / screencap · "
             + "MediaProjection 截屏（每次需用户同意）";
@@ -43,18 +42,20 @@ public final class FeatureRegistry {
         // ---------------------------------------------------------------- 唤醒入口
         l.add(FeatureSpec.status("wake.kws", "语音唤醒词", G_WAKE, FeatureSpec.Status.SHIPPED,
                 new DeviceCap[]{MIC, ARM64}, "按键 / 默认助理手势 / 打字", "本地 sherpa-onnx KWS，不需要 root"));
-        l.add(FeatureSpec.status("wake.bixby_key", "Bixby 键唤醒（短按 / 长按记一记 / 双击）", G_WAKE, FeatureSpec.Status.SHIPPED,
-                new DeviceCap[]{BIXBY_KEY, ROOT, KEY_DAEMON}, BIXBY_KEY.alternative,
-                "root 按键守护劫持 /dev/input 上的 Bixby 键事件（tools/kdaemon/hijack_daemon）"));
         l.add(FeatureSpec.status("wake.assist", "默认数字助理手势（长按 Home 等）", G_WAKE, FeatureSpec.Status.SHIPPED,
                 new DeviceCap[]{DEFAULT_ASSISTANT}, "按键 / 语音唤醒", "VoiceInteractionService，不需要 root；在系统「默认应用 › 数字助理」里选本 App"));
+        l.add(FeatureSpec.status("wake.key", "按键唤醒（双击电源键 / 长按音量键 → 语音唤起 / 识屏 / 文字面板）", G_WAKE, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{ACCESSIBILITY}, "root / Shizuku 跑 tools/kdaemon/key_daemon.sh 读原始按键事件；或语音唤醒、快捷开关",
+                "托管在 OneSay 无障碍服务里：熄屏 / 亮屏广播对判定双击电源键，按键过滤判定音量键长按；入口默认关"));
+        l.add(FeatureSpec.status("wake.cue", "唤醒提示音（自带 / 手机自带通知音自选）", G_WAKE, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{}, "App 自带提示音", "RingtoneManager 列出系统通知音，运行时解码，不打包"));
         // ---------------------------------------------------------------- 执行与读屏
         l.add(FeatureSpec.status("exec.system", "系统设置类执行（Wi-Fi / 亮度 / 勿扰 / 清后台…）", G_EXEC, FeatureSpec.Status.SHIPPED,
                 new DeviceCap[]{ROOT, EXEC_DAEMON}, ALT_EXEC, "统一执行网关 → root 执行守护（文件 IPC + HMAC）"));
         l.add(FeatureSpec.toggle("screen.ref", "识屏（截图 + 界面树问答）", G_EXEC, new DeviceCap[]{ROOT, EXEC_DAEMON}, ALT_SCREEN,
                 "uiautomator dump / screencap 经 root 守护", "bixby_screenref", "enabled", true, "screenref.off"));
         l.add(FeatureSpec.toggle("quicknote", "记一记（读屏 → 分类 → 摘要卡）", G_EXEC, new DeviceCap[]{ROOT, EXEC_DAEMON}, ALT_SCREEN,
-                "读屏经 root 守护；长按 Bixby 键触发另需按键守护", "bixby_quicknote", "enabled", true, "quicknote.off"));
+                "读屏经 root 守护", "bixby_quicknote", "enabled", true, "quicknote.off"));
         l.add(FeatureSpec.toggle("imgsave", "保存图片（截图精准裁剪 / 取原图）", G_EXEC, new DeviceCap[]{ROOT, EXEC_DAEMON},
                 "MediaProjection 截屏后裁剪（拿不到原图）· 无障碍定位图片控件", "screencap + dump + App 缓存原图经 root 守护",
                 "bixby_imgsave", "enabled", true, "imgsave.off"));
@@ -66,26 +67,25 @@ public final class FeatureRegistry {
                 "bixby_island", "enabled", true, "island.off"));
         l.add(FeatureSpec.toggle("notice", "灵动岛消息提醒", G_DISPLAY, new DeviceCap[]{OVERLAY, NOTIFICATION_LISTENER}, "无",
                 "通知使用权转发到岛上", "bixby_notice", "enabled", true, "notice.off"));
-        l.add(FeatureSpec.status("a11y.backend", "无障碍读屏后端（B2）", G_DISPLAY, FeatureSpec.Status.DEBUG_ONLY,
-                new DeviceCap[]{ACCESSIBILITY}, "root 读屏", "只在 debug 包；无 root 设备读屏的首选替代"));
-        // ---------------------------------------------------------------- 厂商专属
-        l.add(FeatureSpec.toggle("errand.samsung", "浏览器跑腿：三星浏览器桌面模式", G_VENDOR, new DeviceCap[]{SAMSUNG_BROWSER},
-                SAMSUNG_BROWSER.alternative, "跑腿阶梯的最后一档（默认关）", "bixby_errand", "samsung", false, "errand.off", "errand_samsung.off"));
-        l.add(FeatureSpec.status("store.galaxy", "装 App：三星应用商店直达", G_VENDOR, FeatureSpec.Status.SHIPPED,
-                new DeviceCap[]{GALAXY_STORE}, GALAXY_STORE.alternative, "安装卡会按已装商店分流"));
-        l.add(FeatureSpec.status("wake.cue_samsung", "三星原厂唤醒提示音", G_VENDOR, FeatureSpec.Status.SHIPPED,
-                new DeviceCap[]{SAMSUNG, BIXBY_SYSTEM}, BIXBY_SYSTEM.alternative, "运行时从系统 / Bixby 组件读取，不打包"));
-        l.add(FeatureSpec.status("city.samsung", "家乡城市（读三星天气时钟数据库）", G_VENDOR, FeatureSpec.Status.SHIPPED,
-                new DeviceCap[]{SAMSUNG, ROOT, EXEC_DAEMON}, "定位 / 用户在设置里填写", null));
-        l.add(FeatureSpec.status("diag.samsung", "设置诊断：三星专有设置项", G_VENDOR, FeatureSpec.Status.SHIPPED,
-                new DeviceCap[]{SAMSUNG, ROOT, EXEC_DAEMON}, "只诊断 AOSP 通用设置项", null));
+        l.add(FeatureSpec.status("a11y.backend", "无障碍读屏后端（读屏 / 代点 / 按键唤醒）", G_DISPLAY, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{ACCESSIBILITY}, "root 读屏", "用户在系统无障碍里手动打开；无 root 设备读屏的首选替代"));
+        l.add(FeatureSpec.status("diag.settings", "设置诊断（读设置页控件树 → 报告 → 确认后代点）", G_EXEC, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{ACCESSIBILITY}, "只给出标准设置页入口，让用户自己看",
+                "标准 Settings.ACTION_* 打开对应页，找不到时用设置搜索；不知道在哪就用已配置的搜索 / 大模型 key 查路径；每次操作前问你"));
+        l.add(FeatureSpec.status("city.home", "家乡 / 所在城市（手动设置 · 系统定位 · 读默认天气 App 屏幕）", G_DISPLAY, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{}, "手动设置常用城市", "不读任何厂商私有数据库"));
+        l.add(FeatureSpec.status("store.default", "装 App：默认应用商店（market://）", G_DISPLAY, FeatureSpec.Status.SHIPPED,
+                new DeviceCap[]{}, "网页版商店链接", "market://details / market://search，由系统交给默认商店"));
+        l.add(FeatureSpec.toggle("errand.browser", "浏览器跑腿：最后用默认浏览器打开", G_DISPLAY, new DeviceCap[]{},
+                "无", "跑腿阶梯的最后一档（默认关）；ACTION_VIEW 交给系统默认浏览器", "bixby_errand", "browser", false, "errand.off", "errand_browser.off"));
         // ---------------------------------------------------------------- 受限未实现
-        l.add(FeatureSpec.notBuilt("wake.other_key", "其他按键唤醒（音量键组合 / 侧键）", new DeviceCap[]{ACCESSIBILITY},
-                "无障碍服务 onKeyEvent 过滤（需 flagRequestFilterKeyEvents）；或 root getevent", "没有 Bixby 键的机型（如魅族 21 Pro）的首选按键入口"));
         l.add(FeatureSpec.notBuilt("wake.floating", "悬浮球唤醒", new DeviceCap[]{OVERLAY},
                 "复用灵动岛的 overlay 窗口加一个可拖动按钮", "无 root、无按键时最稳的入口"));
-        l.add(FeatureSpec.notBuilt("exec.shizuku", "Shizuku 执行后端", new DeviceCap[]{SHIZUKU},
-                "作为 ShellRunner 的第二实现，覆盖 settings / cmd / am / input / uiautomator / screencap", "无 root 设备上替代 root 执行守护的大部分能力"));
+        // ★ priv-llm：Shizuku 已做成可选插件「Shizuku 特权」（默认关，开关在「执行后端」里），不再是未实现项。
+        //   本身不需要任何能力即可「可用」（打开后 Shizuku 不在 / 没授权时，插件自己报原因，不置灰别的功能）。
+        l.add(FeatureSpec.status("exec.shizuku", "Shizuku 特权（可选插件 · 中间档：剪贴板授权 / 通知使用权 / 按键 / 截屏）", G_EXEC,
+                FeatureSpec.Status.SHIPPED, new DeviceCap[]{}, "root 执行守护 · 无障碍服务",
+                "默认关；在「执行后端」里打开，只执行白名单命令（libs/plugins/exec-shizuku）"));
         l.add(FeatureSpec.notBuilt("install.silent", "静默安装 App", new DeviceCap[]{ROOT, EXEC_DAEMON},
                 "PackageInstaller 弹系统确认 · Shizuku 的 pm install", "用户已搁置"));
         l.add(FeatureSpec.notBuilt("imgsave.lsposed", "进程内取原图（LSPosed）", new DeviceCap[]{ROOT},

@@ -1,7 +1,7 @@
 package com.onesay.assistant.v2.phone;
 
+import com.onesay.assistant.v2.util.SafeLog;
 import android.content.Context;
-import android.util.Log;
 
 import com.onesay.assistant.v2.exec.ExecModeController;
 
@@ -24,6 +24,67 @@ public final class PhoneHooks {
 
     public static boolean enabled(Context ctx) {
         return ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true);
+    }
+
+    /** ★ stable-screen：动作后等画面稳定再读（默认开）。 */
+    public static final String KEY_SETTLE = "settle_after_action";
+
+    public static boolean settleEnabled(Context ctx) {
+        return ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_SETTLE, true);
+    }
+
+    /** 最近一次任务的稳定读屏统计（dump 用）。 */
+    private static volatile String sSettleStats = "";
+
+    /** ★ smart-replay：成功路径回放总开关（开源版默认关）；kill 文件 phone.replay.off 存在即关。 */
+    public static final String KEY_REPLAY = "smart_replay";
+    public static final String KILL_REPLAY = "phone.replay.off";
+    /** 自测 / 调试覆盖（null = 按设置走）。 */
+    public static volatile Boolean sReplayOverride;
+    private static volatile SmartReplay.Store sReplayStore;
+    private static volatile String sReplayStats = "";
+
+    public static boolean replayPref(Context ctx) {
+        try {
+            return ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_REPLAY, SmartReplay.DEFAULT_ON);
+        } catch (Throwable t) {
+            return SmartReplay.DEFAULT_ON;
+        }
+    }
+
+    public static void setReplay(Context ctx, boolean on) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_REPLAY, on).apply();
+    }
+
+    public static boolean replayKilled(Context ctx) {
+        try {
+            return com.onesay.assistant.v2.kernel.FeatureSwitch.killFilePresent(ctx, KILL_REPLAY);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static boolean replayEnabled(Context ctx) {
+        return SmartReplay.decide(sReplayOverride, replayKilled(ctx), replayPref(ctx));
+    }
+
+    /** 回放存储（应用私有 files/phone_replay.json，一个进程一份）。 */
+    public static SmartReplay.Store replayStore(Context ctx) {
+        SmartReplay.Store s = sReplayStore;
+        if (s == null) {
+            synchronized (PhoneHooks.class) {
+                if (sReplayStore == null)
+                    sReplayStore = new SmartReplay.Store(new File(ctx.getApplicationContext().getFilesDir(), SmartReplay.FILE));
+                s = sReplayStore;
+            }
+        }
+        return s;
+    }
+
+    /** 设置里「清空记住的步骤」。 */
+    public static void clearReplay(Context ctx) {
+        replayStore(ctx).clear();
+        SafeLog.i(TAG, "[PHONE] 已清空记住的成功步骤");
     }
 
     public static boolean busy() {
@@ -66,9 +127,12 @@ public final class PhoneHooks {
             return res;
         }
         sBusy = true;
+        sSettleStats = "";
+        sReplayStats = "";
         FastScreenDriver drv = new FastScreenDriver(app);
         LlmPhonePlanner planner = new LlmPhonePlanner(com.onesay.assistant.v2.errand.ErrandHooks.llmFor(app));
         final ExecModeController exec = execMode ? new ExecModeController(app, PhoneAgent.clip(goal, 16), pkg) : null;
+        final com.onesay.assistant.v2.privacy.Redactor[] redactorRef = new com.onesay.assistant.v2.privacy.Redactor[1];
         try {
             if (script == null && !planner.ready()) {
                 res = new PhoneAgent.Result();
@@ -92,24 +156,52 @@ public final class PhoneHooks {
             if (mika != null) {
                 drv.setMika(mika);
                 agent.mika = mika;
-                Log.i(TAG, "[PHONE] mika-plug 执行层：" + mika.f);
+                SafeLog.i(TAG, "[PHONE] mika-plug 执行层：" + mika.f);
             }
-            if (script != null) Log.i(TAG, "[PHONE] 用脚本化 planner（debug 直测，不调大模型）");
+            if (script != null) SafeLog.i(TAG, "[PHONE] 用脚本化 planner（debug 直测，不调大模型）");
             agent.legacyOneStep = legacy;
-            Log.i(TAG, "[PHONE] 开始：" + goal + " pkg=" + pkg + (legacy ? "（改前口径：单步 + 8 步上限）" : ""));
+            if (settleEnabled(app)) {   // ★ stable-screen：动作后等画面稳定再读 + 执行前核对编号（偏好里可关，排查用）
+                agent.settle = StableRead.Params.defaults();
+                SafeLog.i(TAG, "[PHONE] 画面稳定再读：" + agent.settle);
+            }
+            if (replayEnabled(app) && !legacy) agent.replay = replayStore(app);   // ★ smart-replay：开关关 = null，原行为
+            // ★ borrow-1112：发给模型前本地脱敏（默认开；映射只在这次任务的内存里）、本轮污染标记、等待期间画面变化进时间轴
+            if (com.onesay.assistant.v2.privacy.PrivacySettings.REDACT.on(app)) agent.redactor = new com.onesay.assistant.v2.privacy.Redactor();
+            if (RiskLabel.taskTainted()) {
+                agent.tainted = true;
+                agent.taintedBy = "本轮任务读过外部内容";
+            }
+            agent.meanwhile = new PhoneAgent.Meanwhile() {
+                @Override public void onChange(String line) {
+                    com.onesay.assistant.v2.timeline.TimelineNotes.post(line);
+                }
+            };
+            redactorRef[0] = agent.redactor;
+            SafeLog.i(TAG, "[PHONE] 开始：" + com.onesay.assistant.v2.util.LogText.u(goal) + " pkg=" + pkg + (legacy ? "（改前口径：单步 + 8 步上限）" : ""));
             res = agent.run(goal, pkg);
-            Log.i(TAG, "[PHONE] 结束 " + res.status + " 模型 " + res.modelCalls + " 次 动作 " + res.actions + " 个 " + res.ms + "ms："
-                    + (res.answer.length() > 0 ? res.answer : res.reason));
+            sSettleStats = "settle=" + (agent.settle != null) + " settleReads=" + agent.settleReads + " unstable=" + agent.settleUnstable
+                    + " refStale=" + agent.refStale + " refMoved=" + agent.refMoved;
+            sReplayStats = "replay=" + (agent.replay != null) + " hit=" + agent.replayHit + " fallback=" + agent.replayFallback
+                    + " voided=" + agent.replayVoided + " handoff=" + agent.replayHandoff + " recorded=" + agent.replayRecorded
+                    + " replayedSteps=" + agent.replaySteps + (agent.replayNote.length() > 0 ? " note=" + agent.replayNote : "")
+                    + (agent.replay != null ? " | " + agent.replay.stats() : "");
+            if (agent.replay != null) SafeLog.i(TAG, "[PHONE] 回放：" + sReplayStats);
+            if (agent.riskTightened > 0 || agent.taintConfirms > 0 || agent.tainted)
+                SafeLog.i(TAG, "[PHONE] 风险：模型标高多问 " + agent.riskTightened + " 次，污染后发送类多问 " + agent.taintConfirms + " 次" + (agent.tainted ? "（" + agent.taintedBy + "）" : ""));
+            if (agent.redactor != null && agent.redactor.size() > 0) SafeLog.i(TAG, "[PHONE] 脱敏：" + agent.redactor.kindsSummary());   // 只记类别和个数，不记值
+            SafeLog.i(TAG, "[PHONE] 结束 " + res.status + " 模型 " + res.modelCalls + " 次 动作 " + res.actions + " 个 " + res.ms + "ms："
+                    + com.onesay.assistant.v2.util.LogText.u(res.answer.length() > 0 ? res.answer : res.reason));
             if (exec != null) exec.finish(res.status == PhoneAgent.Status.DONE, res.status == PhoneAgent.Status.DONE ? res.answer : res.reason);
             return res;
         } catch (Throwable t) {
-            Log.w(TAG, "[PHONE] 异常", t);
+            SafeLog.w(TAG, "[PHONE] 异常", t);
             if (exec != null) exec.finish(false, "出错了：" + t.getMessage());
             res = new PhoneAgent.Result();
             res.status = PhoneAgent.Status.FAILED;
             res.reason = String.valueOf(t);
             return res;
         } finally {
+            if (redactorRef[0] != null) redactorRef[0].clear();   // ★ borrow-1112：映射只活到任务结束
             sBusy = false;
             sLast = goal;
             dump(app, goal, drv, planner, exec);
@@ -125,6 +217,8 @@ public final class PhoneHooks {
                     .append(" maxMs=").append(d.observeMsMax).append(" a11yClicks=").append(d.a11yClicks).append(" injectedTaps=")
                     .append(d.injectedTaps).append(" setTexts=").append(d.setTexts).append(" pastes=").append(d.pastes).append('\n');
             b.append("modelMs=").append(p.callMs).append('\n');
+            b.append(sSettleStats).append('\n');
+            b.append(sReplayStats).append('\n');
             if (e != null) {
                 b.append("stray=").append(e.state.strayTouches).append(" navBack=").append(e.navBack).append(" navHome=").append(e.navHome)
                         .append(" confirms=").append(e.confirms).append('\n');
@@ -146,7 +240,7 @@ public final class PhoneHooks {
             }
 
             @Override public boolean confirm(String title, String detail, String[] out) {
-                Log.i(TAG, "[PHONE] 无执行模式：敏感步骤一律拒绝 " + detail);
+                SafeLog.i(TAG, "[PHONE] 无执行模式：敏感步骤一律拒绝 " + detail);
                 return false;
             }
 

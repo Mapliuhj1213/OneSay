@@ -16,7 +16,7 @@
 
 ## 可选厂商适配
 
-`com.onesay.clock.vendor.samsung.SamsungWeather`：在三星设备上读系统天气（需要时 root）。设置开关「使用手机天气」默认关；默认用 open-meteo + 系统定位 / 备用城市。
+天气只用 open-meteo（免 key）+ 系统定位 / 你设置的城市，不读任何厂商天气 App。
 
 ## 文档
 

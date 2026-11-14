@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.onesay.assistant"
-    android:versionCode="21"
+    android:versionCode="33"
     android:versionName="2.5.0">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
@@ -60,6 +60,8 @@
     <!-- 连接开关：connectivity.* 能力族 -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- link-v2：电脑联动常连通道等电脑上线时收组播 announce（WifiManager.MulticastLock） -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.NFC" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
@@ -88,6 +90,9 @@
     <!-- OneSay 时钟对外闹钟接口（AlarmApiReceiver）：signature 级，只有与时钟同一证书签名才授予。
          这里也同名声明一次（时钟清单里同样声明；同证书可重复声明），这样先装哪个 App 都能授予。 -->
     <uses-permission android:name="com.onesay.clock.permission.ALARM_CONTROL" />
+    <!-- priv-llm：「Shizuku 特权」插件（默认关）。Shizuku 官方 API 库（MIT，RikkaW）要求的权限声明；
+         没装 / 没开 Shizuku 时不起任何作用。 -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <permission
         android:name="com.onesay.clock.permission.ALARM_CONTROL"
         android:label="设置、开关、删除 OneSay 时钟的闹钟"
@@ -201,7 +206,47 @@
             android:label="API 密钥"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- priv-llm：大模型服务商（自带 Key：OpenAI 兼容 / Anthropic / Gemini，FLAG_SECURE）。只由本 App 打开，不导出。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.ui.LlmProvidersActivity"
+            android:exported="false"
+            android:label="大模型服务商"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- 邮箱（IMAP）设置页。只由本 App 打开（控制台按钮 / 面板「去填写邮箱授权码」），不导出。 -->
+        <!-- 电脑联动：扫电脑端配对二维码（相机权限在页内运行时申请）；不导出 -->
+        <activity
+            android:name="com.onesay.assistant.v2.pclink.PcScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:label="扫码配对电脑" />
+
+        <!-- ★ media-get 链接下载：系统分享菜单里的「下到电脑」。只收分享来的文字 / 链接，弹选择框，要你点「下载」才发给已配对的电脑；
+             没配对 / 电脑不在只提示。要出现在别的 App 的分享菜单里，所以必须导出（不带任何权限、不自动执行）。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.pclink.PcShareActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:label="下到电脑">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- ★ approve-not-block：手机屏幕上的确认卡（电脑发来的指令要你确认 / 电脑上的确认也能在手机上批）。只认真人手指，不导出 -->
+        <activity
+            android:name="com.onesay.assistant.v2.pclink.PcConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.Dialog.NoActionBar"
+            android:label="确认" />
+
         <activity
             android:name="com.onesay.assistant.v2.ui.MailSettingsActivity"
             android:exported="false"
@@ -242,6 +287,12 @@
              配对 / 看屏的「允许 / 拒绝」通知按钮也是发给它的显式 PendingIntent，不注册任何广播接收器。 -->
         <service
             android:name="com.onesay.assistant.v2.phongent.PhongentService"
+            android:exported="false" />
+
+        <!-- compat-vyrse：VYRSE 电脑兼容的长轮询服务（只主动连配对时填的局域网地址，不监听端口）。exported=false：
+             只由本 App 起停（总开关开 + 已配对 + 连接开关开），常驻通知的「停止」按钮是发给它的显式 PendingIntent。 -->
+        <service
+            android:name="com.onesay.assistant.v2.vyrse.VyrseLinkService"
             android:exported="false" />
 
         <!-- 底部 Sheet 悬浮抽屉服务（置顶但保持被控应用可见）
@@ -369,6 +420,18 @@
             </intent-filter>
         </receiver>
 
+        <!-- [companion] 伴侣连接：计划 / 时钟反查助手（有序广播 com.onesay.link.action.QUERY → link.hello / getAssistantStatus，只读）。
+             signature 级 CONTROL 保护（debug 包随 build_linux.sh 改名为 .debug，计划 / 时钟清单里用占位符 ${assistantAppId} 生成 uses-permission）。
+             设计见 docs/COMPANION_LINK.md。 -->
+        <receiver
+            android:name="com.onesay.assistant.v2.companion.CompanionLinkReceiver"
+            android:exported="true"
+            android:permission="com.onesay.assistant.permission.CONTROL">
+            <intent-filter>
+                <action android:name="com.onesay.link.action.QUERY" />
+            </intent-filter>
+        </receiver>
+
         <!-- [soul] r2/soul-memory：每日记忆整理（JobScheduler，充电 + 空闲 + 有网，每天最多一次；纯规则不调模型）。
              BIND_JOB_SERVICE 只有系统能绑定，不导出。 -->
         <service
@@ -376,6 +439,20 @@
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
+        <!-- 无障碍服务「OneSay 读屏与按键唤醒」：读控件树 / 点按（无 root 读屏）、通用设置诊断、按键唤醒（双击电源键 / 长按音量键）。
+             不自动开启、不写系统设置；用户在「设置 › 无障碍」里手动打开才绑定。空壳类名固定（照 Mika 的做法，Apache-2.0）。 -->
+        <service
+            android:name="com.onesay.assistant.v2.a11y.OneSayA11yService"
+            android:exported="true"
+            android:label="@string/onesay_a11y_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/onesay_a11y_service" />
+        </service>
         <!-- DEBUG-ONLY-BEGIN（build_linux.sh / build.sh 在非 DEBUG 构建中删除本段，勿改此标记）-->
         <!-- 自动化回归与测试驱动广播接收器
              · 只打进 debug 包（DEBUG=1）；release 包里没有这个类，也没有这个组件；
@@ -389,21 +466,20 @@
                 <action android:name="com.onesay.assistant.action.RUN_TEST" />
             </intent-filter>
         </receiver>
-        <!-- ★ mika-plug（mika.a11y，B2 可选后端，默认不启用）：无障碍服务只进 debug 包；不自动开启、不写系统设置，
-             用户在「设置 › 无障碍」里手动打开才绑定。空壳类名固定（照 Mika MikaAccessibilityService 的做法）。 -->
-        <service
-            android:name="com.onesay.assistant.v2.a11y.OneSayA11yService"
-            android:exported="true"
-            android:label="OneSay Debug 读屏（B2）"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/onesay_a11y_service" />
-        </service>
         <!-- DEBUG-ONLY-END -->
 
+        <!-- priv-llm：Shizuku 官方 API 库的 Binder 接收端（rikka.shizuku.ShizukuProvider，dev.rikka.shizuku:provider 13.1.5）。
+             只有持 INTERACT_ACROSS_USERS_FULL 的系统 / Shizuku 服务能调用；插件「Shizuku 特权」默认关，关时不请求授权、不执行任何命令。
+             debug 包的 authority 由 build_linux.sh 改成 com.onesay.assistant.debug.shizuku。 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="com.onesay.assistant.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <meta-data
+            android:name="moe.shizuku.client.V3_SUPPORT"
+            android:value="true" />
     </application>
 </manifest>

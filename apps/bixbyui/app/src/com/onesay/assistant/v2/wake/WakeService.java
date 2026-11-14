@@ -1410,6 +1410,11 @@ public class WakeService extends Service {
     public void onCreate() {
         super.onCreate();
         sInstance = this;
+        // 唤醒修复（11-08 真机 ANR「startForegroundService() did not then call startForeground()」）：
+        //   前台声明是本服务的<b>第一件事</b>，排在任何初始化（调参中心 / 云端 ASR / 屏幕状态 / 唤醒锁）之前 ——
+        //   重装后第一次冷启动（dex 还没优化、主线程同时在建控制台）onCreate 本身就可能吃掉好几秒，
+        //   旧实现要等 onCreate 全部跑完、onStartCommand 才声明，超过系统时限就 ANR。之后任何路径（含将来的提前返回）都已在前台。
+        ensureForeground("onCreate");
         // 凭据明文 → Keystore 密文的一次性迁移（后台线程；失败保持明文，不影响启动）
         final Context appCtx = getApplicationContext();
         com.onesay.assistant.v2.util.Threads.start("secret-migrate", new Runnable() {
@@ -1469,12 +1474,13 @@ public class WakeService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         sInstance = this;
-        startForeground(NOTIF_ID, buildNotification(AssistantPause.notificationText(AssistantPause.isPaused(this), sRunning)));
+        // 每次 startForegroundService 都对应一次 onStartCommand —— 第一行再声明一次（幂等），任何 return / stopSelf 都在它之后。
+        ensureForeground("onStartCommand");
 
         if (!sRunning) {
             sRunning = true;
             mAbort = false;
-            startTriggerWatcher();
+            startKeyTriggerWatcher();
             // 预先拉起 FloatingSheetService，确保其随进程常驻（getInstance 不返回 null）
             try {
                 Intent fsIntent = new Intent(this, FloatingSheetService.class);
@@ -1556,68 +1562,38 @@ public class WakeService extends Service {
         });
     }
 
-    /** 1. 物理 Bixby 按键文件观察器 (内核级毫秒响应) */
-    private void startTriggerWatcher() {
-        // 厂商入口插件 vendor.samsung.bixby_key（默认关）：没打开 / 这台设备做不到 → 不监听 bixby.trigger
-        if (!com.onesay.assistant.v2.entry.Entries.canFire(this, com.onesay.assistant.vendor.samsung.BixbyKeyEntry.ID)) {
-            Log.i(TAG, "[KEY] 三星 Bixby 键入口未开启或不可用，不启动按键文件观察器");
+    /**
+     * 按键唤醒的可选精确路径（触发方式 = 原始按键事件）：root / Shizuku 跑 tools/kdaemon/key_daemon.sh，读 getevent，
+     * 每次按下目标键写 files/key.trigger（{@link KeyTrigger}）。这里只在入口打开、触发方式选了原始按键事件时监听，
+     * 两次按下落在时间窗内 = 双击 → 按设置的动作唤起。
+     */
+    private void startKeyTriggerWatcher() {
+        if (!com.onesay.assistant.v2.entry.Entries.canFire(this, com.onesay.assistant.v2.entry.BuiltinEntries.KEY_WAKE)
+                || com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.trigger(this) != com.onesay.assistant.v2.entry.keywake.KeyWake.Trigger.RAW_INPUT) {
             return;
         }
-        final File triggerFile = new File(getFilesDir(), "bixby.trigger");
-        try {
-            if (triggerFile.getParentFile() != null) triggerFile.getParentFile().mkdirs();
-            if (!triggerFile.exists()) triggerFile.createNewFile();
-        } catch (Throwable ignore) {}
-
-        mTriggerObserver = new FileObserver(triggerFile.getAbsolutePath(), FileObserver.CLOSE_WRITE) {
+        final File dir = getFilesDir();
+        final File triggerFile = new File(dir, "key.trigger");
+        final com.onesay.assistant.v2.entry.keywake.DoubleTap tap =
+                new com.onesay.assistant.v2.entry.keywake.DoubleTap(com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.windowMs(this));
+        mTriggerObserver = new FileObserver(dir.getAbsolutePath(), FileObserver.CLOSE_WRITE | FileObserver.MOVED_TO) {
             @Override
             public void onEvent(int event, String path) {
-                if ((event & FileObserver.CLOSE_WRITE) == 0) return;
-                if (!com.onesay.plugin.api.entry.EntryRegistry.canFire(com.onesay.assistant.vendor.samsung.BixbyKeyEntry.ID)) return;
-                long now = SystemClock.elapsedRealtime();
-                // 读内容区分手势（旧守护写秒数 = 按下；v7 写 press/long，见 KeyTrigger）
+                if (!"key.trigger".equals(path)) return;
+                if (!com.onesay.plugin.api.entry.EntryRegistry.canFire(com.onesay.assistant.v2.entry.BuiltinEntries.KEY_WAKE)) return;
                 KeyTrigger kt = KeyTrigger.parse(readSmall(triggerFile));
-                mKeySeq = kt.seq;   // ★ BUG-A1：这次按键的序号（旧守护 = 0），简报闸门据此认「同一次按键」
-                if (kt.kind == KeyTrigger.Kind.DOWN) {
-                    // ★ R10 守护 v8：按下只做静默预热（不出声、不弹面板、不读屏、不录音），等松手（press）或满 800 ms（long）
-                    mDownSeq = kt.seq;
-                    mDownAt = now;
-                    sV8Seen = true;
-                    Log.i(TAG, "[KEY] 按下 " + kt + "（守护 v8：静默预热，松手才唤醒）");
-                    mTKeyDown = now;
-                    mKwsPauseUntil = Math.max(mKwsPauseUntil, now + CaptureSessionPolicy.KWS_PAUSE_ON_DOWN_MS);   // ★ R14.1：按下起暂停 KWS（让出 CPU 给入场动画）
-                    prewarmRecognition("按下");   // ★ R14：按下就建流式连接（握手藏在按键 + 应答音里）
-                    return;
+                if (kt.kind != KeyTrigger.Kind.PRESS) return;
+                long t = kt.ms > 0 ? kt.ms : SystemClock.elapsedRealtime();
+                if (tap.onPress(t)) {
+                    com.onesay.assistant.v2.entry.keywake.KeyWake.Action a = com.onesay.assistant.v2.entry.keywake.KeyWakeSettings.action(WakeService.this);
+                    Log.i(TAG, "[KEY] 原始按键双击 → " + a.label);
+                    com.onesay.assistant.v2.entry.Entries.fire(WakeService.this, com.onesay.assistant.v2.entry.BuiltinEntries.KEY_WAKE,
+                            com.onesay.assistant.v2.entry.keywake.KeyWake.modeFor(a));
                 }
-                if (kt.kind == KeyTrigger.Kind.UP) {
-                    // ★ R10 D6：长按后一直按住 ≥ 2 s 再松手 = 随口记（插件开着时；它会自己开一个收音窗把下一句记下来）
-                    boolean hold = kt.ms >= HOLD_SUIKOUJI_MS && kt.seq == mDownSeq;
-                    Log.i(TAG, "[KEY] 长按后松手 " + kt + (hold ? " → 按住 ≥ " + HOLD_SUIKOUJI_MS + "ms：交给记一记（R11：同一次长按已在记屏幕就吸收，锁屏才随口记）" : "（只记日志）"));
-                    if (hold) dispatchKeyGesture(getApplicationContext(), "hold", kt.seq);
-                    return;
-                }
-                if (kt.kind == KeyTrigger.Kind.LONG) {
-                    boolean silent = kt.seq > 0 && kt.seq == mDownSeq;
-                    sLastLongSilent = silent;
-                    Log.i(TAG, "[KEY] Bixby 长按手势 " + kt + (silent ? "（守护 v8：本次没出声、没弹面板）" : "（守护 v7：掐断已在播的唤醒音）")
-                            + " -> 撤销本次唤醒窗，交给插件（记一记）");
-                    onLongGesture(silent, kt.seq);
-                    return;
-                }
-                if (kt.seq > 0 && kt.seq == mDownSeq && mDownAt > 0) {
-                    // 短按延迟（守护 v8）：App 收到「按下」到收到「松手 press」之间 = 比 v7 多等的时间
-                    Log.i(TAG, "[KEY-LATENCY] seq=" + kt.seq + " 按下→松手 press " + (now - mDownAt) + "ms（守护报按住 " + kt.ms + "ms）");
-                }
-                if (KeyTrigger.debounced(kt.kind, now, mLastTriggerAt)) return; // 800ms 防抖
-                mLastTriggerAt = now;
-
-                Log.i(TAG, "[KEY] Bixby 物理按键触发 (CLOSE_WRITE) -> 请求统一唤醒入口");
-                requestWakeInternal(SRC_KEY_FILE, false);
             }
         };
         mTriggerObserver.startWatching();
-        Log.i(TAG, "Bixby 按键文件观察器已启动: " + triggerFile.getAbsolutePath());
-        syncGestureFlag(this);
+        Log.i(TAG, "按键唤醒（原始按键事件）监听已启动");
     }
 
     /**
@@ -4317,6 +4293,32 @@ public class WakeService extends Service {
         return s.mScreenPolicy.stats() + " paused=" + s.mPausedCached + " micRecording=" + s.mMicState.recording()
                 + "(" + s.mMicState.reason() + ") partialHeld=" + held
                 + " | " + s.mScreenPolicy.config();
+    }
+
+    /**
+     * 唤醒修复：前台声明（startForegroundService 的约定）。onCreate / onStartCommand 的第一句。
+     * <p>任何不该继续运行的情况（没有录音权限、Root 未就绪、助手暂停 / 关闭、模型缺失）都必须<b>先调本方法再 stopSelf</b>，
+     * 不许在它之前 return —— 否则系统时限一到就是 ANR，服务被拆掉时还会补一个 RemoteServiceException 崩溃。
+     * 通知构造失败时退回最简通知再试一次；两次都失败只记日志（不能让声明本身把服务弄崩）。
+     */
+    private void ensureForeground(String why) {
+        try {
+            String text;
+            try {
+                text = AssistantPause.notificationText(AssistantPause.isPaused(this), sRunning);
+            } catch (Throwable t) {
+                text = "启动中";
+            }
+            startForeground(NOTIF_ID, buildNotification(text));
+            return;
+        } catch (Throwable t) {
+            Log.w(TAG, "[FG] startForeground 失败（" + why + "），改用最简通知重试: " + t);
+        }
+        try {
+            startForeground(NOTIF_ID, buildNotification("启动中"));
+        } catch (Throwable t2) {
+            Log.e(TAG, "[FG] startForeground 两次都失败（" + why + "）: " + t2);
+        }
     }
 
     private Notification buildNotification(String content) {

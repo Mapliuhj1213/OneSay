@@ -1,7 +1,7 @@
 package com.onesay.assistant.v2.router;
 
+import com.onesay.assistant.v2.util.SafeLog;
 import android.content.Context;
-import android.util.Log;
 
 import com.onesay.assistant.v2.capability.Capability;
 import com.onesay.assistant.v2.capability.CapabilityRegistry;
@@ -265,8 +265,8 @@ public class AgentLoop {
         String askUser(String id, String question, java.util.List<String> options, int timeoutSec);
     }
 
-    /** FloatingSheetService 用：预算问 + 结构化事件（账本 / ask_user）。 */
-    public interface LoopAwareCallback extends BudgetAskingCallback, LoopEvents, StepEvents, PhaseEvents {
+    /** FloatingSheetService 用：预算问 + 结构化事件（账本 / ask_user）+ ★ feat/api-first 每步成败（执行时间轴）。 */
+    public interface LoopAwareCallback extends BudgetAskingCallback, LoopEvents, StepEvents, PhaseEvents, StepResultEvents {
     }
 
     /**
@@ -283,7 +283,7 @@ public class AgentLoop {
         try {
             ((StepEvents) cb).onToolStep(text, true);
         } catch (Throwable t) {
-            Log.w(TAG, "[AGENT-LOOP] onToolStep 异常: " + t.getMessage());
+            SafeLog.w(TAG, "[AGENT-LOOP] onToolStep 异常: " + t.getMessage());
         }
     }
 
@@ -300,7 +300,7 @@ public class AgentLoop {
         try {
             ((PhaseEvents) cb).onThinking(on);
         } catch (Throwable t) {
-            Log.w(TAG, "[AGENT-LOOP] onThinking 异常: " + t.getMessage());
+            SafeLog.w(TAG, "[AGENT-LOOP] onThinking 异常: " + t.getMessage());
         }
     }
 
@@ -309,7 +309,7 @@ public class AgentLoop {
         try {
             ((StepEvents) cb).onToolStep(com.onesay.assistant.v2.island.IslandStepText.fit(text, com.onesay.assistant.v2.island.IslandStepText.MAX_UNITS), false);
         } catch (Throwable t) {
-            Log.w(TAG, "[AGENT-LOOP] onToolStep 异常: " + t.getMessage());
+            SafeLog.w(TAG, "[AGENT-LOOP] onToolStep 异常: " + t.getMessage());
         }
     }
 
@@ -361,7 +361,7 @@ public class AgentLoop {
         if (v == com.onesay.assistant.v2.phone.TaskBudget.Verdict.OK) return null;
         String why = tb.reason;
         boolean canAsk = v != com.onesay.assistant.v2.phone.TaskBudget.Verdict.HARD_STOP && cb instanceof BudgetAsk && !(cb instanceof Unattended);
-        Log.i(TAG, "[AGENT-LOOP] 预算 " + v + "：" + why + "（" + tb.info(now) + "）" + (canAsk ? "，问用户要不要继续" : ""));
+        SafeLog.i(TAG, "[AGENT-LOOP] 预算 " + v + "：" + why + "（" + tb.info(now) + "）" + (canAsk ? "，问用户要不要继续" : ""));
         if (cb instanceof Unattended || tb.unattended) return REASON_BUDGET + "（" + com.onesay.assistant.v2.phone.TaskBudget.UNFINISHED + "）：" + why;
         if (!canAsk) return REASON_BUDGET + "：" + why;
         long w0 = nowMs();
@@ -415,13 +415,18 @@ public class AgentLoop {
     /** [screenref] 识屏指代挂钩用；JVM 单测构造为 null（挂钩全部短路为"不干预"）。 */
     private final Context mContext;
 
-    public AgentLoop(Context context, final L2LLMCompiler l2) {
-        this(context, CapabilityRegistry.getInstance(), new Llm() {
+    public AgentLoop(final Context context, final L2LLMCompiler l2) {
+        // ★ borrow-1112：发给云端前本地脱敏（手机号 / 身份证 / 银行卡 / 邮箱 / 验证码 → 占位符，回来的工具参数 / 答复换回真实值；开关默认开）
+        this(context, CapabilityRegistry.getInstance(), new com.onesay.assistant.v2.privacy.RedactingLlm(new Llm() {
             @Override public boolean hasApiKey() { return l2.hasApiKey(); }
             @Override public JSONObject call(JSONArray messages, JSONArray tools, int maxTokens) {
                 return l2.callWithMessages(messages, tools, maxTokens);
             }
-        });
+        }, new com.onesay.assistant.v2.privacy.RedactingLlm.Gate() {
+            @Override public boolean on() {
+                return com.onesay.assistant.v2.privacy.PrivacySettings.REDACT.on(context);
+            }
+        }));
     }
 
     /** 测试/自定义注入用。 */
@@ -489,7 +494,7 @@ public class AgentLoop {
                 String said = rs.plugs.end(query, r.outcome == com.onesay.assistant.v2.agent.Outcome.CANCELLED, r.answer);
                 if (said != null && (r.answer == null || r.answer.length() == 0)) r = withAnswer(r, said);
             } catch (Throwable t) {
-                Log.w(TAG, "[AGENT-LOOP] [MIKA-PLUG] 收尾异常: " + t);
+                SafeLog.w(TAG, "[AGENT-LOOP] [MIKA-PLUG] 收尾异常: " + t);
             }
         }
         com.onesay.assistant.v2.mikaplug.LoopPlugs.finished(rs.plugs);
@@ -564,10 +569,10 @@ public class AgentLoop {
             }
             r.subgoals = rs.ledger.snapshot();
             r.sources = new java.util.ArrayList<String>(rs.sources);
-            Log.i(TAG, "[AGENT-LOOP] 结局 " + r.outcome.wire() + (r.outcomeReason == null ? "" : "（" + r.outcomeReason + "）")
+            SafeLog.i(TAG, "[AGENT-LOOP] 结局 " + r.outcome.wire() + (r.outcomeReason == null ? "" : "（" + r.outcomeReason + "）")
                     + " 子目标 " + r.subgoals.size() + " 来源 " + r.sources.size());
         } catch (Throwable t) {
-            Log.w(TAG, "[AGENT-LOOP] 收尾异常: " + t.getMessage());
+            SafeLog.w(TAG, "[AGENT-LOOP] 收尾异常: " + t.getMessage());
         }
     }
 
@@ -623,7 +628,7 @@ public class AgentLoop {
         if (q.length() == 0) return "{\"ok\":false,\"tool\":\"ask_user\",\"code\":\"NEED_PARAM\",\"note\":\"缺少 question\"}";
         // ★ 11-04 ③（问询审计：「订酒店」分诊先问了一次地点，进循环又问时间 / 预算）：一个任务只问一次，第二次直接按默认继续
         if (rs != null && rs.asks >= com.onesay.assistant.v2.agent.AskUserSupport.MAX_ASKS_PER_TASK) {
-            Log.i(TAG, "[AGENT-LOOP] ask_user 本任务已问过 " + rs.asks + " 次 → 不再问，按默认继续");
+            SafeLog.i(TAG, "[AGENT-LOOP] ask_user 本任务已问过 " + rs.asks + " 次 → 不再问，按默认继续");
             return com.onesay.assistant.v2.agent.AskUserSupport.ALREADY_ASKED_OBS;
         }
         if (rs != null) rs.asks++;
@@ -634,7 +639,7 @@ public class AgentLoop {
         java.util.List<String> options = com.onesay.assistant.v2.agent.AskUserSupport.withDefault(com.onesay.assistant.v2.agent.AskUserSupport.sanitizeOptions(raw));   // ★ 11-04 ③：总有「你决定」
         int timeout = com.onesay.assistant.v2.agent.LoopConfig.askTimeoutSec(mContext);
         String id = "ask-" + sAskSeq.incrementAndGet();
-        Log.i(TAG, "[AGENT-LOOP] ask_user " + id + " 选项 " + options.size() + " 个，最多等 " + timeout + " 秒");
+        SafeLog.i(TAG, "[AGENT-LOOP] ask_user " + id + " 选项 " + options.size() + " 个，最多等 " + timeout + " 秒");
         long w0 = nowMs();
         String answer;
         try {
@@ -701,7 +706,7 @@ public class AgentLoop {
                 return web.read(url, null);
             }
         }, System.currentTimeMillis());   // 真实时钟（单测替换的 nowMs 只管预算）
-        if (b != null) Log.i(TAG, "[AGENT-LOOP] [PAR-WEB] 本轮 " + b.size() + " 个查信息调用并行取回（并发 ≤" + com.onesay.assistant.v2.agent.ParallelWeb.MAX_CONCURRENCY + "）");
+        if (b != null) SafeLog.i(TAG, "[AGENT-LOOP] [PAR-WEB] 本轮 " + b.size() + " 个查信息调用并行取回（并发 ≤" + com.onesay.assistant.v2.agent.ParallelWeb.MAX_CONCURRENCY + "）");
         return b;
     }
 
@@ -774,7 +779,7 @@ public class AgentLoop {
         try {
             ((LoopEvents) cb).onSubgoals(rs.ledger.snapshot());
         } catch (Throwable t) {
-            Log.w(TAG, "[AGENT-LOOP] onSubgoals 异常: " + t.getMessage());
+            SafeLog.w(TAG, "[AGENT-LOOP] onSubgoals 异常: " + t.getMessage());
         }
     }
 
@@ -801,7 +806,7 @@ public class AgentLoop {
 
             // ★把"目标族"的**全部**能力强制补齐进候选。
             //
-            //   用户实测：「下载 linkedin」→ 模型调 store.search.samsung → 商店里没有
+            //   用户实测：「下载 linkedin」→ 模型调 store.search.market → 商店里没有
             //   → **直接收工**，没有去试 Google Play，也没有先探测哪个商店能用。
             //
             //   为什么模型不换路？**它根本没有别的路可选** —— Top-K 是按字面相关度打分的，
@@ -829,7 +834,7 @@ public class AgentLoop {
             JSONArray tools = mRegistry.exportToolsSchema(candidates);
             int regSize = mRegistry.listCapabilities().size();
             com.onesay.assistant.v2.kernel.FeatureKernel.get().appendAgentTools(mContext, tools, query);   // [kernel] [screenref] 屏幕工具按需追加（排第一）→ [s2] 只读记忆检索 memory.search（记忆库非空时）
-            Log.i(TAG, "[AGENT-LOOP] 候选工具 " + tools.length() + " 个，预算 " + budget + " 轮");
+            SafeLog.i(TAG, "[AGENT-LOOP] 候选工具 " + tools.length() + " 个，预算 " + budget + " 轮");
             // 把候选签名打出来：Top-K 漏召（"模型说没有这个工具"）是历史高发故障，
             // 没有这份名单就只能靠猜。见方案文档"欠压榨 #2"。
             StringBuilder names = new StringBuilder();
@@ -837,7 +842,7 @@ public class AgentLoop {
                 if (i > 0) names.append(", ");
                 names.append(candidates.get(i).sign);
             }
-            Log.i(TAG, "[AGENT-LOOP] 候选名单: " + names);
+            SafeLog.i(TAG, "[AGENT-LOOP] 候选名单: " + names);
             if (tools.length() == 0) {
                 return new Result(null, steps, false, "无可用工具").outcome(com.onesay.assistant.v2.agent.Outcome.BLOCKED, com.onesay.assistant.v2.agent.Outcome.Reason.NO_TOOLS);
             }
@@ -846,7 +851,7 @@ public class AgentLoop {
             final ResearchGate.Kind gateKind = ResearchGate.kindOf(query);   // ★ fix/shop-research：购物 / 比价任务（收工门槛、工具兜底）
             if (gateKind != ResearchGate.Kind.NONE) ResearchVisuals.resetImages();   // ★ 11-04 ④：上一轮读页记下的图不串到这次
             final com.onesay.assistant.v2.agent.LoopTools.Offer offer = shopOffer(loopOffer(cb), gateKind);
-            if (gateKind != ResearchGate.Kind.NONE) Log.i(TAG, "[AGENT-LOOP] [" + gateKind + "] 购物 / 调研任务：web 工具 " + (offer.web ? "已挂" : "不可用") + "，收工需 ≥" + ResearchGate.MIN_SITES + " 站 + ≥" + ResearchGate.MIN_READS + " 次 web.read");
+            if (gateKind != ResearchGate.Kind.NONE) SafeLog.i(TAG, "[AGENT-LOOP] [" + gateKind + "] 购物 / 调研任务：web 工具 " + (offer.web ? "已挂" : "不可用") + "，收工需 ≥" + ResearchGate.MIN_SITES + " 站 + ≥" + ResearchGate.MIN_READS + " 次 web.read");
             com.onesay.assistant.v2.agent.LoopTools.append(tools, offer);
             com.onesay.assistant.v2.mikaplug.RootCmd.appendSchema(mContext, tools);   // ★ mika-plug（mika.rootcmd，默认关）：run_command 工具
 
@@ -870,7 +875,7 @@ public class AgentLoop {
             final boolean planMode = com.onesay.assistant.v2.trip.TripIntent.isTrigger(query);
             if (planMode) {
                 sys.put("content", sys.optString("content", "") + "\n\n" + com.onesay.assistant.v2.trip.TripIntent.PLAN_MODE_HINT);
-                Log.i(TAG, "[AGENT-LOOP] [PLAN-MODE] 出行复合任务 → 规划模式");
+                SafeLog.i(TAG, "[AGENT-LOOP] [PLAN-MODE] 出行复合任务 → 规划模式");
             }
             // ★ int/1102：请求级夹紧 —— 系统提示词（含 soul / 技能包 / 富内容规则）+ 工具表 + 历史 + 本轮（预留开局提示 / 屏幕上下文）
             //   + 单轮输出 ≤ 模型窗口；超出先压历史（最旧折叠成摘要）。工具结果在循环里逐轮增长，这里只管开局。
@@ -878,7 +883,7 @@ public class AgentLoop {
                     com.onesay.assistant.v2.router.ctx.TokenEstimator.message(sys.optString("content", "")) + com.onesay.assistant.v2.router.ctx.TokenEstimator.estimate(tools.toString()),
                     history0, com.onesay.assistant.v2.router.ctx.TokenEstimator.message(query) + AGENT_USER_RESERVE, rs.roundTokens,
                     ConversationMemory.getInstance().budgetTokens());
-            if (ctxFit.folded > 0 || ctxFit.outputClamped) Log.i(TAG, "[AGENT-LOOP] [CTX] " + ctxFit.log());
+            if (ctxFit.folded > 0 || ctxFit.outputClamped) SafeLog.i(TAG, "[AGENT-LOOP] [CTX] " + ctxFit.log());
             final java.util.List<ConversationMemory.Turn> history = ctxFit.history;
             final boolean historyTainted = appendHistory(messages, history);
             JSONObject userMsg = new JSONObject();
@@ -905,14 +910,14 @@ public class AgentLoop {
                 long mt0 = System.currentTimeMillis();
                 MarketQuotes.Scope mScope = MarketQuotes.scopeOf(query);   // ★ 11-04：「A股行情」只取 A 股
                 marketSnap0 = MarketQuotes.fetch(mMarket, mScope);
-                Log.i(TAG, "[AGENT-LOOP] [MARKET] 范围=" + mScope.label);
-                Log.i(TAG, "[AGENT-LOOP] [MARKET] 结构化行情 " + marketSnap0.describe() + " ms=" + (System.currentTimeMillis() - mt0));
+                SafeLog.i(TAG, "[AGENT-LOOP] [MARKET] 范围=" + mScope.label);
+                SafeLog.i(TAG, "[AGENT-LOOP] [MARKET] 结构化行情 " + marketSnap0.describe() + " ms=" + (System.currentTimeMillis() - mt0));
                 userContent = userContent + "\n" + MarketQuotes.promptBlock(marketSnap0, System.currentTimeMillis());
             }
             final MarketQuotes.Snapshot marketSnap = marketSnap0;
             if (startHint != null) {
                 userContent = userContent + "\n" + startHint;
-                Log.i(TAG, "[AGENT-LOOP] [SEARCH-FIRST] 开局提示：先搜索再动手");
+                SafeLog.i(TAG, "[AGENT-LOOP] [SEARCH-FIRST] 开局提示：先搜索再动手");
             }
             // [kernel] AGENT_PROMPT —— [screenref] 指代命中时注入屏幕上下文
             com.onesay.assistant.v2.kernel.FeatureKernel.Prompt prompt = com.onesay.assistant.v2.kernel.FeatureKernel.get().agentPrompt(
@@ -937,7 +942,7 @@ public class AgentLoop {
             boolean shopEvNudged = false, shopPriceNudged = false, shopExNudged = false;   // ★ fix/shop-research：购物证据不够 / 有来源没价格 → 各提醒一次
             if (marketSnap != null && marketSnap.any()) shopPriceNudged = true;   // ★ 11-03：指数数字来自结构化源（槽位），不再催模型补数字
             // 界面动作任务级去重表（同一任务里"同入口同参数"的界面动作只做一次，
-            //   例如 store.search.samsung{微信} 已执行后，store.search.play{微信} 不再带着同一目标
+            //   例如 store.search.market{微信} 已执行后，store.search.play{微信} 不再带着同一目标
             //   并行换路 —— 屏幕只有一个前台，两个商店会互相挤到后台）
             //   ★ arch/agent-loop（B 路）：改为防死循环计数（见 uiRepeatBlocked）—— 综合任务里「先在微信看地址 → 去地图 → 回微信发出去」
             //   第二次打开微信不再被跳过；只拦「紧接着重复同一入口」和「同一入口成功打开超过 UI_REPEAT_MAX 次」。
@@ -945,8 +950,8 @@ public class AgentLoop {
             //   tainted 过闸（ToolGate：ROOT 拒绝、有副作用的要红卡确认、「始终允许」失效）。
             //   只在读取**成功**后置位：失败的读取没有把外部内容带进上下文（detail 是本机错误文本）。
             boolean tainted = screenInjected || historyTainted;
-            if (screenInjected) Log.i(TAG, "[AGENT-LOOP] 屏幕上下文已注入提示词，本任务全程按 tainted 过闸");
-            else if (historyTainted) Log.i(TAG, "[AGENT-LOOP] [LOGIC-1] 会话历史含不可信外部内容，本任务全程按 tainted 过闸");
+            if (screenInjected) SafeLog.i(TAG, "[AGENT-LOOP] 屏幕上下文已注入提示词，本任务全程按 tainted 过闸");
+            else if (historyTainted) SafeLog.i(TAG, "[AGENT-LOOP] [LOGIC-1] 会话历史含不可信外部内容，本任务全程按 tainted 过闸");
             mLastTainted = tainted;
             // D3（2026-10-22）：只读数值工具直出。开关关闭 / 原话带条件动作 / 注入了屏幕 → 整个任务都不走直出，
             //   行为与改动前逐字节相同（见 ReadOnlyAnswer 类注释）。
@@ -954,21 +959,21 @@ public class AgentLoop {
                     && ReadOnlyAnswer.queryAllows(query);
             for (int round = 1; ; round++) {
                 if (cancelled(cb)) {   // [s1] 停止键：不再调模型
-                    Log.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮前检测到取消，收尾");
+                    SafeLog.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮前检测到取消，收尾");
                     return new Result(null, steps, false, REASON_CANCELLED);
                 }
                 // ★ fast-screen-v2：预算（调用数 / 时长 / 无进展）→ 先问用户
                 String over = budgetGate(tb, cb, messages);
                 if (over != null) {
                     if (REASON_CANCELLED.equals(over)) return new Result(null, steps, false, REASON_CANCELLED);
-                    Log.w(TAG, "[AGENT-LOOP] 预算到了，收尾：" + over);
+                    SafeLog.w(TAG, "[AGENT-LOOP] 预算到了，收尾：" + over);
                     return new Result(ensurePlan(lastContent, steps, over, query), steps, false, over)
                             .outcome(com.onesay.assistant.v2.agent.Outcome.NOT_DONE, com.onesay.assistant.v2.agent.Outcome.Reason.BUDGET);
                 }
                 // ★ 11-04 A（「订酒店」死循环）：同一动作同参数连续 ≥3 / 连续 6 步没进展 / 碰墙（要登录、反爬）累计 → 停下，如实说卡在哪
                 LoopGuard.Stop lg = LoopGuard.check(LoopGuard.view(steps), query);
                 if (lg != null) {
-                    Log.w(TAG, "[AGENT-LOOP] [LOOP-GUARD] 停下：" + lg);
+                    SafeLog.w(TAG, "[AGENT-LOOP] [LOOP-GUARD] 停下：" + lg);
                     emitNote(cb, "卡住了：" + lg.where);
                     return new Result(LoopGuard.message(lg, query), steps, false, "原地打转：" + lg.kind)
                             .outcome(com.onesay.assistant.v2.agent.Outcome.NOT_DONE, com.onesay.assistant.v2.agent.Outcome.Reason.LOOP_GUARD);
@@ -977,7 +982,7 @@ public class AgentLoop {
                 int grant = rs.grant();
                 if (grant <= 0) {
                     String why = REASON_BUDGET + "（" + com.onesay.assistant.v2.phone.TaskBudget.UNFINISHED + "）：无人值守总输出预算用完";
-                    Log.w(TAG, "[AGENT-LOOP] " + why);
+                    SafeLog.w(TAG, "[AGENT-LOOP] " + why);
                     return new Result(ensurePlan(lastContent, steps, why, query), steps, false, why)
                             .outcome(com.onesay.assistant.v2.agent.Outcome.NOT_DONE, com.onesay.assistant.v2.agent.Outcome.Reason.BUDGET);
                 }
@@ -991,7 +996,7 @@ public class AgentLoop {
                     emitThinking(cb, false);
                 }
                 if (msg == null) {
-                    Log.w(TAG, "[AGENT-LOOP] 第 " + round + " 轮 LLM 无响应");
+                    SafeLog.w(TAG, "[AGENT-LOOP] 第 " + round + " 轮 LLM 无响应");
                     return new Result(ensurePlan(lastContent, steps, "模型无响应", query), steps, false, "模型无响应")
                             .outcome(com.onesay.assistant.v2.agent.Outcome.BLOCKED, com.onesay.assistant.v2.agent.Outcome.Reason.MODEL_UNAVAILABLE);
                 }
@@ -1017,12 +1022,12 @@ public class AgentLoop {
                         u.put("role", "user");
                         u.put("content", com.onesay.assistant.v2.prompt.AgentPromptAssembler.text("nudge.probe_chain", PROBE_CHAIN_NUDGE));   // [arch-a] 文字在 assets/agent_prompt.md
                         messages.put(u);
-                        Log.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮想收工说做不到，但探针链一步没试 → 提醒后继续");
+                        SafeLog.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮想收工说做不到，但探针链一步没试 → 提醒后继续");
                         continue;
                     }
                     // ★ mika-plug（mika.inbox）：要收尾时还有用户插话 → 不收，带着插话再来一轮
                     if (rs.plugs != null && rs.plugs.holdFinish(messages, lastContent)) {
-                        Log.i(TAG, "[AGENT-LOOP] [MIKA-PLUG] 收尾前有用户插话 → 接着做");
+                        SafeLog.i(TAG, "[AGENT-LOOP] [MIKA-PLUG] 收尾前有用户插话 → 接着做");
                         continue;
                     }
                     // ★ device-1102：诊断类一次搜索都没做就想收工 → 提醒一次（插件给文案；已知案例在本地诊断就接住了，到不了这里）
@@ -1039,7 +1044,7 @@ public class AgentLoop {
                         u.put("role", "user");
                         u.put("content", ResearchGate.internalNudge(finishNudge, query));   // ★ 11-03：核对提示是内部指令
                         messages.put(u);
-                        Log.i(TAG, "[AGENT-LOOP] [SEARCH-FIRST] 第 " + round + " 轮想收工但没搜索过 → 提醒先搜索");
+                        SafeLog.i(TAG, "[AGENT-LOOP] [SEARCH-FIRST] 第 " + round + " 轮想收工但没搜索过 → 提醒先搜索");
                         continue;
                     }
                     // ★ fix/shop-research（R4）：购物 / 比价任务收工门槛 —— ≥2 个不同站点且 ≥1 次 web.read；有来源没价格也提醒（各一次）
@@ -1061,10 +1066,10 @@ public class AgentLoop {
                             u.put("role", "user");
                             u.put("content", ResearchGate.internalNudge(gn, query));   // ★ 11-03：核对 / 打回提示作为内部指令，终答直接面向用户原问题
                             messages.put(u);
-                            Log.i(TAG, "[AGENT-LOOP] [" + gateKind + "] 第 " + round + " 轮想收工但证据不够（" + ResearchGate.describe(ev, lastContent) + "）→ 提醒后继续");
+                            SafeLog.i(TAG, "[AGENT-LOOP] [" + gateKind + "] 第 " + round + " 轮想收工但证据不够（" + ResearchGate.describe(ev, lastContent) + "）→ 提醒后继续");
                             continue;
                         }
-                        Log.i(TAG, "[AGENT-LOOP] [" + gateKind + "] 收工证据 " + ResearchGate.describe(ev, lastContent));
+                        SafeLog.i(TAG, "[AGENT-LOOP] [" + gateKind + "] 收工证据 " + ResearchGate.describe(ev, lastContent));
                     }
                     // ★ 11-04（用户：说「美股走强」但道指 -0.34%）：地区定性与结构化行情矛盾 → 内部打回重写一次（不回显）
                     if (marketSnap != null && !marketChecked && tb.calls < tb.maxCalls) {
@@ -1081,10 +1086,10 @@ public class AgentLoop {
                             u.put("role", "user");
                             u.put("content", MarketQuotes.rewriteNudge(mi, query));
                             messages.put(u);
-                            Log.i(TAG, "[AGENT-LOOP] [MARKET-CHECK] 第 " + round + " 轮定性与数据矛盾 → 打回重写一次：" + mi);
+                            SafeLog.i(TAG, "[AGENT-LOOP] [MARKET-CHECK] 第 " + round + " 轮定性与数据矛盾 → 打回重写一次：" + mi);
                             continue;
                         }
-                        Log.i(TAG, "[AGENT-LOOP] [MARKET-CHECK] 定性与数据一致");
+                        SafeLog.i(TAG, "[AGENT-LOOP] [MARKET-CHECK] 定性与数据一致");
                     }
                     // ★ trip-decompose（全局）：未拆子目标逐项尝试就说「做不了 / 没接口」→ 内部打回一次
                     if (!planChecked && tb.calls < tb.maxCalls && com.onesay.assistant.v2.trip.TripIntent.isHollowRefusal(lastContent)
@@ -1100,18 +1105,18 @@ public class AgentLoop {
                         u.put("role", "user");
                         u.put("content", com.onesay.assistant.v2.trip.TripIntent.REDO_HINT + "\n用户原话：" + query);
                         messages.put(u);
-                        Log.i(TAG, "[AGENT-LOOP] [PLAN-CHECK] 第 " + round + " 轮空洞拒绝 → 打回拆子目标一次");
+                        SafeLog.i(TAG, "[AGENT-LOOP] [PLAN-CHECK] 第 " + round + " 轮空洞拒绝 → 打回拆子目标一次");
                         continue;
                     }
                     // ★ 没有工具调用 = 模型自己判断"做完了" → 收工
                     if (!steps.isEmpty()) emitNote(cb, com.onesay.assistant.v2.island.IslandStepText.CONCLUDE);   // ★ 11-04 ①
-                    Log.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮收工，答复="
+                    SafeLog.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮收工，答复="
                             + (lastContent == null ? "空" : lastContent.length() + "字"));
                     // ★ 11-03（用户 19:45）：提醒过之后，去掉回应内部提示的开场句（「好的，」「补上具体个股的收盘价：」…）
                     if (shopEvNudged || shopPriceNudged || shopExNudged || diagNudged || nudged || marketNudged || planNudged) {
                         String stripped = ResearchGate.stripMetaOpening(lastContent);
                         if (stripped != null && !stripped.equals(lastContent)) {
-                            Log.i(TAG, "[AGENT-LOOP] [META-OPENING] 去掉开场 " + (lastContent.length() - stripped.length()) + " 字");
+                            SafeLog.i(TAG, "[AGENT-LOOP] [META-OPENING] 去掉开场 " + (lastContent.length() - stripped.length()) + " 字");
                             lastContent = stripped;
                         }
                     }
@@ -1121,7 +1126,7 @@ public class AgentLoop {
                         // ★ 11-04（用户 00:13）：主要指数改为界面画图（MarketChart → ui.MarketChartView），文字只留图注一行 + 板块与原因
                         fin = MarketChart.withChart(marketSnap, fin, System.currentTimeMillis());
                         MarketChart.Model cm = MarketChart.match(fin, System.currentTimeMillis());
-                        if (cm != null) Log.i(TAG, "[AGENT-LOOP] [MARKET-CHART] " + cm.barCount() + " 条 " + cm.describe() + cm.footer);
+                        if (cm != null) SafeLog.i(TAG, "[AGENT-LOOP] [MARKET-CHART] " + cm.barCount() + " 条 " + cm.describe() + cm.footer);
                     }
                     // ★ 11-04 G（「我最近有哪些比较有价值的邮件」→ 第 1 轮不调工具直接编标题）：邮件条目只能来自本轮工具结果
                     if (com.onesay.assistant.v2.executor.MailDigest.mailQuestion(query)) {
@@ -1135,25 +1140,25 @@ public class AgentLoop {
                         }
                         String checked = com.onesay.assistant.v2.executor.MailDigest.verify(fin, mailCalled, mo.toString(), null);
                         if (checked != null && !checked.equals(fin)) {
-                            Log.w(TAG, "[AGENT-LOOP] [MAIL-CHECK] 邮件条目核对不过（mailCalled=" + mailCalled + "）→ 删掉 / 如实说明");
+                            SafeLog.w(TAG, "[AGENT-LOOP] [MAIL-CHECK] 邮件条目核对不过（mailCalled=" + mailCalled + "）→ 删掉 / 如实说明");
                             fin = checked;
                         }
                     }
                     if (!(cb instanceof Unattended)) TaskContinuation.record(query, fin, TaskContinuation.Origin.AGENT, System.currentTimeMillis());
                     if (gateKind != ResearchGate.Kind.NONE && marketSnap == null) {   // ★ 11-04 ④：调研 / 购物结论配图（代表款缩略图 + 价格条形图）
                         ResearchVisuals.Model vm = ResearchVisuals.attach(fin, System.currentTimeMillis());
-                        if (vm != null) Log.i(TAG, "[AGENT-LOOP] [VISUALS] 条形图 " + vm.bars.size() + " 条、缩略图 " + vm.images.size() + " 张");
+                        if (vm != null) SafeLog.i(TAG, "[AGENT-LOOP] [VISUALS] 条形图 " + vm.bars.size() + " 条、缩略图 " + vm.images.size() + " 张");
                     }
                     if (gateKind != ResearchGate.Kind.NONE) com.onesay.assistant.v2.util.ConclusionLog.log("agent/" + gateKind, fin);   // ★ 11-03：购物 / 调研结论原文（前 1500 字）
                     return new Result(fin, steps, true, null);
                 }
 
-                Log.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮调用工具 "
+                SafeLog.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮调用工具 "
                         + L2LLMCompiler.toolCallsToLog(toolCalls));
                 // 模型在本轮的**自述**（有工具调用时常为空；有内容则是它在说明打算怎么做）。
                 // 打出来是为了看清"思考链条"，不只是"调了哪个工具"。
                 if (roundContent != null && roundContent.trim().length() > 0) {
-                    Log.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮自述: "
+                    SafeLog.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮自述: "
                             + truncateForLog(roundContent.trim(), 300));
                 }
                 // 本轮是否已执行过"会切换屏幕"的动作（界面动作同轮互斥用）
@@ -1213,7 +1218,7 @@ public class AgentLoop {
                         if (rs.plugs != null) cobs = rs.plugs.afterTool(name, args, cobs, cok);
                         appendToolMsg(messages, callId, cobs);
                         steps.add(new Step(name, args, cobs, cok, false));
-                        Log.i(TAG, "[AGENT-LOOP] 观测(" + name + "): " + truncateForLog(cobs, 600));
+                        SafeLog.i(TAG, "[AGENT-LOOP] 观测(" + name + "): " + truncateForLog(cobs, 600));
                         continue;
                     }
                     // ★ arch/agent-loop（B 路）：控制类常驻工具（task.todo / ask_user / end_not_done）在循环内处理，不过闸、不进执行器
@@ -1221,9 +1226,9 @@ public class AgentLoop {
                         String cobs = handleControl(name, args, cb, tb, rs, offer);
                         appendToolMsg(messages, callId, cobs);
                         steps.add(new Step(name, args, cobs, cobs.indexOf("\"ok\":false") < 0, false));
-                        Log.i(TAG, "[AGENT-LOOP] 观测(" + name + "): " + truncateForLog(cobs, 600));
+                        SafeLog.i(TAG, "[AGENT-LOOP] 观测(" + name + "): " + truncateForLog(cobs, 600));
                         if (cancelled(cb)) {
-                            Log.i(TAG, "[AGENT-LOOP] 任务已取消（ask_user 等待中），收尾");
+                            SafeLog.i(TAG, "[AGENT-LOOP] 任务已取消（ask_user 等待中），收尾");
                             return new Result(null, steps, false, REASON_CANCELLED);
                         }
                         continue;
@@ -1236,10 +1241,12 @@ public class AgentLoop {
                     // phone.call / sms.send 的 number 是人名 → 本机通讯录解析：唯一号码就改写参数继续过闸（红 / 黄卡照旧）；
                     //   没找到 / 多个 → 观测里只说条数，不把联系人名或号码交给云端模型
                     if (srObs == null) srObs = com.onesay.assistant.v2.contacts.ContactMatcher.agentPrecheck(name, args);
+                    // [companion] 自家计划 / 时钟在场：不替待办 / 日程 / 闹钟意图去探测第三方 App、root 读 shell（11-08 真机：删待办探测第三方笔记）
+                    if (srObs == null) srObs = com.onesay.assistant.v2.companion.CompanionHooks.agentPrecheck(mContext, name, args);
                     // ★ fix/shop-research（R4）：同一只读工具、同样参数紧接着再调（probe.apps ×4）→ 不再执行，回上次结果
                     if (srObs == null) {
                         srObs = repeatObservation(steps, name, args);
-                        if (srObs != null) Log.i(TAG, "[AGENT-LOOP] 同工具同参数连续调用，去重: " + name);
+                        if (srObs != null) SafeLog.i(TAG, "[AGENT-LOOP] 同工具同参数连续调用，去重: " + name);
                     }
                     // ★ mika-plug（mika.appkb）：模型自己拼的 App 专属深链只放行开局注入过知识的那几个 App
                     if (srObs == null && rs.plugs != null && cap0(name) != null && args != null
@@ -1254,7 +1261,7 @@ public class AgentLoop {
                         ok = false;
                     } else if (cap == null) {
                         observation = "{\"error\":\"未注册的工具: " + name + "\"}";
-                        Log.w(TAG, "[AGENT-LOOP] 模型调用了未注册工具: " + name);
+                        SafeLog.w(TAG, "[AGENT-LOOP] 模型调用了未注册工具: " + name);
                     } else if (isUiFrontAction(cap)
                             && (uiLaunchedThisRound || uiRepeatBlocked(rs, uiDedupKey(cap, args), steps.size()))) {
                         // 「下载微信」同时打开了三星商店+Play 两家）：
@@ -1267,10 +1274,10 @@ public class AgentLoop {
                             observation = "{\"skipped\":true,\"note\":\"本轮已执行过一个会切换屏幕的动作，"
                                     + "为避免同时拉起多个界面互相抢占前台，本条押后未执行。"
                                     + "如确需继续这个动作，请在下一轮单独调用（一次一个）。\"}";
-                            Log.i(TAG, "[AGENT-LOOP] 界面动作同轮互斥，押后: " + name);
+                            SafeLog.i(TAG, "[AGENT-LOOP] 界面动作同轮互斥，押后: " + name);
                         } else {
                             observation = "{\"skipped\":true,\"note\":\"" + uiRepeatNote(rs, uiDedupKey(cap, args)) + "\"}";
-                            Log.i(TAG, "[AGENT-LOOP] 界面动作任务级去重，跳过: " + name);
+                            SafeLog.i(TAG, "[AGENT-LOOP] 界面动作任务级去重，跳过: " + name);
                         }
                     } else {
                         // ★ 门禁：与主链路同一把尺，循环不得成为安全后门
@@ -1282,13 +1289,13 @@ public class AgentLoop {
                                 com.onesay.assistant.v2.executor.ExecutionGate.evaluate(cap, args, stepTainted);
                         if (gate.decision == ToolGate.Decision.DENY) {
                             observation = "{\"error\":\"被安全策略拦截: " + gate.reason + "\"}";
-                            Log.w(TAG, "[AGENT-LOOP] 步骤被拦截: " + name + " " + gate.reason);
+                            SafeLog.w(TAG, "[AGENT-LOOP] 步骤被拦截: " + name + " " + gate.reason);
                         } else if (gate.decision == ToolGate.Decision.REQUIRE_CONFIRM) {
                             // 改造（用户实测「权限卡被回复盖住、没法点、不继续执行」）：
                             //   旧实现"记 gated 就继续跑" —— 循环不等、卡片被最终回复顶掉。现在改为
                             //   **挂起等待**：onRequireConfirm 阻塞至用户点卡（允许/拒绝）或超时/收起。
                             gated = true;
-                            Log.i(TAG, "[AGENT-LOOP] 步骤需确认，挂起等待用户决策: " + name
+                            SafeLog.i(TAG, "[AGENT-LOOP] 步骤需确认，挂起等待用户决策: " + name
                                     + (stepTainted ? "（tainted）" : ""));
                             ConfirmVerdict verdict = askConfirm(cb, cap, args, gate, stepTainted);
                             if (verdict == ConfirmVerdict.ALLOW
@@ -1308,20 +1315,20 @@ public class AgentLoop {
                                     uiLaunchedThisRound = true;
                                     if (ok) uiRecord(rs, uiDedupKey(cap, args), steps.size());
                                 }
-                                Log.i(TAG, "[AGENT-LOOP] 用户已确认，步骤已执行: " + name);
+                                SafeLog.i(TAG, "[AGENT-LOOP] 用户已确认，步骤已执行: " + name);
                             } else {
                                 com.onesay.assistant.v2.executor.ExecutionGate.reject(gate.token);
                                 observation = "{\"user_denied\":true,\"note\":\"用户未授权该操作"
                                         + "（拒绝或未响应），本步未执行。不要重复请求同一操作；"
                                         + "如目标依赖它，请如实说明结果并给出可行的替代方案。\"}";
-                                Log.i(TAG, "[AGENT-LOOP] 用户未授权，本步按拒绝处理: " + name);
+                                SafeLog.i(TAG, "[AGENT-LOOP] 用户未授权，本步按拒绝处理: " + name);
                             }
                         } else {
                             // 只读探针预算闸门 —— 超出预算不再真执行（防探矿式无限挖）
                             if (isProbeSign(name) && probeUsed >= PROBE_BUDGET_MAX) {
                                 observation = "{\"error\":\"设备探针预算已用尽（每次任务最多 "
                                         + PROBE_BUDGET_MAX + " 次），请基于已有信息继续或收工\"}";
-                                Log.w(TAG, "[AGENT-LOOP] 探针预算用尽，拒绝再挖: " + name);
+                                SafeLog.w(TAG, "[AGENT-LOOP] 探针预算用尽，拒绝再挖: " + name);
                             } else {
                                 if (isProbeSign(name)) probeUsed++;
                                 // 界面动作记账（供同轮互斥 / 任务级去重判定）。
@@ -1352,7 +1359,7 @@ public class AgentLoop {
                                         com.onesay.assistant.v2.agent.LoopTools.append(tools, offer);   // ★ arch/agent-loop：常驻工具也补回
                                         com.onesay.assistant.v2.mikaplug.RootCmd.appendSchema(mContext, tools);   // ★ mika-plug（mika.rootcmd，默认关）：run_command 工具
                                         observation = withAddedTools(observation, added);
-                                        Log.i(TAG, "[AGENT-LOOP] 新接口已加入本轮工具列表 " + added.size()
+                                        SafeLog.i(TAG, "[AGENT-LOOP] 新接口已加入本轮工具列表 " + added.size()
                                                 + " 个，工具总数 " + tools.length());
                                     }
                                     if (com.onesay.assistant.v2.agenttools.AgentToolset.afterStep(name, cap, ok, false)) {   // [arch-a] GUI 档刚展开 → 重新导出，phone.operate 换进来
@@ -1382,11 +1389,11 @@ public class AgentLoop {
                     //   后果：排查"模型为什么这么答"时，只能看到它调了什么工具，
                     //   看不到它**拿到了什么数据** —— 而答案对不对，一半取决于这份数据。
                     //   截断到 600 字（够看清 JSON/读数，又不至于把日志刷爆）。
-                    Log.i(TAG, "[AGENT-LOOP] 观测(" + name + ") ok=" + ok + " gated=" + gated
+                    SafeLog.i(TAG, "[AGENT-LOOP] 观测(" + name + ") ok=" + ok + " gated=" + gated
                             + ": " + truncateForLog(observation, 600));
                     // [s1] 停止键：本步执行被取消（CANCELLED）或宿主已取消 → 不再执行本轮剩余步骤
                     if (cancelled(cb) || (observation != null && observation.contains("\"code\":\"CANCELLED\""))) {
-                        Log.i(TAG, "[AGENT-LOOP] 任务已取消（ErrorCode.CANCELLED），收尾");
+                        SafeLog.i(TAG, "[AGENT-LOOP] 任务已取消（ErrorCode.CANCELLED），收尾");
                         return new Result(null, steps, false, REASON_CANCELLED);
                     }
                 }
@@ -1396,14 +1403,14 @@ public class AgentLoop {
                 // ★ mika-plug（mika.loopguard）：守卫阶梯叫停 → StopRules 说法收尾
                 if (rs.plugs != null && rs.plugs.stopReason() != null) {
                     String why = rs.plugs.stopReason();
-                    Log.w(TAG, "[AGENT-LOOP] [MIKA-PLUG] " + why);
+                    SafeLog.w(TAG, "[AGENT-LOOP] [MIKA-PLUG] " + why);
                     return new Result(ensurePlan(lastContent, steps, why, query), steps, false, why)
                             .outcome(com.onesay.assistant.v2.agent.Outcome.NOT_DONE, com.onesay.assistant.v2.agent.Outcome.Reason.ERROR);
                 }
                 // ★ arch/agent-loop：模型调用了 end_not_done → 带原因收尾（结局 not_done / needs_user / blocked）
                 if (rs.endSubtype != null) {
                     String why = rs.endMessage == null || rs.endMessage.length() == 0 ? "没有完成" : rs.endMessage;
-                    Log.i(TAG, "[AGENT-LOOP] end_not_done(" + rs.endSubtype + ")，收尾");
+                    SafeLog.i(TAG, "[AGENT-LOOP] end_not_done(" + rs.endSubtype + ")，收尾");
                     return new Result(ensurePlan(why, steps, null, query), steps, false, rs.endSubtype + "：" + why)
                             .outcome(com.onesay.assistant.v2.agent.Outcome.ofEndSubtype(rs.endSubtype), rs.endSubtype);
                 }
@@ -1411,13 +1418,13 @@ public class AgentLoop {
                 //   （任何一步走了确认 / 拦截 / 跳过 / 未注册 / 预检分支，directCounted 都会少于调用数）
                 if (directThisRound && directCounted > 0 && directCounted == countCalls(toolCalls)
                         && directAnswer.length() > 0) {
-                    Log.i(TAG, "[AGENT-LOOP] D3 只读数值工具直出，跳过第 " + (round + 1) + " 轮模型: " + com.onesay.assistant.v2.util.LogText.u(directAnswer));
+                    SafeLog.i(TAG, "[AGENT-LOOP] D3 只读数值工具直出，跳过第 " + (round + 1) + " 轮模型: " + com.onesay.assistant.v2.util.LogText.u(directAnswer));
                     return new Result(directAnswer.toString(), steps, true, null);
                 }
             }
 
         } catch (Throwable t) {
-            Log.e(TAG, "[AGENT-LOOP] 异常: " + t.getMessage());
+            SafeLog.e(TAG, "[AGENT-LOOP] 异常: " + t.getMessage());
             return new Result(ensurePlan(null, steps, "异常: " + t.getMessage(), query),
                     steps, false, "异常: " + t.getMessage());
         }
@@ -1425,7 +1432,7 @@ public class AgentLoop {
 
     /**
      * ★ arch/agent-loop：界面动作防死循环。拦两种：① 紧接着上一个成功的界面动作、同一入口同参数、中间没有任何别的步骤
-     * （= 并行换路 / 原地重开，例如 store.search.samsung{微信} 后马上 store.search.play{微信}）；
+     * （= 并行换路 / 原地重开，例如 store.search.market{微信} 后马上 store.search.play{微信}）；
      * ② 同一入口同参数本任务已成功打开 {@link com.onesay.assistant.v2.agent.LoopConfig#UI_REPEAT_MAX} 次。
      * 中间做过别的步骤再回来（微信 → 地图 → 微信）放行。
      */
@@ -1763,7 +1770,7 @@ public class AgentLoop {
      * <h3>为什么必须有这一步</h3>
      * <p>prompt 里写了"失败就换工具"，但如果候选表里压根没有第二个工具，
      * 这句话就是空话。Top-K 按字面相关度排序，一个"下载 X"的句子可能只召回
-     * {@code store.search.samsung} 一条，把 {@code store.search.play} /
+     * {@code store.search.market} 一条，把 {@code store.search.play} /
      * {@code store.status.check} 全挤出去了 —— 模型**想换也没得换**。
      *
      * <p>本方法按**动作语素**判断目标族，把该族的全部能力兜底塞进候选：
@@ -1819,9 +1826,9 @@ public class AgentLoop {
                 //   ② 已装的话直接启动；不需要则卸载
                 return new String[] {
                         "store.status.check",
-                        "store.search.samsung",
+                        "store.search.market",
                         "store.search.play",
-                        "store.detail.samsung",
+                        "store.detail.market",
                         "app.launch",
                         "app.uninstall",
                 };
@@ -1851,7 +1858,7 @@ public class AgentLoop {
                         "browser.open", "browser.open.default",
                         "browser.search", "browser.search.bing",
                         "browser.search.google", "browser.search.sogou",
-                        "store.status.check", "store.search.samsung", "store.search.play",
+                        "store.status.check", "store.search.market", "store.search.play",
                 };
             case QUERY_INFO:
                 // **"读"这一族此前完全没有兜底**。
@@ -1922,6 +1929,7 @@ public class AgentLoop {
         String sign = cap.sign == null ? "" : cap.sign;
         if (sign.startsWith("vision.")) return true;                       // 识屏/读屏
         if (com.onesay.assistant.v2.agent.LoopTools.isWebSign(sign)) return true;   // ★ arch/agent-loop：网页 / 搜索 / 调研结果
+        if ("route.open".equals(sign)) return true;   // ★ feat/api-first [api-first]：路由工具可能带回搜索 / 商品接口的外部文字，保守按不可信
         if (sign.startsWith("mail.") && !sign.startsWith("mail.draft")) return true;   // 读信
         return "mail".equals(cap.domain) && !sign.startsWith("mail.draft");
     }
@@ -2032,7 +2040,28 @@ public class AgentLoop {
         emitStep(cb, stepText);   // ★ 11-04 ①：每次工具调用开始就上岛（含循环内执行的 web.* / 本地工具）
         ExecutionResult r = exec0(cb, cap, args, token, tainted);
         if (r == null || !r.ok) emitNote(cb, com.onesay.assistant.v2.island.IslandStepText.failed(stepText));   // 失败如实显示
+        emitStepResult(cb, cap, r);   // ★ feat/api-first [api-first]：执行时间轴要每步的成败与原因
         return r;
+    }
+
+    /**
+     * ★ feat/api-first [api-first]：宿主可选实现 —— 每次工具调用结束时的成败与原因（失败 = 用户能看懂的原因），
+     * 给对话里的执行时间轴用（✓ 已调用 X / ✗ 带原因）。和 {@link StepEvents} 分开，旧宿主 / 测试回调不用改。
+     */
+    public interface StepResultEvents {
+        void onToolResult(String sign, boolean ok, String reasonOrDetail);
+    }
+
+    static void emitStepResult(Callback cb, Capability cap, ExecutionResult r) {
+        if (!(cb instanceof StepResultEvents) || cap == null) return;
+        try {
+            boolean ok = r != null && r.ok;
+            String why = r == null ? "没有结果" : ok ? ("route.open".equals(cap.sign) && r.detail != null ? r.detail : "")
+                    : (r.userMessage != null && r.userMessage.length() > 0 ? r.userMessage : (r.code == null ? "" : r.code.name()));
+            ((StepResultEvents) cb).onToolResult(cap.sign, ok, ok && why.length() > 60 ? "" : why);
+        } catch (Throwable t) {
+            SafeLog.w(TAG, "[AGENT-LOOP] onToolResult 异常: " + t.getMessage());
+        }
     }
 
     private ExecutionResult exec0(Callback cb, Capability cap, JSONObject args,
@@ -2044,7 +2073,14 @@ public class AgentLoop {
             if (token != null) com.onesay.assistant.v2.executor.ExecutionGate.reject(token);
             return execWeb(cap, args);
         }
-        ExecutionResult local = com.onesay.assistant.v2.kernel.FeatureKernel.get().executeForAgent(mContext, cap, args);   // [kernel] [screenref] screen.* 本地工具 → [s2] memory.search（App 内只读）
+        // ★ borrow-1112：本任务是否已读过外部内容，同一线程传给本地工具（phone.operate 据此对发送 / 分享 / 提交类一律确认）
+        com.onesay.assistant.v2.phone.RiskLabel.setTaskTaint(tainted);
+        ExecutionResult local;
+        try {
+            local = com.onesay.assistant.v2.kernel.FeatureKernel.get().executeForAgent(mContext, cap, args);   // [kernel] [screenref] screen.* 本地工具 → [s2] memory.search（App 内只读）
+        } finally {
+            com.onesay.assistant.v2.phone.RiskLabel.clearTaskTaint();
+        }
         if (local != null) {
             if (token != null) com.onesay.assistant.v2.executor.ExecutionGate.reject(token);
             return local;
@@ -2076,7 +2112,7 @@ public class AgentLoop {
         try {
             return new JSONObject(s);
         } catch (Throwable t) {
-            Log.w(TAG, "[AGENT-LOOP] arguments 解析失败，按空对象处理: " + com.onesay.assistant.v2.util.LogText.u(s));
+            SafeLog.w(TAG, "[AGENT-LOOP] arguments 解析失败，按空对象处理: " + com.onesay.assistant.v2.util.LogText.u(s));
             return new JSONObject();
         }
     }
@@ -2107,7 +2143,7 @@ public class AgentLoop {
     /**
      * 界面动作的"任务级去重键" = "软件.动作"两段前缀 + 全部参数。
      *
-     * <p>用途：同一任务里 "store.search.samsung{微信}" 与 "store.search.play{微信}"
+     * <p>用途：同一任务里 "store.search.market{微信}" 与 "store.search.play{微信}"
      * 是**同一目标的两种入口**（并行换路），只允许执行第一个；
      * 而 "app.launch{QQ}" 与 "app.launch{微信}" 是两个不同目标，不互相拦。
      */
@@ -2124,7 +2160,7 @@ public class AgentLoop {
         return sb.toString();
     }
 
-    /** sign 的"软件.动作"两段前缀（store.search.samsung → store.search；app.launch → app.launch）。 */
+    /** sign 的"软件.动作"两段前缀（store.search.market → store.search；app.launch → app.launch）。 */
     public static String uiPrefixOf(String sign) {
         if (sign == null) return "";
         int i1 = sign.indexOf('.');

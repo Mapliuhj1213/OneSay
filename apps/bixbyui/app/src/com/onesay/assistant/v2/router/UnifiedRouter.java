@@ -1,7 +1,7 @@
 package com.onesay.assistant.v2.router;
 
+import com.onesay.assistant.v2.util.SafeLog;
 import android.content.Context;
-import android.util.Log;
 
 /**
  * 统一路由器（全系统唯一的意图入口，保证同 query 路由 100% 确定性）。
@@ -120,8 +120,8 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         // ★ fix/triage-fast：分诊第 0 层 —— 零 LLM 快路径模板 / 一句多意图拆分（见 FastPathTriage）
         Triage fastT = fastTriage(query);
         if (fastT != null) {
-            Log.i(TAG, "[TRIAGE] " + fastT.decision + (fastT.plan != null ? " 计划步数=" + fastT.plan.steps.size() : " l0=" + fastT.l0.sign)
-                    + " 语句=" + query);
+            SafeLog.i(TAG, "[TRIAGE] " + fastT.decision + (fastT.plan != null ? " 计划步数=" + fastT.plan.steps.size() : " l0=" + fastT.l0.sign)
+                    + " 语句=" + com.onesay.assistant.v2.util.LogText.u(query));
             mLastTriage.put(query, fastT, fastT.at);
             return fastT;
         }
@@ -159,8 +159,8 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
                         new TriageDecider.Signals(l0 != null ? l0.sign : null, cacheHit, askLocal));
             }
         }
-        Log.i(TAG, "[TRIAGE] " + d + " l0=" + (l0 != null ? l0.sign : "-")
-                + " cache=" + cacheHit + " askLocal=" + askLocal + " 语句=" + query);
+        SafeLog.i(TAG, "[TRIAGE] " + d + " l0=" + (l0 != null ? l0.sign : "-")
+                + " cache=" + cacheHit + " askLocal=" + askLocal + " 语句=" + com.onesay.assistant.v2.util.LogText.u(query));
         Triage t = new Triage(d, l0);
         mLastTriage.put(query, t, t.at);
         return t;
@@ -188,7 +188,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
                 }
             }
         }, query, null, 1500);
-        Log.i(TAG, "[TRIAGE] [MIKA-PLUG] IntentGate → " + (it == null ? "判不出" : it.name()));
+        SafeLog.i(TAG, "[TRIAGE] [MIKA-PLUG] IntentGate → " + (it == null ? "判不出" : it.name()));
         return mapIntent(it);
     }
 
@@ -210,15 +210,15 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
                     com.onesay.assistant.v2.net.LlmClient.messages(TriageDecider.llmPrompt(), query), null, false).toString();
             com.onesay.assistant.v2.net.LlmResponse r = c.post(body);
             if (!r.ok()) {
-                Log.w(TAG, "[TRIAGE] LLM 分类失败: " + r.error);
+                SafeLog.w(TAG, "[TRIAGE] LLM 分类失败: " + r.error);
                 return null;
             }
             double[] conf = new double[1];
             TriageDecider.Label l = TriageDecider.parseLlmLabel(r.content(), conf);
-            Log.i(TAG, "[TRIAGE] LLM 分类: " + r.content() + " → " + (l != null ? l : "不采信"));
+            SafeLog.i(TAG, "[TRIAGE] LLM 分类: " + r.content() + " → " + (l != null ? l : "不采信"));
             return l;
         } catch (Throwable t) {
-            Log.w(TAG, "[TRIAGE] LLM 分类异常: " + t.getMessage());
+            SafeLog.w(TAG, "[TRIAGE] LLM 分类异常: " + t.getMessage());
             return null;
         }
     }
@@ -229,13 +229,13 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
             Invocation inv = mL0.route(q);
             // ★ 11-04 ②：「搜索 X」不再零 LLM 拉起百度网页；没明确说浏览器 → 当未命中（调研 / 问答走搜索 API）
             if (inv != null && SearchRouting.dropL0(inv.sign, q)) {
-                Log.i(TAG, "[ROUTE-SEARCH] L0 命中可见浏览器搜索但用户没要浏览器 → 改走搜索 API: " + inv.sign);
+                SafeLog.i(TAG, "[ROUTE-SEARCH] L0 命中可见浏览器搜索但用户没要浏览器 → 改走搜索 API: " + inv.sign);
                 return null;
             }
             return inv;
         } catch (Throwable t) {
             // JVM/异常环境下 {app} 槽位解析会抛 UnsatisfiedLinkError —— 当作未命中
-            Log.w(TAG, "L0 匹配异常（按未命中处理）: " + t);
+            SafeLog.w(TAG, "L0 匹配异常（按未命中处理）: " + t);
             return null;
         }
     }
@@ -258,6 +258,9 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         // ★ feat/shortcuts：说的是已存快捷指令（名字 / 存下时的原话）→ 交给 AgentLoop 入口，由 runAgentLoop 开头按快捷指令执行
         //   （排在密钥检查之前：快捷指令本身不需要模型；只有「问模型」这步和失败后的正常模式要）
         if (com.onesay.assistant.v2.shortcut.ShortcutHooks.matches(mContext, query)) return true;
+        // [companion] 自家计划 / 时钟 App 在场（装了且同证书）：待办 / 日程 / 闹钟句只走伴侣连接与规则层，永不进 AgentLoop
+        //   （排在诊断插件 wantsAgentLoop 与分诊之前；不在场 = 原回落不变）
+        if (mContext != null && com.onesay.assistant.v2.companion.CompanionHooks.claims(mContext, query)) return false;
         if (!mL2.hasApiKey()) return false;
         if (mL1.selfTestRoute(query) != null) return false;
         // ★ int/1102：triage-fast 快路径（整句模板 / 零 LLM 多意图计划）优先 —— 命中就永不进 AgentLoop，诊断判断排在它之后
@@ -353,8 +356,15 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
     /** 用户取消令牌：面板被收起时置位，流式读取循环会在下一行退出。 */
     public static final class Cancel implements SseStream.Cancel {
         private volatile boolean mCancelled;
-        public void cancel() { mCancelled = true; }
+        /** ★ feat/api-first [api-first]：停止键真中断的范围（网络连接 / 点屏代理的中断钩子登记在这里）。 */
+        private final com.onesay.assistant.v2.net.StopScope mScope = new com.onesay.assistant.v2.net.StopScope("task");
+        public void cancel() {
+            mCancelled = true;
+            mScope.stop("cancel");   // [api-first] 置标志之后立刻断开登记的连接、停掉点屏代理
+        }
         @Override public boolean isCancelled() { return mCancelled; }
+        /** [api-first] 任务线程开始时 StopScope.bind(cancel.scope())。 */
+        public com.onesay.assistant.v2.net.StopScope scope() { return mScope; }
     }
 
     /**
@@ -393,13 +403,13 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         // ---------- ⓪b 用户纠错："不对/错了" → 淘汰 30 秒内刚命中/写入的那条 ----------
         if (com.onesay.assistant.v2.router.cache.SkillCache.isCorrection(query)) {
             boolean evicted = mL1.cache().onUserCorrection();
-            Log.i(TAG, "[L1] 用户纠错: " + com.onesay.assistant.v2.util.LogText.u(query) + (evicted ? " → 已淘汰刚才的缓存并加 1 天负缓存" : "（无可淘汰条目）"));
+            SafeLog.i(TAG, "[L1] 用户纠错: " + com.onesay.assistant.v2.util.LogText.u(query) + (evicted ? " → 已淘汰刚才的缓存并加 1 天负缓存" : "（无可淘汰条目）"));
         }
 
         // ---------- ⓪c 补槽应答（上一轮问过"几点？"，这一轮是"七点"） ----------
         Invocation filled = SlotFiller.getInstance().maybeFill(query);
         if (filled != null) {
-            Log.i(TAG, "[ROUTE-2f] 缺参补全（slot filling）: " + filled.sign + " " + com.onesay.assistant.v2.util.LogText.args(filled.args) + mode);
+            SafeLog.i(TAG, "[ROUTE-2f] 缺参补全（slot filling）: " + filled.sign + " " + com.onesay.assistant.v2.util.LogText.args(filled.args) + mode);
             h.onFinal(filled);
             return;
         }
@@ -413,7 +423,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         com.onesay.assistant.v2.kernel.FeatureKernel.Hit take = com.onesay.assistant.v2.kernel.FeatureKernel.get().takeover(mContext, query, mL2);
         if (take != null) {
             if (take.plugin.triageBeforeRouteLog(take.inv)) triage(query);
-            Log.i(TAG, take.plugin.routeLog() + take.inv.sign + mode);
+            SafeLog.i(TAG, take.plugin.routeLog() + take.inv.sign + mode);
             rememberTurn(take.plugin.id(), query, take.inv);   // 本地规则（计划 App / 记一记）的答复也进会话历史，追问有上下文
             markLocalRule(take.plugin.id(), take.inv);          // 对话窗页脚不显示「以上由 AI 生成」
             h.onFinal(take.inv);
@@ -426,20 +436,20 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         final Invocation l0 = tr.l0;
         // ★ fix/triage-fast：多意图零 LLM 计划（「把亮度调低、开勿扰、10 分钟后提醒我」）→ 面板 executePlan 串行执行
         if (tr.plan != null) {
-            Log.i(TAG, "[ROUTE-0c] 多意图拆分命中（零 LLM）: " + tr.plan + mode);
+            SafeLog.i(TAG, "[ROUTE-0c] 多意图拆分命中（零 LLM）: " + tr.plan + mode);
             h.onFinal(tr.plan);
             return;
         }
         final IntentClassifier.Kind kind = toKind(d);
         final int historyBefore = ConversationMemory.getInstance().size();
-        Log.i(TAG, "[ROUTE-1] 分诊=" + d.label + " 类型=" + kind.name() + " L0命中=" + (l0 != null)
-                + " 历史轮数=" + historyBefore + " 语句=" + query + mode);
+        SafeLog.i(TAG, "[ROUTE-1] 分诊=" + d.label + " 类型=" + kind.name() + " L0命中=" + (l0 != null)
+                + " 历史轮数=" + historyBefore + " 语句=" + com.onesay.assistant.v2.util.LogText.u(query) + mode);
 
         // ---------- ①m ★ audit-J 2：点名的常见 App 没装 → app.launch{app,pkg}（不带 role）→ NOT_FOUND_APP → 面板「未安装 X，点此安装」卡 ----------
         if (l0 == null) {
             Invocation miss = missingAppPlan(query);
             if (miss != null) {
-                Log.i(TAG, "[ROUTE-APPMISS] 点名 App 未安装，本地下发安装卡: " + miss.args.optString("app") + " pkg=" + miss.args.optString("pkg") + mode);
+                SafeLog.i(TAG, "[ROUTE-APPMISS] 点名 App 未安装，本地下发安装卡: " + miss.args.optString("app") + " pkg=" + miss.args.optString("pkg") + mode);
                 h.onFinal(miss);
                 return;
             }
@@ -447,7 +457,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
 
         // ---------- ②d [diag] DIAGNOSE 但本地诊断没接住（特权通道不可用等）：走问答但不查/不写 ASK 缓存 ----------
         if (d.label == TriageDecider.Label.DIAGNOSE) {
-            Log.i(TAG, "[ROUTE-DIAG] 本地诊断不可用，改走问答（不读写 ASK 缓存）: " + com.onesay.assistant.v2.util.LogText.u(query));
+            SafeLog.i(TAG, "[ROUTE-DIAG] 本地诊断不可用，改走问答（不读写 ASK 缓存）: " + com.onesay.assistant.v2.util.LogText.u(query));
             Invocation llm = mL2.route(query, IntentClassifier.Kind.ASK);
             h.onFinal(llm != null ? llm : fallback(IntentClassifier.Kind.ASK, null, query));
             return;
@@ -458,16 +468,16 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
             String askAnswer = AskEngine.tryAnswer(query);
             if (askAnswer == null && d.core != null && d.core.length() > 0) askAnswer = AskEngine.tryAnswer(d.core);
             if (askAnswer != null) {
-                Log.i(TAG, "[ROUTE-2] 本地即时问答命中（零成本层）: " + com.onesay.assistant.v2.util.LogText.u(askAnswer));
+                SafeLog.i(TAG, "[ROUTE-2] 本地即时问答命中（零成本层）: " + com.onesay.assistant.v2.util.LogText.u(askAnswer));
                 h.onFinal(askReply(askAnswer, query));
                 return;
             }
             if (historyBefore > 0) {
-                Log.i(TAG, "[ROUTE-3] 本轮带 " + historyBefore + " 轮历史 → 绕过缓存，走 LLM 保证上下文一致");
+                SafeLog.i(TAG, "[ROUTE-3] 本轮带 " + historyBefore + " 轮历史 → 绕过缓存，走 LLM 保证上下文一致");
             } else {
                 com.onesay.assistant.v2.router.cache.SkillCache.Hit hit = mL1.lookup(query, "ASK");
                 if (hit != null && hit.text() != null) {
-                    Log.i(TAG, "[ROUTE-3] ASK 缓存命中，跳过 LLM");
+                    SafeLog.i(TAG, "[ROUTE-3] ASK 缓存命中，跳过 LLM");
                     org.json.JSONObject a = new org.json.JSONObject();
                     try {
                         a.put("text", hit.text());
@@ -478,7 +488,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
                 }
             }
             if (allowStream && mL2.canStream()) {
-                Log.i(TAG, "[ROUTE-4S] 进入流式问答通道（先检索，再逐字作答）");
+                SafeLog.i(TAG, "[ROUTE-4S] 进入流式问答通道（先检索，再逐字作答）");
                 boolean handled = mL2.askStream(query, new L2LLMCompiler.StreamCallback() {
                     @Override public void onStage(int stage) { h.onStage(stage); }
                     @Override public void onPartial(String textSoFar) { h.onPartial(textSoFar); }
@@ -486,12 +496,12 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
                         Invocation inv = askReplyFromLlm(answer, query);
                         recordAsk(query, answer, historyBefore);
                         String preview = answer.length() > 80 ? answer.substring(0, 80) + "…" : answer;
-                        Log.i(TAG, "[ROUTE-4] LLM 命中（流式）: ask.reply " + answer.length()
+                        SafeLog.i(TAG, "[ROUTE-4] LLM 命中（流式）: ask.reply " + answer.length()
                                 + " 字（带 " + historyBefore + " 轮历史）: " + preview.replace("\n", " "));
                         h.onFinal(inv);
                     }
                     @Override public void onFail(String reason) {
-                        Log.w(TAG, "[ROUTE-4S] 流式失败，走诚实兜底: " + reason);
+                        SafeLog.w(TAG, "[ROUTE-4S] 流式失败，走诚实兜底: " + reason);
                         h.onFinal(fallback(IntentClassifier.Kind.ASK, null, query));
                     }
                 }, cancel);
@@ -509,7 +519,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
 
         // ★ int/1102 审计：改值追问但 3 分钟内没有可改的上一轮 → 本地问一句（不进 LLM / AgentLoop）
         if (d.rule != null && d.rule.startsWith("1f-followup-edit")) {
-            Log.i(TAG, "[ROUTE-1f] 改值追问没有可引用的上一轮 → 本地追问");
+            SafeLog.i(TAG, "[ROUTE-1f] 改值追问没有可引用的上一轮 → 本地追问");
             h.onFinal(askReply(FOLLOWUP_NO_CONTEXT, query));
             return;
         }
@@ -517,7 +527,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         // ---------- ③ DO / MIXED / CLARIFY ----------
         // ③a L0 命中了只读状态查询 → 直接交付（"蓝牙开着吗"）
         if (l0 != null && isReadOnlyQuery(l0.sign)) {
-            Log.i(TAG, "[ROUTE-1q] 状态查询直接交付（L0 命中且只读）: " + l0.sign);
+            SafeLog.i(TAG, "[ROUTE-1q] 状态查询直接交付（L0 命中且只读）: " + l0.sign);
             h.onFinal(l0);
             return;
         }
@@ -528,14 +538,14 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
                 askAnswer = AskEngine.tryAnswer(d.core);
             }
             if (askAnswer != null) {
-                Log.i(TAG, "[ROUTE-2] 本地即时问答命中（零成本层）: " + com.onesay.assistant.v2.util.LogText.u(askAnswer));
+                SafeLog.i(TAG, "[ROUTE-2] 本地即时问答命中（零成本层）: " + com.onesay.assistant.v2.util.LogText.u(askAnswer));
                 h.onFinal(askReply(askAnswer, query));
                 return;
             }
         }
         // ③c L0 规则（DO 单步）
         if (kind == IntentClassifier.Kind.AGENT && l0 != null && d.label != TriageDecider.Label.CLARIFY) {
-            Log.i(TAG, "[ROUTE-2] L0 规则命中（零成本层）: " + l0.sign);
+            SafeLog.i(TAG, "[ROUTE-2] L0 规则命中（零成本层）: " + l0.sign);
             h.onFinal(l0);
             return;
         }
@@ -544,7 +554,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
                 && !d.core.equals(TriageDecider.normalize(query))) {
             Invocation l0core = safeL0(d.core);
             if (l0core != null) {
-                Log.i(TAG, "[ROUTE-2] L0 核心短语命中: " + d.core + " → " + l0core.sign);
+                SafeLog.i(TAG, "[ROUTE-2] L0 核心短语命中: " + d.core + " → " + l0core.sign);
                 h.onFinal(new Invocation(l0core.sign, l0core.args, l0core.confidence,
                         l0core.source, query));
                 return;
@@ -553,14 +563,14 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         // ③e 关键词倒排兜底（只读）
         Invocation kw = keywordFallback(query, kind);
         if (kw != null) {
-            Log.i(TAG, "[ROUTE-2k] 关键词倒排命中（零成本层）: " + kw.sign);
+            SafeLog.i(TAG, "[ROUTE-2k] 关键词倒排命中（零成本层）: " + kw.sign);
             h.onFinal(kw);
             return;
         }
         // ③f 缺参追问（"定个闹钟" → "几点？"，绝不让 LLM 编默认值）
         Invocation clarify = SlotFiller.getInstance().maybeAsk(query);
         if (clarify != null) {
-            Log.i(TAG, "[ROUTE-2c] 意图明确但缺必填槽 → 追问（不执行不落缓存）: " + com.onesay.assistant.v2.util.LogText.u(query));
+            SafeLog.i(TAG, "[ROUTE-2c] 意图明确但缺必填槽 → 追问（不执行不落缓存）: " + com.onesay.assistant.v2.util.LogText.u(query));
             h.onFinal(clarify);
             return;
         }
@@ -570,17 +580,17 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
             if (hit != null) {
                 Invocation inv = new Invocation(hit.sign, hit.args, 0.95, Invocation.RouteSource.L1_SKILL, query);
                 registerPending(query, d, inv, hit.key, hit.grp, historyBefore);
-                Log.i(TAG, "[ROUTE-3] 缓存命中，跳过 LLM: " + hit.sign + " " + com.onesay.assistant.v2.util.LogText.args(hit.args));
+                SafeLog.i(TAG, "[ROUTE-3] 缓存命中，跳过 LLM: " + hit.sign + " " + com.onesay.assistant.v2.util.LogText.args(hit.args));
                 h.onFinal(inv);
                 return;
             }
             String neg = mL1.cache().negativeReason(query, d.label.name());
-            if (neg != null) Log.i(TAG, "[ROUTE-3] 负缓存在期（" + neg + "），照常交给 LLM 但结果不回写");
+            if (neg != null) SafeLog.i(TAG, "[ROUTE-3] 负缓存在期（" + neg + "），照常交给 LLM 但结果不回写");
         }
         // ③h LLM（AGENT → 编译；MIXED → 计划）
         Invocation llm = mL2.route(query, kind);
         if (llm != null) {
-            Log.i(TAG, "[ROUTE-4] LLM 命中: " + (llm.isPlan() ? "多步计划" : llm.sign)
+            SafeLog.i(TAG, "[ROUTE-4] LLM 命中: " + (llm.isPlan() ? "多步计划" : llm.sign)
                     + " (src=" + llm.source + ")");
             if (d.isDo() && !llm.isPlan()) registerPending(query, d, llm, null, null, historyBefore);
             h.onFinal(llm);
@@ -723,7 +733,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         com.onesay.assistant.v2.router.cache.SkillCache.Outcome o = outcomeOf(r);
         if (p.cacheKey != null) {
             mL1.cache().onReplayResult(p.cacheKey, p.cacheGrp, o);
-            Log.i(TAG, "[L1] 回放结果: " + sign + " ok=" + o.isSuccess() + " code=" + o.code);
+            SafeLog.i(TAG, "[L1] 回放结果: " + sign + " ok=" + o.isSuccess() + " code=" + o.code);
         } else {
             mL1.recordSuccess(p.query, p.label, p.sign, p.args, o, p.historyBefore > 0);
         }
@@ -770,7 +780,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         try {
             learnFromAgentLoop(query, d, r, historyBefore, cacheLabel);
         } catch (Throwable t) {
-            Log.w(TAG, "[L1] AgentLoop 结果学习异常: " + t.getMessage());
+            SafeLog.w(TAG, "[L1] AgentLoop 结果学习异常: " + t.getMessage());
         }
         return r;
     }
@@ -794,7 +804,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         if (!anyOk && !appMissing && (r.answer == null || com.onesay.assistant.v2.router.cache.SkillCache.looksLikeRefusal(r.answer))) {
             mL1.cache().recordRefusal(query, cacheLabel, AgentLoop.attemptedSummary(r.steps, r.reason),
                     com.onesay.assistant.v2.router.cache.SkillCache.TTL_NEGATIVE);
-            Log.i(TAG, "[L1] AgentLoop 未达成，记 10 分钟负缓存（下次带上已试步骤换路）: " + com.onesay.assistant.v2.util.LogText.u(query));
+            SafeLog.i(TAG, "[L1] AgentLoop 未达成，记 10 分钟负缓存（下次带上已试步骤换路）: " + com.onesay.assistant.v2.util.LogText.u(query));
         }
     }
 
@@ -815,7 +825,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
      */
     private Invocation fallback(IntentClassifier.Kind kind, Invocation l0, String query) {
         if (kind == IntentClassifier.Kind.MIXED && l0 != null) {
-            Log.i(TAG, "[ROUTE-5] 混合任务 LLM 不可用，退化为执行本地可识别部分: " + l0.sign);
+            SafeLog.i(TAG, "[ROUTE-5] 混合任务 LLM 不可用，退化为执行本地可识别部分: " + l0.sign);
             return l0;
         }
 
@@ -823,17 +833,17 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
             String msg = mL2.hasApiKey()
                     ? "网络暂时不可用，这个问题我先答不上来，等联网后再问我一次。"
                     : "还没有配置大模型密钥，暂时只能回答时间、日期、算术这类本地问题。";
-            Log.i(TAG, "[ROUTE-5] 问答通道不可用，返回诚实兜底");
+            SafeLog.i(TAG, "[ROUTE-5] 问答通道不可用，返回诚实兜底");
             return askReply(msg, query);
         }
         // ★ int/1102 release 测试：没配密钥时，本地接不住的动作（「给老王发微信说我到了」要一步步操作手机）
         //   说清楚是缺大模型密钥，而不是「这句我没听懂」（用户会以为是没听清、反复重说）
         if (!mL2.hasApiKey()) {
-            Log.i(TAG, "[ROUTE-5] 动作需要大模型但没配密钥 → 说明缺密钥（类型=" + kind.name() + "）");
+            SafeLog.i(TAG, "[ROUTE-5] 动作需要大模型但没配密钥 → 说明缺密钥（类型=" + kind.name() + "）");
             return askReply(noKeyActLine(query), query);
         }
 
-        Log.w(TAG, "全线未命中任何可用能力: " + com.onesay.assistant.v2.util.LogText.u(query) + " (类型=" + kind.name() + ")");
+        SafeLog.w(TAG, "全线未命中任何可用能力: " + com.onesay.assistant.v2.util.LogText.u(query) + " (类型=" + kind.name() + ")");
         return null;
     }
 
@@ -843,7 +853,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         String what = q.matches(".*(微信|qq|QQ|钉钉|飞书|发消息|发条消息|发个消息).*") ? "发微信这类要我一步步操作手机的事"
                 : q.matches(".*(买|下单|购物车|淘宝|京东|拼多多).*") ? "购物这类要我一步步操作手机的事"
                 : "这件事要我一步步操作手机";
-        return what + "，需要先配置大模型密钥（设置 › 模型与密钥 › API 密钥 › DeepSeek）。"
+        return what + "，需要先配置大模型密钥（设置 › 模型与密钥 › 主模型 › API Key）。"
                 + "打开应用、闹钟、音量、亮度、记一记这类本地指令现在就能用。";
     }
 
@@ -892,7 +902,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
     /** 应答音回读物理拦截（返回 true 表示应直接丢弃该话语） */
     private static boolean isAckEcho(String query) {
         if (com.onesay.assistant.v2.wake.WakeWordStripper.isAckSoundUtterance(query)) {
-            Log.i(TAG, "拦截自身应答回读词，直接丢弃: " + com.onesay.assistant.v2.util.LogText.u(query));
+            SafeLog.i(TAG, "拦截自身应答回读词，直接丢弃: " + com.onesay.assistant.v2.util.LogText.u(query));
             return true;
         }
         return false;
@@ -953,7 +963,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         // 只交付只读查询；有副作用的仍交 LLM 走完整门禁
         if (!isReadOnlyQuery(cap.sign)) return null;
 
-        Log.i(TAG, "[KW-INDEX] 倒排唯一命中: " + cap.sign + " (词=" + top.words + ")");
+        SafeLog.i(TAG, "[KW-INDEX] 倒排唯一命中: " + cap.sign + " (词=" + top.words + ")");
         return new Invocation(cap.sign, new org.json.JSONObject(),
                 0.85, Invocation.RouteSource.L0_RULE, query);
     }

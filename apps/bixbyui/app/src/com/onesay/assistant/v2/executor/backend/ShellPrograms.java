@@ -49,7 +49,6 @@ public final class ShellPrograms {
     public static final String NFC_OFF = "svc nfc disable";
     public static final String NFC_STATE = "dumpsys nfc | grep -m1 mState";
     public static final String STORE_GOOGLE = "dumpsys account | grep -c com.google";
-    public static final String STORE_SAMSUNG = "pm list packages | grep -c com.sec.android.app.samsungapps";
     public static String screenshotCmd() {
         return "screencap -p /sdcard/Pictures/bixbyui" + com.onesay.assistant.v2.BuildVariant.PUBLIC_FILE_TAG + "_shot.png";
     }
@@ -214,17 +213,14 @@ public final class ShellPrograms {
         }
     };
 
-    /** 原 store.status.check：Google 账号数 + 三星商店是否安装，回显同样的四行文案。 */
+    /** 原 store.status.check：Google 账号数，并提示安装统一走 market://（默认应用商店）。 */
     static final Program STORE_STATUS = new Program() {
         @Override public ShellExecutor.ShellResponse run(ShellRunner sh, Map<String, String> slots) {
             ShellExecutor.ShellResponse g = sh.execute(STORE_GOOGLE);
             if (g.isDown) return g;
-            ShellExecutor.ShellResponse s = sh.execute(STORE_SAMSUNG);
-            if (s.isDown) return s;
             int a = g.isDenied ? 0 : firstInt(g.output, INT, 0);
-            int sa = s.isDenied ? 0 : firstInt(s.output, INT, 0);
             return ok("google_accounts=" + a + "\n" + (a > 0 ? "play=可能可用" : "play=未登录(不可用)") + "\n"
-                    + (sa > 0 ? "samsung=可用" : "samsung=未安装"));
+                    + "store=market://（由默认应用商店处理）");
         }
     };
 

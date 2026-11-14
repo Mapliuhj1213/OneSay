@@ -1,6 +1,5 @@
 package com.onesay.assistant.v2.errand;
 
-import com.onesay.assistant.vendor.samsung.SamsungBrowser;
 
 import com.onesay.assistant.v2.search.TavilyExtractProvider;
 
@@ -63,12 +62,12 @@ public class TavilyExtractAndReportTest {
 
     @Test
     public void report_handoff_and_cancel() {
-        ResearchLadder.Outcome o = newOutcome(false, ResearchLadder.Tier.SAMSUNG, Arrays.asList(ResearchLadder.Tier.WEBVIEW, ResearchLadder.Tier.SAMSUNG),
-                new ArrayList<ResearchLadder.Source>(), "", "https://m.x.com/p", SamsungBrowser.NOTE_PLAIN);
+        ResearchLadder.Outcome o = newOutcome(false, ResearchLadder.Tier.BROWSER, Arrays.asList(ResearchLadder.Tier.WEBVIEW, ResearchLadder.Tier.BROWSER),
+                new ArrayList<ResearchLadder.Source>(), "", "https://m.x.com/p", DefaultBrowser.NOTE);
         ErrandReport.Card c = ErrandReport.card(ErrandIntent.parse("读一下 x.com/p"), o, false);
         assertFalse(c.ok);
         assertEquals("m.x.com", c.detail);
-        assertTrue(c.headline.startsWith("已在三星浏览器"));
+        assertTrue(c.headline.startsWith("已在浏览器"));
         assertEquals("已停止跑腿", ErrandReport.card(ErrandIntent.parse("读一下 x.com/p"), o, true).headline);
     }
 

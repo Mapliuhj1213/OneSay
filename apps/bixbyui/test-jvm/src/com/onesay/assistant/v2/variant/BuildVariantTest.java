@@ -21,7 +21,7 @@ import org.junit.Test;
  *   <li>两份 BuildVariant 字段一一对应，只含编译期常量；release 的值与引入变体机制之前写死的值完全一样；</li>
  *   <li>debug 的包名 / kill-switch 目录 / 公共存储目录 / 文件标记都和 release 不同（不会读写同一份）；</li>
  *   <li>kill-switch 路径工具：release 的 .off 文件关不掉 debug，反之亦然；</li>
- *   <li>Manifest 里需要随变体改名的东西（签名级权限、自定义 action）都能被 build_linux.sh 的 debug sed 覆盖，且没有 provider。</li>
+ *   <li>Manifest 里需要随变体改名的东西（签名级权限、自定义 action）都能被 build_linux.sh 的 debug sed 覆盖；provider 只放行 ShizukuProvider，且 authority 随变体改名。</li>
  * </ul>
  */
 public class BuildVariantTest {
@@ -147,8 +147,30 @@ public class BuildVariantTest {
     /** Manifest 里随变体改名的只有签名级权限 com.onesay.assistant.permission.CONTROL 和测试 action；build_linux.sh 的 debug sed 覆盖它们。 */
     @Test public void manifestCustomNamesAreCoveredByDebugRewrite() {
         String m = src("app/AndroidManifest.xml");
-        assertFalse("出现 <provider> 了：authorities 要按变体区分（例如 ${applicationId}.xxx），并补 build_linux.sh 的 debug 改写",
-                m.contains("<provider"));
+        // priv-llm：唯一允许的 provider 是 Shizuku 官方库的 Binder 接收端；它的 authority 必须是「正式包名.shizuku」，
+        // 且 build_linux.sh 的 debug 改写把它改成「debug 包名.shizuku」（并在改写后自检），两包不会抢同一 authority。
+        // 任何别的 <provider> 仍然直接失败。
+        Matcher prov = Pattern.compile("<provider\\b([^>]*)/?>").matcher(m);
+        int providers = 0;
+        while (prov.find()) {
+            providers++;
+            String attrs = prov.group(1);
+            assertTrue("出现 <provider> 了：authorities 要按变体区分（例如 ${applicationId}.xxx），并补 build_linux.sh 的 debug 改写（只放行 rikka.shizuku.ShizukuProvider）: " + attrs,
+                    attrs.contains("android:name=\"rikka.shizuku.ShizukuProvider\""));
+            assertTrue("ShizukuProvider 的 authority 必须是 com.onesay.assistant.shizuku", attrs.contains("android:authorities=\"com.onesay.assistant.shizuku\""));
+            assertTrue("ShizukuProvider 必须只让持 INTERACT_ACROSS_USERS_FULL 的调用方进来",
+                    attrs.contains("android:permission=\"android.permission.INTERACT_ACROSS_USERS_FULL\""));
+        }
+        assertTrue("最多一个 provider（ShizukuProvider）", providers <= 1);
+        if (providers == 1) {
+            String shp = src("build_linux.sh");
+            assertTrue("build_linux.sh 缺 ShizukuProvider authority 的 debug 改写",
+                    shp.contains("s#android:authorities=\"com\\.onesay\\.assistant\\.shizuku\"#android:authorities=\"com.onesay.assistant.debug.shizuku\"#"));
+            assertTrue("build_linux.sh 缺改写后的 authority 自检", shp.contains("if grep -q 'android:authorities=\"com.onesay.assistant.shizuku\"' \"$MANIFEST\""));
+            String dm = m.replace("android:authorities=\"com.onesay.assistant.shizuku\"", "android:authorities=\"com.onesay.assistant.debug.shizuku\"");
+            assertFalse(dm.contains("android:authorities=\"com.onesay.assistant.shizuku\""));
+            assertTrue(dm.contains("android:authorities=\"com.onesay.assistant.debug.shizuku\""));
+        }
         assertFalse("出现 sharedUserId：两个签名不同的包不能共用", m.contains("sharedUserId"));
         Matcher perm = Pattern.compile("android:(?:name|permission)=\"(com\\.onesay\\.assistant\\.[^\"]+)\"").matcher(m);
         while (perm.find()) {

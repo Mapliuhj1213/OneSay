@@ -44,9 +44,15 @@ public final class Reminders {
         public final String text;
         /** 这次提醒对应的那次发生的时刻（日程重复用；去重键的一部分）。 */
         public final long occ;
+        /** [borrow-1112] 强提醒的待办：到点响铃 + 整屏，而不是只发通知。 */
+        public final boolean strong;
 
         Item(long at, String table, long id, String title, String text, long occ) {
-            this.at = at; this.table = table; this.id = id; this.title = title; this.text = text; this.occ = occ;
+            this(at, table, id, title, text, occ, false);
+        }
+
+        Item(long at, String table, long id, String title, String text, long occ, boolean strong) {
+            this.at = at; this.table = table; this.id = id; this.title = title; this.text = text; this.occ = occ; this.strong = strong;
         }
 
         /** 去重键：表:id:发生时刻:提醒时刻。 */
@@ -155,7 +161,7 @@ public final class Reminders {
         for (Row r : in.todos) {
             if (r.l("remind", 1) == 0 || r.l("done_at") != 0 || r.l("due_at") == 0) continue;
             long at = r.l("due_at");
-            if (at > from && at <= to) out.add(new Item(at, Contract.T_TODOS, r.id(), r.s("title"), "待办到点了", at));
+            if (at > from && at <= to) out.add(new Item(at, Contract.T_TODOS, r.id(), r.s("title"), "待办到点了", at, StrongAlert.isStrong(r)));
         }
         for (Row r : in.tickets) {
             if (r.l("status") != 0) continue;

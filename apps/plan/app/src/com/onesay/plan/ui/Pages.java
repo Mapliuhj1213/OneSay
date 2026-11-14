@@ -84,7 +84,7 @@ final class Pages {
                 })));
         if (d.empty()) {
             LinearLayout c = card(col);
-            c.addView(ui.empty("今天很清净", "对 Bixby 说「明天下午三点开会」「记个待办…」，或点右下角加一条"));
+            c.addView(ui.empty("今天很清净", "对 OneSay 说「明天下午三点开会」「记个待办…」，或点右下角加一条"));
         }
         if (!d.events.isEmpty()) {
             col.addView(ui.section("日程", Ui.C_EVENT, d.events.size() + " 个"));
@@ -222,6 +222,7 @@ final class Pages {
         final boolean done = r.l("done_at") != 0;
         long due = r.l("due_at");
         String sub = due > 0 ? Fmt.when(due, now(), tz) + (due < now() && !done ? " · 逾期" : "") : "";
+        if (r.l("strong") != 0 && !done) sub = sub + (sub.length() > 0 ? " · " : "") + "强提醒";   // [borrow-1112]
         CheckView check = new CheckView(a, done, Ui.C_TODO);
         check.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(28), ui.dp(28)));
         check.setContentDescription(done ? "标为没做完" : "完成");
@@ -396,7 +397,7 @@ final class Pages {
     View.OnClickListener autos(LinearLayout col) {
         List<Row> time = Store.list(a, Contract.T_AUTOMATIONS, "mode='time'", null, "enabled DESC, hour, minute");
         List<Row> trig = Store.list(a, Contract.T_AUTOMATIONS, "mode='trigger'", null, "enabled DESC, _id");
-        col.addView(ui.largeTitle("自动任务", "快捷指令 · 到点做（定时）· 遇到情况做（触发）· 由 Bixby 执行", null));
+        col.addView(ui.largeTitle("自动任务", "快捷指令 · 到点做（定时）· 遇到情况做（触发）· 由 OneSay 执行", null));
         col.addView(ui.section("快捷指令：说名字就做", Ui.C_AUTO, Store.count(a, Contract.T_SHORTCUTS) + " 个"));
         new ShortcutUi(a, ed).section(col, card(col));
         col.addView(ui.section("定时：到点就做", Ui.C_AUTO, time.size() + " 个"));
@@ -407,7 +408,7 @@ final class Pages {
         LinearLayout c2 = card(col);
         if (trig.isEmpty()) c2.addView(ui.empty("还没有触发任务", "说「连上家里 Wi‑Fi 时打开勿扰」「收到快递短信时提醒我」"));
         for (Row r : trig) add(c2, autoItem(r));
-        TextView foot = ui.text("计划 App 只存任务和运行记录；到点 / 触发后由 Bixby（OneSay）去执行。Bixby 没装或没开时，这里的任务不会跑。", 12.5f, Ui.TEXT3, null);
+        TextView foot = ui.text("计划 App 只存任务和运行记录；到点 / 触发后由 OneSay 去执行。OneSay 没装或没开时，这里的任务不会跑。", 12.5f, Ui.TEXT3, null);
         foot.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), 0);
         col.addView(foot);
         return new View.OnClickListener() {
@@ -439,7 +440,7 @@ final class Pages {
         LinearLayout it = ui.item(Ui.C_AUTO, r.s("title"), when + " · " + Fmt.autoAction(r) + last, sw, !on);
         if (unsupported) {
             LinearLayout tc = (LinearLayout) it.getChildAt(1);
-            tc.addView(ui.text("Bixby 现在还检测不了「" + Fmt.triggerLabel(r.s("trigger_type")) + "」，先存着", 12, Ui.RED, null));
+            tc.addView(ui.text("OneSay 现在还检测不了「" + Fmt.triggerLabel(r.s("trigger_type")) + "」，先存着", 12, Ui.RED, null));
         }
         it.setOnClickListener(autoDetail(r.id()));
         return it;
@@ -514,6 +515,14 @@ final class Pages {
         tl.setSingleLine(true);
         tl.setTextSize(15);
         box.addView(tl, ui.match(0, 4));
+        // [borrow-1112] 强提醒「稍后」分钟数
+        box.addView(ui.text("强提醒「稍后」几分钟（1–60，默认 10）", 13.5f, Ui.TEXT2, null), ui.match(8, 0));
+        final android.widget.EditText snz = new android.widget.EditText(a);
+        snz.setText(String.valueOf(Settings.strongSnoozeMin(a)));
+        snz.setSingleLine(true);
+        snz.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        snz.setTextSize(15);
+        box.addView(snz, ui.match(0, 4));
         String imp = Settings.lastImport(a);
         box.addView(ui.text("从 OneSay 导入：" + (imp.length() > 0 ? Fmt.when(Settings.lastImportAt(a), now(), tz) + " · " + imp : "还没导入过"), 13.5f, Ui.TEXT2, null), ui.match(10, 4));
         box.addView(ui.text("OneSay 经数据接口读写这里：content://" + Contract.AUTHORITY + "（只认与本 App 同一证书签名的 App）", 12.5f, Ui.TEXT3, null), ui.match(6, 4));
@@ -528,6 +537,7 @@ final class Pages {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         Settings.setNotify(a, n.isChecked());
                         Settings.setTicketLeads(a, tl.getText().toString().trim());
+                        try { Settings.setStrongSnoozeMin(a, Integer.parseInt(snz.getText().toString().trim())); } catch (NumberFormatException ignored) { }
                         Remind.schedule(a);
                     }
                 })

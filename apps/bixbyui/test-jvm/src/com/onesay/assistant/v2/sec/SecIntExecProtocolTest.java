@@ -302,10 +302,6 @@ public class SecIntExecProtocolTest {
         assertEquals("57", m.get("probe/battery_level"));
         assertNull("被拒不能当成值", m.get("global/zen_mode"));
         for (String c : f.cmds) assertNull("每步都是单条命令: " + c, c.contains(";") ? c : null);
-        // 城市库
-        assertEquals(Arrays.asList("cp '/data/data/com.sec.android.daemonapp/databases/WeatherClock' '/d/WeatherClock'",
-                        "cp '/data/data/com.sec.android.daemonapp/databases/WeatherClock-wal' '/d/WeatherClock-wal'"),
-                ShellScript.commands(com.onesay.assistant.v2.city.HomeCityPolicy.copySteps("/d/")));
     }
 
     @Test public void shellProgramsForArithmeticTemplates() throws Exception {
@@ -345,8 +341,8 @@ public class SecIntExecProtocolTest {
         f = new Fake().on("svc nfc enable", 1, "x");
         assertEquals("原脚本「; true」", 0, com.onesay.assistant.v2.executor.backend.ShellPrograms.forSign("connectivity.nfc.on").run(f, none).rc);
         // 商店
-        f = new Fake().on("dumpsys account | grep -c com.google", 0, "2").on("pm list packages | grep -c com.sec.android.app.samsungapps", 1, "0");
-        assertEquals("google_accounts=2\nplay=可能可用\nsamsung=未安装",
+        f = new Fake().on("dumpsys account | grep -c com.google", 0, "2");
+        assertEquals("google_accounts=2\nplay=可能可用\nstore=market://（由默认应用商店处理）",
                 com.onesay.assistant.v2.executor.backend.ShellPrograms.forSign("store.status.check").run(f, none).output);
         String ue = new String(Files.readAllBytes(new File(System.getProperty("bixby.root", "."),
                 "app/src/com/onesay/assistant/v2/executor/UnifiedExecutor.java").toPath()), StandardCharsets.UTF_8);
@@ -358,9 +354,9 @@ public class SecIntExecProtocolTest {
         slots.put("address", "北京 东路");
         // 浏览器：resolve 出组件 → am start -n
         Fake f = new Fake().on(com.onesay.assistant.v2.executor.backend.ShellPrograms.RESOLVE_BROWSER, 0,
-                "priority=0 preferredOrder=0\ncom.sec.android.app.sbrowser/.SBrowserMainActivity\n");
+                "priority=0 preferredOrder=0\ncom.example.browser/.MainActivity\n");
         com.onesay.assistant.v2.executor.backend.ShellPrograms.forSign("browser.open.default").run(f, slots);
-        assertEquals("am start -n com.sec.android.app.sbrowser/.SBrowserMainActivity", f.cmds.get(1));
+        assertEquals("am start -n com.example.browser/.MainActivity", f.cmds.get(1));
         f = new Fake().on(com.onesay.assistant.v2.executor.backend.ShellPrograms.RESOLVE_BROWSER, 0, "No activity found; rm -rf /");
         com.onesay.assistant.v2.executor.backend.ShellPrograms.forSign("browser.open.default").run(f, slots);
         assertEquals("认不出组件（或输出被污染）→ 回落 VIEW", com.onesay.assistant.v2.executor.backend.ShellPrograms.BROWSER_FALLBACK, f.cmds.get(1));

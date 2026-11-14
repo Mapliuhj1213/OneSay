@@ -375,7 +375,7 @@ public class RingService extends Service {
         android.database.Cursor c = null;
         try {
             String uri = android.provider.Settings.System.getString(getContentResolver(), "default_vibration_pattern");
-            int id = VibePattern.BASIC_CALL;
+            int id = VibePattern.BASIC_CALL_ID;
             if (uri != null && uri.startsWith("content://")) {
                 c = getContentResolver().query(Uri.parse(uri), null, null, null, null);
                 if (c != null && c.moveToFirst()) { int i = c.getColumnIndex("vibration_pattern"); if (i >= 0) id = c.getInt(i); }

@@ -10,9 +10,17 @@
         android:label="读写计划（日程、待办、票、取件码、自动任务）"
         android:protectionLevel="signature" />
 
+    <!-- 伴侣连接：反查配对的 OneSay 助手（它的接收器受 signature 级 CONTROL 保护）。${assistantAppId} 是构建占位符：
+         build_linux.sh 按变体填（debug 构建 = com.onesay.assistant.debug，release = com.onesay.assistant，可用 ASSISTANT_APP_ID 覆盖），
+         与助手 build_linux.sh 的 debug 改名（…assistant.debug.permission.CONTROL）一一对应。 -->
+    <uses-permission android:name="${assistantAppId}.permission.CONTROL" />
+
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- [borrow-1112] 待办强提醒：前台响铃服务 + 锁屏整屏页 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:label="@string/app_name"
@@ -61,7 +69,21 @@
             android:exported="true"
             android:grantUriPermissions="false" />
 
+        <!-- 伴侣连接：配对的助手包名（构建占位符，见上） -->
+        <meta-data android:name="com.onesay.link.ASSISTANT" android:value="${assistantAppId}" />
+
         <receiver android:name=".remind.RemindReceiver" android:exported="false" />
+        <!-- [borrow-1112] 待办强提醒：响铃服务与整屏页，都不导出（只接自己的 Intent / PendingIntent） -->
+        <service android:name=".remind.StrongRingService" android:exported="false" />
+        <activity android:name=".ui.StrongAlertActivity"
+            android:theme="@style/TicketTheme"
+            android:screenOrientation="portrait"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.onesay.plan.strong"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:exported="false" />
         <receiver android:name=".remind.BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

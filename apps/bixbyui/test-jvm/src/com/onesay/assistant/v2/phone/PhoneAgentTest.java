@@ -107,6 +107,20 @@ public class PhoneAgentTest {
         assertEquals(PhoneAgent.Status.DONE, r.status);
     }
 
+    /** ★ approve-not-block 硬规则 ①：最终付款按钮机器人不点 —— 不问、你允许了也不点，停下来让你自己点。 */
+    @Test public void finalPayButtonIsNeverTappedByRobot() {
+        FakeScreens.Phone ph = new FakeScreens.Phone();
+        ph.add("pay", FakeScreens.screen("com.taobao.taobao", "Cashier").button("确认支付"));
+        FakeScreens.Script pl = new FakeScreens.Script("{\"steps\":[{\"do\":\"tap\",\"id\":{id:确认支付}}]}", "{\"done\":\"停在付款\"}");
+        FakeScreens.Host h = new FakeScreens.Host();
+        h.confirmAnswer = true;
+        PhoneAgent.Result r = new PhoneAgent(ph, pl, h).run("买下来", null);
+        assertEquals("不问（问了也不点）", 0, h.confirms.size());
+        assertFalse(ph.log.toString(), ph.log.contains("tap 确认支付"));
+        assertTrue(pl.users.get(1), pl.users.get(1).contains("只能你自己点"));
+        assertTrue(r.trace.toString(), r.trace.contains("pay_final_user_tap"));
+    }
+
     @Test public void navigationRowInSettingsDoesNotAskConfirmation() {
         FakeScreens.Phone ph = new FakeScreens.Phone();
         ph.add("home", FakeScreens.screen("com.android.settings", "S").row("密码与安全", "锁屏、指纹"));

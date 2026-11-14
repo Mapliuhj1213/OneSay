@@ -35,38 +35,15 @@ public final class StatusProbe {
         return sLast;
     }
 
-    static final String PREFS = "bixby_console", K_LAST_DAEMON_VER = "last_daemon_ver";
-
-    /** 控制台整理第二步：上次探到的按键守护版本（首帧占位用；读不到 = null）。 */
-    static String lastDaemonVer(Context ctx) {
-        try {
-            return ctx.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(K_LAST_DAEMON_VER, null);
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static void saveDaemonVer(Context app, ConsoleStatus.Snapshot s) {
-        String v = ConsoleStatus.daemonVersion(s);
-        if (v == null) return;
-        try {
-            if (!v.equals(lastDaemonVer(app))) app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(K_LAST_DAEMON_VER, v).apply();
-        } catch (Throwable ignored) {
-        }
-    }
-
-    /** 首帧用：还没探过时给一个「检测中」快照，带上次的守护版本占位（胶囊和探完时一样宽，见 {@link ConsoleStatus#pending}）。 */
+    /** 首帧用：还没探过时给一个「检测中」快照（见 {@link ConsoleStatus#pending}）。 */
     public static ConsoleStatus.Snapshot seed(Context ctx) {
-        ConsoleStatus.Snapshot s = new ConsoleStatus.Snapshot();
-        s.lastDaemonVer = lastDaemonVer(ctx);
-        return s;
+        return new ConsoleStatus.Snapshot();
     }
 
     public static void run(final Context ctx, final L2LLMCompiler compiler, final Listener l) {
         final Context app = ctx.getApplicationContext();
         final Handler h = new Handler(Looper.getMainLooper());
         final ConsoleStatus.Snapshot s = new ConsoleStatus.Snapshot();
-        s.lastDaemonVer = lastDaemonVer(app);
         final boolean[] finished = {false};
         final Runnable deadline = new Runnable() {
             @Override public void run() {
@@ -94,15 +71,12 @@ public final class StatusProbe {
                 } catch (Throwable t) {
                     s.rootOk = Boolean.FALSE;
                 }
-                post(h, l, s, finished);
-                if (Boolean.TRUE.equals(s.rootOk) && exec != null) {
-                    try {
-                        ShellExecutor.ShellResponse r = exec.execute(ConsoleStatus.DAEMON_PROBE);
-                        if (r.output != null && r.output.contains("END")) s.daemonProbe = r.output;
-                    } catch (Throwable ignored) {
-                        // 保持未知
-                    }
+                try {   // ★ priv-llm：「Shizuku 特权」（插件关 = null）
+                    s.shizukuOk = com.onesay.assistant.v2.platform.ExecBackendHost.shizukuReady(app);
+                } catch (Throwable t) {
+                    s.shizukuOk = null;
                 }
+                post(h, l, s, finished);
                 // 服务可能刚被 MainActivity 拉起：再读一次
                 s.wakeRunning = com.onesay.assistant.v2.wake.WakeService.isServiceRunning();
                 s.micReady = com.onesay.assistant.v2.wake.WakeService.isMicReady();
@@ -112,7 +86,6 @@ public final class StatusProbe {
                 }
                 h.removeCallbacks(deadline);
                 s.done = true;
-                saveDaemonVer(app, s);
                 final ConsoleStatus.Snapshot c = copy(s);
                 sLast = c;
                 h.post(new Runnable() {
@@ -120,9 +93,9 @@ public final class StatusProbe {
                         l.onStatus(c);
                     }
                 });
-                // ★ refactor/oss：状态卡先出，再把 root 通道 / 按键守护状态交给设备能力探测（只读，异常吞掉，不影响状态卡）
+                // ★ refactor/oss：状态卡先出，再把 root 通道状态交给设备能力探测（只读，异常吞掉，不影响状态卡）
                 try {
-                    com.onesay.assistant.v2.platform.DeviceCapabilityProbe.onStatus(app, c.rootOk, (Boolean) ConsoleStatus.parseDaemon(c.daemonProbe)[0]);
+                    com.onesay.assistant.v2.platform.DeviceCapabilityProbe.onStatus(app, c.rootOk);
                 } catch (Throwable ignored) {
                 }
             }
@@ -207,7 +180,7 @@ public final class StatusProbe {
         b.micReady = a.micReady;
         b.paused = a.paused;
         b.rootOk = a.rootOk;
-        b.daemonProbe = a.daemonProbe;
+        b.shizukuOk = a.shizukuOk;
         b.llmConfigured = a.llmConfigured;
         b.visionModel = a.visionModel;
         b.asrConfigured = a.asrConfigured;
@@ -218,7 +191,6 @@ public final class StatusProbe {
         b.micPermission = a.micPermission;
         b.asrKeyInvalid = a.asrKeyInvalid;
         b.done = a.done;
-        b.lastDaemonVer = a.lastDaemonVer;
         return b;
     }
 }

@@ -44,6 +44,21 @@ public final class SensitiveGuard {
     static final Pattern NAV_JOIN = Pattern.compile("[\\u4e00-\\u9fa5A-Za-z]+(与|和|及|&)[\\u4e00-\\u9fa5A-Za-z]+");
     static final Pattern NAV_TAIL = Pattern.compile("(设置|管理|中心|选项|详情|帮助|说明|安全|隐私|权限|账户|帐户|账号|帐号|方式|记录|历史|列表|服务|信息|偏好|模式|功能|向导)$");
 
+    /**
+     * ★ approve-not-block 硬规则 ①：付款 / 转账的最后一下（最终支付 / 确认转账 / 提交订单并支付）只能你亲手点 ——
+     * 机器人不代点，问过你、你说了「允许」也不点（{@link com.onesay.assistant.v2.pclink.LinkPolicy#finalPayLabel}）。前面的步骤（选商品、填地址、进收银台）照常确认。
+     * @return null = 不是；否则是给用户看的一句话。
+     */
+    public static String userMustTap(PhonePlan.Step s, UiTree screen) {
+        if (s == null || screen == null || s.id < 0) return null;
+        if (!"tap".equals(s.op) && !"long".equals(s.op)) return null;
+        UiTree.El e = screen.find(s.id);
+        if (e == null || e.edit) return null;
+        if (!com.onesay.assistant.v2.pclink.LinkPolicy.finalPayLabel(e.label)) return null;
+        String n = e.label.length() > 16 ? e.label.substring(0, 16) + "…" : e.label;
+        return "付款 / 转账的最后一下（「" + n + "」）只能你自己点";
+    }
+
     /** @return null = 不敏感；否则是给用户看的原因（「这一步是付款」）。 */
     public static String check(PhonePlan.Step s, UiTree screen) {
         UiTree.El e = s.id >= 0 && screen != null ? screen.find(s.id) : null;

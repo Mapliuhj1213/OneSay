@@ -8,6 +8,8 @@ import android.os.Build;
 /** 建通知渠道；首启后台预热件库（ogg → pcm 永久缓存，之后现拼开场不用解码）。 */
 public class App extends Application {
     public static final String CH_ALARM = "bc_alarm_quiet", CH_WORK = "bc_work_quiet";
+    /** [borrow-1112] 错过的闹钟（普通重要性：会在通知栏出现，不响铃）。 */
+    public static final String CH_MISSED = "bc_missed";
     static final String[] OLD_CHANNELS = {"bc_alarm", "bc_work"};
 
     @Override public void onCreate() {
@@ -27,6 +29,10 @@ public class App extends Application {
             w.enableVibration(false);
             w.setShowBadge(false);
             nm.createNotificationChannel(w);
+            NotificationChannel ms = new NotificationChannel(CH_MISSED, "错过的闹钟", NotificationManager.IMPORTANCE_DEFAULT);
+            ms.setDescription("手机关机、时间或时区变化导致没响的闹钟，事后提醒一条（不补响）");
+            ms.setShowBadge(true);
+            nm.createNotificationChannel(ms);
         }
         migrate();
         try {

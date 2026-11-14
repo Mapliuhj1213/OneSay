@@ -98,7 +98,7 @@ public final class MinedCapabilities {
         put("apn_editor", "apn", "接入点");
         put("home_settings", "主屏幕", "桌面设置");
         put("backup_settings", "备份");
-        put("cloud_account_settings", "云账户", "三星云", "云");
+        put("cloud_account_settings", "云账户", "云");
         put("device_admin_settings", "设备管理器");
         put("device_visibility_settings", "可见性", "设备可见");
         put("dock_settings", "底座");
@@ -115,7 +115,6 @@ public final class MinedCapabilities {
         put("manage_applications", "应用管理", "管理应用");
         put("default_autofill_picker", "自动填充");
         put("dock_settings_2", "底座");
-        put("samsung_ad_id_about", "广告标识");
         // ---- 时钟 ----
         put("set_alarm", "闹钟", "设闹钟", "定闹钟");
         put("dismiss_alarm", "关闭闹钟", "关闹钟");
@@ -123,7 +122,7 @@ public final class MinedCapabilities {
         put("show_alarms", "闹钟", "闹钟列表", "查看闹钟");
         put("set_timer", "计时器", "倒计时", "秒表计时");
         // ---- 笔记 / 日程 / 短信 / 联系人 ----
-        put("memo_list", "笔记", "备忘录", "三星笔记");
+        put("memo_list", "笔记", "备忘录");
         put("memo_picker", "笔记");
         put("native_composer_action_new", "新建笔记", "记笔记");
         put("all_in_one", "日历", "日程");
@@ -144,7 +143,6 @@ public final class MinedCapabilities {
         // ---- 浏览器 / 商店 / 相册 / 相机 ----
         put("web_search", "搜索", "网页搜索");
         put("search_result", "搜索结果");
-        put("samsung_apps_main", "三星应用商店", "应用商店");
         put("asset_browser", "应用商店");
         put("gallery", "相册", "图库");
         put("camera", "相机", "拍照");

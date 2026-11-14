@@ -24,8 +24,7 @@ public final class PrivateApps {
 
     static final String[] BUILTIN = {
             // 支付
-            "com.eg.android.AlipayGphone", "com.unionpay", "com.jd.jrapp", "com.samsung.android.spay", "com.samsung.android.samsungpass",
-            // 银行
+            "com.eg.android.AlipayGphone", "com.unionpay", "com.jd.jrapp", // 银行
             "com.icbc", "com.chinamworld.main", "com.android.bankabc", "com.chinamworld.bocmbci", "cmb.pb", "com.bankcomm.Bankcomm",
             "com.ecitic.bank.mobile", "com.cebbank.mobile.cemb", "com.yitong.mbank.psbc", "cn.com.spdb.mobilebank.per", "com.cib.cibmb",
             "com.pingan.paces.ccms", "cn.com.cmbc.newmbank", "com.hxb.mobile.client", "com.webank.wemoney",
@@ -33,8 +32,7 @@ public final class PrivateApps {
             "com.x8bit.bitwarden", "com.agilebits.onepassword", "com.lastpass.lpandroid", "keepass2android.keepass2android",
             "com.kunzisoft.keepass.free", "com.kunzisoft.keepass.libre",
             // 三星安全文件夹
-            "com.samsung.knox.securefolder",
-    };
+            };
 
     public static Set<String> defaults() {
         Set<String> s = new LinkedHashSet<String>(Arrays.asList(BUILTIN));

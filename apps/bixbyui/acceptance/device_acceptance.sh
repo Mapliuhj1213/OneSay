@@ -3070,8 +3070,8 @@ cmd_contacts() {
 # 每个内核插件对应一个验收模块（插件的 acceptanceModule()）；JVM 测试 AcceptanceScriptKernelTest 校验两边一致。
 # hello（示例插件）没有模块；kernel 是内核自身的模块。
 PLUGIN_MODULES="s1 island s2 roles diag summary imgsave s3 screenref quicknote kernel"
-KERNEL_PLUGINS="s1 island s2 roles diag summary imgsave s3 screenref quicknote brief conn errand callback notice sched planner rain phone phongent suggest askonce hello"
-KERNEL_TAKEOVER_PREFIX="order TAKEOVER = [roles, imgsave, summary, rain, planner, sched, s3, s2, diag"   # 11-06 rain（270，分钟级降水）在计划 App 前   # 11-05 planner（285）在本地日程（290）前   # 11-04：roles（50）只在安装卡在屏时接管「不用了」，排最前
+KERNEL_PLUGINS="s1 island s2 roles diag summary imgsave s3 screenref quicknote brief conn errand callback notice sched planner rain phone phongent suggest askonce pclink apifirst vyrse hello"   # 11-08 compat-vyrse +vyrse（默认关）   # [integ] 2026-11-13 集成线合入 apifirst 与 vyrse
+KERNEL_TAKEOVER_PREFIX="order TAKEOVER = [roles, imgsave, summary, rain, pclink, planner, sched, s3, s2, diag"   # 11-08 pclink（275，电脑联动口令）在降水后、计划 App 前   # 11-06 rain（270，分钟级降水）在计划 App 前   # 11-05 planner（285）在本地日程（290）前   # 11-04：roles（50）只在安装卡在屏时接管「不用了」，排最前
 KERNEL_SCREENREF_HOOKS="WAKE AGENT_TOOLS AGENT_PROMPT AGENT_DESCRIBE AGENT_PRECHECK AGENT_EXECUTE SCREEN_REFERENCE TEXT_MODE REGION_CHIPS"
 
 cmd_kernel() {

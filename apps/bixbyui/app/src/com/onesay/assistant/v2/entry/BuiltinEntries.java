@@ -14,7 +14,7 @@ import java.util.List;
  * 只负责收到点击后调 {@code EntryRegistry.fire(id, mode)}；开关、可用性都在这里声明。
  *
  * <p>默认开关：会开麦且由用户自己摆出来的入口（快捷开关 / 小部件 / 快捷方式 / 默认助理）默认开 ——
- * 用户不去添加就不会出现；任何 App 都能发的公开 Intent、常驻监听的唤醒词、厂商按键劫持默认关。
+ * 用户不去添加就不会出现；任何 App 都能发的公开 Intent、常驻监听的唤醒词、按键唤醒默认关。
  */
 public final class BuiltinEntries {
     private BuiltinEntries() {}
@@ -25,11 +25,13 @@ public final class BuiltinEntries {
     public static final String SHORTCUT = "entry.shortcut";
     public static final String WAKE_WORD = "entry.wake_word";
     public static final String INTENT = "entry.intent";
+    /** 按键唤醒（Key wake）：双击电源键 / 长按音量键 / 原始按键事件，托管在无障碍服务里，默认关。见 {@link com.onesay.assistant.v2.entry.keywake.KeyWake}。 */
+    public static final String KEY_WAKE = "entry.key_wake";
 
     /** 公开 Intent：{@code am start -a com.onesay.assistant.action.SUMMON}（调用方需申请危险级权限，且用户在设置里打开）。 */
     public static final String ACTION_SUMMON = "com.onesay.assistant.action.SUMMON";
     public static final String PERMISSION_SUMMON = "com.onesay.assistant.permission.SUMMON";
-    /** 可选 extra：{@code "voice"}（默认）或 {@code "text"}。 */
+    /** 可选 extra：{@code "voice"}（默认）、{@code "text"} 或 {@code "screen"}（识屏）。 */
     public static final String EXTRA_MODE = "com.onesay.assistant.extra.MODE";
 
     /** SYSTEM 入口打开 / 关闭时，宿主据此启停 Manifest 组件（JVM 单测里为 null）。 */
@@ -100,7 +102,7 @@ public final class BuiltinEntries {
         return sb.toString();
     }
 
-    /** 内置入口（不含厂商入口）。顺序即设置页顺序。 */
+    /** 内置入口。顺序即设置页顺序。 */
     public static List<EntryTrigger> create(ComponentSwitch sw) {
         List<EntryTrigger> l = new ArrayList<EntryTrigger>();
         l.add(new Simple(ASSISTANT, "默认数字助理", "长按 Home / 电源键或助理手势唤起；先在系统「默认应用 › 数字助理」里选 OneSay",
@@ -116,6 +118,8 @@ public final class BuiltinEntries {
         l.add(new Simple(INTENT, "外部 App 唤起（公开 Intent）",
                 "允许其他 App 用 " + ACTION_SUMMON + " 唤起 OneSay；对方还必须申请「" + PERMISSION_SUMMON + "」并经你授权",
                 EntryTrigger.Kind.SYSTEM, false, 23, null, sw));
+        l.add(new Simple(KEY_WAKE, com.onesay.assistant.v2.entry.keywake.KeyWake.LABEL, com.onesay.assistant.v2.entry.keywake.KeyWake.DESCRIPTION,
+                EntryTrigger.Kind.LISTENER, false, 24, new String[]{"ACCESSIBILITY"}, null));
         return l;
     }
 
@@ -124,8 +128,12 @@ public final class BuiltinEntries {
         for (EntryTrigger t : create(sw)) EntryRegistry.register(t);
     }
 
-    /** 公开 Intent 的 mode extra → Mode（未知值按语音）。 */
+    /** 公开 Intent / 快捷方式的 mode extra → Mode（未知值按语音）。 */
     public static EntryTrigger.Mode parseMode(String s) {
-        return s != null && s.trim().equalsIgnoreCase("text") ? EntryTrigger.Mode.TEXT : EntryTrigger.Mode.VOICE;
+        if (s == null) return EntryTrigger.Mode.VOICE;
+        String t = s.trim();
+        if (t.equalsIgnoreCase("text")) return EntryTrigger.Mode.TEXT;
+        if (t.equalsIgnoreCase("screen")) return EntryTrigger.Mode.SCREEN;
+        return EntryTrigger.Mode.VOICE;
     }
 }

@@ -66,7 +66,7 @@ public class CoreTest {
     }
 
     static void vibe() {
-        eq("vibe 三星 Basic call = [0, 1500, 2000]", "[0, 1500, 2000]", java.util.Arrays.toString(VibePattern.SAMSUNG_BASIC_CALL));
+        eq("vibe Basic call = [0, 1500, 2000]", "[0, 1500, 2000]", java.util.Arrays.toString(VibePattern.BASIC_CALL));
         eq("vibe 从头整段重复", 0, VibePattern.REPEAT);
         eq("vibe 50035 → config_vibeCommonK", "config_vibeCommonK", VibePattern.resName(50035));
         eq("vibe 50025 → A", "config_vibeCommonA", VibePattern.resName(50025));
@@ -74,7 +74,7 @@ public class CoreTest {
         eq("vibe 系统读不到 → Basic call", "[0, 1500, 2000]", java.util.Arrays.toString(VibePattern.choose(null)));
         eq("vibe 系统读到 → 跟随", "[0, 250, 250, 250]", java.util.Arrays.toString(VibePattern.choose(new long[]{0, 250, 250, 250})));
         ok("vibe 坏数组 → Basic call", VibePattern.choose(new long[]{0, -1}).length == 3 && VibePattern.choose(new long[]{0, 0}).length == 3);
-        ok("vibe 不是旧的 600/600", VibePattern.SAMSUNG_BASIC_CALL[1] != 600L);
+        ok("vibe 不是旧的 600/600", VibePattern.BASIC_CALL[1] != 600L);
     }
 
     static void flags() {
@@ -201,10 +201,11 @@ public class CoreTest {
     }
 
     static void haptics() {
-        // 0.1.3：默认映射 = 本机三星时钟 7.0.92.4 实测做法
+        // 默认映射：老式系统时钟的触感分布，用标准 VibrationEffect 实现
         HapticMap.Act g = HapticMap.active(HapticMap.Ev.SLIDE_GRAB), tr = HapticMap.active(HapticMap.Ev.SLIDE_TRIGGER);
-        ok("hap 滑动按住 semVibrate(50025)", g.kind == HapticMap.Kind.SEM_VIBRATE && g.code == 50025 && g.fallback == 1);
-        ok("hap 滑动触发 semVibrate(50025)", tr.kind == HapticMap.Kind.SEM_VIBRATE && tr.code == 50025);
+        ok("hap 滑动按住 = 点击振动", g.kind == HapticMap.Kind.VIBRATE && g.code == HapticMap.VIB_CLICK && g.fallback == 1);
+        ok("hap 滑动触发 = 点击振动", tr.kind == HapticMap.Kind.VIBRATE && tr.code == HapticMap.VIB_CLICK);
+        ok("hap 点击振动 12 ms 满幅", HapticMap.oneShotMs(HapticMap.VIB_CLICK) == 12 && HapticMap.amplitude(HapticMap.VIB_CLICK) == 255);
         HapticMap.Act tk = HapticMap.active(HapticMap.Ev.TIME_TICK);
         ok("hap 滚轮每格 playSoundEffect(105)", tk.kind == HapticMap.Kind.SOUND_EFFECT && tk.code == 105);
         eq("hap 长按交给框架", HapticMap.Kind.FRAMEWORK, HapticMap.active(HapticMap.Ev.LONG_PRESS).kind);
@@ -214,12 +215,6 @@ public class CoreTest {
         ok("hap 触摸时振动=1 → 滑动振", HapticMap.allowed(g, 1));
         ok("hap 滚轮音效由系统触摸音管", HapticMap.allowed(tk, 0));
         ok("hap NONE/FRAMEWORK 永不由 App 发", !HapticMap.allowed(HapticMap.active(HapticMap.Ev.SWITCH_TOGGLE), 1) && !HapticMap.allowed(HapticMap.active(HapticMap.Ev.LONG_PRESS), 1));
-        // 新版对照表（不启用；Android 8 没有 semGetVibrationIndex）
-        eq("hap 新版开关 27", 27, HapticMap.neu(HapticMap.Ev.SWITCH_TOGGLE).code);
-        eq("hap 新版滚轮 32", 32, HapticMap.neu(HapticMap.Ev.TIME_TICK).code);
-        eq("hap 新版贪睡 40", 40, HapticMap.neu(HapticMap.Ev.SNOOZE_STEP).code);
-        eq("hap 新版滑动 43", 43, HapticMap.neu(HapticMap.Ev.SLIDE_GRAB).code);
-        ok("hap 新版 SEM_INDEX 在本机不发", !HapticMap.allowed(HapticMap.neu(HapticMap.Ev.SWITCH_TOGGLE), 1));
     }
 
     static void ringPlan() {
@@ -544,12 +539,6 @@ public class CoreTest {
         String[] keys = {"yujiaxue","leizhenyu","baoyu","dayu","zhongyu","zhenyu","xiaoyu","xiayu","daxue","xiaoxue","xiaxue","wumai","youwu","shachen","duoyun","yin","qinglang","dafeng"};
         boolean allIcon = true; for (String k : keys) if (WeatherCode.icon(k, 12) == null) allIcon = false;
         ok("icon 18 个天气键都有图标", allIcon);
-        eq("samsung 局部多云/30", "duoyun", WeatherCode.fromSamsung("局部多云", 30));
-        eq("samsung 大部多云/28", "duoyun", WeatherCode.fromSamsung("大部多云", 28));
-        eq("samsung 描述认不出看图标 32", "qinglang", WeatherCode.fromSamsung("Sunny", 32));
-        eq("samsung 描述认不出看图标 12", "zhongyu", WeatherCode.fromSamsung("", 12));
-        eq("samsung 雷阵雨 4", "leizhenyu", WeatherCode.fromSamsung("雷阵雨", 4));
-        ok("samsung 都认不出 → null", WeatherCode.fromSamsung("??", 44) == null);
         eq("twc 26 阴", "yin", WeatherCode.fromTwc(26)); eq("twc 20 雾", "youwu", WeatherCode.fromTwc(20));
         ok("celsius 摄氏原样", WeatherCode.celsius(28.0, 1) == 28.0);
         ok("celsius 华氏换算", WeatherCode.celsius(82.0, 0) == 28.0);

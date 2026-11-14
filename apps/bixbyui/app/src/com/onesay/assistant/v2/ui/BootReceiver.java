@@ -37,7 +37,9 @@ public class BootReceiver extends BroadcastReceiver {
         }
         if (Intent.ACTION_BOOT_COMPLETED.equals(action) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
             com.onesay.assistant.v2.s3.S3Scheduler.reschedule(context, action);   // [s3] 闹钟在重启 / 更新后会丢，重排
-            com.onesay.assistant.v2.s3.S3Scheduler.startRunner(context, action);  // [s3] 补触发错过不到 1 小时的任务
+            // 唤醒修复（11-08 真机 ANR）：先拉 WakeService、后拉面板服务 —— 两个服务的 onCreate 都排在这条主线程上，
+            //   旧顺序让 FloatingSheetService.onCreate（插件初始化，重装后首次很慢）排在 WakeService 前面，
+            //   WakeService 的前台时限（Android 8.0 只有 5 s）在排队时就耗光了。WakeService.onCreate 第一件事就是前台声明。
             Log.i(TAG, "系统就绪，自动唤醒 OneSay WakeService 常驻监听服务");
             Intent it = new Intent(context, com.onesay.assistant.v2.wake.WakeService.class);
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -45,6 +47,7 @@ public class BootReceiver extends BroadcastReceiver {
             } else {
                 context.startService(it);
             }
+            com.onesay.assistant.v2.s3.S3Scheduler.startRunner(context, action);  // [s3] 补触发错过不到 1 小时的任务（排在 WakeService 之后）
         }
     }
 }

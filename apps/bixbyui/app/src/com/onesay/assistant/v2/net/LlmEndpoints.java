@@ -28,7 +28,6 @@ public final class LlmEndpoints {
     /** 仅 JVM 单测（同包）打开：允许把请求发往本机 127.0.0.1 的假服务器。生产代码从不设置。 */
     static volatile boolean sTestAllowLoopback = false;
 
-    private static volatile String sDeepseek = DEEPSEEK_PRESET;
     private static volatile String sDashscope = DASHSCOPE_PRESET;
 
     /**
@@ -65,25 +64,33 @@ public final class LlmEndpoints {
         }
     }
 
-    /** 只有 https 且主机与已配置的某个大模型 base 一致时才允许带 Key。 */
+    /**
+     * 只有 https 且主机与已配置的某个大模型 base 一致时才允许带 Key。
+     * ★ console-align：主模型 base 由 {@link MainModelEndpoint} 管（同一个 prefs 键）；debug 包里主模型配成 http 时，同主机的 http 也放行。
+     */
     public static boolean keyAllowedFor(String url) {
         if (sTestAllowLoopback && url != null && url.startsWith("http://127.0.0.1:")) return true;
-        if (url == null || !url.regionMatches(true, 0, "https://", 0, 8)) return false;
+        if (url == null) return false;
         String h = host(url);
-        return h != null && (h.equals(host(sDeepseek)) || h.equals(host(sDashscope)));
+        if (h == null) return false;
+        if (url.regionMatches(true, 0, "http://", 0, 7)) {
+            return MainModelEndpoint.allowHttp() && MainModelEndpoint.base().regionMatches(true, 0, "http://", 0, 7) && h.equals(host(MainModelEndpoint.base()));
+        }
+        if (!url.regionMatches(true, 0, "https://", 0, 8)) return false;
+        return h.equals(host(MainModelEndpoint.base())) || h.equals(host(sDashscope));
     }
 
-    public static String deepseekBase() { return sDeepseek; }
+    public static String deepseekBase() { return MainModelEndpoint.base(); }
     public static String dashscopeBase() { return sDashscope; }
-    public static String deepseekChatUrl() { return sDeepseek + "/chat/completions"; }
-    public static String deepseekModelsUrl() { return sDeepseek + "/models"; }
+    public static String deepseekChatUrl() { return MainModelEndpoint.chatUrl(); }
+    public static String deepseekModelsUrl() { return MainModelEndpoint.modelsUrl(); }
     public static String dashscopeChatUrl() { return sDashscope + "/chat/completions"; }
     public static String dashscopeModelsUrl() { return sDashscope + "/models"; }
 
     /** 测试用 / 进程内设置（不落盘）；非法值回落预置。 */
     public static void setForProcess(String deepseekBase, String dashscopeBase) {
         String d = normalize(deepseekBase), q = normalize(dashscopeBase);
-        sDeepseek = d != null ? d : DEEPSEEK_PRESET;
+        MainModelEndpoint.setForProcess(d != null ? d : DEEPSEEK_PRESET, false);
         sDashscope = q != null ? q : DASHSCOPE_PRESET;
     }
 
@@ -95,17 +102,16 @@ public final class LlmEndpoints {
     public static void load(Context c) {
         try {
             SharedPreferences p = sp(c);
-            setForProcess(p.getString(K_DEEPSEEK, DEEPSEEK_PRESET), p.getString(K_DASHSCOPE, DASHSCOPE_PRESET));
+            String q = normalize(p.getString(K_DASHSCOPE, DASHSCOPE_PRESET));
+            sDashscope = q != null ? q : DASHSCOPE_PRESET;
+            MainModelEndpoint.load(c);   // ★ console-align：主模型地址（同一个键 deepseek_base_url；debug 包也认 http）
         } catch (Throwable ignored) { }
+        com.onesay.assistant.v2.llm.ProviderStore.apply(c);   // ★ priv-llm：主对话服务商（没选别家 = 原 DeepSeek 通道）
     }
 
-    /** 保存 DeepSeek base；非法返回 false 且不改。空串 = 恢复预置。 */
+    /** 保存主模型 base（★ console-align：交给 {@link MainModelEndpoint}，同一个键）；非法返回 false 且不改。空串 = 恢复预置。 */
     public static boolean saveDeepseek(Context c, String base) {
-        String n = (base == null || base.trim().length() == 0) ? DEEPSEEK_PRESET : normalize(base);
-        if (n == null) return false;
-        sp(c).edit().putString(K_DEEPSEEK, n).apply();
-        sDeepseek = n;
-        return true;
+        return MainModelEndpoint.save(c, base).ok;
     }
 
     /** 保存 DashScope 兼容模式 base；非法返回 false 且不改。空串 = 恢复预置。 */

@@ -95,7 +95,7 @@ public class KeysActivity extends Activity {
 
         LinearLayout c = card(col, "大模型 · DeepSeek", "必填", "理解指令、回答问题、多步任务");
         status.put(S_LLM, row(c, "API Key", new Runnable() { public void run() { editSecret(S_LLM); } }));
-        llmBaseSub = row(c, "服务地址（Base URL）", new Runnable() { public void run() { editBase(true); } });
+        llmBaseSub = row(c, "接口地址（Base URL）"   /* ★ console-align：与「模型与密钥 › 主模型 › 接口地址」同名 */, new Runnable() { public void run() { editBase(true); } });
         fieldRow(c, "对话模型", "模型名，例如 deepseek-flash；留空 = 预置", new Field() {
             public String current() { return com.onesay.assistant.v2.net.LlmModels.chat(); }
             public String preset() { return com.onesay.assistant.v2.net.LlmModels.DEEPSEEK_DEFAULT; }
@@ -230,7 +230,7 @@ public class KeysActivity extends Activity {
     }
 
     static String label(String s) {
-        if (S_LLM.equals(s)) return "DeepSeek API Key";
+        if (S_LLM.equals(s)) return "主模型 API Key";   // ★ console-align：原「DeepSeek API Key」（主模型地址可改了）
         if (S_DS.equals(s)) return "百炼 API Key";
         if (S_TAVILY.equals(s)) return "Tavily API Key";
         if (S_BOCHA.equals(s)) return "博查 API Key";
@@ -326,7 +326,7 @@ public class KeysActivity extends Activity {
         e.setSingleLine(true);
         e.setHint(deepseek ? com.onesay.assistant.v2.net.LlmEndpoints.DEEPSEEK_PRESET : com.onesay.assistant.v2.net.LlmEndpoints.DASHSCOPE_PRESET);
         e.setText(deepseek ? com.onesay.assistant.v2.net.LlmEndpoints.deepseekBase() : com.onesay.assistant.v2.net.LlmEndpoints.dashscopeBase());
-        secure(new AlertDialog.Builder(this).setTitle(deepseek ? "大模型服务地址" : "百炼兼容模式地址")
+        secure(new AlertDialog.Builder(this).setTitle(deepseek ? "主模型接口地址" : "百炼兼容模式地址")
                 .setMessage("OpenAI 兼容接口的 Base URL（不含 /chat/completions），只允许 https。留空恢复预置。对应的 Key 只会发往这个主机。")
                 .setView(e).setPositiveButton("保存", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
