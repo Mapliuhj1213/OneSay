@@ -146,6 +146,11 @@ public final class PhonePlugin extends FeaturePlugin {
     @Override public boolean consoleV2() { return true; }
     @Override public boolean enabled(Context ctx) { return PhoneHooks.enabled(ctx); }
 
+    /** ★ a11y-labels：「显示按钮」给可点控件标号、「N号」点选（只认整句就是这个意思的说法）。 */
+    @Override public boolean interceptCommand(com.onesay.assistant.v2.ui.FloatingSheetService svc, String command) {
+        return com.onesay.assistant.v2.a11ylabel.ButtonNumbersHooks.intercept(svc, command);
+    }
+
     @Override public String debugStatus(Context ctx) {
         return "enabled=" + enabled(ctx) + " fastscreen=" + FastScreen.enabled(ctx) + " " + FastScreen.get(ctx).status() + " busy=" + PhoneHooks.busy()
                 + " replay=" + PhoneHooks.replayEnabled(ctx) + " " + PhoneHooks.replayStore(ctx).stats();

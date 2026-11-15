@@ -159,13 +159,29 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
             setTexts++;
             return r.substring(4);
         }
-        // 退回：剪贴板 + 粘贴（先点一下让输入框拿到焦点）
+        // 退回：剪贴板 + 粘贴（先点一下让输入框拿到焦点）。★ a11y-labels：粘完还原用户原来的剪贴板（ClipboardGuard），
+        // 放进剪贴板的内容标记为敏感（系统剪贴板预览不展示）
         if (e != null) tap(e);
-        if (!setClip(text)) return null;
-        SystemClock.sleep(120);
-        if (!mFs.paste()) return null;
+        com.onesay.assistant.plug.action.core.ClipboardGuard.Result cr = com.onesay.assistant.plug.action.core.ClipboardGuard.pasteAndRestore(
+                new com.onesay.assistant.plug.action.core.ClipboardGuard.ClipboardPort() {
+                    @Override public String get() {
+                        return getClip();
+                    }
+
+                    @Override public boolean set(String t) {
+                        return setClip(t);
+                    }
+                }, text, new com.onesay.assistant.plug.action.core.ClipboardGuard.Paste() {
+                    @Override public boolean paste() {
+                        SystemClock.sleep(120);
+                        boolean ok = mFs.paste();
+                        if (ok) mFs.idle(200, 1000);
+                        return ok;
+                    }
+                });
+        if (!cr.ok) return null;
         pastes++;
-        mFs.idle(200, 1000);
+        if (cr.restored) clipRestores++;
         FsTree t = mFs.tree();
         if (t == null) return null;
         for (FsTree.Node n : t.nodes) if (n.has(FsTree.F_EDIT) && n.text.contains(text)) return n.text;
@@ -280,7 +296,14 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
             @Override public void run() {
                 try {
                     ClipboardManager cm = (ClipboardManager) mApp.getSystemService(Context.CLIPBOARD_SERVICE);
-                    cm.setPrimaryClip(ClipData.newPlainText("bixbyui", text));
+                    ClipData cd = ClipData.newPlainText("onesay", text);
+                    try {   // ★ a11y-labels：标记敏感（Android 13 起系统据此不弹剪贴板预览；低版本忽略这个附加信息）
+                        android.os.PersistableBundle ex = new android.os.PersistableBundle();
+                        ex.putBoolean(SENSITIVE_EXTRA, true);
+                        cd.getDescription().setExtras(ex);
+                    } catch (Throwable ignored) {
+                    }
+                    cm.setPrimaryClip(cd);
                     ok[0] = true;
                 } catch (Throwable t) {
                     SafeLog.w(TAG, "[PHONE] 设剪贴板失败: " + t);
@@ -294,6 +317,9 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         }
         return ok[0];
     }
+
+    /** ClipDescription.EXTRA_IS_SENSITIVE（API 33 常量，按字面写，低版本编译也能用）。 */
+    static final String SENSITIVE_EXTRA = "android.content.extra.IS_SENSITIVE";
 
     @Override public boolean scroll(UiTree.El e, int dir) {
         if (mk(1)) {   // ★ mika-plug：ref 所在的可滚祖先（助手按落点找最深可滚节点）→ 屏中线滑动

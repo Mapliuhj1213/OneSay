@@ -153,6 +153,26 @@ public final class PhoneAgent {
     /** ★ borrow-1112 统计：模型自报风险让本地多问了几次、污染后发送类多问了几次。 */
     public int riskTightened, taintConfirms;
 
+    /**
+     * ★ a11y-labels：精准标签 + 动作绑定快照（默认关 = 原行为；真机宿主 PhoneHooks 打开）。开：每次读树贴标签（快照 ID、节点键、
+     * 角色…），给模型看标签口径；指名控件的动作执行前重读树，包名 / Activity 变了或节点键找不到就拒绝、交回新界面，不按旧坐标点。
+     */
+    public boolean labels;
+    /** 快照 ID 来源（测试可换）。 */
+    public com.onesay.assistant.v2.a11ylabel.A11yLabeler.Ids snapIds = com.onesay.assistant.v2.a11ylabel.A11yLabeler.DEFAULT_IDS;
+    /** ★ a11y-labels 统计：绑定拒绝次数、编号变了按键改绑的次数。 */
+    public int bindRefused, bindRebound;
+
+    /** 读一次树（labels 开时顺手贴标签）。 */
+    private UiTree obs() {
+        return lab(mD.observe(mIds));
+    }
+
+    private UiTree lab(UiTree u) {
+        if (labels && u != null && !u.labeled()) com.onesay.assistant.v2.a11ylabel.A11yLabeler.attach(u, snapIds.next(), mD.now());
+        return u;
+    }
+
     private final Driver mD;
     private final Planner mP;
     private final Host mH;
@@ -175,7 +195,7 @@ public final class PhoneAgent {
             mD.launch(startPkg);
             mD.waitIdle(400, 4000);
         }
-        UiTree screen = startPkg != null && startPkg.length() > 0 ? observeAfterAction("打开应用") : mD.observe(mIds);
+        UiTree screen = startPkg != null && startPkg.length() > 0 ? observeAfterAction("打开应用") : obs();
         String lastBatchReport = "";
         boolean wantShot = false;
         int stepNo = 0;
@@ -216,7 +236,7 @@ public final class PhoneAgent {
                 if (mRec != null) mRec.taint("用户接手过（中间的手动操作没记下来）");
                 history.add("用户接手（" + tk + "）后点了继续" + (sup[0] != null && sup[0].length() > 0 ? "，补充：" + sup[0] : ""));
                 budget.resetProgress();
-                screen = mD.observe(mIds);
+                screen = obs();
                 lastBatchReport = "（用户刚接手过，界面已重新读取）";
                 continue;
             }
@@ -239,7 +259,7 @@ public final class PhoneAgent {
                 if (v == TaskBudget.Verdict.LIMIT) budget.extend();
                 budget.resetProgress();
                 history.add("（" + budget.reason + "，用户让继续" + (sup[0] != null && sup[0].length() > 0 ? "，补充：" + sup[0] : "") + "）");
-                screen = mD.observe(mIds);
+                screen = obs();
                 continue;
             }
             // ③ 问模型
@@ -252,7 +272,8 @@ public final class PhoneAgent {
             budget.onModelCall();
             mH.onStep("思考", stepNo);
             String sys = legacyOneStep ? PhonePrompt.systemLegacy() : PhonePrompt.system();
-            if (mika != null) sys = sys + mika.promptAddendum();
+            if (mika != null) sys = sys + mika.promptAddendum(labels);
+            if (labels) sys = sys + PhonePrompt.labelsAddendum();   // ★ a11y-labels
             String out = mP.next(sys, user);
             if (out == null) return finish(res, Status.FAILED, "", "模型没有返回", budget, t0);
             PhonePlan plan = PhonePlan.parse(out, mika != null && mika.f.dosteps);
@@ -272,7 +293,7 @@ public final class PhoneAgent {
                     if (!ok) return finish(res, Status.STOPPED, "", "用户没有同意：" + plan.answer, budget, t0);
                     history.add("问用户「" + clip(plan.answer, 40) + "」→ " + (ans[0] != null && ans[0].length() > 0 ? ans[0] : "同意"));
                     budget.resetProgress();
-                    screen = mD.observe(mIds);
+                    screen = obs();
                     lastBatchReport = "";
                     continue;
                 }
@@ -284,7 +305,7 @@ public final class PhoneAgent {
                     if (mRec != null) mRec.taint("收集列表的步骤不回放");
                     mH.onStep("收集列表", ++stepNo);
                     String got = collect(screen, plan.collectUntil, plan.collectPages, budget);
-                    UiTree after = mD.observe(mIds);
+                    UiTree after = obs();
                     lastBatchReport = "收集结果（逐屏下滑，已去重）：\n" + got + "\n" + UiTree.diff(screen, after, 8);
                     history.add("collect until=" + plan.collectUntil);
                     screen = after;
@@ -359,10 +380,37 @@ public final class PhoneAgent {
                 pendingTakeover = tk;
                 break;
             }
-            if (i == 0 && !mReplaying && settle != null && settle.recheckRefs && targetsRef(s) && cur != null && cur.find(s.id) != null) {
+            boolean bound = false;
+            boolean xyTap = s.op.equals("tap") && s.id < 0 && s.x >= 0 && s.y >= 0;
+            if (labels && !mReplaying && screen != null && screen.labeled() && (targetsRef(s) || xyTap)) {
+                // ★ a11y-labels：动作绑定到模型看的那个快照（快照 ID + 节点键）。第一步前重读一次树；后面的步骤 cur 就是上一步动作后刚读的。
+                UiTree fresh = i == 0 ? obs() : cur;
+                com.onesay.assistant.v2.a11ylabel.SnapshotBinding.Verdict bv = xyTap
+                        ? com.onesay.assistant.v2.a11ylabel.SnapshotBinding.checkPage(screen, fresh, mD.now(), 0)
+                        : com.onesay.assistant.v2.a11ylabel.SnapshotBinding.check(screen, s.id, fresh, mD.now(), 0);
+                if (bv.refused()) {
+                    bindRefused++;
+                    refStale++;
+                    res.trace.add(bv.trace());
+                    if (fresh != null) cur = fresh;
+                    rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(StableRead.REF_STALE).append("：").append(bv.reason)
+                            .append(receipt(res, StepReceipt.Code.STALE_ELEMENT)).append("\n");
+                    break;
+                }
+                if (bv.ok()) {
+                    bound = true;
+                    cur = fresh;
+                    if (bv.target != null && bv.target.id != s.id) {   // 同一个节点换了编号：按键改绑，不点旧编号
+                        res.trace.add("bind rebind [" + s.id + "→" + bv.target.id + "] " + bv.nodeKey);
+                        s.id = bv.target.id;
+                        bindRebound++;
+                    }
+                }
+            }
+            if (!bound && i == 0 && !mReplaying && settle != null && settle.recheckRefs && targetsRef(s) && cur != null && cur.find(s.id) != null) {
                 // ★ stable-screen：模型思考的这几秒里界面可能自己变了（加载完、弹窗、列表刷新）。执行前重读一次，
                 // 编号还在就按新位置执行；不在了 / 分不清 → 明确报 REF_STALE，把新界面交回模型，不点旧坐标。
-                UiTree fresh = mD.observe(mIds);
+                UiTree fresh = obs();
                 if (fresh != null) {
                     String stale = StableRead.checkRef(s.id, cur, fresh);
                     UiTree.El was = cur.find(s.id), now = fresh.find(s.id);
@@ -426,7 +474,7 @@ public final class PhoneAgent {
                     break;
                 }
                 UiTree asked = cur;
-                cur = mD.observe(mIds);   // 用户可能动过
+                cur = obs();   // 用户可能动过
                 String staleAfterAsk = settle != null && settle.recheckRefs && targetsRef(s) ? StableRead.checkRef(s.id, asked, cur) : null;
                 if (staleAfterAsk != null) {   // ★ stable-screen：确认期间编号失效（换了位置且有同名元素）
                     refStale++;
@@ -465,7 +513,7 @@ public final class PhoneAgent {
                 after = (UiTree) w[0];
                 wait = (String) w[1];
             } else if (mika != null && mika.f.changewait && mD instanceof MikaDriver) {   // ★ mika-plug：ChangeWait（树版）
-                after = ((MikaDriver) mD).awaitChange(cur, mIds);
+                after = lab(((MikaDriver) mD).awaitChange(cur, mIds));
                 wait = "";
             } else {
                 mD.waitIdle(250, 1500);
@@ -512,7 +560,7 @@ public final class PhoneAgent {
             reinjectTakeover = pendingTakeover;
             pendingTakeover = null;
         }
-        br.after = cur != null ? cur : mD.observe(mIds);
+        br.after = cur != null ? cur : obs();
         br.executed = done;
         br.report = "执行了 " + done + "/" + plan.steps.size() + " 步" + (done < plan.steps.size() && !br.stopAll ? "（停在第 " + (done + 1) + " 步，这一批没做完）" : "") + "：\n" + rep;
         br.summary = sum.length() > 0 ? clip(sum.toString(), 160) : "没有执行";
@@ -574,7 +622,7 @@ public final class PhoneAgent {
         boolean confirmStable = settle != null && !s.waitStable && !s.op.equals("wait");
         while (true) {
             mD.waitIdle(s.waitStable ? 500 : 250, 1500);
-            t = mD.observe(mIds);
+            t = obs();
             if (t != null && beforeSig != null && !t.signature().equals(beforeSig)) changedOnce = true;
             boolean ok = condMet(s, t, before, preMet, changedOnce);
             if (ok && confirmStable) {
@@ -779,7 +827,7 @@ public final class PhoneAgent {
 
     private final StableRead.Source<UiTree> mSource = new StableRead.Source<UiTree>() {
         @Override public UiTree read() {
-            return mD.observe(mIds);
+            return obs();
         }
 
         @Override public String fingerprint(UiTree t) {
@@ -790,7 +838,7 @@ public final class PhoneAgent {
     /** 动作之后的读屏：settle 关 = 读一次（原行为）；开 = 等到连续两次指纹一致，最长 maxWaitMs，超时用最后一次并记 unstable。 */
     UiTree observeAfterAction(String what) {
         mLastUnstable = false;
-        if (settle == null) return mD.observe(mIds);
+        if (settle == null) return obs();
         StableRead.Result<UiTree> r = StableRead.await(mClock, mSource, settle);
         noteSettle(r, what, Math.max(0, r.reads - 1));
         return r.value;

@@ -47,11 +47,20 @@ public final class ShortcutModel {
     // ------------------------------------------------------------------ 类型
 
     /** 一步：工具签名 + 参数 + 每次要问的参数名。 */
+    public static final String ON_FAIL_CONTINUE = "continue", WHEN_PREV_OK = "prev_ok", WHEN_PREV_FAILED = "prev_failed";
+
     public static final class Step {
         public String tool = "";
         public JSONObject args = new JSONObject();
         public final List<String> ask = new ArrayList<String>();
         public String title = "";
+        /**
+         * ★ a11y-labels（社区借鉴 · 每步失败策略）：这一步失败了怎么办 —— 空 / "stop" = 停（原行为），"continue" = 记下失败接着做下一步。
+         * 用户拒绝 / 取消 / 安全策略拒绝永远停，不受这里影响。
+         */
+        public String onFail = "";
+        /** ★ a11y-labels（社区借鉴 · if/else）：空 = 总是做；"prev_ok" = 上一步成功才做；"prev_failed" = 上一步失败才做。 */
+        public String when = "";
 
         public Step() {}
 
@@ -67,6 +76,8 @@ public final class ShortcutModel {
                 o.put("args", args == null ? new JSONObject() : args);
                 if (!ask.isEmpty()) o.put("ask", new JSONArray(ask));
                 if (title != null && title.length() > 0) o.put("title", title);
+                if (ON_FAIL_CONTINUE.equals(onFail)) o.put("on_fail", onFail);
+                if (WHEN_PREV_OK.equals(when) || WHEN_PREV_FAILED.equals(when)) o.put("when", when);
             } catch (JSONException ignored) {
             }
             return o;
@@ -129,6 +140,9 @@ public final class ShortcutModel {
                 JSONArray ask = o.optJSONArray("ask");
                 if (ask != null) for (int k = 0; k < ask.length(); k++) s.ask.add(ask.getString(k));
                 s.title = o.optString("title", "");
+                s.onFail = ON_FAIL_CONTINUE.equals(o.optString("on_fail", "")) ? ON_FAIL_CONTINUE : "";   // 旧格式没有 = 停
+                String w = o.optString("when", "");
+                s.when = WHEN_PREV_OK.equals(w) || WHEN_PREV_FAILED.equals(w) ? w : "";
                 out.add(s);
             }
         } catch (JSONException e) {

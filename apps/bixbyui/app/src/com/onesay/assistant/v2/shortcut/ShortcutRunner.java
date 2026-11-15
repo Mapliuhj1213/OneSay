@@ -81,6 +81,10 @@ public final class ShortcutRunner {
         public String error = "";
         public ErrorCode code;
         public boolean confirmed;
+        /** ★ a11y-labels：按 when 条件跳过了（不算失败）。 */
+        public boolean skipped;
+        /** ★ a11y-labels：失败了但这一步标了 on_fail=continue，接着做了下一步。 */
+        public boolean continuedAfterFail;
 
         StepRun(ShortcutModel.Step planned) {
             this.planned = planned;
@@ -112,7 +116,7 @@ public final class ShortcutRunner {
         /** 执行记录用的摘要：只有工具名和每步成败，不含参数。 */
         public String summary() {
             StringBuilder sb = new StringBuilder();
-            for (StepRun r : runs) sb.append(sb.length() > 0 ? " → " : "").append(r.tool()).append(r.ok ? " ✓" : " ✗");
+            for (StepRun r : runs) sb.append(sb.length() > 0 ? " → " : "").append(r.tool()).append(r.skipped ? " –" : r.ok ? " ✓" : " ✗");
             return sb.toString();
         }
     }
@@ -128,15 +132,25 @@ public final class ShortcutRunner {
         p.announce(ANNOUNCE);
         String prev = "";
         boolean prevTaint = false;
+        boolean prevOk = true;
         for (int i = 0; i < sc.steps.size(); i++) {
             ShortcutModel.Step st = sc.steps.get(i);
             StepRun sr = new StepRun(st);
             res.runs.add(sr);
             if (p.cancelled()) return stop(res, i, Status.CANCELLED, "已取消");
+            // ★ a11y-labels（if/else）：按上一步成败决定做不做这一步；跳过不改变「上一步」的成败
+            if ((ShortcutModel.WHEN_PREV_OK.equals(st.when) && !prevOk) || (ShortcutModel.WHEN_PREV_FAILED.equals(st.when) && prevOk)) {
+                sr.skipped = true;
+                continue;
+            }
             Capability cap = p.lookup(st.tool);
             String why = p.unavailableReason(st.tool, cap);
             if (why != null) {
                 sr.error = why;
+                if (continueAfterFail(st, sr)) {
+                    prevOk = false;
+                    continue;
+                }
                 return stop(res, i, Status.FAILED, why);
             }
             // 1. 参数：留空的现场问；{{prev}} 换上一步输出
@@ -183,15 +197,27 @@ public final class ShortcutRunner {
                 if (sr.code == ErrorCode.USER_REJECTED || sr.code == ErrorCode.RISK_REJECTED) return stop(res, i, Status.REJECTED, sr.error);
                 if (sr.code == ErrorCode.CANCELLED) return stop(res, i, Status.CANCELLED, sr.error);
                 if (sr.code == ErrorCode.GATE_DENIED) return stop(res, i, Status.DENIED, sr.error);
+                if (continueAfterFail(st, sr)) {
+                    prevOk = false;
+                    continue;
+                }
                 return stop(res, i, Status.FAILED, sr.error);
             }
             sr.ok = true;
             sr.output = r.userMessage == null ? "" : r.userMessage;
             prev = sr.output;
             prevTaint = ShortcutSafety.taintSource(cap) || tainted;
+            prevOk = true;
         }
         res.status = Status.OK;
         return res;
+    }
+
+    /** ★ a11y-labels：只有「执行失败 / 不可用」能按 on_fail=continue 接着做；拒绝、取消、安全拒绝不走这里。 */
+    static boolean continueAfterFail(ShortcutModel.Step st, StepRun sr) {
+        if (!ShortcutModel.ON_FAIL_CONTINUE.equals(st.onFail)) return false;
+        sr.continuedAfterFail = true;
+        return true;
     }
 
     static Result stop(Result res, int i, Status s, String why) {

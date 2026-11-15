@@ -129,6 +129,7 @@ public final class MikaExec {
             model = port;
         }
         UiTree u = new UiTree();
+        u.tree = t;
         u.pkg = port.packageName != null ? port.packageName : t.pkg;
         u.activity = t.activity;
         u.truncated = t.truncated;
@@ -142,6 +143,7 @@ public final class MikaExec {
             el.id = e.refNo();
             el.label = e.name;
             el.src = e.src;
+            el.node = e.src;   // ★ a11y-labels：B1 的句柄就是助手树下标
             FsTree.Node x = e.src >= 0 && e.src < t.nodes.size() ? t.nodes.get(e.src) : null;
             el.rid = x != null ? UiTree.shortRid(x.rid) : (e.resourceId == null ? "" : e.resourceId);
             el.cls = x != null ? x.shortCls() : e.role;
@@ -274,9 +276,14 @@ public final class MikaExec {
 
     /** 提示词附加段（mika.screen / mika.dosteps 开时）。 */
     public String promptAddendum() {
+        return promptAddendum(false);
+    }
+
+    /** ★ a11y-labels：labeled = 界面按精准标签口径给（不是 JSON），界面格式那段不说。 */
+    public String promptAddendum(boolean labeled) {
         if (!f.screen && !f.dosteps) return "";
         StringBuilder b = new StringBuilder();
-        if (f.screen) {
+        if (f.screen && !labeled) {
             b.append("\n【界面格式（对齐 Mika phone_observe）】当前界面是 JSON：currentApp、snapshotId、elements[{ref:\"@e3\", role, name, center{x,y}, bounds[l,t,r,b], resourceId?, hint?}]，"
                     + "坐标都归一到 0–999。hint=true 表示 name 是输入框的提示语、不是已输入的内容；secret=true 是密码框。"
                     + "同一个元素在相邻两屏里编号不变（列表滚动后同名行会换新号）。truncated=true 表示元素太多只给了前面一部分，需要时滚动。"

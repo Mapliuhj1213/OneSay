@@ -33,6 +33,17 @@ public final class PhoneHooks {
         return ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_SETTLE, true);
     }
 
+    /** ★ a11y-labels：精准标签 + 动作绑定快照（默认开；偏好里可关，排查用）。 */
+    public static final String KEY_LABELS = "a11y_labels";
+
+    public static boolean labelsEnabled(Context ctx) {
+        try {
+            return ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_LABELS, true);
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     /** 最近一次任务的稳定读屏统计（dump 用）。 */
     private static volatile String sSettleStats = "";
 
@@ -120,10 +131,13 @@ public final class PhoneHooks {
     public static PhoneAgent.Result runBlocking(Context ctx, String goal, String pkg, boolean legacy, boolean execMode, PhoneAgent.Planner script) {
         Context app = ctx.getApplicationContext();
         PhoneAgent.Result res;
-        if (sBusy) {
+        // ★ a11y-labels：屏幕输入独占租约（语音任务 / 定时任务 / 编号点选不抢屏；持有方异常没释放，到期自动作废）
+        final com.onesay.assistant.v2.a11ylabel.ScreenLease.Lease lease = com.onesay.assistant.v2.a11ylabel.ScreenLease.get().tryAcquire("手机操作任务", com.onesay.assistant.v2.a11ylabel.ScreenLease.TASK_TTL_MS);
+        if (sBusy || lease == null) {
+            if (lease != null) com.onesay.assistant.v2.a11ylabel.ScreenLease.get().release(lease);
             res = new PhoneAgent.Result();
             res.status = PhoneAgent.Status.FAILED;
-            res.reason = "已有一个操作任务在进行";
+            res.reason = sBusy ? "已有一个操作任务在进行" : com.onesay.assistant.v2.a11ylabel.ScreenLease.get().busySay();
             return res;
         }
         sBusy = true;
@@ -164,6 +178,7 @@ public final class PhoneHooks {
                 agent.settle = StableRead.Params.defaults();
                 SafeLog.i(TAG, "[PHONE] 画面稳定再读：" + agent.settle);
             }
+            agent.labels = !legacy && labelsEnabled(app);   // ★ a11y-labels：改前口径（legacy）保持原样
             if (replayEnabled(app) && !legacy) agent.replay = replayStore(app);   // ★ smart-replay：开关关 = null，原行为
             // ★ borrow-1112：发给模型前本地脱敏（默认开；映射只在这次任务的内存里）、本轮污染标记、等待期间画面变化进时间轴
             if (com.onesay.assistant.v2.privacy.PrivacySettings.REDACT.on(app)) agent.redactor = new com.onesay.assistant.v2.privacy.Redactor();
@@ -180,7 +195,8 @@ public final class PhoneHooks {
             SafeLog.i(TAG, "[PHONE] 开始：" + com.onesay.assistant.v2.util.LogText.u(goal) + " pkg=" + pkg + (legacy ? "（改前口径：单步 + 8 步上限）" : ""));
             res = agent.run(goal, pkg);
             sSettleStats = "settle=" + (agent.settle != null) + " settleReads=" + agent.settleReads + " unstable=" + agent.settleUnstable
-                    + " refStale=" + agent.refStale + " refMoved=" + agent.refMoved;
+                    + " refStale=" + agent.refStale + " refMoved=" + agent.refMoved
+                    + " labels=" + agent.labels + " bindRefused=" + agent.bindRefused + " bindRebound=" + agent.bindRebound;
             sReplayStats = "replay=" + (agent.replay != null) + " hit=" + agent.replayHit + " fallback=" + agent.replayFallback
                     + " voided=" + agent.replayVoided + " handoff=" + agent.replayHandoff + " recorded=" + agent.replayRecorded
                     + " replayedSteps=" + agent.replaySteps + (agent.replayNote.length() > 0 ? " note=" + agent.replayNote : "")
@@ -203,6 +219,7 @@ public final class PhoneHooks {
         } finally {
             if (redactorRef[0] != null) redactorRef[0].clear();   // ★ borrow-1112：映射只活到任务结束
             sBusy = false;
+            com.onesay.assistant.v2.a11ylabel.ScreenLease.get().release(lease);
             sLast = goal;
             dump(app, goal, drv, planner, exec);
         }

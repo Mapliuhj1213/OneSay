@@ -146,13 +146,23 @@ public final class MainModelEndpoint {
         return c.getApplicationContext().getSharedPreferences(PREF, Context.MODE_PRIVATE);
     }
 
-    /** 这个包是不是可调试的（debug 包）：只有它允许 http。 */
+    /**
+     * 这个包是不是调试包：只有它允许 http。★ a11y-labels（顺修真机 P1）：debug 变体没有设 android:debuggable，
+     * 只看 FLAG_DEBUGGABLE 会把 debug 包当 release，备用模型的 http 地址用不了 —— 改为按构建变体（编译期常量）判断，
+     * FLAG_DEBUGGABLE 仍算（自行加了 debuggable 的包）。release 变体常量为 false，行为不变。
+     */
     public static boolean debuggable(Context c) {
+        int flags = 0;
         try {
-            return (c.getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
-        } catch (Throwable t) {
-            return false;
+            flags = c.getApplicationInfo().flags;
+        } catch (Throwable ignored) {
         }
+        return debugBuild(com.onesay.assistant.v2.BuildVariant.IS_DEBUG, flags);
+    }
+
+    /** 纯函数：构建变体是 debug，或应用标了 FLAG_DEBUGGABLE。 */
+    public static boolean debugBuild(boolean variantDebug, int appFlags) {
+        return variantDebug || (appFlags & 2 /* ApplicationInfo.FLAG_DEBUGGABLE */) != 0;
     }
 
     /** 从 prefs 读进进程（启动时、改设置后）。release 包里存着的 http 地址不认，回落默认。 */

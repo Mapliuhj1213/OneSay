@@ -242,6 +242,9 @@ public final class ShortcutHooks {
                 return ok ? ExecutionResult.success(cap, args, "已开始播报晨间简报", false, "brief")
                         : ExecutionResult.failed(ErrorCode.EXEC_FAILED, "晨间简报没响应", "brief send failed", cap, args);
             }
+            if (ShortcutActions.UI_TAP.equals(cap.sign)) {   // ★ a11y-labels：按标签找控件再点（不存坐标）
+                return com.onesay.assistant.v2.a11ylabel.LabelTapHooks.run(ctx, cap, args);
+            }
             if (ShortcutActions.WEATHER.equals(cap.sign)) {   // ★ feat/rain-minutely
                 String why = com.onesay.assistant.v2.rain.RainService.unavailableReason(ctx);
                 if (why != null) return ExecutionResult.failed(ErrorCode.NOT_CONFIGURED, "分钟级降水" + why, "rain unavailable", cap, args);

@@ -239,6 +239,8 @@ public final class SmartReplay {
         public boolean hashed;
         public boolean edit, scroll, check, click;
         public int rx, ry;
+        /** ★ a11y-labels：录制时的节点稳定键（贴了标签、键不是弱键、名字不像个人数据时才存）；旧路径没有 = 空串，照原规则找。 */
+        public String nk = "";
 
         JSONObject json() throws Exception {
             JSONObject o = new JSONObject();
@@ -250,6 +252,7 @@ public final class SmartReplay {
             o.put("k", (edit ? "e" : "") + (scroll ? "s" : "") + (check ? "c" : "") + (click ? "k" : ""));
             o.put("rx", rx);
             o.put("ry", ry);
+            if (nk.length() > 0) o.put("nk", nk);
             return o;
         }
 
@@ -268,6 +271,7 @@ public final class SmartReplay {
             t.click = k.contains("k");
             t.rx = o.optInt("rx", 500);
             t.ry = o.optInt("ry", 500);
+            t.nk = o.optString("nk", "");
             return t;
         }
 
@@ -297,6 +301,7 @@ public final class SmartReplay {
         int w = t == null ? 1080 : Math.max(1, t.screenW), h = t == null ? 2220 : Math.max(1, t.screenH);
         g.rx = (int) Math.max(0, Math.min(1000, (long) e.cx() * 1000 / w));
         g.ry = (int) Math.max(0, Math.min(1000, (long) e.cy() * 1000 / h));
+        if (t != null && t.labeled() && !e.weakKey && !g.hashed && e.nodeKey != null) g.nk = e.nodeKey;
         return g;
     }
 
@@ -326,6 +331,13 @@ public final class SmartReplay {
         if (g == null || live == null) {
             f.error = "读不到界面";
             return f;
+        }
+        if (g.nk.length() > 0 && live.labeled()) {   // ★ a11y-labels：先按节点稳定键找（唯一且种类一致才认），找不到再按原规则
+            UiTree.El k = live.findKey(g.nk);
+            if (k != null && k.cls.equals(g.cls) && k.edit == g.edit && k.scroll == g.scroll && k.check == g.check) {
+                f.el = k;
+                return f;
+            }
         }
         List<UiTree.El> c = new ArrayList<UiTree.El>();
         for (UiTree.El e : live.els) {

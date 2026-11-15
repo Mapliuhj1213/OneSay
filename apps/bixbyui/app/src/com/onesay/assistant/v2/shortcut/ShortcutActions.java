@@ -40,9 +40,11 @@ public final class ShortcutActions {
     private ShortcutActions() {}
 
     public static final String LLM_ASK = "llm.ask", EVENT_ADD = "plan.event.add", BRIEF_PLAY = "brief.play", WEATHER = "weather.say",
-            MEDIA_SAVE = "media.save_clip";
+            MEDIA_SAVE = "media.save_clip",
+            /** ★ a11y-labels：点屏幕上的控件（按文字 / 描述 / 资源 id 运行时找，不存坐标；旧坐标格式兼容）。 */
+            UI_TAP = "ui.tap";
     /** 快捷指令内部动作（不在工具注册表里，由执行端口自己执行）。 */
-    public static final List<String> INTERNAL = Collections.unmodifiableList(java.util.Arrays.asList(LLM_ASK, EVENT_ADD, BRIEF_PLAY, WEATHER, MEDIA_SAVE));
+    public static final List<String> INTERNAL = Collections.unmodifiableList(java.util.Arrays.asList(LLM_ASK, EVENT_ADD, BRIEF_PLAY, WEATHER, MEDIA_SAVE, UI_TAP));
 
     /** 构建开关（开源默认 false；自用上机版在 local-config 里打开）。 */
     public static final boolean PRIVILEGED_BUILD = ShortcutBuild.PRIVILEGED_ACTIONS;
@@ -118,6 +120,8 @@ public final class ShortcutActions {
         l.add(new Action(WEATHER, "播报天气", "播报"));   // ★ feat/rain-minutely：接分钟级降水（和风天气），能不能用看 weatherProbe
         l.add(new Action(MEDIA_SAVE, "保存剪贴板里的视频 / 图片", "保存").notBuilt("这一版没有该工具（feat/media-save 未合入）"));
         l.add(new Action(LLM_ASK, "问一句模型（结果传给下一步）", "模型").p("prompt", "要问的话", "string", "要问模型什么？"));
+        // ★ a11y-labels：UI_TAP（点屏幕上的按钮）暂不进推给计划 App 的清单 —— 计划 App 的 Shortcuts.java 有一份同样的清单（ShortcutFormatTest 核对两边一致），
+        // 那边没同步前只能经步骤 JSON 使用：{"tool":"ui.tap","args":{"target":"发送","by":"text"}}。
         ALL = Collections.unmodifiableList(l);
     }
 
@@ -158,6 +162,10 @@ public final class ShortcutActions {
             return new Capability.Builder(BRIEF_PLAY, "播报晨间简报").domain("shortcut").category("shortcut").sideEffect(SideEffect.DEVICE_CONTROL)
                     .risk(0, false).executor("custom").build();   // root 广播给晨间播报 App → 上机版专属
         }
+        if (UI_TAP.equals(sign)) {   // ★ a11y-labels：点屏幕（付款 / 发送类按钮运行时一律交给本人点，见 LabelTap）
+            return new Capability.Builder(UI_TAP, "点屏幕上的按钮").domain("shortcut").category("shortcut").sideEffect(SideEffect.DEVICE_CONTROL)
+                    .schema(new ParamsSchema().addString("target", false, null).addString("by", false, "text")).risk(1, false).executor("shortcut").build();
+        }
         if (WEATHER.equals(sign) || MEDIA_SAVE.equals(sign)) {
             Action a = get(sign);
             return new Capability.Builder(sign, a.label).domain("shortcut").category("shortcut").sideEffect(SideEffect.NONE).risk(0, false)
@@ -194,6 +202,11 @@ public final class ShortcutActions {
             if (why != null) return "播报天气用分钟级降水：" + why;
         }
         if (cap == null) return "没有这个工具：" + sign;
+        if (UI_TAP.equals(sign)) {
+            Probe p = uiTapProbe;
+            String why = p == null ? null : p.reason();   // 没装探针 = 不置灰（运行时读不到屏再报）
+            if (why != null) return "点屏幕：" + why;
+        }
         if (isPrivileged(sign, cap)) {
             if (!privilegedBuild) {
                 // OneSay 开源版：不再由编译期开关一刀切，而是看用户选中的执行后端（root / Shizuku 插件）此刻是否可用。
@@ -214,6 +227,8 @@ public final class ShortcutActions {
     }
 
     public static volatile Probe weatherProbe;
+    /** ★ a11y-labels：「点屏幕上的按钮」能不能用（读屏助手 / 无障碍后端在不在）；null = 不置灰。 */
+    public static volatile Probe uiTapProbe;
     public static final String WEATHER_NOT_READY = "还没配好（缺和风天气 Key / Host）";
 
     /** 端口：按签名找能力（注册表 / 插件 / 内部动作）。 */
