@@ -123,8 +123,17 @@ public class A11yShortcutStepTest {
                 return ShortcutActions.internalCap(sign);
             }
         }, null, false)).getJSONArray("actions");
+        // [a11y-labels-1115 计划 App 已同步] 原断言「不推给计划 App」改为：推，且带中文名和 target 参数、可用
+        JSONObject tap = null;
         for (int i = 0; i < a.length(); i++)
-            assertNotEquals("计划 App 那份清单没同步前不推给它（两边清单必须一致）", ShortcutActions.UI_TAP, a.getJSONObject(i).getString("sign"));
+            if (ShortcutActions.UI_TAP.equals(a.getJSONObject(i).getString("sign"))) tap = a.getJSONObject(i);
+        assertNotNull("计划 App 清单已同步，ui.tap 要推过去", tap);
+        assertEquals("点屏幕上的按钮", tap.getString("label"));
+        assertTrue(tap.getBoolean("available"));
+        assertFalse("不是上机版专属", tap.getBoolean("privileged"));
+        assertEquals(1, tap.getJSONArray("params").length());
+        assertEquals("target", tap.getJSONArray("params").getJSONObject(0).getString("name"));
+        assertEquals("string", tap.getJSONArray("params").getJSONObject(0).getString("type"));
         // 步骤 JSON 里照常能用
         java.util.List<ShortcutModel.Step> l = ShortcutModel.parseSteps("[{\"tool\":\"ui.tap\",\"args\":{\"target\":\"发送\"}}]");
         assertEquals(ShortcutActions.UI_TAP, l.get(0).tool);
@@ -132,5 +141,42 @@ public class A11yShortcutStepTest {
         ShortcutRunner.Result r = ShortcutRunner.run(sc(l.get(0)), p);
         assertEquals(ShortcutRunner.Status.OK, r.status);
         assertEquals(java.util.Arrays.asList(ShortcutActions.UI_TAP), p.executed);
+    }
+
+    @Test public void uiTapCatalogEntryAsksForTheButtonText() {
+        ShortcutActions.Action a = ShortcutActions.get(ShortcutActions.UI_TAP);
+        assertNotNull(a);
+        assertEquals("屏幕", a.group);
+        assertFalse(a.privileged());
+        assertNotNull(a.param("target"));
+        assertEquals("要点哪个按钮？说按钮上的字", ShortcutActions.question(ShortcutActions.UI_TAP, "target", ShortcutActions.internalCap(ShortcutActions.UI_TAP)));
+        for (String t : new String[]{a.label, a.group, a.param("target").label, a.param("target").question})
+            assertFalse("用户可见文字不带品牌字样：" + t, t.contains("Bixby") || t.contains("三星"));
+    }
+
+    @Test public void uiTapPushedGreyedWhenProbeSaysNo() throws Exception {
+        ShortcutActions.uiTapProbe = new ShortcutActions.Probe() {
+            @Override public String reason() {
+                return "读屏助手不可用";
+            }
+        };
+        try {
+            JSONArray a = new JSONObject(ShortcutActions.catalogJson(new ShortcutActions.Lookup() {
+                @Override public com.onesay.assistant.v2.capability.Capability lookup(String sign) {
+                    return ShortcutActions.internalCap(sign);
+                }
+            }, null, false)).getJSONArray("actions");
+            boolean seen = false;
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.getJSONObject(i);
+                if (!ShortcutActions.UI_TAP.equals(o.getString("sign"))) continue;
+                seen = true;
+                assertFalse(o.getBoolean("available"));
+                assertEquals("点屏幕：读屏助手不可用", o.getString("reason"));
+            }
+            assertTrue(seen);
+        } finally {
+            ShortcutActions.uiTapProbe = null;
+        }
     }
 }

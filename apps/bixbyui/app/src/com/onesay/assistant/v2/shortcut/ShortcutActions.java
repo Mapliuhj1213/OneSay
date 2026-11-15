@@ -120,8 +120,9 @@ public final class ShortcutActions {
         l.add(new Action(WEATHER, "播报天气", "播报"));   // ★ feat/rain-minutely：接分钟级降水（和风天气），能不能用看 weatherProbe
         l.add(new Action(MEDIA_SAVE, "保存剪贴板里的视频 / 图片", "保存").notBuilt("这一版没有该工具（feat/media-save 未合入）"));
         l.add(new Action(LLM_ASK, "问一句模型（结果传给下一步）", "模型").p("prompt", "要问的话", "string", "要问模型什么？"));
-        // ★ a11y-labels：UI_TAP（点屏幕上的按钮）暂不进推给计划 App 的清单 —— 计划 App 的 Shortcuts.java 有一份同样的清单（ShortcutFormatTest 核对两边一致），
-        // 那边没同步前只能经步骤 JSON 使用：{"tool":"ui.tap","args":{"target":"发送","by":"text"}}。
+        // ★ a11y-labels：点屏幕上的按钮（计划 App 的 Shortcuts.java 同步加了同一项，ShortcutFormatTest 核对两边一致）。
+        // 只编辑 target（按钮上的字，默认按文字 / 描述 / 推断名找）；by / role 等高级参数照旧可写在步骤 JSON 里。
+        l.add(new Action(UI_TAP, "点屏幕上的按钮", "屏幕").p("target", "按钮上的字（如「发送」）", "string", "要点哪个按钮？说按钮上的字"));
         ALL = Collections.unmodifiableList(l);
     }
 
