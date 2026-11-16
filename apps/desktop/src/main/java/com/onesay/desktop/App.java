@@ -123,6 +123,7 @@ public final class App {
             return Actions.Result.ok("记忆已同步", m);
         });
         setupMedia();
+        setupWhitelist();
         agent.confirms.onNew = d -> notify.post("pc", "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点，或在已配对手机屏幕上的确认卡上点；60 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
         agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
         agent.start();
@@ -141,6 +142,134 @@ public final class App {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();
         new Thread(App::ensureShortcuts, "onesay-shortcuts").start();
+    }
+
+    // ---------- [app-whitelist-1116] 应用白名单 ----------
+    WhitelistStore whitelist;
+    /** 上次同步过的常连手机（新连上的手机先同步一次）。 */
+    final java.util.Set<String> wlSynced = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** 白名单：存在配置目录；判定接进 PcGuard；手机发来的 whitelist_sync 在这里合并；手机常连上来 / 本机改了就推一次。 */
+    void setupWhitelist() {
+        Path dir = cfg.file.getParent() == null ? Config.defaultDir() : cfg.file.getParent();
+        whitelist = new WhitelistStore(dir);
+        whitelist.device = cfg.deviceId;
+        agent.guard.whitelist = whitelist;
+        agent.local.put("whitelist_sync", a -> whitelistSyncIn(whitelist, a, notify == null ? null : t -> notify.post("pc", "应用白名单", t, ""), log));
+        whitelist.onChange = () -> new Thread(this::whitelistPush, "onesay-wl-push").start();
+        Thread t = new Thread(() -> {
+            while (true) {
+                try { Thread.sleep(5000); } catch (InterruptedException e) { return; }
+                try {
+                    java.util.Set<String> now = new java.util.HashSet<>();
+                    for (Link l : agent.links()) if (l instanceof LanServer) for (String c : ((LanServer) l).clients()) if (((LanServer) l).held(c)) now.add(c);
+                    wlSynced.retainAll(now);
+                    for (String c : now) if (wlSynced.add(c)) whitelistPush(c);
+                } catch (RuntimeException ignored) { }
+            }
+        }, "onesay-wl-sync");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** 手机发来整份白名单：合并、提醒对方新加的、回本机整份（对方再合并，两边就一样了）。 */
+    static Actions.Result whitelistSyncIn(WhitelistStore w, Map<String, Object> a, Consumer<String> tell, Consumer<String> log) {
+        String doc = str(a, "doc", "");
+        String from = str(a, "_from", "");
+        try {
+            List<AppWhitelist.Entry> added = w.merge(doc, from);
+            if (!added.isEmpty()) {
+                StringBuilder b = new StringBuilder();
+                for (AppWhitelist.Entry e : added) b.append(b.length() == 0 ? "" : "、").append(e.name.isEmpty() ? e.id : e.name);
+                String t = "手机加了 " + added.size() + " 个白名单应用：" + b + "。要在电脑上确认一次才生效（设置 › 应用白名单 › 确认生效，也能删）";
+                log.accept(t);
+                if (tell != null) tell.accept(t);
+            }
+            Map<String, Object> d = new TreeMap<>();
+            d.put("doc", w.json());
+            return Actions.Result.ok("白名单已同步", d);
+        } catch (IllegalStateException e) {
+            return Actions.Result.fail("电脑上的白名单文件读坏了，先在电脑设置里清空重建");
+        } catch (IllegalArgumentException e) {
+            return Actions.Result.fail("白名单格式不对（" + e.getMessage() + "）");
+        }
+    }
+
+    void whitelistPush() {
+        String d = agent.phoneTarget("");
+        if (d != null) whitelistPush(d);
+    }
+
+    /** 推给常连着的手机；手机回它的整份，合并进来。手机不在线就不推（下次连上时 setupWhitelist 的线程会推）。 */
+    void whitelistPush(String device) {
+        if (whitelist == null || whitelist.broken()) return;
+        try {
+            Map<String, Object> args = new TreeMap<>();
+            args.put("doc", whitelist.json());
+            Actions.Result r = agent.callPeer(device, "whitelist_sync", args, 0, 15000).get(20, java.util.concurrent.TimeUnit.SECONDS);
+            if (r.ok && r.data != null && r.data.get("doc") != null) {
+                List<AppWhitelist.Entry> added = whitelist.merge(String.valueOf(r.data.get("doc")), device);
+                if (!added.isEmpty()) {
+                    String t = "手机上有 " + added.size() + " 个白名单应用同步过来了，要在电脑上确认一次才生效（设置 › 应用白名单 › 确认生效，也能删）";
+                    log.accept(t);
+                    if (notify != null) notify.post("pc", "应用白名单", t, "");
+                }
+                log.accept("白名单已和手机 " + device + " 同步");
+            } else if (!r.ok) {
+                wlSynced.remove(device);
+                log.accept("白名单没同步到手机：" + r.text);
+            }
+        } catch (Exception e) {
+            wlSynced.remove(device);
+        }
+    }
+
+    /** 界面「应用白名单」：看 / 加（界面先弹过风险确认）/ 删 / 读坏了清空重建 / 最近审计。只能在电脑界面上用，远程改不了。 */
+    static Map<String, Object> whitelistApi(WhitelistStore w, Map<String, Object> b, Consumer<String> log) {
+        String op = str(b, "op", "list");
+        String platform = str(b, "platform", AppWhitelist.WINDOWS), id = str(b, "id", "");
+        Map<String, Object> m;
+        switch (op) {
+            case "list": m = ok(""); break;
+            case "risk": {
+                String why = AppWhitelist.refuseReason(platform, id);
+                if (why != null) return fail(why);
+                m = ok(AppWhitelist.riskText(platform, id, str(b, "name", "")));
+                m.put("norm", AppWhitelist.normId(platform, id));
+                break;
+            }
+            case "add": {
+                if (!Boolean.TRUE.equals(b.get("confirmed"))) return fail("要先在确认框里看过风险说明并点「确定」");
+                String why = w.add(platform, id, str(b, "name", ""));
+                if (why != null) return fail(why);
+                log.accept("应用白名单加了 " + platform + ":" + AppWhitelist.normId(platform, id));
+                m = ok("已加进白名单，会同步到手机");
+                break;
+            }
+            case "confirm": { // [app-whitelist-1116 规则调整] 手机同步来的，在电脑上确认一次才生效（界面先弹风险说明）
+                if (!Boolean.TRUE.equals(b.get("confirmed"))) return fail("要先在确认框里看过风险说明并点「确认生效」");
+                String why = w.confirm(platform, id);
+                if (why != null) return fail(why);
+                log.accept("应用白名单确认生效 " + platform + ":" + AppWhitelist.normId(platform, id));
+                m = ok("已生效");
+                break;
+            }
+            case "remove":
+                if (!w.remove(platform, id)) return fail("白名单里没有这个");
+                log.accept("应用白名单删了 " + platform + ":" + AppWhitelist.normId(platform, id));
+                m = ok("已删除，会同步到手机");
+                break;
+            case "reset":
+                w.reset();
+                m = ok("已清空重建");
+                break;
+            default:
+                return fail("不认识的操作");
+        }
+        m.put("whitelist", w.view());
+        m.put("broken", w.broken());
+        m.put("audit", w.recentAudit(30));
+        return m;
     }
 
     // ---------- 链接下载 ----------
@@ -440,6 +569,7 @@ public final class App {
             s.put("shortcut_policy", agent.guard.shortcutView());
             s.put("shortcut_approvals", agent.guard.approvalView());
             s.put("remembered", agent.guard.rememberedView());
+            if (whitelist != null) { s.put("whitelist", whitelist.view()); s.put("whitelist_broken", whitelist.broken()); }
             s.put("workspace", cfg.workspace().toString());
             s.put("media", mediaState());
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
@@ -515,6 +645,7 @@ public final class App {
             return m;
         });
         ui.on("confirm", b -> confirmApi(agent.confirms, b, log));
+        ui.on("whitelist", b -> whitelistApi(whitelist, b, log));
         ui.on("media", this::mediaApi);
         // 「以后这类不用问」记住的动作类型：看 / 撤销（只能在电脑界面上；远程改不了）
         ui.on("remembered", b -> {

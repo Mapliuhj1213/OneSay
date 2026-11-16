@@ -178,7 +178,8 @@ public final class PhoneHooks {
                 agent.settle = StableRead.Params.defaults();
                 SafeLog.i(TAG, "[PHONE] 画面稳定再读：" + agent.settle);
             }
-            agent.labels = !legacy && labelsEnabled(app);   // ★ a11y-labels：改前口径（legacy）保持原样
+            agent.labels = !legacy && labelsEnabled(app);
+            if (!legacy) agent.whitelist = com.onesay.assistant.v2.whitelist.WhitelistAndroid.state(app);   // ★ app-whitelist-1116   // ★ a11y-labels：改前口径（legacy）保持原样
             if (replayEnabled(app) && !legacy) agent.replay = replayStore(app);   // ★ smart-replay：开关关 = null，原行为
             // ★ borrow-1112：发给模型前本地脱敏（默认开；映射只在这次任务的内存里）、本轮污染标记、等待期间画面变化进时间轴
             if (com.onesay.assistant.v2.privacy.PrivacySettings.REDACT.on(app)) agent.redactor = new com.onesay.assistant.v2.privacy.Redactor();

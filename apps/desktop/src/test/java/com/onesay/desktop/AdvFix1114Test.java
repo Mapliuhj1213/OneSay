@@ -422,7 +422,7 @@ public class AdvFix1114Test {
                 if (before.endsWith("await ")) n++;
                 else assertTrue("confirm( 只出现在注释里：" + h.substring(Math.max(0, i - 40), i + 20), h.substring(Math.max(0, i - 12), i).contains("浏览器") || h.substring(Math.max(0, i - 12), i).contains("原生"));
             }
-            assertEquals("14 处确认都 await 页面自己的框", 14, n);
+            assertEquals("18 处确认都 await 页面自己的框（[app-whitelist-1116] 白名单加入 / 删除 / 清空重建 / 确认生效 +4）", 18, n);
             assertTrue("默认焦点在取消", h.contains("$('ask-no');if(n)n.focus()"));
         });
         r.add("UI 预览后选格式不清空、显示整理后的链接", (Check) () -> {

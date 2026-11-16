@@ -300,10 +300,16 @@ public final class PcGuard {
         public Pass pass;
         /** 这条是按「以后这类不用问」直接执行的类型；空 = 不是。 */
         public String rememberedKind = "";
+        /** [app-whitelist-1116] 这条是按应用白名单直接放行的（Agent 执行前提醒、计数）。 */
+        public boolean whitelisted;
+        /** [app-whitelist-1116] 分层策略这一步的结论（null = 没过白名单相关的层；测试 / 日志用）。 */
+        public ActionPolicy.Decision layered;
     }
 
     private final Config cfg;
     public volatile Confirmer confirmer;
+    /** [app-whitelist-1116] 应用白名单（null = 不启用：判定和改前完全一样）。 */
+    public volatile WhitelistStore whitelist;
     /** 链接下载：电脑上的下载工具缺不缺（App 接上 {@link Media}；没接 = 不缺）。 */
     public volatile java.util.function.BooleanSupplier mediaToolsMissing = () -> false;
     /** 告诉电脑前的人（生成脚本、完全访问下的提醒）。 */
@@ -418,6 +424,7 @@ public final class PcGuard {
         }
         LinkPolicy.Decision d = LinkPolicy.remembered(LinkPolicy.decide(LinkPolicy.Target.PC, cfg.mode(), cat, f), rememberedKinds());
         if (d.remembered) o.rememberedKind = d.kind;
+        d = layered(from, cmd, a, cat, f, d, o); // [app-whitelist-1116] 分层策略：硬拒 → 支付 / 隐私外发 → 读过隐私后外发 → 认不准 → 白名单 → 原结论
         switch (d.verdict) {
             case DENY:
                 o.reply = result(false, d.text, d.reason, null);
@@ -442,6 +449,7 @@ public final class PcGuard {
             case CONFIRM: {
                 String detail = from + " 请求：" + detail(cmd, a, d.text);
                 if (!f.suspect.isEmpty() && !detail.contains(f.suspect)) detail += "\n⚠ " + f.suspect; // 可疑升级的确认：卡上写一句原因
+                if (o.layered != null && o.layered.verdict == ActionPolicy.Verdict.CONFIRM && !detail.contains(o.layered.text)) detail += "\n⚠ " + o.layered.text; // [app-whitelist-1116] 白名单没放行的原因（付款 / 隐私 / 读过隐私 / 次数上限）
                 Confirmer c = confirmer;
                 boolean offer = sc != null;
                 String rk = d.rememberable() ? d.kind : "";
@@ -492,6 +500,112 @@ public final class PcGuard {
                 if (f.mediaToolsMissing && cat == LinkPolicy.Cat.MEDIA_DOWNLOAD) a.put("_media_install_ok", Boolean.TRUE); // 完全访问 + 从不询问 / 记住过「安装下载工具」
                 o.pass = new Pass(cmd, a);
                 return o;
+        }
+    }
+
+    // ------------------------------------------------------------------ [app-whitelist-1116] 统一分层策略
+
+    /** 哪些指令有「目标程序」、能按白名单放行：打开 / 关掉 / 卸载程序，以及第一段就是那个程序的单条命令。 */
+    static boolean whitelistable(LinkPolicy.Cat c) {
+        return c == LinkPolicy.Cat.OPEN_APP || c == LinkPolicy.Cat.APP_OPERATE || c == LinkPolicy.Cat.UNINSTALL_APP || c == LinkPolicy.Cat.SHELL_EXEC;
+    }
+
+    /** 命令里有这些就不是「单条命令」（管道、串联、重定向、变量、子表达式、续行），不按白名单放行。 */
+    private static final java.util.regex.Pattern CHAIN = java.util.regex.Pattern.compile("[&|;<>`$%^()\\n\\r]|\\b(start|call|invoke-expression|iex|cmd|powershell|pwsh)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** 指令的目标程序（windows exe 名，规范化过）；没有 / 认不出 / 是系统程序或 OneSay 自己 → ""。 */
+    static String targetExe(String cmd, Map<String, Object> a, LinkPolicy.Facts f) {
+        if ("sys_exec".equals(cmd)) {
+            String raw = str(a, "command").trim();
+            if (raw.isEmpty() || raw.length() > 2000) return "";
+            String first;
+            String rest;
+            if (raw.startsWith("\"")) {
+                int k = raw.indexOf('"', 1);
+                if (k < 0) return "";
+                first = raw.substring(1, k);
+                rest = raw.substring(k + 1);
+            } else {
+                int k = raw.indexOf(' ');
+                first = k < 0 ? raw : raw.substring(0, k);
+                rest = k < 0 ? "" : raw.substring(k);
+            }
+            if (CHAIN.matcher(rest).find()) return "";
+            String n = AppWhitelist.normId(AppWhitelist.WINDOWS, first);
+            return n == null || n.matches(".*[&;%^$`()!].*") ? "" : n;
+        }
+        if (f == null || f.appSystem || f.appSelf) return "";
+        String path = str(a, "path"), name = str(a, "name");
+        String n = path.isEmpty() ? null : AppWhitelist.normId(AppWhitelist.WINDOWS, path);
+        if (n == null && !name.isEmpty()) n = AppWhitelist.normId(AppWhitelist.WINDOWS, name);
+        return n == null ? "" : n;
+    }
+
+    /** [app-whitelist-1116 规则调整] 单条命令里像卸载的写法（app.exe --uninstall、/uninstall、卸载）：按卸载算，白名单也要确认。 */
+    static final java.util.regex.Pattern UNINSTALL_WORDS = java.util.regex.Pattern.compile("(^|[\\s\"'/\\-])(uninstall|uninst|remove-app|/x)([\\s\"'=]|$)|卸载", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** 要发出去的内容（判隐私外发用）：命令全文、剪贴板文字、网址。 */
+    static String outText(String cmd, Map<String, Object> a) {
+        switch (cmd) {
+            case "sys_exec": return str(a, "command");
+            case "clipboard_set": return a.get("text") == null ? "" : String.valueOf(a.get("text"));
+            case "open_url": return str(a, "url");
+            case "file_write": return a.get("content") == null ? "" : String.valueOf(a.get("content"));
+            default: return "";
+        }
+    }
+
+    /**
+     * 原结论 d（LinkPolicy.decide + 「以后这类不用问」）再过 {@link ActionPolicy}：只有目标程序在白名单里时才会变；
+     * 不启用白名单（{@link #whitelist} 为 null）或不在白名单的，原样返回 —— 改前的行为一条不变。
+     */
+    LinkPolicy.Decision layered(String from, String cmd, Map<String, Object> a, LinkPolicy.Cat cat, LinkPolicy.Facts f, LinkPolicy.Decision d, Outcome o) {
+        WhitelistStore w = whitelist;
+        if (w == null || d == null) return d;
+        try {
+            ActionPolicy.Facts x = new ActionPolicy.Facts();
+            x.base = d.verdict == LinkPolicy.Verdict.ALLOW ? ActionPolicy.Verdict.ALLOW : d.verdict == LinkPolicy.Verdict.CONFIRM ? ActionPolicy.Verdict.CONFIRM
+                    : d.verdict == LinkPolicy.Verdict.SCRIPT ? ActionPolicy.Verdict.SCRIPT : ActionPolicy.Verdict.DENY;
+            x.baseReason = d.text;
+            x.platform = AppWhitelist.WINDOWS;
+            x.appId = whitelistable(cat) ? targetExe(cmd, a, f) : "";
+            x.whitelistBroken = w.broken();
+            x.whitelisted = !x.appId.isEmpty() && w.contains(AppWhitelist.WINDOWS, x.appId);
+            if (!x.whitelisted) return d; // 不在白名单：原结论（各层只对白名单应用起作用）
+            String text = outText(cmd, a);
+            boolean net = "sys_exec".equals(cmd) && (!LinkPolicy.netMaybeReason(LinkPolicy.normalizeCommand(text), new ArrayList<>()).isEmpty()
+                    || !LinkPolicy.netReason(LinkPolicy.normalizeCommand(text), new ArrayList<>()).isEmpty());
+            if (f != null && f.appBlocked) x.kind = ActionPolicy.Kind.PAY; // 支付 / 银行 / 钱包 / 商店类程序：和付款一样不放行
+            else if (LinkPolicy.isPayFinal(cmd)) x.kind = ActionPolicy.Kind.PAY;
+            else if (cat == LinkPolicy.Cat.UNINSTALL_APP || ("sys_exec".equals(cmd) && UNINSTALL_WORDS.matcher(text).find())) x.kind = ActionPolicy.Kind.UNINSTALL; // 规则调整：卸载白名单程序必须确认
+            else if (net || cat == LinkPolicy.Cat.CLIPBOARD_WRITE || cat == LinkPolicy.Cat.OPEN_URL) x.kind = ActionPolicy.Kind.OUTBOUND;
+            else x.kind = ActionPolicy.Kind.OTHER;
+            // 单条命令带参数（文件名、文字）也算往外交内容：参数里有隐私就按隐私外发
+            x.outPrivacy = PrivacyScan.text(text);
+            if (!x.outPrivacy.isEmpty() && x.kind == ActionPolicy.Kind.OTHER) x.kind = ActionPolicy.Kind.OUTBOUND;
+            x.readPrivacy = w.readKinds(from);
+            x.readExternal = w.readExternal(from); // 规则保持：读过外部内容后外发，白名单也确认
+            x.suspect = LinkPolicy.suspectWhy(f);
+            x.neverAsk = cfg.mode().approval == LinkPolicy.Approval.NEVER;
+            x.passesUsed = w.passes(from);
+            ActionPolicy.Decision r = ActionPolicy.decide(x);
+            o.layered = r;
+            if (r.layer == ActionPolicy.Layer.HARD || r.layer == ActionPolicy.Layer.DEFAULT) return d;
+            w.audit(x, r, cmd);
+            if (r.whitelistPass) {
+                w.countPass(from);
+                o.whitelisted = true;
+                return new LinkPolicy.Decision(LinkPolicy.Verdict.ALLOW, "", "白名单程序「" + x.appId + "」：" + (d.text.isEmpty() ? cmd : d.text), true, d.kind, false);
+            }
+            if (r.verdict == ActionPolicy.Verdict.DENY) return LinkPolicy.Decision.deny(LinkPolicy.R_DENIED_BY_LEVEL, r.text);
+            if (r.verdict == ActionPolicy.Verdict.CONFIRM) {
+                if (d.verdict == LinkPolicy.Verdict.CONFIRM) // 原来就要问：照旧问，卡上补原因，不给「以后这类不用问」
+                    return new LinkPolicy.Decision(LinkPolicy.Verdict.CONFIRM, d.reason, d.text + (d.text.isEmpty() ? "" : "\n") + "⚠ " + r.text, false, "", false);
+                return new LinkPolicy.Decision(LinkPolicy.Verdict.CONFIRM, "", (d.text.isEmpty() || d.headsUp ? cmd : d.text) + "\n⚠ " + r.text, false, "", false);
+            }
+            return d;
+        } catch (RuntimeException e) {
+            return d; // 分层出错：原结论（不会因此放松）
         }
     }
 

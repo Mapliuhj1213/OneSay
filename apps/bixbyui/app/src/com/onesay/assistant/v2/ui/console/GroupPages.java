@@ -80,6 +80,115 @@ final class GroupPages {
             k.footer(col, "这些功能会读当前屏幕或剪贴板；关掉总开关，下面的细项一起停用。声纹和密钥只存在本机。");
 
             buildRemembered(col);
+            buildWhitelist(col);
+        }
+
+        /**
+         * ★ app-whitelist-1116：应用白名单（默认空）。加的时候先弹一次风险说明确认；和电脑双向同步（电脑联动配对后）。
+         * 规则：{@link com.onesay.assistant.v2.whitelist.ActionPolicy}；手机 App 填包名，电脑程序填 exe 名（如 notepad.exe）。
+         */
+        private void buildWhitelist(LinearLayout col) {
+            final ConsoleKit k = c.kit;
+            final com.onesay.assistant.v2.whitelist.WhitelistState st = com.onesay.assistant.v2.whitelist.WhitelistAndroid.state(c.act);
+            LinearLayout g = k.group(col, "应用白名单");
+            if (st.broken()) {
+                k.actionRow(g, "白名单文件读坏了", "现在当空用（不放行任何应用）", "清空重建", new Runnable() {
+                    @Override public void run() {
+                        k.confirm("清空重建应用白名单？", "读坏的文件会被覆盖，白名单变成空的；和电脑同步时电脑上的条目会同步回来。", "清空重建", new Runnable() {
+                            @Override public void run() {
+                                st.reset();
+                                fill();
+                            }
+                        });
+                    }
+                });
+            }
+            java.util.List<com.onesay.assistant.v2.whitelist.AppWhitelist.Entry> live = st.live();
+            // 2026-11-16 用户定：电脑同步来的先「待确认」，在手机上看过风险说明点「确认生效」才放行
+            for (final com.onesay.assistant.v2.whitelist.AppWhitelist.Entry e : st.pending()) {
+                String title = (e.name.length() > 0 ? e.name : e.id) + "（待确认）";
+                String sub = ("windows".equals(e.platform) ? "电脑 · " : "手机 · ") + e.id + " · 电脑同步来的，还没生效";
+                k.actionRow(g, title, sub, "确认生效", new Runnable() {
+                    @Override public void run() {
+                        k.confirm("让电脑同步来的「" + (e.name.length() > 0 ? e.name : e.id) + "」在手机上生效？",
+                                com.onesay.assistant.v2.whitelist.AppWhitelist.riskText(e.platform, e.id, e.name), "确认生效", new Runnable() {
+                            @Override public void run() {
+                                String err = st.confirm(e.platform, e.id);
+                                c.toast(err == null ? "已生效" : err);
+                                fill();
+                            }
+                        });
+                    }
+                });
+            }
+            if (live.isEmpty()) k.valueRow(g, "还没有", "默认空；加进来的应用里操作不再逐步问你", "0 个", ConsoleHost.TONE_MUTED);
+            for (final com.onesay.assistant.v2.whitelist.AppWhitelist.Entry e : live) {
+                String title = e.name.length() > 0 ? e.name : e.id;
+                String sub = ("windows".equals(e.platform) ? "电脑 · " : "手机 · ") + e.id + ("pc".equals(e.originKind) ? " · 电脑上加的" : "")
+                        + (st.isConfirmed(e.platform, e.id) ? "" : " · 待确认（上面「确认生效」）");
+                k.actionRow(g, title, sub, "删除", new Runnable() {
+                    @Override public void run() {
+                        k.confirm("把「" + e.id + "」移出应用白名单？", "移出后在这个应用里的操作会照常先问你，电脑上也会同步删掉。", "删除", new Runnable() {
+                            @Override public void run() {
+                                st.remove(e.platform, e.id);
+                                c.toast("已删除");
+                                fill();
+                            }
+                        });
+                    }
+                });
+            }
+            k.actionRow(g, "加一个应用", "手机 App 填包名（com.example.app），电脑程序填 exe 名（notepad.exe）", "加入", new Runnable() {
+                @Override public void run() {
+                    askAdd(st);
+                }
+            });
+            k.footer(col, "白名单里的应用，除了付款和发送隐私资料（身份证、银行卡、住址、真名、手机号、邮箱等，文字或图片），助手的操作不再逐步问你。"
+                    + "本次任务读到过隐私后往外发、填密码 / 验证码、读过网页短信后发送、卸载，照样问；付款最后一下仍要你自己点。系统安装器、权限管理和助手自己不能加。电脑同步来的要在这里确认一次才生效。");
+        }
+
+        private void askAdd(final com.onesay.assistant.v2.whitelist.WhitelistState st) {
+            final ConsoleKit k = c.kit;
+            final android.widget.EditText id = new android.widget.EditText(c.act), name = new android.widget.EditText(c.act);
+            id.setSingleLine(true);
+            id.setHint("包名或 exe 名");
+            name.setSingleLine(true);
+            name.setHint("显示名（可选）");
+            id.setTextColor(k.t.text1);
+            name.setTextColor(k.t.text1);
+            id.setHintTextColor(k.t.text3);
+            name.setHintTextColor(k.t.text3);
+            LinearLayout box = k.column();
+            box.setPadding(k.dp(24), k.dp(8), k.dp(24), 0);
+            box.addView(id, k.lpMatch(8, 0));
+            box.addView(name, k.lpMatch(8, 0));
+            k.dialog().setTitle("加进应用白名单").setView(box)
+                    .setPositiveButton("下一步", new android.content.DialogInterface.OnClickListener() {
+                        @Override public void onClick(android.content.DialogInterface d, int w) {
+                            final String raw = id.getText().toString().trim(), nm = name.getText().toString().trim();
+                            final String pf = platformOf(raw);
+                            String why = com.onesay.assistant.v2.whitelist.AppWhitelist.refuseReason(pf, raw);
+                            if (why != null) {
+                                c.toast(why);
+                                return;
+                            }
+                            k.confirm("加进应用白名单？", com.onesay.assistant.v2.whitelist.AppWhitelist.riskText(pf, raw, nm), "确定加入", new Runnable() {
+                                @Override public void run() {
+                                    String err = st.add(pf, raw, nm);
+                                    c.toast(err == null ? "已加入，会同步到电脑" : err);
+                                    fill();
+                                }
+                            });
+                        }
+                    })
+                    .setNegativeButton("取消", null).show();
+        }
+
+        /** 包名（带点、不以 .exe 结尾）→ android；其余按 Windows 程序名。 */
+        static String platformOf(String raw) {
+        String r = raw == null ? "" : raw.trim().toLowerCase(java.util.Locale.ROOT);
+        if (r.endsWith(".exe") || r.indexOf('\\') >= 0 || r.indexOf('.') < 0) return com.onesay.assistant.v2.whitelist.AppWhitelist.WINDOWS;
+        return com.onesay.assistant.v2.whitelist.AppWhitelist.ANDROID;
         }
 
         /** 以后这类不用问：确认卡上点过「始终允许」的动作（ConsentPolicy 落盘清单），每条可撤销。 */

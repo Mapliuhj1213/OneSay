@@ -375,7 +375,7 @@ function scPolicy(){const p=S.shortcut_policy||[],a=S.shortcut_approvals||[];
 // 第一行当标题，其余是正文；默认焦点在「取消」，Esc / 点遮罩 = 取消；标题是危险动词（清空 / 删除 / 撤销 / 换一把钥匙 / 关掉…）时确认按钮红色。
 function ask(msg,okText){return new Promise(res=>{let m=$('askbox');if(!m){m=document.createElement('div');m.id='askbox';m.className='mask';document.body.appendChild(m)}
   const t=String(msg||''),i=t.indexOf('\n'),title=i<0?t:t.slice(0,i),body=i<0?'':t.slice(i).replace(/^\n+/,'');
-  const danger=isDanger(title)||/^(关掉|删除|清空|撤销|忘掉|换一把|打开「完全访问」|审批策略改成「从不」|再确认一次)/.test(title);
+  const danger=isDanger(title)||/^(关掉|删除|清空|撤销|忘掉|换一把|打开「完全访问」|审批策略改成「从不」|再确认一次|加进应用白名单|让手机同步来的|清空重建)/.test(title);
   m.innerHTML=`<div class="box" role="dialog" aria-modal="true" aria-labelledby="ask-t"><h3 id="ask-t">${esc(title)}</h3>${body?`<div class="bd">${esc(body)}</div>`:''}<div class="ft"><button class="btn ghost sm" id="ask-no">取消</button><button class="btn sm ok${danger?' danger':''}" id="ask-ok">${esc(okText||'确定')}</button></div></div>`;
   const done=v=>{m.classList.remove('on');m.innerHTML='';document.removeEventListener('keydown',key,true);res(v)};
   const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();done(false)}};
@@ -430,6 +430,26 @@ function remPolicy(){const r=S.remembered||[];
   return sec('var(--green)','以后这类不用问',r.length+' 类')+
   (r.length?card(r.map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(x.zh)}</div><div class="st">${esc(x.kind)}</div></div><button class="tag" onclick="remRevoke(${esc(JSON.stringify(x.kind))})">撤销</button></div>`)):empty('还没有记住过'))+
   `<p class="note">确认框上勾「以后这类不用问」并允许后，同一类动作直接执行（会弹通知提醒）。付款最后一下、改 OneSay 自己、提权 / 要管理员这三类不会弹确认，也记不住。只能在这台电脑上撤销。</p>`}
+function wlPolicy(){const w=S.whitelist||[],pd=w.filter(x=>x.pending).length;
+  return sec('var(--todo)','应用白名单',w.length+' 个'+(pd?' · '+pd+' 个待确认':''))+
+  (S.whitelist_broken?`<p class="note" style="color:var(--red)">白名单文件读坏了，现在当空用（不放行任何应用）。<button class="tag" onclick="wlReset()">清空重建</button></p>`:'')+
+  (w.length?card(w.map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(x.name||x.id)}</div><div class="st">${x.platform==='android'?'手机':'电脑'} · ${esc(x.id)}${x.origin_kind==='phone'?' · 手机上加的':''}${x.pending?' · 待确认，还没生效':''}</div></div>${x.pending?`<button class="tag" onclick="wlOk(${esc(JSON.stringify(x.platform))},${esc(JSON.stringify(x.id))},${esc(JSON.stringify(x.name||''))})">确认生效</button> `:''}<button class="tag" onclick="wlDel(${esc(JSON.stringify(x.platform))},${esc(JSON.stringify(x.id))})">删除</button></div>`)):empty('还没有（默认空）'))+
+  `<div class="addrow"><select class="field" id="wl-pf" style="min-width:90px"><option value="windows">电脑程序</option><option value="android">手机 App</option></select> <input class="field" id="wl-id" style="min-width:200px" placeholder="notepad.exe 或 com.example.app"> <input class="field" id="wl-name" style="min-width:120px" placeholder="显示名（可选）"> <button class="btn ghost sm" onclick="wlAdd()">加入</button></div>`+
+  `<p class="note">白名单里的应用，除了付款和发送隐私资料（身份证、银行卡、住址、真名、手机号、邮箱等，文字或图片），助手的操作不再逐条问你。这次会话读到过隐私后，往外发的照样问；认不准的写法、付款最后一下、给自己授权、要管理员这些照旧。命令行、脚本解释器、系统管理工具和 OneSay 自己不能加。和手机双向同步，只能在这台电脑或手机上改，远程指令改不了；手机同步来的要在这里确认一次才生效。卸载白名单里的程序照样问你。</p>`}
+async function wlOk(platform,id,name){if(!LIVE){snack('演示模式不能改');return}
+  const r=await api('whitelist',{op:'risk',platform,id,name});if(!r.ok){snack(r.text);return}
+  if(!await confirm('让手机同步来的「'+(name||id)+'」在电脑上生效？\n\n'+r.text))return;
+  const a=await api('whitelist',{op:'confirm',platform,id,confirmed:true});snack(a.text);refresh()}
+async function wlAdd(){const platform=$('wl-pf').value,id=$('wl-id').value.trim(),name=$('wl-name').value.trim();if(!id){snack('写上程序名或包名');return}
+  if(!LIVE){snack('演示模式不能改');return}
+  const r=await api('whitelist',{op:'risk',platform,id,name});if(!r.ok){snack(r.text);return}
+  if(!await confirm('加进应用白名单？\n\n'+r.text))return;
+  const a=await api('whitelist',{op:'add',platform,id,name,confirmed:true});snack(a.text);if(a.ok){$('wl-id').value='';$('wl-name').value=''}refresh()}
+async function wlDel(platform,id){if(!await confirm('把「'+id+'」移出应用白名单？\n\n移出后在这个应用里的操作会照常先问你，手机上也会同步删掉。'))return;
+  if(!LIVE){S.whitelist=(S.whitelist||[]).filter(x=>!(x.platform===platform&&x.id===id));render();return}
+  const r=await api('whitelist',{op:'remove',platform,id});snack(r.text);refresh()}
+async function wlReset(){if(!await confirm('清空重建应用白名单？\n\n读坏的文件会被覆盖，白名单变成空的；之后和手机同步时，手机上的条目会同步回来。'))return;
+  const r=await api('whitelist',{op:'reset'});snack(r.text);refresh()}
 async function remRevoke(k){const x=(S.remembered||[]).find(r=>r.kind===k);if(!await confirm('撤销「'+((x&&x.zh)||k)+'」？\n\n撤销后下次再做这件事会先问你。'))return;
   if(!LIVE){S.remembered=(S.remembered||[]).filter(x=>x.kind!==k);render();return}
   const r=await api('remembered',{op:'revoke',kind:k});snack(r.text);refresh()}
@@ -507,6 +527,7 @@ P.settings=()=>{const s=S.settings;
   ${kv('命令可以联网的域名','沙箱档不是完全访问时，认得出的下载命令（curl / iwr / WebClient…）只放行这些域名；认不准的可能联网命令每次弹确认并提示；逗号分隔',inp('net_allow',s.net_allow,'github.com',260))}
   ${kv('开机自动启动','启动后只在托盘（手机上对应「系统权限」里的电池白名单：保证在后台活着）',sw('autostart',s.autostart))}</div>
   ${remPolicy()}
+  ${wlPolicy()}
 
   ${grp('set-model','模型与密钥','对话和听懂任意说法；Key 只存在这台电脑，不同步到手机')}<div class="card">
   ${kv('服务商','也支持任何 OpenAI 兼容接口',seg('llm_provider',s.llm_provider,[['deepseek','DeepSeek'],['bailian','百炼'],['custom','自定义']]))}

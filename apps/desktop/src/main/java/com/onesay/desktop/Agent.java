@@ -149,6 +149,7 @@ public final class Agent {
             } finally {
                 SafeExec.REMOTE.set(Boolean.FALSE);
             }
+            noteRead(from, cmd, r); // [app-whitelist-1116] 读到了隐私：本次会话里后面的外发即使在白名单也要确认
             reply(via, from, id, r.ok, r.text, guard.decorate(r.data), false);
         };
         LinkPolicy.Cat cat = PcGuard.category(cmd, args, null);
@@ -157,6 +158,37 @@ public final class Agent {
             Thread t = new Thread(job, "onesay-exec-confirm");
             t.setDaemon(true);
             t.start();
+        }
+    }
+
+    /**
+     * [app-whitelist-1116] 这条指令把电脑上的内容交给了手机（读剪贴板、读文件、截图）：认出隐私就记进这台手机本次会话
+     * （截图电脑认不出内容，按「认不出的图片」算隐私，宁可多问）。只记类别，不记内容。
+     */
+    void noteRead(String from, String cmd, Actions.Result r) {
+        WhitelistStore w = guard.whitelist;
+        if (w == null || r == null || !r.ok) return;
+        try {
+            java.util.Set<String> k = new java.util.LinkedHashSet<>();
+            if ("media_get".equals(cmd) || "media_fetch".equals(cmd)) w.noteExternal(from); // 从网上拉过内容：之后外发白名单也确认（ActionPolicy L3e）
+            if ("screenshot".equals(cmd)) k.addAll(PrivacyScan.image(null));
+            else if ("clipboard_get".equals(cmd) && r.data != null) k.addAll(PrivacyScan.text(String.valueOf(r.data.getOrDefault("text", ""))));
+            else if ("file_get".equals(cmd) && r.data != null) {
+                String name = String.valueOf(r.data.getOrDefault("name", "")).toLowerCase(java.util.Locale.ROOT);
+                Object b = r.data.get("b64");
+                if (name.matches(".*\\.(png|jpe?g|gif|bmp|webp|heic|tiff?)$")) k.addAll(PrivacyScan.image(null));
+                else if (b != null) {
+                    byte[] raw = java.util.Base64.getDecoder().decode(String.valueOf(b));
+                    k.addAll(PrivacyScan.text(new String(raw, 0, Math.min(raw.length, 512 * 1024), java.nio.charset.StandardCharsets.UTF_8)));
+                    if (name.matches(".*\\.(pdf|docx?|xlsx?|zip|rar|7z)$")) k.add(PrivacyScan.IMAGE_UNKNOWN); // 看不了内容的文件：当认不出
+                }
+            }
+            if (!k.isEmpty()) {
+                w.noteRead(from, k);
+                log.accept("本次会话读到了隐私（" + PrivacyScan.zh(k) + "），之后白名单程序的外发也要确认");
+            }
+        } catch (RuntimeException ignored) {
+            // 判不了：不影响这条指令本身
         }
     }
 

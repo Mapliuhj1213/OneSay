@@ -647,6 +647,9 @@ public final class LinkPolicy {
         if (isRemoteApproval(cmd)) return Cat.REMOTE_APPROVAL;
         if (isPayFinal(cmd)) return Cat.PAY_FINAL;
         if (in(cmd, "ping", "caps", "info", "shortcut_list", "level", "media_status")) return Cat.QUERY;
+        // [app-whitelist-1116] 白名单同步：只在配对的签名通道上交换整份、按条目最后写入合并（AppWhitelist），任何沙箱档都要能同步，所以和查询同一行；
+        // 单独「远程加一条白名单」的指令不收（见 isSelfAuthorizeCmd）
+        if ("whitelist_sync".equals(cmd)) return Cat.QUERY;
         if (in(cmd, "screenshot", "clipboard_get", "file_get", "file_list", "script_list", "media_fetch")) return Cat.READ_PRIVATE;
         if (in(cmd, "media", "lock", "notify", "memory_sync", "echo", "media_cancel")) return Cat.HARMLESS;
         if ("media_get".equals(cmd)) return Cat.MEDIA_DOWNLOAD;
@@ -671,7 +674,8 @@ public final class LinkPolicy {
         String c = cmd == null ? "" : cmd.trim().toLowerCase(Locale.ROOT);
         return in(c, "settings", "settings_set", "config_set", "pc_level", "level_set", "set_level", "sandbox_set", "approval_set", "plugin_set", "plugin_off",
                 "trust_add", "trusted_add", "net_allow_add", "shortcut_approve", "policy_set", "remember_type", "remember_kind", "remembered_add", "approve_type",
-                "approve_types", "clip_autoclear", "rx_enable", "rx_set", "cmd_enable", "switch_set");
+                "approve_types", "clip_autoclear", "rx_enable", "rx_set", "cmd_enable", "switch_set",
+                "whitelist_add", "whitelist_set", "whitelist_remove", "app_whitelist_add", "app_whitelist_set"); // [app-whitelist-1116] 白名单只能本机加删，经 whitelist_sync 同步
     }
 
     /**

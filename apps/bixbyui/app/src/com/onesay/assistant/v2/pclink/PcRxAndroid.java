@@ -82,6 +82,14 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
             return;
         }
         PcRxAndroid env = new PcRxAndroid(app);
+        // ★ app-whitelist-1116：常连会话里电脑推来的白名单要能合并（状态先初始化，提醒走通知）
+        com.onesay.assistant.v2.whitelist.WhitelistAndroid.state(app);
+        final Context fa = app;
+        PcRx.WL_TELL = new PcRx.WhitelistTell() {
+            @Override public void added(java.util.List<com.onesay.assistant.v2.whitelist.AppWhitelist.Entry> e) {
+                com.onesay.assistant.v2.whitelist.WhitelistAndroid.tellAdded(fa, e);
+            }
+        };
         if (!env.wanted()) return; // 不需要就不起线程
         loop = new PcRx.Loop(env);
         thread = com.onesay.assistant.v2.util.Threads.start("pclink-rx", loop); // 非守护；loop.stop() 后自己退出
@@ -535,6 +543,13 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
             nm.createNotificationChannel(ch);
         }
         return nm;
+    }
+
+    /** ★ app-whitelist-1116：普通提醒通知（白名单同步来新条目等），走「电脑发来的」渠道。 */
+    public static Notification notice(Context c, String title, String text) {
+        channel(c);
+        return builder(c).setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(title).setContentText(text)
+                .setStyle(new Notification.BigTextStyle().bigText(text)).setAutoCancel(true).build();
     }
 
     @SuppressWarnings("deprecation")

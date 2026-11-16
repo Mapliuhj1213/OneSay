@@ -158,6 +158,15 @@ public final class PhoneAgent {
      * 角色…），给模型看标签口径；指名控件的动作执行前重读树，包名 / Activity 变了或节点键找不到就拒绝、交回新界面，不按旧坐标点。
      */
     public boolean labels;
+    /**
+     * ★ app-whitelist-1116：应用白名单（null = 关 = 原行为）。前台 App 在白名单里时，除付款 / 隐私外发 / 读过隐私后外发 / 密钥类 / 读过外部内容后发送之外的
+     * 确认不再弹（{@link com.onesay.assistant.v2.whitelist.PhoneWhitelistGate}）；付款最后一下照旧本人点。
+     */
+    public com.onesay.assistant.v2.whitelist.WhitelistState whitelist;
+    /** ★ app-whitelist-1116：本次任务读到 / 输入过的隐私类别、白名单放行步数。 */
+    public final com.onesay.assistant.v2.whitelist.PhoneWhitelistGate.Task wlTask = new com.onesay.assistant.v2.whitelist.PhoneWhitelistGate.Task();
+    /** ★ app-whitelist-1116 统计：白名单放行了几步、白名单 App 里因支付 / 隐私等仍然问了几步。 */
+    public int wlPassed, wlAsked;
     /** 快照 ID 来源（测试可换）。 */
     public com.onesay.assistant.v2.a11ylabel.A11yLabeler.Ids snapIds = com.onesay.assistant.v2.a11ylabel.A11yLabeler.DEFAULT_IDS;
     /** ★ a11y-labels 统计：绑定拒绝次数、编号变了按键改绑的次数。 */
@@ -462,6 +471,19 @@ public final class PhoneAgent {
             }
             if (sens == null && mForceSens != null) sens = mForceSens;   // ★ smart-replay：录制时判过敏感的步骤，回放时照样确认
             if (mRec != null && sens != null) mRec.onSensitive(sens);
+            if (whitelist != null) {   // ★ app-whitelist-1116：白名单分层（只对前台 App 在白名单里的起作用）
+                String before = sens;
+                wlTask.external = tainted;   // 读过外部内容：之后的外发白名单也不放行（ActionPolicy L3e）
+                sens = com.onesay.assistant.v2.whitelist.PhoneWhitelistGate.step(whitelist, wlTask, s, cur, sens);
+                if (before != null && sens == null) {
+                    wlPassed++;
+                    res.trace.add("whitelist pass " + (cur == null ? "" : cur.pkg));
+                } else if (sens != null && !sens.equals(before)) {
+                    wlAsked++;
+                    res.trace.add("whitelist kept confirm " + (cur == null ? "" : cur.pkg));
+                    if (mRec != null && before == null) mRec.onSensitive(sens);
+                }
+            }
             if (sens != null) {
                 long w0 = mD.now();
                 String[] ans = new String[1];
@@ -879,6 +901,7 @@ public final class PhoneAgent {
 
     /** 读到浏览器 / 短信 / 邮件 / 通知栏的界面 = 本轮读过外部文字。 */
     private void noteTaint(UiTree t, Result res) {
+        if (whitelist != null) com.onesay.assistant.v2.whitelist.PhoneWhitelistGate.noteScreen(wlTask, t);   // ★ app-whitelist-1116：只记隐私类别
         if (tainted || t == null || !RiskLabel.externalTextPkg(t.pkg)) return;
         tainted = true;
         taintedBy = t.pkg;

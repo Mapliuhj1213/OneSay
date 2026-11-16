@@ -725,3 +725,8 @@ com/onesay/assistant/v2/companion/CompanionIntent.java
 com/onesay/assistant/v2/companion/CompanionRouter.java
 com/onesay/assistant/v2/companion/CompanionAlarm.java
 com/onesay/assistant/v2/companion/CompanionDescriptor.java
+com/onesay/assistant/v2/whitelist/AppWhitelist.java
+com/onesay/assistant/v2/whitelist/PrivacyScan.java
+com/onesay/assistant/v2/whitelist/ActionPolicy.java
+com/onesay/assistant/v2/whitelist/WhitelistState.java
+com/onesay/assistant/v2/whitelist/PhoneWhitelistGate.java
