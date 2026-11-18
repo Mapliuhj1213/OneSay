@@ -310,7 +310,7 @@ public final class SvgSanitizer {
                 return;
             }
         }
-        if (probe.contains("url(") && !onlyLocalUrls(probe)) {
+        if ((probe.contains("url(") && !onlyLocalUrls(probe)) || hasUrlFunction(probe)) {   // ★ rel-1118 B15：image-set() 等也外连
             o.removed++;
             return;
         }
@@ -338,6 +338,9 @@ public final class SvgSanitizer {
                 for (String b : BAD_VALUE) if (probe.contains(b)) bad = true;
                 if (probe.contains("@font-face") || probe.contains("@namespace") || probe.contains("@charset")) bad = true;
                 if (probe.contains("url(") && !onlyLocalUrls(probe)) bad = true;
+                // ★ rel-1118 B15：image-set("https://…" 1x) / -webkit-image-set / image() / src() / cross-fade() 收裸字符串当网址，
+                //   以前只查 url( 放过了；CSS 里任何带 :// 或以 // 开头的字符串也整条丢（WebView 渲染时会外连）
+                if (hasUrlFunction(probe) || probe.contains("://") || probe.contains("\"//") || probe.contains("'//")) bad = true;
                 if (probe.indexOf('\\') >= 0) bad = true;   // CSS 转义能拼出任何东西：整条丢
                 if (!bad) out.append(piece);
                 if (k < s.length()) out.append(c);
@@ -345,6 +348,14 @@ public final class SvgSanitizer {
             }
         }
         return out.toString();
+    }
+
+    /** ★ rel-1118 B15：除 url() 外，CSS 里能拿字符串当网址取图的函数（已 squash：小写、无空白）。 */
+    private static final String[] URL_FUNCS = {"image-set(", "image(", "src(", "cross-fade(", "element("};
+
+    static boolean hasUrlFunction(String probe) {
+        for (String f : URL_FUNCS) if (probe.contains(f)) return true;
+        return false;
     }
 
     private static boolean onlyLocalUrls(String probe) {
