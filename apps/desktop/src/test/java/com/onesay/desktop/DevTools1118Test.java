@@ -235,4 +235,112 @@ public class DevTools1118Test {
         assertEquals("Windows OCR 中文空格去掉", "设置 超级用户", DeviceTools.tidyOcr("设 置 超 级 用 户").replace("置超", "置 超"));
         assertEquals("uid=0(root) 允许", DeviceTools.tidyOcr("uid=0(root) 允 许"));
     }
+
+    // ------------------------------------------------------------------ 安卓界面：先勾「永久记住选择」再点「允许」
+
+    static String suDialog(boolean checked) {
+        return "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\">"
+                + "<node index=\"0\" text=\"\" resource-id=\"\" class=\"android.widget.FrameLayout\" content-desc=\"\" checkable=\"false\" checked=\"false\" clickable=\"false\" enabled=\"true\" bounds=\"[0,0][1920,1080]\">"
+                + "<node index=\"0\" text=\"超级用户请求\" class=\"android.widget.TextView\" checkable=\"false\" checked=\"false\" clickable=\"false\" enabled=\"true\" bounds=\"[660,300][1260,360]\" />"
+                + "<node index=\"1\" text=\"Shell 请求 &quot;root&quot; 权限\" class=\"android.widget.TextView\" checkable=\"false\" checked=\"false\" clickable=\"false\" enabled=\"true\" bounds=\"[660,380][1260,430]\" />"
+                + "<node index=\"2\" text=\"\" class=\"android.widget.LinearLayout\" checkable=\"false\" checked=\"false\" clickable=\"true\" enabled=\"true\" bounds=\"[660,700][1260,770]\">"
+                + "<node index=\"0\" text=\"\" class=\"android.widget.CheckBox\" checkable=\"true\" checked=\"" + checked + "\" clickable=\"false\" enabled=\"true\" bounds=\"[670,710][720,760]\" />"
+                + "<node index=\"1\" text=\"永久记住选择\" class=\"android.widget.TextView\" checkable=\"false\" checked=\"false\" clickable=\"false\" enabled=\"true\" bounds=\"[730,710][1000,760]\" />"
+                + "</node>"
+                + "<node index=\"3\" text=\"拒绝\" class=\"android.widget.Button\" checkable=\"false\" checked=\"false\" clickable=\"true\" enabled=\"true\" bounds=\"[660,800][950,860]\" />"
+                + "<node index=\"4\" text=\"允许(9)\" class=\"android.widget.Button\" checkable=\"false\" checked=\"false\" clickable=\"true\" enabled=\"true\" bounds=\"[970,800][1260,860]\" />"
+                + "</node></hierarchy>";
+    }
+
+    @Test public void parsesUiautomatorDumpWithChineseAndBounds() {
+        List<DeviceTools.Node> n = DeviceTools.parseUi(suDialog(false));
+        assertEquals(8, n.size());
+        DeviceTools.Node allow = DeviceTools.findByText(n, "允许");
+        assertEquals("允许(9)", allow.text);
+        assertEquals(1115, allow.cx());
+        assertEquals(830, allow.cy());
+        assertEquals("Shell 请求 \"root\" 权限", n.get(2).text);
+        DeviceTools.Node rem = DeviceTools.findByText(n, "永久记住选择");
+        DeviceTools.Node cb = DeviceTools.checkboxFor(n, rem);
+        assertEquals("android.widget.CheckBox", cb.cls);
+        assertEquals(695, cb.cx());
+        assertTrue(DeviceTools.summarize(n, 80).contains("「永久记住选择」"));
+        assertTrue(DeviceTools.summarize(n, 80).contains("未勾选"));
+        assertNull(DeviceTools.findByText(n, "确定"));
+        // 复选框自己带文字
+        List<DeviceTools.Node> n2 = DeviceTools.parseUi("<hierarchy><node text=\"记住选择\" class=\"android.widget.CheckBox\" checkable=\"true\" checked=\"true\" clickable=\"true\" bounds=\"[0,0][100,50]\"/></hierarchy>");
+        assertTrue(DeviceTools.checkboxFor(n2, DeviceTools.findByText(n2, "记住选择")).checked);
+        // 同一行、不同父节点的复选框也能配上
+        List<DeviceTools.Node> n3 = DeviceTools.parseUi("<hierarchy><node bounds=\"[0,0][500,500]\"><node bounds=\"[0,0][500,100]\"><node text=\"永久记住\" bounds=\"[60,10][300,60]\"/></node>"
+                + "<node bounds=\"[0,0][60,100]\"><node class=\"android.widget.CheckBox\" checkable=\"true\" checked=\"false\" bounds=\"[5,15][45,55]\"/></node>"
+                + "<node class=\"android.widget.CheckBox\" checkable=\"true\" checked=\"false\" bounds=\"[5,300][45,340]\"/></node></hierarchy>");
+        assertEquals(25, DeviceTools.checkboxFor(n3, DeviceTools.findByText(n3, "永久记住")).cx());
+        assertEquals(35, DeviceTools.checkboxFor(n3, DeviceTools.findByText(n3, "永久记住")).cy());
+    }
+
+    @Test public void adbHelpersParseDevicesAndPickMuMu() {
+        Map<String, String> d = DeviceTools.parseDevices("List of devices attached\n127.0.0.1:16384\tdevice\nemulator-5554\toffline\n\n");
+        assertEquals("device", d.get("127.0.0.1:16384"));
+        assertEquals("127.0.0.1:16384", DeviceTools.pickSerial(d, ""));
+        assertEquals("127.0.0.1:16384", DeviceTools.pickSerial(d, "android"));
+        assertEquals("abc", DeviceTools.pickSerial(d, "abc"));
+        assertNull(DeviceTools.pickSerial(DeviceTools.parseDevices("List of devices attached\na\tdevice\nb\tdevice\n"), ""));
+        assertTrue(DeviceTools.userMustTap("确认付款"));
+        assertTrue(DeviceTools.userMustTap("卸载"));
+        assertFalse(DeviceTools.userMustTap("允许(9)"));
+        assertTrue(DeviceTools.ocrScript("C:\\a'b.png").contains("'C:\\a''b.png'"));
+    }
+
+    @Test public void ticksRememberThenTapsAllowInOneStep() throws Exception {
+        Chat ch = chat();
+        List<String> taps = new ArrayList<>();
+        boolean[] checked = {false};
+        ch.droid = new Chat.Droid() {
+            @Override public String serial(String w) { return w.isEmpty() ? "127.0.0.1:16384" : w; }
+            @Override public String dump(String s) { return suDialog(checked[0]); }
+            @Override public void tap(String s, int x, int y) { taps.add(s + "@" + x + "," + y); if (x == 695 && y == 735) checked[0] = true; }
+        };
+        Actions.Result r = ch.androidUi(new TreeMap<>(Map.of("action", "check_text", "text", "永久记住选择", "then_tap", "允许")));
+        assertTrue(r.text, r.ok);
+        assertEquals(List.of("127.0.0.1:16384@695,735", "127.0.0.1:16384@1115,830"), taps);
+        assertTrue(r.text.contains("勾上了") && r.text.contains("允许(9)"));
+        // 已经勾着：不再点复选框
+        taps.clear();
+        r = ch.androidUi(new TreeMap<>(Map.of("action", "check_text", "text", "永久记住选择")));
+        assertTrue(r.ok);
+        assertTrue(r.text.contains("本来就勾着"));
+        assertTrue(taps.isEmpty());
+        // 找不到：失败并把界面上有的列给模型
+        r = ch.androidUi(new TreeMap<>(Map.of("action", "tap_text", "text", "确定")));
+        assertFalse(r.ok);
+        assertTrue(String.valueOf(r.data.get("output")).contains("「允许(9)」"));
+        // dump
+        r = ch.androidUi(new TreeMap<>(Map.of("action", "dump")));
+        assertTrue(String.valueOf(r.data.get("output")).contains("超级用户请求"));
+        // 只读预设只能 dump
+        Config c = new Config(Files.createTempFile("dt", ".properties"));
+        c.chatPreset = "read_only";
+        Chat ro = new Chat(c, new Store(Files.createTempDirectory("dt").resolve("state.json")), new Main.TestActions(), List::of, x -> { });
+        ro.droid = ch.droid;
+        assertFalse(ro.androidUi(new TreeMap<>(Map.of("action", "tap_text", "text", "允许"))).ok);
+        assertTrue(ro.androidUi(new TreeMap<>(Map.of("action", "dump"))).ok);
+        // 映射：check 要有 text
+        assertNull(ChatAgent.map(new Llm.ToolCall("1", "android_ui", "{\"action\":\"check_text\"}")));
+        assertEquals("android_ui", ChatAgent.map(new Llm.ToolCall("1", "android_ui", "{\"action\":\"dump\",\"device\":\"127.0.0.1:16384\"}"))[0]);
+        assertTrue(ChatAgent.systemPrompt("now", "w", "h", "", ChatPolicy.Preset.DEFAULT).contains("不要硬编码 input tap 坐标"));
+    }
+
+    @Test public void paymentButtonsAreNeverTappedForTheUser() throws Exception {
+        Chat ch = chat();
+        List<String> taps = new ArrayList<>();
+        ch.droid = new Chat.Droid() {
+            @Override public String serial(String w) { return "p1"; }
+            @Override public String dump(String s) { return "<hierarchy><node text=\"确认付款\" clickable=\"true\" bounds=\"[0,0][100,50]\"/></hierarchy>"; }
+            @Override public void tap(String s, int x, int y) { taps.add(x + "," + y); }
+        };
+        Actions.Result r = ch.androidUi(new TreeMap<>(Map.of("action", "tap_text", "text", "确认付款")));
+        assertFalse(r.ok);
+        assertTrue(r.text.contains("不替用户点"));
+        assertTrue(taps.isEmpty());
+    }
 }

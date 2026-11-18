@@ -157,6 +157,13 @@ public final class ChatAgent {
         sc.put("target", prop("string", "截哪块屏幕：pc = 这台电脑（默认）；android = 用 adb 连着的安卓设备（只有一台时）；或 adb 序列号，如 MuMu 模拟器 127.0.0.1:16384"));
         sc.put("question", prop("string", "可选：想从屏幕上确认什么（如「有没有弹出 root 授权框」「命令输出里有没有 uid=0」）"));
         l.add(fn("screenshot", "截屏并看图：图存进工作区 shots/，在任务卡里直接显示给用户；配了看图模型就交给它描述画面，没配就用 Windows 自带 OCR 读出文字（结果会标明是哪种）。", sc, List.of("description")));
+        Map<String, Object> au = new TreeMap<>();
+        au.put("description", prop("string", DESC));
+        au.put("action", prop("string", "dump = 列出界面上的文字 / 按钮 / 复选框和位置；tap_text = 点有这段文字的按钮；check_text = 勾上这段文字旁边的复选框（已勾上就不动）"));
+        au.put("text", prop("string", "tap_text / check_text 要找的文字（如「允许」「永久记住选择」），先完全相同再包含"));
+        au.put("then_tap", prop("string", "可选，只用于 check_text：勾好后紧接着点的按钮文字（如先勾「永久记住选择」再点「允许」，倒计时弹窗来得及）"));
+        au.put("device", prop("string", "可选：adb 序列号（MuMu 是 127.0.0.1:16384）；只连着一台时不用填"));
+        l.add(fn("android_ui", "用 adb 读安卓设备（模拟器 / 开了调试的手机）当前界面的结构（uiautomator，按 UTF-8 读，中文不乱码），按文字点按钮、勾复选框（点在控件 bounds 的中心，不用猜坐标）。付款 / 转账 / 删除 / 卸载这类按钮不替用户点。", au, List.of("description", "action")));
         Map<String, Object> sf = new TreeMap<>();
         sf.put("description", prop("string", DESC));
         sf.put("path", prop("string", "文件路径（工作区里的相对路径，或完整路径）：图片会显示在任务卡里，文本文件可以在卡里点开看"));
@@ -225,6 +232,14 @@ public final class ChatAgent {
                 out.put("target", tg.isEmpty() ? "pc" : tg);
                 if (a.get("question") != null && !String.valueOf(a.get("question")).isBlank()) out.put("question", clip(String.valueOf(a.get("question")).trim(), 300));
                 return new Object[] {"screen_look", out};
+            }
+            case "android_ui": {
+                String act = a.get("action") == null ? "" : String.valueOf(a.get("action")).trim().toLowerCase(java.util.Locale.ROOT);
+                if (!act.matches("dump|tap_text|check_text")) return null;
+                out.put("action", act);
+                for (String k : new String[] {"text", "then_tap", "device"}) if (a.get(k) != null && !String.valueOf(a.get(k)).isBlank()) out.put(k, clip(String.valueOf(a.get(k)).trim(), 100));
+                if (!act.equals("dump") && !out.containsKey("text")) return null;
+                return new Object[] {"android_ui", out};
             }
             case "show_file": {
                 Object p = a.get("path");
@@ -312,6 +327,8 @@ public final class ChatAgent {
                 + "不要说你没法控制手机：先看下面的「运行环境」里有没有连着的手机，没有就照那里的说法告诉用户怎么连上；phone_operate 被手机拒（没打开这一项）时告诉用户在手机上打开。"
                 + "模拟器或开了 USB / 无线调试的手机也可以用 adb（run_command）。\n"
                 + "看屏幕（这台电脑，或 adb 连着的模拟器 / 手机）用 screenshot：结果写明是看图模型的描述还是 OCR 读出的文字；OCR 只有文字，看不出图标、颜色和布局，拿不准就如实说。"
+                + "安卓界面上的按钮 / 复选框（如 root 授权弹窗）用 android_ui：先 dump 看有哪些，再按文字 tap_text / check_text，不要硬编码 input tap 坐标；"
+                + "要「记住选择」的弹窗先 check_text 勾上再点允许（then_tap）。点完再 dump 或截图确认。"
                 + "不要用截图文件的大小、修改时间去猜屏幕上是什么。截图和你生成的文件会显示在任务卡里；要给用户看某个文件用 show_file，不要用 open_url 打开 file: 地址。\n"
                 + "用户说「继续」「接着做」时，根据上面对话里已经做过的步骤（▶ 开头的记录）接着做。做完后用一两句话汇报结果（做了什么、现在是什么状态）。"
                 + (memory == null || memory.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准）：\n" + memory);
@@ -605,6 +622,12 @@ public final class ChatAgent {
             case "phone_status": return "查手机状态";
             case "screen_look": return "截屏：" + ("pc".equals(a.get("target")) ? "这台电脑" : clip(String.valueOf(a.get("target")), 60)) + (a.get("question") != null ? "（看：" + clip(String.valueOf(a.get("question")), 80) + "）" : "");
             case "show_file": return "显示文件：" + clip(String.valueOf(a.get("path")), 200);
+            case "android_ui": {
+                String act = String.valueOf(a.get("action"));
+                String dev = a.get("device") == null ? "" : "（" + a.get("device") + "）";
+                if (act.equals("dump")) return "读安卓界面" + dev;
+                return (act.equals("check_text") ? "勾选「" : "点「") + clip(String.valueOf(a.get("text")), 40) + "」" + (a.get("then_tap") != null ? "，再点「" + clip(String.valueOf(a.get("then_tap")), 40) + "」" : "") + dev;
+            }
             case "phone_open_app": return "手机上打开：" + clip(String.valueOf(a.containsKey("name") ? a.get("name") : a.get("package")), 200);
             case "phone_operate": return "交给手机去做：" + clip(String.valueOf(a.get("goal")), 200);
             default: return cmd;

@@ -269,6 +269,7 @@ public final class Chat {
         if (cmd.startsWith("phone_")) return phoneTool(cmd, args);
         if ("screen_look".equals(cmd)) return screenLook(args);
         if ("show_file".equals(cmd)) return showFile(String.valueOf(args.get("path")));
+        if ("android_ui".equals(cmd)) return androidUi(args);
         Actions.Result r = pe.run(cmd, args);
         if ("file_write".equals(cmd) && r != null && r.ok) {
             // [devtools-1118] 写好的文件在任务卡里能点开看
@@ -382,6 +383,96 @@ public final class Chat {
         d.put("how", how);
         d.put("output", "【" + how + "】" + note + "\n" + seen);
         return Actions.Result.ok("截好了（" + ("pc".equals(who) ? "这台电脑" : who) + (size.isEmpty() ? "" : "，" + size) + "），" + how.replaceAll("（.*", ""), d);
+    }
+
+    // ------------------------------------------------------------------ [devtools-1118] 安卓界面（uiautomator）
+
+    /** 安卓设备（测试换）。 */
+    public interface Droid {
+        /** 要用的序列号（没给就挑唯一在线的一台）；连不上抛错并说原因。 */
+        String serial(String wanted) throws Exception;
+        String dump(String serial) throws Exception;
+        void tap(String serial, int x, int y) throws Exception;
+    }
+
+    volatile Droid droid = new Droid() {
+        @Override public String serial(String wanted) throws Exception {
+            String adb = adb();
+            if (adb == null) throw new Exception("这台电脑上没找到 adb（可以在设置里填 adb 的完整路径，MuMu 的在安装目录 shell\\adb.exe）");
+            Map<String, String> devs = DeviceTools.devices(adb);
+            String s = DeviceTools.pickSerial(devs, wanted);
+            if (s == null) throw new Exception(devs.isEmpty() ? "adb 没连着任何安卓设备（MuMu 模拟器是 127.0.0.1:16384）" : "连着好几台设备，用 device 指定一个：" + devs);
+            String st = DeviceTools.ensureDevice(adb, s);
+            if (!"device".equals(st)) throw new Exception("设备 " + s + (st == null ? " 没连上" : " 状态是 " + st));
+            return s;
+        }
+
+        @Override public String dump(String serial) throws Exception { return DeviceTools.dumpUi(adb(), serial); }
+
+        @Override public void tap(String serial, int x, int y) throws Exception {
+            DeviceTools.Run r = DeviceTools.tap(adb(), serial, x, y);
+            if (r.timedOut || r.exit != 0) throw new Exception("点不了：" + LinkPolicy.oneLine(r.text()));
+        }
+    };
+
+    Actions.Result androidUi(Map<String, Object> a) {
+        String act = String.valueOf(a.getOrDefault("action", "dump"));
+        String text = String.valueOf(a.getOrDefault("text", "")).trim();
+        String then = a.get("then_tap") == null ? "" : String.valueOf(a.get("then_tap")).trim();
+        if (!"dump".equals(act) && ChatPolicy.Preset.of(cfg.chatPreset) == ChatPolicy.Preset.READ_ONLY)
+            return Actions.Result.fail("现在的权限预设是「只读」，只能读界面、不点；要的话在对话框上方把预设改成「默认」。");
+        Droid d = droid;
+        String serial;
+        List<DeviceTools.Node> nodes;
+        try {
+            serial = d.serial(a.get("device") == null ? "" : String.valueOf(a.get("device")));
+            nodes = DeviceTools.parseUi(d.dump(serial));
+        } catch (Exception e) {
+            return Actions.Result.fail("读不到安卓界面：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+        }
+        Map<String, Object> data = new TreeMap<>();
+        data.put("device", serial);
+        if ("dump".equals(act)) {
+            data.put("output", DeviceTools.summarize(nodes, 80));
+            return Actions.Result.ok("读到 " + serial + " 的界面", data);
+        }
+        try {
+            List<String> did = new ArrayList<>();
+            if ("check_text".equals(act)) {
+                DeviceTools.Node label = DeviceTools.findByText(nodes, text);
+                if (label == null) return notFound(text, nodes, data);
+                DeviceTools.Node cb = DeviceTools.checkboxFor(nodes, label);
+                if (cb == null) { data.put("output", DeviceTools.summarize(nodes, 60)); return new Actions.Result(false, "「" + text + "」旁边没找到复选框", data); }
+                if (cb.checked) did.add("「" + text + "」本来就勾着");
+                else {
+                    d.tap(serial, cb.cx(), cb.cy());
+                    did.add("勾上了「" + text + "」（点 " + cb.cx() + "," + cb.cy() + "）");
+                    try {
+                        nodes = DeviceTools.parseUi(d.dump(serial));
+                        DeviceTools.Node l2 = DeviceTools.findByText(nodes, text);
+                        DeviceTools.Node c2 = l2 == null ? null : DeviceTools.checkboxFor(nodes, l2);
+                        if (c2 != null && !c2.checked) return new Actions.Result(false, "点了「" + text + "」的复选框，但再读界面它还是没勾上", data);
+                    } catch (Exception ignored) { } // 再读不到（比如弹窗已经变了）不算失败
+                }
+                if (then.isEmpty()) { data.put("output", String.join("\n", did)); return new Actions.Result(true, String.join("；", did), data); }
+                text = then;
+            }
+            DeviceTools.Node label = DeviceTools.findByText(nodes, text);
+            if (label == null) { if (!did.isEmpty()) data.put("done_before", String.join("；", did)); return notFound(text, nodes, data); }
+            if (DeviceTools.userMustTap(label.label())) return new Actions.Result(false, "「" + label.label() + "」这类按钮（付款 / 转账 / 删除 / 卸载…）不替用户点，请用户自己点", data);
+            DeviceTools.Node t = DeviceTools.tapTarget(nodes, label);
+            d.tap(serial, t.cx(), t.cy());
+            did.add("点了「" + label.label() + "」（" + t.cx() + "," + t.cy() + "）");
+            data.put("output", String.join("\n", did));
+            return new Actions.Result(true, String.join("；", did), data);
+        } catch (Exception e) {
+            return new Actions.Result(false, "点按出错：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()), data);
+        }
+    }
+
+    static Actions.Result notFound(String text, List<DeviceTools.Node> nodes, Map<String, Object> data) {
+        data.put("output", DeviceTools.summarize(nodes, 60));
+        return new Actions.Result(false, "界面上没找到「" + text + "」（现在界面上有的见输出）", data);
     }
 
     static boolean isImage(Path f) {
