@@ -5,6 +5,14 @@ import java.util.List;
 /** ★ r2/fast-screen：App 操作代理的提示词（纯 Java）。 */
 public final class PhonePrompt {
 
+    /** ★ overnight-1119：识屏用不了时回给模型的一句（不要再要截图）。 */
+    public static final String NO_VISION = "（看不了屏幕图像：没配识屏 Key 或截屏不可用。不要再要截图；只按上面的读屏结果做，读屏不够就用 ask 问用户，或在 done 里如实说做不到）";
+
+    /** ★ overnight-1119：识屏用不了时从系统提示里去掉「要看画面」这条。 */
+    public static String withoutShot(String sys) {
+        return sys == null ? null : sys.replace("5) 控件树看不出来、需要看画面：{\"shot\":true}\n", "");
+    }
+
     private PhonePrompt() {}
 
     public static final String MODEL = com.onesay.assistant.v2.net.LlmModels.DEEPSEEK_DEFAULT;

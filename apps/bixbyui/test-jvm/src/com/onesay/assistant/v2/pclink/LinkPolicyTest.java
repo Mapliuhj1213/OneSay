@@ -513,7 +513,7 @@ public class LinkPolicyTest {
             assertEquals(r[4], fu.reason);
         }
         assertEquals("没有事实 = 不在列表里", D, v(Target.PC, FU, Cat.SHORTCUT));
-        assertEquals(Cat.UNKNOWN, LinkPolicy.phoneCat("shortcut_run"));
+        assertEquals("[overnight-1119] 手机端运行快捷指令交给手机自己的执行链", Cat.APP_OPERATE, LinkPolicy.phoneCat("shortcut_run"));
         for (String code : new String[]{LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL, LinkPolicy.R_SHORTCUT_CHANGED, LinkPolicy.R_SHORTCUT_BLOCKED})
             assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
         assertEquals("shortcut_needs_approval", LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL);

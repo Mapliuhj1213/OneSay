@@ -34,7 +34,12 @@ public final class PcRxPolicy {
      * 走手机自己的规划执行（和在手机上说这句话一样）；打电话、发短信、付款、给别人发消息这类照旧在手机上弹卡确认。默认关。
      */
     public static final String OPERATE = "operate";
-    public static final String[] AGENT = {OPERATE};
+    /**
+     * [overnight-1119] 双端连通：电脑发文件过来（分块 file_put，落在「下载 / OneSay」）；电脑看 / 运行手机上的快捷指令（shortcut_list 跟着 shortcut_run 的开关）。
+     * 收文件默认开（只往自己的下载文件夹里放新文件，不覆盖、不执行）；运行快捷指令默认关（快捷指令里的每一步照旧走手机上的确认卡）。
+     */
+    public static final String FILE_PUT = "file_put", SHORTCUT_LIST = "shortcut_list", SHORTCUT_RUN = "shortcut_run", OPERATE_STATUS = "operate_status";
+    public static final String[] AGENT = {OPERATE, FILE_PUT, SHORTCUT_RUN};
     public static final int GOAL_MAX = 500;
 
     /** 控制台里全部的逐项开关（原来的 8 项 + 加回来的 8 项 + 按目标操作）。 */
@@ -59,7 +64,7 @@ public final class PcRxPolicy {
 
     public static boolean known(String cmd) {
         for (String c : CMDS) if (c.equals(cmd)) return true;
-        if (OPERATE.equals(cmd)) return true;
+        if (OPERATE.equals(cmd) || FILE_PUT.equals(cmd) || SHORTCUT_RUN.equals(cmd) || SHORTCUT_LIST.equals(cmd) || OPERATE_STATUS.equals(cmd)) return true;
         return extra(cmd);
     }
 
@@ -73,12 +78,20 @@ public final class PcRxPolicy {
     public static boolean dangerous(String cmd) {
         return OPEN_URL.equals(cmd) || OPEN_APP.equals(cmd) || CLIPBOARD.equals(cmd)
                 || SETTING.equals(cmd) || FILE_WRITE.equals(cmd) || UNINSTALL.equals(cmd) || SCRIPT_RUN.equals(cmd) || SYS_EXEC.equals(cmd)
-                || OPERATE.equals(cmd);
+                || OPERATE.equals(cmd) || SHORTCUT_RUN.equals(cmd);
+    }
+
+    /** 这条指令归哪个开关管（列快捷指令跟着运行快捷指令的开关；查按目标操作的进展跟着按目标操作的开关）。 */
+    public static String toggleOf(String cmd) {
+        if (SHORTCUT_LIST.equals(cmd)) return SHORTCUT_RUN;
+        if (OPERATE_STATUS.equals(cmd)) return OPERATE;
+        return cmd;
     }
 
     /** 各项默认开关（开源版：危险项和加回来的 8 项默认关）。 */
     public static boolean defaultOn(String cmd) {
-        return known(cmd) && !dangerous(cmd) && !extra(cmd);
+        String t = toggleOf(cmd);
+        return known(t) && !dangerous(t) && !extra(t);
     }
 
     public static String label(String cmd) {
@@ -99,6 +112,9 @@ public final class PcRxPolicy {
         if (SCRIPT_RUN.equals(cmd)) return "运行工作区脚本";
         if (SYS_EXEC.equals(cmd)) return "系统命令";
         if (OPERATE.equals(cmd)) return "按目标操作手机";
+        if (FILE_PUT.equals(cmd)) return "接收电脑发来的文件";
+        if (SHORTCUT_RUN.equals(cmd) || SHORTCUT_LIST.equals(cmd)) return "运行手机上的快捷指令";
+        if (OPERATE_STATUS.equals(cmd)) return "按目标操作手机";
         return cmd;
     }
 
@@ -119,6 +135,8 @@ public final class PcRxPolicy {
         if (SCRIPT_LIST.equals(cmd)) return "列出工作区 scripts/ 里的脚本";
         if (SCRIPT_RUN.equals(cmd)) return "运行工作区 scripts/ 里的 .sh（走特权通道）";
         if (SYS_EXEC.equals(cmd)) return "走特权通道执行命令；给 App 授权的只生成脚本，不执行；卸载 / 停用支付类和系统 App 先问你";
+        if (FILE_PUT.equals(cmd)) return "电脑发来的文件存进「下载 / OneSay」（分块传、带校验，重名不覆盖），不会自动打开或安装";
+        if (SHORTCUT_RUN.equals(cmd)) return "电脑能看到并运行你在手机上建的快捷指令；快捷指令里打电话、发消息、付款这类照旧在手机上问你";
         if (OPERATE.equals(cmd)) return "电脑上的对话把一句目标交给手机上的 OneSay 自己规划去做（和你在手机上说这句话一样）；打电话、发短信、付款、给别人发消息照旧在手机上问你";
         return "";
     }
@@ -188,6 +206,15 @@ public final class PcRxPolicy {
             String g = str(a, "goal");
             if (g.length() == 0) return "没说要手机做什么";
             return g.length() > GOAL_MAX ? "目标太长（超过 " + GOAL_MAX + " 字）" : null;
+        }
+        if (FILE_PUT.equals(cmd)) {
+            if (str(a, "xfer").length() == 0 || a.get("seq") == null || a.get("b64") == null) return "分块不全";
+            return str(a, "name").length() > 255 ? "文件名太长" : null;
+        }
+        if (SHORTCUT_RUN.equals(cmd)) {
+            String n = str(a, "name");
+            if (n.length() == 0) return "要给快捷指令名";
+            return n.length() > 64 ? "快捷指令名太长" : null;
         }
         if (SYS_EXEC.equals(cmd)) {
             String c = str(a, "command");

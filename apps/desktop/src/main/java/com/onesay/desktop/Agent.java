@@ -75,8 +75,11 @@ public final class Agent {
         StringBuilder s = new StringBuilder(connected() ? "在线" : "离线");
         for (Link x : links) s.append(" · ").append(x.name()).append(Boolean.TRUE.equals(up.get(x)) ? "✓" : "✗");
         status = s.toString();
-        log.accept(l.name() + " " + state.get(l));
+        String line = quiet.computeIfAbsent(l, k -> new LogQuiet()).filter(l.name(), c, why, System.currentTimeMillis()); // [overnight-1119] 同样的离线原因不刷屏
+        if (line != null) log.accept(line);
     }
+
+    private final Map<Link, LogQuiet> quiet = new java.util.concurrent.ConcurrentHashMap<>();
 
     @SuppressWarnings("unchecked")
     void handle(Map<String, Object> f, Link via) {

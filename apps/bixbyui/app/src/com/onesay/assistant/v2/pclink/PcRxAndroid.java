@@ -384,6 +384,10 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
         }
         if (PcRxPolicy.OPEN_APP.equals(cmd)) return openApp(PcRxPolicy.str(a, "package"), PcRxPolicy.str(a, "name"));
         if (PcRxPolicy.OPERATE.equals(cmd)) return operate(PcRxPolicy.str(a, "goal"));
+        if (PcRxPolicy.OPERATE_STATUS.equals(cmd)) return operateStatus();
+        if (PcRxPolicy.FILE_PUT.equals(cmd)) return PcFileAndroid.rx(app).receive(a, PcLink.pcName(app)); // [overnight-1119] 电脑发文件过来
+        if (PcRxPolicy.SHORTCUT_LIST.equals(cmd)) return shortcutList();
+        if (PcRxPolicy.SHORTCUT_RUN.equals(cmd)) return shortcutRun(PcRxPolicy.str(a, "name"));
         if (PcRxPolicy.SCREEN_ON.equals(cmd)) {
             try {
                 PowerManager pm = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
@@ -465,8 +469,72 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
      * [phone-tools-1118] 按目标操作：把这句目标交给手机上的 OneSay 面板（和在手机上说这句话走同一条规划执行链，
      * 那条链上打电话 / 发短信 / 付款 / 给别人发消息的确认卡照旧）。只负责交过去，不等做完；结果在手机屏幕上。
      */
+    /** [overnight-1119] 最近一次电脑交来的目标（只在内存里，给 operate_status 回话）。 */
+    static volatile String lastGoal = "";
+    static volatile long lastGoalAt;
+
+    PcLanClient.Result operateStatus() {
+        Map<String, Object> d = new TreeMap<String, Object>();
+        if (lastGoalAt == 0) {
+            d.put("state", "none");
+            return ok("这次手机上的 OneSay 启动后，电脑还没交过目标", d);
+        }
+        long min = Math.max(0, (System.currentTimeMillis() - lastGoalAt) / 60000);
+        d.put("state", "handed");
+        d.put("goal", lastGoal);
+        d.put("minutes_ago", min);
+        return ok((min == 0 ? "刚才" : min + " 分钟前") + "交给手机的「" + clip(lastGoal, 40) + "」已经在手机上开始做；做到哪一步、结果怎样看手机屏幕（手机不把屏幕内容传回电脑）", d);
+    }
+
+    /** [overnight-1119] 手机上的快捷指令给电脑看。 */
+    PcLanClient.Result shortcutList() {
+        try {
+            List<com.onesay.assistant.v2.shortcut.ShortcutModel.Shortcut> all = com.onesay.assistant.v2.shortcut.ShortcutHooks.forPc(app);
+            if (all == null) return fail("手机上的快捷指令功能没开（控制台 › 快捷指令）");
+            Map<String, Object> d = new TreeMap<String, Object>();
+            d.put("shortcuts", PcShortcuts.view(all));
+            return ok(all.isEmpty() ? "手机上还没有快捷指令" : "手机上有 " + all.size() + " 条快捷指令", d);
+        } catch (Throwable t) {
+            return fail("读不到手机上的快捷指令（计划 App 连不上）");
+        }
+    }
+
+    /** [overnight-1119] 电脑让手机跑一条快捷指令：交给手机上的 OneSay 面板（和在手机上点「运行」同一条执行链，每一步照旧按手机的规则问你）。 */
+    PcLanClient.Result shortcutRun(String name) {
+        PcShortcuts.Pick p;
+        try {
+            List<com.onesay.assistant.v2.shortcut.ShortcutModel.Shortcut> all = com.onesay.assistant.v2.shortcut.ShortcutHooks.forPc(app);
+            if (all == null) return fail("手机上的快捷指令功能没开（控制台 › 快捷指令）");
+            p = PcShortcuts.find(all, name);
+        } catch (Throwable t) {
+            return fail("读不到手机上的快捷指令（计划 App 连不上）");
+        }
+        if (p.hit == null) return fail(p.why);
+        PcLanClient.Result r = toPanel(com.onesay.assistant.v2.shortcut.ShortcutModel.runCommand(p.hit.id, p.hit.name));
+        if (!r.ok) return r;
+        Map<String, Object> d = new TreeMap<String, Object>();
+        d.put("name", p.hit.name);
+        d.put("steps", (long) p.hit.steps.size());
+        return ok("手机开始执行快捷指令「" + p.hit.name + "」（" + p.hit.steps.size() + " 步；打电话 / 发消息 / 付款这类会在手机上问你）", d);
+    }
+
+    /** 把一句话交给手机上的 OneSay 面板（和在手机上说这句话一样）。 */
+    PcLanClient.Result toPanel(String query) {
+        try {
+            Intent i = new Intent(app, com.onesay.assistant.v2.ui.FloatingSheetService.class)
+                    .setAction(com.onesay.assistant.v2.ui.FloatingSheetService.ACTION_SHOW)
+                    .putExtra(com.onesay.assistant.v2.ui.FloatingSheetService.EXTRA_QUERY, query);
+            if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(i); else app.startService(i);
+            return ok("", null);
+        } catch (Exception e) {
+            return fail("手机上的 OneSay 面板没起来：" + e.getClass().getSimpleName());
+        }
+    }
+
     PcLanClient.Result operate(String goal) {
         if (goal.length() == 0) return fail("没说要手机做什么");
+        lastGoal = goal;
+        lastGoalAt = System.currentTimeMillis();
         try {
             Intent i = new Intent(app, com.onesay.assistant.v2.ui.FloatingSheetService.class)
                     .setAction(com.onesay.assistant.v2.ui.FloatingSheetService.ACTION_SHOW)

@@ -671,6 +671,9 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     @Override public String describeScreen() {
         try {
             if (!com.onesay.assistant.v2.vision.screenref.ScreenRefSettings.vlFallbackEnabled(mApp)) return null;
+            // ★ overnight-1119 魅族：没配识屏 Key 就不截屏（截一张要 1 s，截完也传不出去）；PhoneAgent 见到 null 会停止再要识屏
+            String key = new com.onesay.assistant.v2.asr.AliyunAsrConfig(mApp).getDashScopeKey();
+            if (key == null || key.trim().length() == 0) return null;
             com.onesay.assistant.v2.vision.ScreenVisionEngine.VisionResult vr = com.onesay.assistant.v2.vision.ScreenVisionEngine.getInstance(mApp)
                     .recognizeScreenSync("简要描述当前手机屏幕（忽略边缘的蓝色光晕和顶部的黑色灵动岛）：在哪个 App 的什么页面、主要内容、"
                             + "能点的按钮和它们的大概位置（上/中/下、左/中/右）。不超过 200 字。", 15000);

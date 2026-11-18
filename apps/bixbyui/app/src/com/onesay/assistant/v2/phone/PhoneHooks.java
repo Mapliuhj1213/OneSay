@@ -20,6 +20,8 @@ public final class PhoneHooks {
     public static final String PREF = "bixby_phone";
     public static final String KEY_ENABLED = "enabled";
     private static volatile boolean sBusy;
+    /** [overnight-1119] 正在做的目标（拒绝新任务时说是哪个）。 */
+    private static volatile String sCurrentGoal = "";
     private static volatile String sLast = "";
 
     public static boolean enabled(Context ctx) {
@@ -131,16 +133,35 @@ public final class PhoneHooks {
     public static PhoneAgent.Result runBlocking(Context ctx, String goal, String pkg, boolean legacy, boolean execMode, PhoneAgent.Planner script) {
         Context app = ctx.getApplicationContext();
         PhoneAgent.Result res;
+        // ★ overnight-1119 魅族：暂停中（你来操作 / 卡住等继续）的旧任务不挡新任务——停掉它，等它收尾（最多 5 秒），岛上提示换成了新任务
+        if (sBusy) {
+            ExecModeController cur = ExecModeController.current();
+            com.onesay.assistant.v2.exec.ExecState.NewTask nt = com.onesay.assistant.v2.exec.ExecState.onNewTask(sBusy,
+                    cur != null && cur.state.paused(), cur != null && cur.state.stopped());
+            if (nt == com.onesay.assistant.v2.exec.ExecState.NewTask.REPLACE && cur != null) {
+                SafeLog.i(TAG, "[PHONE] 暂停中的任务让给新任务");
+                cur.stop("新任务来了，换成新任务");
+                long end = android.os.SystemClock.elapsedRealtime() + 5000;
+                while (sBusy && android.os.SystemClock.elapsedRealtime() < end) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                }
+            }
+        }
         // ★ a11y-labels：屏幕输入独占租约（语音任务 / 定时任务 / 编号点选不抢屏；持有方异常没释放，到期自动作废）
         final com.onesay.assistant.v2.a11ylabel.ScreenLease.Lease lease = com.onesay.assistant.v2.a11ylabel.ScreenLease.get().tryAcquire("手机操作任务", com.onesay.assistant.v2.a11ylabel.ScreenLease.TASK_TTL_MS);
         if (sBusy || lease == null) {
             if (lease != null) com.onesay.assistant.v2.a11ylabel.ScreenLease.get().release(lease);
             res = new PhoneAgent.Result();
             res.status = PhoneAgent.Status.FAILED;
-            res.reason = sBusy ? "已有一个操作任务在进行" : com.onesay.assistant.v2.a11ylabel.ScreenLease.get().busySay();
+            res.reason = sBusy ? com.onesay.assistant.v2.exec.ExecState.refuseText(sCurrentGoal) : com.onesay.assistant.v2.a11ylabel.ScreenLease.get().busySay();
             return res;
         }
         sBusy = true;
+        sCurrentGoal = goal;
         sSettleStats = "";
         sReplayStats = "";
         FastScreenDriver drv = new FastScreenDriver(app);

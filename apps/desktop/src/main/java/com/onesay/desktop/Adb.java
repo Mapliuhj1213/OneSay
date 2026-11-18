@@ -229,7 +229,7 @@ public final class Adb {
         if (l.contains("could not find any adb device") || l.contains("device not found") || l.contains("no devices")) return "没找到手机，重新插上再试";
         if (newDisplay && (l.contains("virtual display") || l.contains("new-display") || l.contains("new display"))
                 && (l.contains("not supported") || l.contains("could not") || l.contains("error") || l.contains("failed")))
-            return "这台手机不支持把 App 单独开成窗口（需要安卓 10 以上，建议 13 以上）";
+            return "此手机系统版本暂不支持手机桌面（需要安卓 10 及以上，建议 13 及以上）";
         if (uhid && (l.contains("uhid") || l.contains("/dev/uhid")) && (l.contains("error") || l.contains("could not") || l.contains("failed") || l.contains("permission")))
             return "「物理键盘（UHID）」模式在这台手机上用不了：去设置改回「普通键盘」，中文用复制粘贴（Ctrl+V 会同步剪贴板）";
         if (l.contains("encoder") && (l.contains("error") || l.contains("could not"))) return "手机的视频编码器启动失败，可以重插线再试";

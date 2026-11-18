@@ -741,6 +741,19 @@ public final class App {
                 }, "onesay-xfer-send").start();
                 return ok("开始发：" + f.getName() + "（" + FileXfer.human(f.length()) + "），进度看下面");
             }
+            if (op.equals("send_path")) {
+                // 电脑上一个已知路径发到手机（拖进传输区 / 对话里点「发到手机」用；同样分块、进度在这里看）
+                String phone = agent.phoneTarget("");
+                if (phone == null || phone.isEmpty() || !agent.peers().containsKey(phone)) return fail("手机没连着（先在手机上打开 OneSay，确认电脑联动在线）");
+                java.io.File f = new java.io.File(str(b, "path", ""));
+                if (!f.isFile()) return fail("电脑上没有这个文件");
+                new Thread(() -> {
+                    Actions.Result r = xfer.send(f, phone, this::callPhone);
+                    log.accept("发文件到手机：" + (r.ok ? "成功 " : "失败 ") + f.getName());
+                    notify.post("task", r.ok ? "文件已发到手机" : "文件没发到手机", r.text, phone);
+                }, "onesay-xfer-send").start();
+                return ok("开始发：" + f.getName() + "（" + FileXfer.human(f.length()) + "），进度看下面");
+            }
             if (op.equals("open_dir")) {
                 try {
                     java.nio.file.Path d = cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE);

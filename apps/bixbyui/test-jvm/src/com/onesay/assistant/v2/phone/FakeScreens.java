@@ -217,7 +217,11 @@ final class FakeScreens {
             clock += idleMs;
         }
 
+        /** [overnight-1119] 要过几次视觉描述（没配识屏 Key 的手机：都返回 null）。 */
+        int describes;
+
         @Override public String describeScreen() {
+            describes++;
             return null;
         }
 

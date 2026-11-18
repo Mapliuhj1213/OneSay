@@ -111,6 +111,11 @@ public final class PcRx {
             for (String c : PcRxPolicy.ALL) if (h.enabled(c)) on.add(c);
             List<Object> all = new ArrayList<Object>();
             for (String c : PcRxPolicy.ALL) all.add(c);
+            // [overnight-1119] 跟着别的开关走的两条（列快捷指令 / 查按目标操作的进展）：开关开着就一起报
+            for (String c : new String[]{PcRxPolicy.SHORTCUT_LIST, PcRxPolicy.OPERATE_STATUS}) {
+                all.add(c);
+                if (h.enabled(PcRxPolicy.toggleOf(c))) on.add(c);
+            }
             Map<String, Object> d = new TreeMap<String, Object>();
             d.put("caps", on);      // 现在开着的
             d.put("known", all);    // 这台手机支持的全部（关着的在手机控制台里能打开）
@@ -118,7 +123,7 @@ public final class PcRx {
         }
         if ("whitelist_sync".equals(cmd)) return whitelistSync(args); // ★ app-whitelist-1116：白名单同步不走逐项开关（签名通道已验过）
         if (!PcRxPolicy.known(cmd)) return new PcLanClient.Result(false, "手机不支持「" + cmd + "」", null, "");
-        if (!h.enabled(cmd)) return new PcLanClient.Result(false, "手机上没开「" + PcRxPolicy.label(cmd) + "」（控制台 › 电脑联动 › 电脑可以让手机做的事）", null, "");
+        if (!h.enabled(PcRxPolicy.toggleOf(cmd))) return new PcLanClient.Result(false, "手机上没开「" + PcRxPolicy.label(cmd) + "」（控制台 › 电脑联动 › 电脑可以让手机做的事）", null, "");
         String bad = PcRxPolicy.check(cmd, args);
         if (bad != null) return new PcLanClient.Result(false, bad, null, "");
         Map<String, Object> a = new TreeMap<String, Object>();

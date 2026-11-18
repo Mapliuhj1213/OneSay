@@ -69,6 +69,13 @@ public final class ShortcutHooks {
         sCache = null;
     }
 
+    /** [overnight-1119] 电脑看 / 运行手机快捷指令用：快捷指令功能关着返回 null（调用方说清楚），出错抛异常。 */
+    public static List<ShortcutModel.Shortcut> forPc(Context c) {
+        if (!PlannerLink.get(c).shortcutsOn()) return null;
+        invalidate();
+        return cached(c);
+    }
+
     // ------------------------------------------------------------------ 命中
 
     /** 这句话命中已存快捷指令？任意线程（会走一次计划 App 的 IPC，结果缓存 30 s）。出错一律 false。 */

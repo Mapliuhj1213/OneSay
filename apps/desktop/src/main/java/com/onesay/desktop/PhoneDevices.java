@@ -181,7 +181,7 @@ public final class PhoneDevices {
         if (p == null) return "这台手机已经拔掉了";
         if (!"device".equals(p.adbState)) return canMirror(serial);
         if (!Adb.validPackage(pkg)) return "包名不对";
-        if (p.info != null && !p.info.appWindows()) return "这台手机是安卓 " + p.info.release + "，不支持把 App 单独开成窗口（需要安卓 10 以上）";
+        if (p.info != null && !p.info.appWindows()) return "此手机系统版本暂不支持手机桌面（这台是安卓 " + p.info.release + "，需要安卓 10 及以上）";
         if (p.apps.contains(pkg)) return "这个 App 已经开着窗口了（一个 App 只能在一个窗口里）";
         if (p.apps.size() >= MAX_APP_WINDOWS) return "最多同时开 " + MAX_APP_WINDOWS + " 个 App 窗口，先关掉一个";
         return null;

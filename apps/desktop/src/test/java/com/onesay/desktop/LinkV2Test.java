@@ -215,7 +215,14 @@ public class LinkV2Test {
             legacy2.peerFp = "";
             Conn lg2 = new Conn(legacy2, false, null);
             Thread.sleep(300);
-            assertFalse(lg2.up && lg2.request(legacy2, "ping", new TreeMap<>()) != null);
+            // [overnight-1119] 去抖：电脑拒绝时连接可能「刚连上就被关」，这时发请求抛 Output closed——同样算被拒（之前偶发失败）
+            boolean answered;
+            try {
+                answered = lg2.up && lg2.request(legacy2, "ping", new TreeMap<>()) != null;
+            } catch (java.util.concurrent.ExecutionException e) {
+                answered = false;
+            }
+            assertFalse(answered);
             assertTrue(lg2.why.get(), lg2.why.get().contains("要求加密连接"));
         }
     }

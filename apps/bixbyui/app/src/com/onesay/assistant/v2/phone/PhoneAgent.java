@@ -207,6 +207,8 @@ public final class PhoneAgent {
         UiTree screen = startPkg != null && startPkg.length() > 0 ? observeAfterAction("打开应用") : obs();
         String lastBatchReport = "";
         boolean wantShot = false;
+        boolean visionOff = false;   // ★ overnight-1119：识屏用不了（第一次拿不到描述就记下）
+        int shotRefused = 0;
         int stepNo = 0;
         mRec = null;
         if (replay != null) {   // ★ smart-replay：有记住的成功路径就先回放（不问模型），否则这次边做边录
@@ -273,7 +275,14 @@ public final class PhoneAgent {
             }
             // ③ 问模型
             String desc = null;
-            if (screen != null && (wantShot || !UiTree.Q_OK.equals(screen.quality()))) desc = mD.describeScreen();
+            if (screen != null && !visionOff && (wantShot || !UiTree.Q_OK.equals(screen.quality()))) {
+                desc = mD.describeScreen();
+                // ★ overnight-1119 魅族：识屏用不了（没配 Key / 截屏不可用）→ 这次任务不再截屏、不再给模型「要看图」这条路
+                if (desc == null) {
+                    visionOff = true;
+                    res.trace.add("vision off");
+                }
+            }
             wantShot = false;
             noteTaint(screen, res);
             String user = PhonePrompt.user(goal, screen, desc, history, lastBatchReport, budget.info(mD.now()), maxElementLines);
@@ -283,6 +292,7 @@ public final class PhoneAgent {
             String sys = legacyOneStep ? PhonePrompt.systemLegacy() : PhonePrompt.system();
             if (mika != null) sys = sys + mika.promptAddendum(labels);
             if (labels) sys = sys + PhonePrompt.labelsAddendum();   // ★ a11y-labels
+            if (visionOff) sys = PhonePrompt.withoutShot(sys);        // ★ overnight-1119：识屏用不了就不给「要看画面」这条路
             String out = mP.next(sys, user);
             if (out == null) return finish(res, Status.FAILED, "", "模型没有返回", budget, t0);
             PhonePlan plan = PhonePlan.parse(out, mika != null && mika.f.dosteps);
@@ -307,6 +317,14 @@ public final class PhoneAgent {
                     continue;
                 }
                 case SHOT:
+                    if (visionOff) {
+                        // 识屏用不了：不再截屏重试，告诉模型只能靠读屏结果（不够就如实说做不到或问用户）
+                        shotRefused++;
+                        lastBatchReport = PhonePrompt.NO_VISION;
+                        history.add("（要看屏幕图像，但识屏用不了）");
+                        if (shotRefused >= 2) return finish(res, Status.FAILED, "", "这台手机现在看不了屏幕图像（没配识屏 Key 或截屏不可用），读屏结果又不够判断，没法接着点", budget, t0);
+                        continue;
+                    }
                     wantShot = true;
                     lastBatchReport = "（下一轮附屏幕的视觉描述）";
                     continue;

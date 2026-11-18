@@ -251,6 +251,26 @@
             </intent-filter>
         </activity>
 
+        <!-- [overnight-1119] 分享菜单「发到电脑」：别的 App 分享文件 / 多个文件 / 文字 → 分块发到电脑（电脑放在 OneSay 工作区「来自手机」）。
+             控制台「发文件到电脑」用内部 action 先弹系统选文件。必须导出才能出现在分享菜单里；没配对只提示，不发任何东西。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.pclink.PcSendFileActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:label="发到电脑">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
         <!-- ★ approve-not-block：手机屏幕上的确认卡（电脑发来的指令要你确认 / 电脑上的确认也能在手机上批）。只认真人手指，不导出 -->
         <activity
             android:name="com.onesay.assistant.v2.pclink.PcConfirmActivity"

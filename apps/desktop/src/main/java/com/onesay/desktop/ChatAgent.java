@@ -213,6 +213,14 @@ public final class ChatAgent {
         return n;
     }
 
+    /** [overnight-1119 第 7 条] 命令里用 adb input tap / swipe 点固定坐标（没有先读界面就是猜）。 */
+    static final java.util.regex.Pattern COORD = java.util.regex.Pattern.compile("\\binput\\s+(?:tap|swipe|touchscreen\\s+tap)\\s+\\d{1,5}\\s+\\d{1,5}");
+
+    static boolean guessesCoords(String cmd, Map<String, Object> args) {
+        if (!"sys_exec".equals(cmd) || args == null) return false;
+        return COORD.matcher(String.valueOf(args.getOrDefault("command", ""))).find();
+    }
+
     /** 模型工具名 → 电脑能力名 + 参数。认不出返回 null。 */
     static Object[] map(Llm.ToolCall c) {
         Map<String, Object> a;
@@ -432,6 +440,8 @@ public final class ChatAgent {
         int toolTextNudges = 0;
         boolean hedged = false, choiceDone = false;
         int hedgeBlocks = 0;
+        boolean uiRead = false;   // [overnight-1119 第 7 条] 这次任务读过安卓界面没有（android_ui）
+        int coordBlocks = 0;
         String lastKey = "";
         int repeat = 0;
         cancel.set(false);
@@ -530,6 +540,15 @@ public final class ChatAgent {
                 }
                 if (hedgeBlocks >= 2 && !choiceDone && hedged && sideEffect(cmd, args))
                     return new Outcome("要做的目标还不确定，我两次想直接下载 / 安装都被拦下了。请告诉我具体是哪个（比如仓库地址 owner/name），我再接着做。", Outcomes.NEEDS_USER, done);
+                if (!uiRead && guessesCoords(cmd, args) && coordBlocks < 2) {
+                    // [overnight-1119 第 7 条] 硬编码坐标防护：没读过界面就 adb input tap / swipe 某个坐标 = 猜，换了分辨率 / 弹窗位置就点错。先读界面、按文字点
+                    coordBlocks++;
+                    msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "guess_coords", "text",
+                            "没执行：这一步用 input tap / swipe 点固定坐标，但这次还没读过安卓界面，坐标是猜的。先用 android_ui 的 dump 看界面，再用 tap_text / check_text 按文字点；确实要坐标时用 dump 里控件 bounds 的中心。"))));
+                    steps.step(Map.of("phase", "note", "desc", "没按猜的坐标点：先读安卓界面，再按文字点"));
+                    continue;
+                }
+                if ("android_ui".equals(cmd)) uiRead = true;
                 steps.step(stepEv("start", done + 1, desc, cmd, args, true, "", "", ""));
                 Actions.Result r;
                 try {
