@@ -57,7 +57,9 @@ echo "[2/8] aapt2 link    (manifest + resources + assets)"
 MANIFEST="$OUT/AndroidManifest.xml"
 if [ "$DEBUG" = "1" ]; then
   if [ "$TEST_RECEIVER_OPEN" = "1" ]; then
-    sed 's#android:permission="com.onesay.assistant.permission.CONTROL"><!-- TEST-RECEIVER-PERMISSION -->#>#' \
+    # ★ sec-audit-1118 S1：「开放」不再是「谁都能发」：把签名级权限换成 android.permission.DUMP，
+    #   adb shell（uid 2000）和 root 照常能发，第三方 App 拿不到（以前整个删掉权限，任何零权限 App 都能驱动测试接收器）。
+    sed 's#android:permission="com.onesay.assistant.permission.CONTROL"><!-- TEST-RECEIVER-PERMISSION -->#android:permission="android.permission.DUMP">#' \
       "$ROOT/app/AndroidManifest.xml" > "$MANIFEST"
   else
     cp "$ROOT/app/AndroidManifest.xml" "$MANIFEST"
