@@ -194,7 +194,7 @@ public final class Chat {
             String mem = String.valueOf(store.memory().getOrDefault("text", ""));
             String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm EEEE", java.util.Locale.CHINA));
             String ws = workspace == null || workspace.isEmpty() ? String.valueOf(cfg.workspace()) : workspace;
-            return ChatAgent.systemPrompt(now, ws, home, mem);
+            return ChatAgent.systemPrompt(now, ws, home, mem, cfg.mode());
         }
         return chatOnlyPrompt();
     }

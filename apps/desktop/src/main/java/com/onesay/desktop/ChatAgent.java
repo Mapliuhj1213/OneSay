@@ -54,6 +54,9 @@ public final class ChatAgent {
     }
 
     public final AtomicBoolean cancel = new AtomicBoolean();
+    /** 模型暂时失败（{@link Llm.Transient}：超时 / 429 / 5xx / 空回复）时最多重试几次；每次等 backoffMs × 次数。 */
+    static final int RETRIES = 2;
+    volatile long backoffMs = 1500;
 
     // ------------------------------------------------------------------ 工具定义
 
@@ -141,9 +144,35 @@ public final class ChatAgent {
         return s != null && PUNT.matcher(s).find();
     }
 
+    /** 当前权限 / 审批策略写给模型的一句（从电脑档位来）。 */
+    public static String policyLine(LinkPolicy.Mode mode) {
+        LinkPolicy.Mode m = mode == null ? LinkPolicy.Mode.DEFAULT : mode;
+        String base = "当前权限档：" + m.sandbox.zh + "，审批：" + m.approval.zh + "。";
+        if (m.sandbox == LinkPolicy.Sandbox.READ_ONLY) return base + "这一档只能查询，改动类操作会被拒绝；需要改动时如实告诉用户可以在 OneSay 设置里调整权限档。";
+        if (m.approval == LinkPolicy.Approval.NEVER) return base + "需要批准的操作会被直接拒绝、不会弹确认，不要反复申请；被拒时如实告诉用户。";
+        return base + "要用户点头的步骤，OneSay 会在电脑上弹确认框交给用户决定，所以直接发起工具调用就行，不必先在回复里请示。"
+                + "权限档只决定哪些步骤要用户点头，不是不做的理由：该做的步骤照常调用；真被挡下，看返回的原因再决定换个做法还是向用户说明。";
+    }
+
+    /** 工具清单（由注册的工具生成，提示词和实际能力不会对不上）。 */
+    static String toolLines() {
+        StringBuilder b = new StringBuilder();
+        for (Map<String, Object> t : tools()) {
+            Object f = t.get("function");
+            if (!(f instanceof Map)) continue;
+            b.append("- ").append(((Map<?, ?>) f).get("name")).append("：").append(((Map<?, ?>) f).get("description")).append('\n');
+        }
+        return b.toString();
+    }
+
     public static String systemPrompt(String now, String workspace, String home, String memory) {
-        return "你是 OneSay，运行在用户这台 Windows 电脑上的助手（和用户手机上的 OneSay 共用记忆）。用简体中文回答，先给结论，简短直接。现在是 " + now + "。\n"
-                + "你可以用工具直接在这台电脑上做事：run_command 执行 PowerShell 命令（下载文件、安装 / 启动程序、查文件和设置、调用 adb 等命令行工具都可以）、open_url 打开网址、write_file 写文件。\n"
+        return systemPrompt(now, workspace, home, memory, LinkPolicy.Mode.DEFAULT);
+    }
+
+    public static String systemPrompt(String now, String workspace, String home, String memory, LinkPolicy.Mode mode) {
+        return "你是 OneSay，运行在用户这台 Windows 电脑上的助手（和用户手机上的 OneSay 共用记忆），能真正操作这台电脑。用简体中文回答，先给结论，简短直接。现在是 " + now + "。\n"
+                + "可用工具（run_command 能做下载文件、安装 / 启动程序、查文件和设置、调用 adb 等命令行工具）：\n" + toolLines()
+                + policyLine(mode) + "\n"
                 + "用户给你一个目标时：自己规划，一步步调用工具把它做完，每步看结果再决定下一步；能由你完成的步骤不要推给用户手动做，也不要只给教程。"
                 + "缺信息先自己用命令查（比如程序装在哪、版本号、文件在不在）；只有真正需要用户拍板的事（花钱、多个选择差别很大、要账号密码）才问。\n"
                 + "安全：只读查询会直接执行；会改动电脑的命令（建 / 删文件、安装、联网下载、启动程序等）OneSay 会弹确认框，用户在电脑上点「允许」后才执行，"
@@ -169,7 +198,7 @@ public final class ChatAgent {
             if (cancel.get()) return new Outcome("已停止。" + (done > 0 ? "做到第 " + done + " 步，说「继续」可以接着做。" : ""), "stopped", done);
             Llm.Turn t;
             try {
-                t = brain.next(msgs, tools);
+                t = nextWithRetry(brain, msgs, tools);
             } catch (Exception e) {
                 String m = e.getMessage() == null ? "大模型出错" : e.getMessage();
                 return new Outcome(done > 0 ? m + "。已经做了 " + done + " 步，说「继续」接着做。" : m, "error", done);
@@ -194,7 +223,7 @@ public final class ChatAgent {
                 }
                 Object[] m = map(c);
                 if (m == null) {
-                    msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "text", "不认识的工具或参数不对：" + c.name))));
+                    msgs.add(toolMsg(c.id, badArgs(c)));
                     continue;
                 }
                 String cmd = (String) m[0];
@@ -228,6 +257,34 @@ public final class ChatAgent {
                     return new Outcome("确认框没人点（60 秒到了，或窗口被切走），这一步没执行：" + describe(cmd, args) + "。说「继续」我会重新请求，到时在 OneSay 窗口里点「允许」。", "timeout", done);
             }
         }
+    }
+
+    /** 只重试暂时性的失败（超时 / 连不上 / 429 / 5xx / 空回复），Key 错、余额不足、400 这类直接报。 */
+    Llm.Turn nextWithRetry(Brain brain, List<Map<String, Object>> msgs, List<Map<String, Object>> tools) throws Exception {
+        for (int i = 0; ; i++) {
+            try {
+                return brain.next(msgs, tools);
+            } catch (Llm.Transient e) {
+                if (i >= RETRIES || cancel.get()) throw e;
+                try { Thread.sleep(backoffMs * (i + 1)); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+            }
+        }
+    }
+
+    /** 参数有问题时回给模型的说明（让它改了再调，不中断任务）。 */
+    static String badArgs(Llm.ToolCall c) {
+        String raw = clip(c.arguments, 300);
+        boolean known = c.name.equals("run_command") || c.name.equals("open_url") || c.name.equals("write_file");
+        if (!known) return Json.stringify(Map.of("ok", false, "error", "INVALID_TOOL", "text", "不认识的工具：" + c.name + "。可用的工具：run_command、open_url、write_file"));
+        Map<String, Object> a;
+        try {
+            a = Json.obj(c.arguments);
+        } catch (RuntimeException e) {
+            a = null;
+        }
+        if (a == null) return Json.stringify(Map.of("ok", false, "error", "INVALID_ARGS", "text", "参数不是合法 JSON，请改正后重试：" + raw));
+        String need = c.name.equals("run_command") ? "command" : c.name.equals("open_url") ? "url" : "path";
+        return Json.stringify(Map.of("ok", false, "error", "INVALID_ARGS", "text", "参数无效：缺少或为空的字段 " + need + "，请改正后重试：" + raw));
     }
 
     static Map<String, Object> toolMsg(String id, String content) {

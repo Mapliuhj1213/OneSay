@@ -473,4 +473,86 @@ public class ChatAgent1118Test {
         String src = Files.readString(Path.of("src/main/java/com/onesay/desktop/ChatAgent.java"), StandardCharsets.UTF_8);
         for (String bad : new String[] {"Bixby", "bixby", "三星", "小布"}) assertFalse(src.contains(bad));
     }
+
+    // ------------------------------------------------------------------ DeepSeek 思考模式 / 重试 / 参数错误回灌
+
+    static final String R1 = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_content\":\"先查日期\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"run_command\",\"arguments\":\"{\\\"command\\\":\\\"Get-Date\\\"}\"}}]}}]}";
+
+    @Test public void secondToolRoundRequestContainsPreviousReasoningContent() throws Exception {
+        Llm.Turn t1 = Llm.parseTurn(Json.obj(R1));
+        assertEquals("整条 assistant 消息保留 reasoning_content", "先查日期", t1.message.get("reasoning_content"));
+        Script b = new Script(t1, say("今天是 11 月 18 日"));
+        new ChatAgent().run(ctx("今天几号"), b, new Rec(), x -> { });
+        List<Map<String, Object>> second = b.seen.get(1);
+        Map<String, Object> asst = second.get(second.size() - 2);
+        assertEquals("assistant", asst.get("role"));
+        assertEquals("先查日期", asst.get("reasoning_content"));
+        assertNotNull(asst.get("tool_calls"));
+        // 序列化成请求体也带着
+        String body = Json.stringify(Llm.requestBody("deepseek-chat", second, ChatAgent.tools(), 0.3, false));
+        assertTrue(body.contains("\"reasoning_content\":\"先查日期\""));
+        assertTrue(body.contains("\"tool_call_id\":\"call_1\""));
+        assertFalse("默认不改思考设置", body.contains("\"thinking\""));
+        assertTrue(Json.stringify(Llm.requestBody("m", second, null, 0.3, true)).contains("\"thinking\":{\"type\":\"disabled\"}"));
+    }
+
+    @Test public void reasoning400IsNotToolsUnsupported() {
+        assertEquals(Llm.Bad400.REASONING, Llm.classify400("{\"error\":{\"message\":\"The reasoning_content in the thinking mode must be passed back to the API.\"}}"));
+        assertEquals(Llm.Bad400.CONTEXT, Llm.classify400("{\"error\":{\"message\":\"This model's maximum context length is 65536 tokens\"}}"));
+        assertEquals(Llm.Bad400.TOOLS, Llm.classify400("{\"error\":\"tools is not supported by this model\"}"));
+        assertEquals(Llm.Bad400.OTHER, Llm.classify400("{\"error\":\"bad request\"}"));
+        assertEquals(Llm.Bad400.OTHER, Llm.classify400(null));
+    }
+
+    @Test public void emptyReplyIsTransient() {
+        try {
+            Llm.parseTurn(Json.obj("{\"choices\":[{\"message\":{\"content\":\"\"}}]}"));
+            fail();
+        } catch (Llm.Transient e) {
+            assertTrue(e.getMessage().contains("空回复"));
+        } catch (Exception e) {
+            fail(e.toString());
+        }
+    }
+
+    @Test public void transientModelErrorsAreRetriedOthersNot() {
+        AtomicInteger n = new AtomicInteger();
+        ChatAgent a = new ChatAgent();
+        a.backoffMs = 1;
+        ChatAgent.Outcome o = a.run(ctx("x"), (m, t) -> { if (n.incrementAndGet() <= 2) throw new Llm.Transient("大模型超时"); return say("好了"); }, new Rec(), x -> { });
+        assertEquals("done", o.status);
+        assertEquals(3, n.get());
+        AtomicInteger k = new AtomicInteger();
+        ChatAgent.Outcome o2 = a.run(ctx("x"), (m, t) -> { k.incrementAndGet(); throw new Llm.Transient("大模型服务暂时出错 503"); }, new Rec(), x -> { });
+        assertEquals("error", o2.status);
+        assertEquals(1 + 2, k.get());
+        AtomicInteger j = new AtomicInteger();
+        ChatAgent.Outcome o3 = a.run(ctx("x"), (m, t) -> { j.incrementAndGet(); throw new Exception("大模型 Key 无效或没权限（401）"); }, new Rec(), x -> { });
+        assertEquals("error", o3.status);
+        assertEquals("Key 错不重试", 1, j.get());
+    }
+
+    @Test public void invalidArgsAreFedBackSoModelCanFixThem() {
+        Script b = new Script(call("c1", "run_command", "{\"cmd\":\"Get-Date\"}"), call("c2", "run_command", "{oops"), call("c3", "run_command", "{\"command\":\"Get-Date\"}"), say("好了"));
+        Rec ex = new Rec();
+        ChatAgent.Outcome o = new ChatAgent().run(ctx("x"), b, ex, t -> { });
+        assertEquals("done", o.status);
+        assertEquals("改对后执行了", 1, ex.calls.size());
+        String m1 = String.valueOf(b.seen.get(1).get(b.seen.get(1).size() - 1).get("content"));
+        assertTrue(m1.contains("INVALID_ARGS") && m1.contains("command"));
+        String m2 = String.valueOf(b.seen.get(2).get(b.seen.get(2).size() - 1).get("content"));
+        assertTrue(m2.contains("不是合法 JSON"));
+    }
+
+    @Test public void promptIsBuiltFromToolsAndPolicy() {
+        String p = ChatAgent.systemPrompt("now", "C:\\ws", "C:\\Users\\a", "", LinkPolicy.Mode.DEFAULT);
+        for (Map<String, Object> t : ChatAgent.tools()) assertTrue(p.contains(String.valueOf(((Map<?, ?>) t.get("function")).get("name"))));
+        assertTrue(p.contains("工作区可写"));
+        assertTrue(p.contains("不是不做的理由"));
+        assertTrue(p.contains("确认框"));
+        String never = ChatAgent.policyLine(new LinkPolicy.Mode(LinkPolicy.Sandbox.WORKSPACE_WRITE, LinkPolicy.Approval.NEVER));
+        assertTrue(never.contains("直接拒绝"));
+        assertFalse(never.contains("弹确认框交给用户"));
+        assertTrue(ChatAgent.policyLine(new LinkPolicy.Mode(LinkPolicy.Sandbox.READ_ONLY, LinkPolicy.Approval.UNTRUSTED)).contains("只能查询"));
+    }
 }
