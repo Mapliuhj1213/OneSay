@@ -402,7 +402,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
                     nClean = obj;
                 }
             }
-            Long val = textSlot ? null : NumberParser.parse(stripSlotQuantifier(nStr));
+            Long val = textSlot ? null : NumberParser.parseLoose(stripSlotQuantifier(nStr));
             if (val == null) {
                 // 文本型回填（闹钟/时间/关键词/便签正文）
                 if (cap.paramsSchema.getRules().containsKey("content")) {
@@ -435,7 +435,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
 
         if (tNorm.contains("{m}")) {
             String mStr = matcher.group("m");
-            Long mVal = NumberParser.parse(stripSlotQuantifier(mStr));
+            Long mVal = NumberParser.parseLoose(stripSlotQuantifier(mStr));
             try { args.put("minute", mVal != null ? mVal : 0L); } catch (Exception ignored) {}
         } else if (cap.paramsSchema.getRules().containsKey("minute") && !args.has("minute")) {
             try { args.put("minute", 0L); } catch (Exception ignored) {}
