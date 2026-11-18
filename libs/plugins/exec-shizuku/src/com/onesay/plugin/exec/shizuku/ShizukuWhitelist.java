@@ -21,6 +21,7 @@ import java.util.List;
  *       {@code settings get global bluetooth_on|wifi_on}、{@code cmd wifi status}；
  *       写 {@code cmd bluetooth_manager enable|disable}、{@code svc wifi enable}、{@code settings put system screen_brightness <0-255>}。
  *       关 Wi-Fi（{@code svc wifi disable}）不放：无线调试 / 电脑联动会跟着断。</li>
+ *   <li><b>系统版本（meizu-1118）</b>：只读 {@code getprop ro.build.version.<键>}（恰好一个键）。</li>
  * </ol>
  * <p><b>读屏助手（a11y-1118，只走 {@link #checkHelperArgv}，不经 {@link #check} 的字符串入口）</b>：只放<b>一条</b>精确 argv
  * {@code /system/bin/app_process -Djava.class.path=<本包 base.apk> /system/bin --nice-name=onesay_fs:<本包> <助手主类> <本包> <本包 uid>}，
@@ -163,6 +164,7 @@ public final class ShizukuWhitelist {
         if ("screencap".equals(p)) return screencap(a);
         if ("dumpsys".equals(p)) return dumpsys(a);
         if ("svc".equals(p)) return svc(a);
+        if ("getprop".equals(p)) return getprop(a);
         return deny("PROG_NOT_WHITELISTED(" + p + ")");
     }
 
@@ -273,6 +275,15 @@ public final class ShizukuWhitelist {
     private Verdict svc(List<String> a) {
         if (a.size() == 3 && "wifi".equals(a.get(1)) && "enable".equals(a.get(2))) return allow(CAT_TOGGLE, a);
         return deny("SVC_ARGS");
+    }
+
+    /**
+     * ★ meizu-1118：只读系统版本号 {@code getprop ro.build.version.<键>}（真机「看看安卓版本是多少」agent 读 release / sdk 被拒）。
+     * 只放这一个前缀、恰好一个键、键名只许小写字母数字和下划线；不带键（全量 dump）、别的属性一律拒。
+     */
+    private Verdict getprop(List<String> a) {
+        if (a.size() == 2 && a.get(1).matches("ro\\.build\\.version\\.[a-z0-9_]{1,40}")) return allow(CAT_READ, a);
+        return deny("GETPROP_ARGS");
     }
 
     private static Verdict allow(String cat, List<String> argv) {

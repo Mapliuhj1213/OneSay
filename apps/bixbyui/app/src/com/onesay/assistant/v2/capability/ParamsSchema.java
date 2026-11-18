@@ -35,6 +35,20 @@ public class ParamsSchema {
         public final Long max;
         public final String defaultValue;
         public final Set<String> enumValues;
+        /** ★ meizu-1118 B6：运行时上限（如媒体音量满格因机型而异）；非空时校验与导出用它，{@link #max} 只是静态缺省。 */
+        public Bound dynamicMax;
+
+        /** 实际生效的上限。 */
+        public Long effectiveMax() {
+            if (dynamicMax != null) {
+                try {
+                    return Long.valueOf(dynamicMax.get());
+                } catch (Throwable ignore) {
+                    // 取不到按静态值
+                }
+            }
+            return max;
+        }
 
         public PropertyRule(String name, ParamType type, boolean required, Long min, Long max, String defaultValue, Set<String> enumValues) {
             this.name = name;
@@ -45,6 +59,18 @@ public class ParamsSchema {
             this.defaultValue = defaultValue;
             this.enumValues = enumValues != null ? enumValues : Collections.<String>emptySet();
         }
+    }
+
+    /** 运行时取值的边界（-source 1.7，不用 lambda）。 */
+    public interface Bound {
+        long get();
+    }
+
+    /** ★ meizu-1118 B6：整数参数，上限运行时取（静态 max 作快照 / 缺省）。 */
+    public ParamsSchema addInteger(String name, boolean required, long min, long max, Bound dynamicMax, String defaultValue) {
+        PropertyRule r = new PropertyRule(name, ParamType.INTEGER, required, min, max, defaultValue, null);
+        r.dynamicMax = dynamicMax;
+        return addRule(r);
     }
 
     private final Map<String, PropertyRule> mRules = new HashMap<String, PropertyRule>();
@@ -158,9 +184,10 @@ public class ParamsSchema {
                         }
                         return false;
                     }
-                    if (rule.max != null && intVal > rule.max) {
+                    Long effMax = rule.effectiveMax();
+                    if (effMax != null && intVal > effMax) {
                         if (errorOutput != null) {
-                            errorOutput.append("参数 ").append(key).append(" 高于最大值: ").append(rule.max);
+                            errorOutput.append("参数 ").append(key).append(" 高于最大值: ").append(effMax);
                         }
                         return false;
                     }
@@ -209,7 +236,8 @@ public class ParamsSchema {
                 JSONObject prop = new JSONObject();
                 prop.put("type", rule.type.name().toLowerCase());
                 if (rule.min != null) prop.put("minimum", rule.min);
-                if (rule.max != null) prop.put("maximum", rule.max);
+                Long effMax = rule.effectiveMax();
+                if (effMax != null) prop.put("maximum", effMax);
                 if (rule.defaultValue != null) prop.put("default", rule.defaultValue);
                 props.put(rule.name, prop);
 

@@ -417,7 +417,7 @@ public final class FastIntents {
         if (BRI_DOWN.matcher(c).matches()) return new Hit("settings.brightness.down", new JSONObject(), "bri.down");
         Matcher m = VOL_SET.matcher(c);
         if (m.matches()) {
-            Integer lv = level(m.group(1), 15, c.contains("百分之") || pct(utterance));
+            Integer lv = level(m.group(1), com.onesay.assistant.v2.util.MediaVolumeScale.max(), c.contains("百分之") || pct(utterance));   // ★ meizu-1118 B6：按真实满格（Meizu 0–60）
             if (lv != null) return new Hit(lv == 0 ? "volume.media.mute" : "volume.media.set", args("level", lv), "vol.set");
         }
         m = BRI_SET.matcher(c);
