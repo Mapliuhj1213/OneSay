@@ -383,6 +383,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
             }
         }
         if (PcRxPolicy.OPEN_APP.equals(cmd)) return openApp(PcRxPolicy.str(a, "package"), PcRxPolicy.str(a, "name"));
+        if (PcRxPolicy.OPERATE.equals(cmd)) return operate(PcRxPolicy.str(a, "goal"));
         if (PcRxPolicy.SCREEN_ON.equals(cmd)) {
             try {
                 PowerManager pm = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
@@ -458,6 +459,26 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
         }
         if (PcRxPolicy.STATUS.equals(cmd)) return status();
         return fail("手机不支持「" + cmd + "」");
+    }
+
+    /**
+     * [phone-tools-1118] 按目标操作：把这句目标交给手机上的 OneSay 面板（和在手机上说这句话走同一条规划执行链，
+     * 那条链上打电话 / 发短信 / 付款 / 给别人发消息的确认卡照旧）。只负责交过去，不等做完；结果在手机屏幕上。
+     */
+    PcLanClient.Result operate(String goal) {
+        if (goal.length() == 0) return fail("没说要手机做什么");
+        try {
+            Intent i = new Intent(app, com.onesay.assistant.v2.ui.FloatingSheetService.class)
+                    .setAction(com.onesay.assistant.v2.ui.FloatingSheetService.ACTION_SHOW)
+                    .putExtra(com.onesay.assistant.v2.ui.FloatingSheetService.EXTRA_QUERY, goal);
+            if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(i); else app.startService(i);
+            Log.i(TAG, "[PCLINK] 电脑交来一个目标（" + goal.length() + " 字）→ 面板");
+            Map<String, Object> d = new TreeMap<String, Object>();
+            d.put("goal", goal);
+            return ok("已交给手机上的 OneSay 去做（手机会自己规划执行，打电话 / 发短信 / 付款 / 给别人发消息会在手机上问你）", d);
+        } catch (Exception e) {
+            return fail("手机上的 OneSay 面板没起来：" + e.getClass().getSimpleName());
+        }
     }
 
     PcLanClient.Result openApp(String pkg, String name) {

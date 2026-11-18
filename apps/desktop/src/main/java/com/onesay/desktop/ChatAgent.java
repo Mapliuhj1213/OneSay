@@ -138,7 +138,28 @@ public final class ChatAgent {
         wf.put("path", prop("string", "文件路径：相对路径写在 OneSay 工作区里；工作区以外要给完整路径（会先请用户确认）。"));
         wf.put("text", prop("string", "文件内容（UTF-8 文本，最多 256 KB）"));
         l.add(fn("write_file", "写一个文本文件。", wf, List.of("description", "path", "text")));
+        // [phone-tools-1118] 手机：走已配对的手机联动通道（不是 adb）
+        Map<String, Object> ps = new TreeMap<>();
+        ps.put("description", prop("string", DESC));
+        l.add(fn("phone_status", "查已配对手机的状态：在不在线、电量、屏幕、铃声模式，以及手机上开了哪些「电脑可以让手机做的事」。", ps, List.of("description")));
+        Map<String, Object> pa = new TreeMap<>();
+        pa.put("description", prop("string", DESC));
+        pa.put("name", prop("string", "手机上 App 的名字（桌面上显示的名字，如「微信」「设置」）"));
+        pa.put("package", prop("string", "可选：包名（如 com.android.settings），知道就填"));
+        l.add(fn("phone_open_app", "在已配对的手机上打开一个 App（支付 / 银行类手机上会先问用户）。", pa, List.of("description", "name")));
+        Map<String, Object> po = new TreeMap<>();
+        po.put("description", prop("string", DESC));
+        po.put("goal", prop("string", "要手机做的事，一句完整的中文目标（如「打开设置查一下系统版本」「在微信里打开文件传输助手」），最多 500 字"));
+        l.add(fn("phone_operate", "把一个目标交给手机上的 OneSay，由手机自己看屏幕、规划、点按去做（和用户在手机上说这句话一样）。打电话、发短信、付款、给别人发消息手机上会弹卡让用户确认。只负责交过去，结果要再用 phone_status 或截图确认。", po, List.of("description", "goal")));
         return l;
+    }
+
+    /** 已注册的工具名。 */
+    static Set<String> toolNames() {
+        Set<String> n = new java.util.LinkedHashSet<>();
+        for (Map<String, Object> t : tools()) n.add(String.valueOf(((Map<?, ?>) t.get("function")).get("name")));
+        n.add("open_app");
+        return n;
     }
 
     /** 模型工具名 → 电脑能力名 + 参数。认不出返回 null。 */
@@ -186,6 +207,22 @@ public final class ChatAgent {
                 out.put("path", String.valueOf(p));
                 out.put("text", a.get("text") == null ? "" : String.valueOf(a.get("text")));
                 return new Object[] {"file_write", out};
+            }
+            case "phone_status":
+                return new Object[] {"phone_status", out};
+            case "phone_open_app": {
+                String n = a.get("name") == null ? "" : String.valueOf(a.get("name")).trim();
+                String pk = a.get("package") == null ? "" : String.valueOf(a.get("package")).trim();
+                if (n.isEmpty() && pk.isEmpty()) return null;
+                if (!n.isEmpty()) out.put("name", n);
+                if (!pk.isEmpty()) out.put("package", pk);
+                return new Object[] {"phone_open_app", out};
+            }
+            case "phone_operate": {
+                String g = a.get("goal") == null ? "" : String.valueOf(a.get("goal")).trim();
+                if (g.isEmpty()) return null;
+                out.put("goal", g);
+                return new Object[] {"phone_operate", out};
             }
             default:
                 return null;
@@ -249,6 +286,9 @@ public final class ChatAgent {
                 + "用户要「打开某个程序 / 网站」（如打开 B 站、微信）用 open_target：先用本地应用、没有再用网页，用户说了网页 / 网站就填 prefer=web；打开某个具体网址（搜索结果、下载页）用 open_url。\n"
                 + "环境：Windows PowerShell 5.1，非交互；单条命令默认最长 60 秒（run_command 的 timeout_sec 最多 900）；命令的工作目录是 OneSay 工作区 " + workspace
                 + "；用户目录 " + home + "，桌面通常是 " + home + "\\Desktop。\n"
+                + "手机：用户的手机通过 OneSay 手机联动和这台电脑配对，phone_status / phone_open_app / phone_operate 就是通过这条链路操作手机的。"
+                + "不要说你没法控制手机：先看下面的「运行环境」里有没有连着的手机，没有就照那里的说法告诉用户怎么连上；phone_operate 被手机拒（没打开这一项）时告诉用户在手机上打开。"
+                + "模拟器或开了 USB / 无线调试的手机也可以用 adb（run_command）。\n"
                 + "用户说「继续」「接着做」时，根据上面对话里已经做过的步骤（▶ 开头的记录）接着做。做完后用一两句话汇报结果（做了什么、现在是什么状态）。"
                 + (memory == null || memory.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准）：\n" + memory);
     }
@@ -374,7 +414,7 @@ public final class ChatAgent {
 
     static final Pattern DSML_INVOKE = Pattern.compile("<\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*invoke\\s+name\\s*=\\s*\"([A-Za-z_]+)\"\\s*>(.*?)<\\s*/\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*invoke\\s*>", Pattern.DOTALL);
     static final Pattern DSML_PARAM = Pattern.compile("<\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*parameter\\s+name\\s*=\\s*\"([A-Za-z_]+)\"[^>]*>(.*?)<\\s*/\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*parameter\\s*>", Pattern.DOTALL);
-    static final Pattern DSML_ANY = Pattern.compile("[｜|]{2}\\s*DSML\\s*[｜|]{2}|<\\s*/?\\s*(tool_call|function_calls|invoke)\\b|\\{\\s*\"name\"\\s*:\\s*\"(run_command|open_url|open_target|write_file)\"");
+    static final Pattern DSML_ANY = Pattern.compile("[｜|]{2}\\s*DSML\\s*[｜|]{2}|<\\s*/?\\s*(tool_call|function_calls|invoke)\\b|\\{\\s*\"name\"\\s*:\\s*\"(run_command|open_url|open_target|write_file|phone_[a-z_]+|screenshot|android_ui|show_file)\"");
     /** 只剩收尾标记的那种：「▶ 执行命令：<命令></｜｜DSML｜｜ parameter></｜｜DSML｜｜ invoke>…」（A 轮 / 用户手测里实际出现的样子）。 */
     static final Pattern DSML_TAIL = Pattern.compile("(?s)^\\s*(?:▶\\s*)?执行命令[：:]\\s*(.+?)<\\s*/\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*parameter\\s*>");
 
@@ -386,7 +426,7 @@ public final class ChatAgent {
         int n = 0;
         while (m.find()) {
             String name = m.group(1);
-            if (!Set.of("run_command", "open_url", "open_target", "write_file").contains(name)) continue;
+            if (!toolNames().contains(name)) continue;
             Map<String, Object> a = new TreeMap<>();
             java.util.regex.Matcher p = DSML_PARAM.matcher(m.group(2));
             while (p.find()) {
@@ -500,8 +540,12 @@ public final class ChatAgent {
     /** 参数有问题时回给模型的说明（让它改了再调，不中断任务）。 */
     static String badArgs(Llm.ToolCall c) {
         String raw = clip(c.arguments, 300);
-        boolean known = c.name.equals("run_command") || c.name.equals("open_url") || c.name.equals("write_file") || c.name.equals("open_app") || c.name.equals("open_target");
-        if (!known) return Json.stringify(Map.of("ok", false, "error", "INVALID_TOOL", "text", "不认识的工具：" + c.name + "。可用的工具：run_command、open_target、open_url、write_file"));
+        boolean known = toolNames().contains(c.name);
+        if (!known) {
+            Set<String> names = new java.util.LinkedHashSet<>(toolNames());
+            names.remove("open_app");
+            return Json.stringify(Map.of("ok", false, "error", "INVALID_TOOL", "text", "不认识的工具：" + c.name + "。可用的工具：" + String.join("、", names)));
+        }
         Map<String, Object> a;
         try {
             a = Json.obj(c.arguments);
@@ -509,9 +553,13 @@ public final class ChatAgent {
             a = null;
         }
         if (a == null) return Json.stringify(Map.of("ok", false, "error", "INVALID_ARGS", "text", "参数不是合法 JSON，请改正后重试：" + raw));
-        String need = c.name.equals("run_command") ? "command" : c.name.equals("open_url") ? "url" : (c.name.equals("open_app") || c.name.equals("open_target")) ? "name" : "path";
+        String need = c.name.equals("run_command") ? "command" : c.name.equals("open_url") ? "url" : (c.name.equals("open_app") || c.name.equals("open_target") || c.name.equals("phone_open_app")) ? "name"
+                : c.name.equals("phone_operate") ? "goal" : NEED.getOrDefault(c.name, "path");
         return Json.stringify(Map.of("ok", false, "error", "INVALID_ARGS", "text", "参数无效：缺少或为空的字段 " + need + "，请改正后重试：" + raw));
     }
+
+    /** 后加的工具缺哪个字段（badArgs 用）。 */
+    static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "target"));
 
     static Map<String, Object> toolMsg(String id, String content) {
         Map<String, Object> m = new TreeMap<>();
@@ -528,6 +576,9 @@ public final class ChatAgent {
             case "file_write": return "写文件：" + clip(String.valueOf(a.get("path")), 200);
             case "open_app": return "打开程序：" + clip(String.valueOf(a.containsKey("path") ? a.get("path") : a.get("name")), 200);
             case "open_target": return "打开：" + clip(String.valueOf(a.get("name")), 200);
+            case "phone_status": return "查手机状态";
+            case "phone_open_app": return "手机上打开：" + clip(String.valueOf(a.containsKey("name") ? a.get("name") : a.get("package")), 200);
+            case "phone_operate": return "交给手机去做：" + clip(String.valueOf(a.get("goal")), 200);
             default: return cmd;
         }
     }

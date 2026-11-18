@@ -143,6 +143,8 @@ public final class App {
         agent.guard.notify = t -> { log.accept("权限：" + t); agent.guard.logPerm(t, "提醒", ""); };
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
+        chat.phones = agent::peers;             // [phone-tools-1118] 对话的运行环境里写连着哪些手机
+        chat.lastPhone = () -> cfg.phoneLast;
         chat.onTaskStart = agent.guard::taskStarted; // [approvals-1118] 新任务开始：上一个任务的「允许本次任务」不带过来
         chat.pcExec = agent::runLocal;
         chat.appResolver = n -> LocalLaunch.displayName(n, cfg.appMap(), System.getenv()); // [approvals-1118] 打开前先找本地应用 // [chat-agent-1118] 「对话」能执行任务：同一条安全链（插件 → 矩阵 → 电脑上确认 → 凭证）

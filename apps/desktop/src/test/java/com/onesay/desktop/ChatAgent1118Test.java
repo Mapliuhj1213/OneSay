@@ -177,7 +177,7 @@ public class ChatAgent1118Test {
         assertNull(ChatAgent.map(new Llm.ToolCall("1", "run_command", "{\"command\":\"  \"}")));
         List<String> names = new ArrayList<>();
         for (Map<String, Object> t : ChatAgent.tools()) names.add(String.valueOf(((Map<?, ?>) t.get("function")).get("name")));
-        assertEquals(List.of("run_command", "open_url", "open_target", "write_file"), names);
+        assertEquals(List.of("run_command", "open_url", "open_target", "write_file"), names.subList(0, 4)); // [phone-tools-1118] 后面加了手机 / 截屏工具
         // [approvals-1118] 每个工具都要 description（任务卡上的进度说明）
         for (Map<String, Object> t : ChatAgent.tools()) assertTrue(String.valueOf(((Map<?, ?>) ((Map<?, ?>) t.get("function")).get("parameters")).get("required")).contains("description"));
         assertEquals("open_target", ChatAgent.map(new Llm.ToolCall("1", "open_target", "{\"description\":\"打开 MuMu\",\"name\":\"MuMu模拟器\"}"))[0]);

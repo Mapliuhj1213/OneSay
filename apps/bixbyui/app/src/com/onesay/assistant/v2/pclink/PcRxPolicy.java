@@ -29,8 +29,16 @@ public final class PcRxPolicy {
             UNINSTALL = "uninstall_app", SCRIPT_LIST = "script_list", SCRIPT_RUN = "script_run", SYS_EXEC = "sys_exec";
     public static final String[] EXTRA = {FLASHLIGHT, SETTING, FILE_WRITE, FILE_LIST, UNINSTALL, SCRIPT_LIST, SCRIPT_RUN, SYS_EXEC};
 
-    /** 控制台里全部的逐项开关（原来的 8 项 + 加回来的 8 项）。 */
-    public static final String[] ALL = concat(CMDS, EXTRA);
+    /**
+     * [phone-tools-1118] 按目标操作手机：电脑上的对话把一句目标（如「打开设置看看系统版本」）交给手机上的 OneSay，
+     * 走手机自己的规划执行（和在手机上说这句话一样）；打电话、发短信、付款、给别人发消息这类照旧在手机上弹卡确认。默认关。
+     */
+    public static final String OPERATE = "operate";
+    public static final String[] AGENT = {OPERATE};
+    public static final int GOAL_MAX = 500;
+
+    /** 控制台里全部的逐项开关（原来的 8 项 + 加回来的 8 项 + 按目标操作）。 */
+    public static final String[] ALL = concat(concat(CMDS, EXTRA), AGENT);
     public static final int FILE_MAX = 256 * 1024, CMD_MAX = 4000;
 
     static String[] concat(String[] a, String[] b) {
@@ -51,6 +59,7 @@ public final class PcRxPolicy {
 
     public static boolean known(String cmd) {
         for (String c : CMDS) if (c.equals(cmd)) return true;
+        if (OPERATE.equals(cmd)) return true;
         return extra(cmd);
     }
 
@@ -63,7 +72,8 @@ public final class PcRxPolicy {
     /** 能让电脑在手机上「动手」的：打开网址、打开 App、改剪贴板；加回来的改设置、写文件、卸载、跑脚本、系统命令。 */
     public static boolean dangerous(String cmd) {
         return OPEN_URL.equals(cmd) || OPEN_APP.equals(cmd) || CLIPBOARD.equals(cmd)
-                || SETTING.equals(cmd) || FILE_WRITE.equals(cmd) || UNINSTALL.equals(cmd) || SCRIPT_RUN.equals(cmd) || SYS_EXEC.equals(cmd);
+                || SETTING.equals(cmd) || FILE_WRITE.equals(cmd) || UNINSTALL.equals(cmd) || SCRIPT_RUN.equals(cmd) || SYS_EXEC.equals(cmd)
+                || OPERATE.equals(cmd);
     }
 
     /** 各项默认开关（开源版：危险项和加回来的 8 项默认关）。 */
@@ -88,6 +98,7 @@ public final class PcRxPolicy {
         if (SCRIPT_LIST.equals(cmd)) return "看工作区脚本";
         if (SCRIPT_RUN.equals(cmd)) return "运行工作区脚本";
         if (SYS_EXEC.equals(cmd)) return "系统命令";
+        if (OPERATE.equals(cmd)) return "按目标操作手机";
         return cmd;
     }
 
@@ -108,6 +119,7 @@ public final class PcRxPolicy {
         if (SCRIPT_LIST.equals(cmd)) return "列出工作区 scripts/ 里的脚本";
         if (SCRIPT_RUN.equals(cmd)) return "运行工作区 scripts/ 里的 .sh（走特权通道）";
         if (SYS_EXEC.equals(cmd)) return "走特权通道执行命令；给 App 授权的只生成脚本，不执行；卸载 / 停用支付类和系统 App 先问你";
+        if (OPERATE.equals(cmd)) return "电脑上的对话把一句目标交给手机上的 OneSay 自己规划去做（和你在手机上说这句话一样）；打电话、发短信、付款、给别人发消息照旧在手机上问你";
         return "";
     }
 
@@ -171,6 +183,11 @@ public final class PcRxPolicy {
         if (SCRIPT_RUN.equals(cmd)) {
             String n = str(a, "name");
             return n.length() == 0 || n.contains("/") || n.contains("\\") || n.startsWith(".") ? "要给 scripts/ 里的脚本文件名" : null;
+        }
+        if (OPERATE.equals(cmd)) {
+            String g = str(a, "goal");
+            if (g.length() == 0) return "没说要手机做什么";
+            return g.length() > GOAL_MAX ? "目标太长（超过 " + GOAL_MAX + " 字）" : null;
         }
         if (SYS_EXEC.equals(cmd)) {
             String c = str(a, "command");

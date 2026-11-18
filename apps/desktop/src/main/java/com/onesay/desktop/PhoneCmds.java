@@ -21,7 +21,8 @@ import java.util.Map;
 public final class PhoneCmds {
     /** 手机作为被控端是分档之前的语义（每项在手机控制台有开关，没有执行级别 / 手机上确认）：原来的 10 项 + 加回来的 8 项。 */
     public static final List<String> ALL = List.of("ping", "caps", "status", "find_phone", "open_url", "open_app", "screen_on", "volume_set", "clipboard_set", "notify",
-            "flashlight", "setting_set", "file_write", "file_list", "uninstall_app", "script_list", "script_run", "sys_exec");
+            "flashlight", "setting_set", "file_write", "file_list", "uninstall_app", "script_list", "script_run", "sys_exec",
+            "operate"); // [phone-tools-1118] 按目标操作：交给手机上的 OneSay 自己规划执行（手机端默认关）
 
     /** 加回来的 8 项（手机上每项一个开关，挂在「接受电脑指令」总开关下）。 */
     public static final List<String> EXTRA = List.of("flashlight", "setting_set", "file_write", "file_list", "uninstall_app", "script_list", "script_run", "sys_exec");
@@ -79,6 +80,8 @@ public final class PhoneCmds {
                 return str(a, "name").isEmpty() ? "要给脚本名" : null;
             case "sys_exec":
                 return str(a, "command").isEmpty() ? "要给命令" : str(a, "command").length() > 4000 ? "命令太长" : null;
+            case "operate":
+                return str(a, "goal").isEmpty() ? "要说让手机做什么" : str(a, "goal").length() > 500 ? "目标太长（超过 500 字）" : null;
             default: return null;
         }
     }

@@ -252,7 +252,7 @@ public class Round2Test {
             assertTrue(c, PhoneCmds.ALL.contains(c));
             assertTrue(c, PhoneCmds.EXTRA.contains(c));
         }
-        assertEquals(18, PhoneCmds.ALL.size());
+        assertEquals(19, PhoneCmds.ALL.size()); // [phone-tools-1118] + operate
         assertNull(PhoneCmds.check("flashlight", m("on", true)));
         assertNull(PhoneCmds.check("flashlight", m()));
         assertNotNull(PhoneCmds.check("flashlight", m("on", "yes")));

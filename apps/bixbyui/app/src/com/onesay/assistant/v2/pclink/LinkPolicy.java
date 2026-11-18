@@ -619,6 +619,7 @@ public final class LinkPolicy {
         if ("uninstall_app".equals(cmd)) return Cat.UNINSTALL_APP;
         if ("script_run".equals(cmd)) return Cat.RUN_WS_SCRIPT;
         if ("sys_exec".equals(cmd)) return Cat.SHELL_EXEC;
+        if ("operate".equals(cmd)) return Cat.APP_OPERATE; // [phone-tools-1118] 交给手机自己的规划执行；危险的那一下由手机执行链弹卡
         return Cat.UNKNOWN;
     }
 

@@ -52,6 +52,9 @@ public final class Chat {
     public volatile java.util.function.Function<String, String> appResolver = n -> null;
     /** 「继续」算接着上一件事：上一条助手回复是模型 / 任务的，且不超过这么久。 */
     static final long CONTINUE_WINDOW_MS = 60L * 60 * 1000;
+    /** [phone-tools-1118] 现在连着的配对设备（设备 id → 通道名；App 接到 Agent.peers）和最近常连过的手机 id。 */
+    public volatile Supplier<Map<String, String>> phones = TreeMap::new;
+    public volatile Supplier<String> lastPhone = () -> "";
     /** 工作区、用户目录（写进系统提示）。 */
     volatile String workspace = "", home = System.getProperty("user.home", "");
 
@@ -172,7 +175,7 @@ public final class Chat {
                 List<String> leftovers = new ArrayList<>();
                 try {
                     ChatAgent.Exec pe = pcExec;
-                    ChatAgent.Exec ex = (cmd, args) -> "open_target".equals(cmd) ? openTarget(pe, args) : pe.run(cmd, args);
+                    ChatAgent.Exec ex = (cmd, args) -> "open_target".equals(cmd) ? openTarget(pe, args) : cmd.startsWith("phone_") ? phoneTool(cmd, args) : pe.run(cmd, args);
                     o = agent.run(context(), b, ex, new CardSteps(card));
                 } finally {
                     PcGuard.TASK.set("");
@@ -256,6 +259,98 @@ public final class Chat {
         }
         if (r != null && r.ok) r = new Actions.Result(true, r.text + "（" + ("app".equals(d[0]) ? "本地应用" : "网页") + how + "）", r.data);
         return r;
+    }
+
+    static final String PHONE_HOWTO = "连手机的办法：在手机 OneSay 的「控制台 › 电脑联动」里打开「接受电脑指令」，用「扫码配对」扫电脑 OneSay「设置 › 连接」里的配对二维码；"
+            + "配好后手机和电脑在同一个局域网（或都开了中转）就会自动连上。要让电脑把目标交给手机去做，还要在手机「电脑联动」里打开「按目标操作手机」这一项。";
+
+    /** 现在连着的手机（没有返回空表）。 */
+    Map<String, String> phonesNow() {
+        try {
+            Map<String, String> m = phones.get();
+            return m == null ? Map.of() : m;
+        } catch (RuntimeException e) {
+            return Map.of();
+        }
+    }
+
+    /**
+     * [phone-tools-1118] 对话里的手机工具：phone_status / phone_open_app / phone_operate 走已配对的手机联动（协议 v2，签名指令），
+     * 手机上的逐项开关和确认卡照旧（支付类 App、打电话、发短信、付款、给别人发消息由手机弹卡）。
+     */
+    Actions.Result phoneTool(String cmd, Map<String, Object> a) {
+        java.util.function.BiFunction<String, Map<String, Object>, Actions.Result> p = phone;
+        if (p == null) return Actions.Result.fail("手机联动没接上（这台电脑上 OneSay 的手机联动没启动）。" + PHONE_HOWTO);
+        Map<String, String> on = phonesNow();
+        String last = "";
+        try { last = String.valueOf(lastPhone.get()); } catch (RuntimeException ignored) { }
+        if (on.isEmpty() && (last == null || last.isBlank() || "null".equals(last))) return Actions.Result.fail("现在没有手机连着这台电脑。" + PHONE_HOWTO);
+        if (!"phone_status".equals(cmd) && ChatPolicy.Preset.of(cfg.chatPreset) == ChatPolicy.Preset.READ_ONLY)
+            return Actions.Result.fail("现在的权限预设是「只读」，不让手机做动作；要的话在对话框上方把预设改成「默认」。");
+        try {
+            Actions.Result r;
+            switch (cmd) {
+                case "phone_status": {
+                    r = p.apply("status", new TreeMap<>());
+                    if (!r.ok) return offline(r);
+                    Actions.Result caps = p.apply("caps", new TreeMap<>());
+                    StringBuilder b = new StringBuilder(statusLine(r));
+                    Map<String, Object> d = new TreeMap<>();
+                    if (r.data != null) d.putAll(r.data);
+                    if (caps.ok && caps.data != null && caps.data.get("caps") instanceof List) {
+                        List<?> l = (List<?>) caps.data.get("caps");
+                        b.append("。手机上开着的：").append(String.join("、", l.stream().map(String::valueOf).toList()));
+                        if (!l.contains("operate")) b.append("（「按目标操作手机」没开，phone_operate 会被手机拒绝）");
+                        d.put("caps", l);
+                    }
+                    d.put("phones", new TreeMap<>(on));
+                    return Actions.Result.ok(b.toString(), d);
+                }
+                case "phone_open_app": {
+                    Map<String, Object> x = new TreeMap<>(a);
+                    if (PhoneCmds.check("open_app", x) != null) return Actions.Result.fail(PhoneCmds.check("open_app", x));
+                    r = p.apply("open_app", x);
+                    return r.ok ? r : offline(r);
+                }
+                case "phone_operate": {
+                    Map<String, Object> x = new TreeMap<>();
+                    x.put("goal", String.valueOf(a.getOrDefault("goal", "")).trim());
+                    String bad = PhoneCmds.check("operate", x);
+                    if (bad != null) return Actions.Result.fail(bad);
+                    r = p.apply("operate", x);
+                    return r.ok ? r : offline(r);
+                }
+                default:
+                    return Actions.Result.fail("不认识的手机工具：" + cmd);
+            }
+        } catch (Exception e) {
+            return Actions.Result.fail("手机出错：" + e.getClass().getSimpleName());
+        }
+    }
+
+    static Actions.Result offline(Actions.Result r) {
+        String t = PhoneCmds.withReason(r);
+        if (t.contains("没有回应") || t.contains("还没有手机常连") || t.contains("离线")) t = t + "。" + PHONE_HOWTO;
+        return new Actions.Result(false, t, r.data);
+    }
+
+    /** [phone-tools-1118] 写进系统提示的运行环境：连着哪些手机；没有就写怎么连。 */
+    String runtimeLines() {
+        StringBuilder b = new StringBuilder("\n\n运行环境（每轮更新）：\n");
+        Map<String, String> on = phonesNow();
+        if (!on.isEmpty()) {
+            b.append("- 已配对、现在连着的手机 / 设备：");
+            List<String> l = new ArrayList<>();
+            for (Map.Entry<String, String> e : on.entrySet()) l.add(e.getKey() + "（" + e.getValue() + "）");
+            b.append(String.join("、", l)).append("。用 phone_status / phone_open_app / phone_operate 操作。\n");
+        } else {
+            String last = "";
+            try { last = String.valueOf(lastPhone.get()); } catch (RuntimeException ignored) { }
+            boolean known = last != null && !last.isBlank() && !"null".equals(last);
+            b.append("- 现在没有手机连着这台电脑").append(known ? "（最近连过 " + last + "，调用手机工具时会叫它连回来，等几秒）" : "").append("。用户要操作手机时，")
+                    .append(known ? "先试 phone_status；连不上就" : "").append("告诉用户：").append(PHONE_HOWTO).append('\n');
+        }
+        return b.toString();
     }
 
     synchronized void rememberHabit(String key, String pick, String app) {
@@ -435,7 +530,7 @@ public final class Chat {
             String mem = String.valueOf(store.memory().getOrDefault("text", ""));
             String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm EEEE", java.util.Locale.CHINA));
             String ws = workspace == null || workspace.isEmpty() ? String.valueOf(cfg.workspace()) : workspace;
-            return ChatAgent.systemPrompt(now, ws, home, mem, ChatPolicy.Preset.of(cfg.chatPreset));
+            return ChatAgent.systemPrompt(now, ws, home, mem, ChatPolicy.Preset.of(cfg.chatPreset)) + runtimeLines();
         }
         return chatOnlyPrompt();
     }
