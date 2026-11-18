@@ -437,6 +437,11 @@ public final class PcGuard {
             String nr = LinkPolicy.netReason(LinkPolicy.normalizeCommand(str(a, "command")), rules().netAllow);
             if (!nr.isEmpty()) f.suspect = (f.suspect == null || f.suspect.isEmpty() ? "" : f.suspect + "；") + "这条命令要联网（" + nr + "），这一次要你确认";
         }
+        if (local() && hit == null && cat != LinkPolicy.Cat.QUERY && cat != LinkPolicy.Cat.READ_PRIVATE && cat != LinkPolicy.Cat.HARMLESS && SafeExec.elevated()) {
+            // [chat-agent-1118] OneSay 以管理员身份运行：本机对话里改动类的每一步都写明会带管理员权限，且不能记住
+            String adm = "OneSay 正以管理员身份运行，这一步会带管理员权限执行，请看清再允许";
+            f.suspect = (f.suspect == null || f.suspect.isEmpty() ? "" : f.suspect + "；") + adm;
+        }
         LinkPolicy.Decision d = LinkPolicy.remembered(LinkPolicy.decide(LinkPolicy.Target.PC, cfg.mode(), cat, f), rememberedKinds());
         if (d.remembered) o.rememberedKind = d.kind;
         d = layered(from, cmd, a, cat, f, d, o); // [app-whitelist-1116] 分层策略：硬拒 → 支付 / 隐私外发 → 读过隐私后外发 → 认不准 → 白名单 → 原结论

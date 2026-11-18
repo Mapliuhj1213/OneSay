@@ -411,7 +411,7 @@ public class ChatAgent1118Test {
         assertTrue("硬规则不弹确认", st.asked.size() <= 1);
     }
 
-    @Test public void runLocalExecutesThroughGuardAndNeverElevates() throws Exception {
+    @Test public void runLocalGoesThroughGuardAndHandlesAdminSession() throws Exception {
         Config c = cfg();
         Agent a = new Agent(c, new Main.TestActions(), x -> { });
         Stub st = new Stub();
@@ -424,11 +424,27 @@ public class ChatAgent1118Test {
         Actions.Result w = a.runLocal("file_write", new TreeMap<>(Map.of("path", "notes/a.txt", "text", "hi")));
         assertTrue(w.text, w.ok);
         assertEquals("hi", Files.readString(Path.of(c.workspaceDir, "notes", "a.txt"), StandardCharsets.UTF_8));
-        // OneSay 是管理员时：模型写的命令不提权，降不了就拒
+        // OneSay 是管理员时（整个登录会话就是管理员）：只读照常直接做；改动类每一步确认，卡上写明带管理员权限，且不能记住
         SafeExec.reset(() -> true, null);
+        Stub st2 = new Stub();
+        a.guard.confirmer = st2;
         Actions.Result e = a.runLocal("sys_exec", new TreeMap<>(Map.of("command", "Get-ChildItem $HOME")));
-        assertFalse(e.ok);
-        assertEquals(LinkPolicy.R_PLUGIN_BLOCKED, e.data.get("reason"));
+        assertNotEquals("不再一律拒绝", LinkPolicy.R_PLUGIN_BLOCKED, e.data == null ? null : e.data.get("reason"));
+        assertTrue("只读不弹确认", st2.asked.isEmpty());
+        st2.answer = PcGuard.DENY;
+        Actions.Result w2 = a.runLocal("file_write", new TreeMap<>(Map.of("path", "notes/b.txt", "text", "hi")));
+        assertFalse(w2.ok);
+        assertEquals(1, st2.asked.size());
+        assertTrue(st2.asked.get(0).contains("管理员权限"));
+        assertTrue("管理员下不能记住", st2.kinds.isEmpty() || st2.kinds.get(0).isEmpty());
+        Actions.Result up = a.runLocal("sys_exec", new TreeMap<>(Map.of("command", "Start-Process cmd -Verb RunAs")));
+        assertEquals("提权照旧拦", LinkPolicy.R_PLUGIN_BLOCKED, up.data.get("reason"));
+        // 手机远程照旧：管理员时降不了权就拒（不变）
+        SafeExec.REMOTE.set(Boolean.TRUE);
+        try {
+            assertTrue(SafeExec.elevated());
+            try { SafeExec.check(new ProcessBuilder("whoami")); fail(); } catch (SafeExec.Refused ok) { }
+        } finally { SafeExec.REMOTE.set(Boolean.FALSE); }
         assertFalse("线程标记复位", PcGuard.LOCAL.get());
         assertFalse(SafeExec.REMOTE.get());
     }
