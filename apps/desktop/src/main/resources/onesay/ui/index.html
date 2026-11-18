@@ -153,6 +153,26 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .days span{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:13px;background:var(--bg);color:var(--text2)}
 .days span.on{background:var(--accent);color:#fff}
 .sheet .foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+
+/* ★ design-1118：OneSay 设计语言 v1（与手机控制台同一套 token，见手机 docs/CONSOLE.md 第七节）。
+   安静的底色，颜色只表达意思：主色苔绿 = 开着 / 主要动作；红黄绿灰 = 状态；蓝紫 = 控屏（--ctl-*，不变）。跟随系统深浅色。 */
+:root{
+  --bg:#F5F4F1; --card:#FFFFFF; --surface2:#EEECE7; --text:#1C1B19; --text2:#5F5C57; --text3:#75726C; --line:#E6E3DD;
+  --accent:#4E7A35; --accentC:#E3EDDA; --red:#C9363B; --green:#1F7A44; --warn:#845A0B; --swoff:#D6D2CA; --r:20px;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#101012; --card:#1B1B1E; --surface2:#26262A; --text:#F2F1EE; --text2:#A9A7A2; --text3:#8C8A85; --line:#2E2E33;
+    --accent:#84AE64; --accentC:#26321F; --red:#F0575C; --green:#5BC27A; --warn:#F2B33D; --swoff:#3A3A3F}
+  .seg span.on{background:var(--card)} .key{background:var(--surface2);border-color:var(--line)} .qr{background:#fff}
+  .nav:hover{background:rgba(255,255,255,.05)} .compose .send:disabled{background:var(--surface2)}
+}
+.logo{background:var(--accent)} .btn{color:var(--card)} .btn.ghost{background:var(--card);color:var(--accent)}
+.sec i{display:none}                                   /* 分组标题不再加彩色竖条 */
+.side .ic,.nav .ic{background:var(--surface2)!important;color:var(--text2)}   /* 侧栏图标统一单色 */
+.nav.on .ic{background:var(--accentC)!important;color:var(--accent)}
+.sw{background:var(--swoff)} .sw.on{background:var(--accent)}
+.tag.green{background:rgba(31,122,68,.12);color:var(--green)} .tag.blue{background:var(--accentC);color:var(--accent)}
+.dot{background:var(--green)}
 </style><style>
 /* ---------- 对话（单一对话，类 Codex） ---------- */
 #chat.on{display:flex}
