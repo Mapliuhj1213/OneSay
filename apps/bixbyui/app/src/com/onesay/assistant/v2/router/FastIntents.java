@@ -383,6 +383,24 @@ public final class FastIntents {
      * @return null = 不是快路径句子
      */
     public static Hit match(String utterance) {
+        Hit h = match0(utterance);
+        if (h == null && utterance != null && utterance.length() <= 48 && utterance.matches(".*(倒计时|计时器|计时|定时器).*")
+                && RawNumber.suspicious(utterance, false)) {   // ★ rel-1118 B02：「倒计时一点五分钟」去标点后认不出，原句能精确换算就本地算
+            Long s = RawNumber.decimalTimerSeconds(utterance);
+            if (s != null) return new Hit("clock.timer.set", args("seconds", s.intValue()), "timer.decimal");
+        }
+        // ★ rel-1118 B02 / B06：去标点前的原句里有负号 / 小数 → 数值类命令不在本地执行；倒计时的小数分钟 / 小时能精确换算的除外
+        if (h != null && RawNumber.numeric(h.args) && RawNumber.suspicious(utterance, RawNumber.isClock(h.sign))) {
+            if ("clock.timer.set".equals(h.sign)) {
+                Long s = RawNumber.decimalTimerSeconds(utterance);
+                if (s != null) return new Hit("clock.timer.set", args("seconds", s.intValue()), "timer.decimal");
+            }
+            return null;
+        }
+        return h;
+    }
+
+    private static Hit match0(String utterance) {
         if (!sEnabled || utterance == null) return null;
         String c = clean(utterance);
         if (c.length() == 0 || c.length() > 48) return null;
@@ -746,6 +764,21 @@ public final class FastIntents {
         }
         if (num == null || unit == null) return null;
         num = num.replace("个", "").trim();
+        // ★ rel-1118 B02：复合时长「1分30秒」「2分钟10秒」「1小时30分钟」（以前整串交给 NumberParser 逐字累加成 130 / 210）
+        Matcher mix = Pattern.compile("^([0-9零一二两三四五六七八九十百]+)(分钟|分)([0-9零一二两三四五六七八九十]+)$").matcher(num);
+        if (mix.matches() && unit.startsWith("秒")) {
+            Long mm = NumberParser.parse(mix.group(1)), ss = NumberParser.parse(mix.group(3));
+            if (mm == null || ss == null || mm < 0 || ss < 0 || ss > 59) return null;
+            long sec = mm * 60 + ss;
+            return sec <= 0 || sec > 86400 ? null : sec;
+        }
+        mix = Pattern.compile("^([0-9零一二两三四五六七八九十]+)(小时|钟头)([0-9零一二两三四五六七八九十]+)$").matcher(num);
+        if (mix.matches() && unit.startsWith("分")) {
+            Long hh = NumberParser.parse(mix.group(1)), mm = NumberParser.parse(mix.group(3));
+            if (hh == null || mm == null || hh < 0 || mm < 0 || mm > 59) return null;
+            long sec = hh * 3600 + mm * 60;
+            return sec <= 0 || sec > 86400 ? null : sec;
+        }
         long n;
         if (num.equals("半")) {
             n = -1;

@@ -168,6 +168,11 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         MatchCandidate best = candidates.get(0);
 
         JSONObject args = restoreRawSlots(raw, best.args);   // ★ rel-1118 B01：文本槽位按原句取回（不丢标点 / 空格 / 大小写）
+        // ★ rel-1118 B02 / B06：归一化删掉了负号和小数点（「-5秒」「1.5」）→ 数值类能力不在本地执行
+        if (RawNumber.numeric(args) && RawNumber.suspicious(raw, RawNumber.isClock(best.capability.sign))) {
+            SafeLog.i(TAG, "L0 放弃：原句数值带负号 / 小数（" + best.capability.sign + "）");
+            return null;
+        }
         if (com.onesay.assistant.v2.executor.ShellCommand.dangerousUrl(args.optString("url", null))) {
             SafeLog.i(TAG, "L0 放弃：网址不是 http/https（" + best.capability.sign + "）");
             return null;
