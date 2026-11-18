@@ -59,6 +59,13 @@ public class B10CompoundZaiTest {
         assertEquals(Arrays.asList("connectivity.bt.on", "connectivity.wifi.off"), plan("打开蓝牙再关闭wifi"));
     }
 
+    @Test public void bareZaiBetweenResolvableNonTextClausesSplits() {
+        assertEquals(Arrays.asList("connectivity.gps.state", "connectivity.wifi.state", "browser.search.bing"), plan("定位开着吗再wifi开着吗并且用必应搜索天气"));
+        assertEquals(Arrays.asList("volume.notif.set", "settings.screentimeout.get", "browser.search.google"), plan("通知音量5再息屏时间是多少然后用谷歌搜索天气"));
+        assertNull(plan("wifi开着吗再说吧"));
+        assertNull(plan("打开蓝牙再见"));
+    }
+
     @Test public void planNoteKeepsOnlyItsOwnClause() {
         FollowupEdit.clearForTest();
         UnifiedRouter.Triage ft = FastPathTriage.triage("记一下买牛奶再打开侧屏闪光", RES);
