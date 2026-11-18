@@ -401,7 +401,8 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
             //   现在改用**语法定位**：从动作语素右边界取宾语（{@link ActionLexicon#objectOf}），
             //   量词/助词由语法结构决定要剥，任何"下载个X/装个X/搜个X"都自动干净。
             String nClean = nStr;
-            if (textSlot) {
+            // ★ rel-1118 B10：笔记正文（content）原样记，不按动作语素取宾语（「记一下买牛奶再打开侧屏闪光」以前只记了「侧屏闪光」）
+            if (textSlot && !cap.paramsSchema.getRules().containsKey("content")) {
                 String obj = ActionLexicon.objectOf(nStr);
                 if (obj != null && obj.length() > 0 && obj.length() <= nStr.length()) {
                     nClean = obj;
