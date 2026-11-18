@@ -208,6 +208,12 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 @keyframes spin{to{transform:rotate(360deg)}}
 .tc .sp .bd{flex:1;min-width:0}.tc .sp .ds{color:var(--text)}.tc .sp .er{color:var(--red);font-size:12.5px}
 .tc .sp .ok1{color:var(--text3);font-size:12.5px}
+/* [devtools-1118] 任务卡里的截图 / 文件，点开在内置查看器里看 */
+.tc .shot{margin:6px 0 2px}.tc .shot img{max-width:100%;max-height:320px;border-radius:8px;border:1px solid var(--line,#ddd);cursor:zoom-in;display:block;background:#f4f4f4;min-height:40px}
+#viewer{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:50;display:none;align-items:center;justify-content:center;padding:28px}
+#viewer.on{display:flex}#viewer .box{background:#fff;border-radius:10px;max-width:96vw;max-height:92vh;overflow:auto;padding:10px;position:relative}
+#viewer img{max-width:92vw;max-height:84vh;display:block}#viewer pre{white-space:pre-wrap;word-break:break-all;max-width:88vw;margin:0;font-size:12.5px}
+#viewer .vh{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:13px}#viewer .vh .n{flex:1;color:#555}
 .tc details{margin-top:2px}.tc summary{cursor:pointer;color:var(--text3);font-size:12px;list-style:none}.tc summary::-webkit-details-marker{display:none}
 .tc summary:before{content:"▸ "}.tc details[open] summary:before{content:"▾ "}
 .tc pre{margin:6px 0 2px;background:var(--bg);border-radius:10px;padding:8px 10px;font:12px/1.55 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;color:var(--text2)}
@@ -602,7 +608,10 @@ P.settings=()=>{const s=S.settings;
   ${kv('模型名',s.llm_model_default?'留空 = 默认 '+esc(s.llm_model_default):'自定义接口要填模型名',inp('llm_model',s.llm_model,s.llm_model_default||'模型名'))}
   ${kv('API Key','只存在这台电脑，不同步到手机',secret('llm_key',s.llm_key_set))}
   ${kv('连接测试','不填 Key 时只认固定说法，如「锁屏」「打开B站」',`<button class="btn ghost sm" onclick="testLlm()">测试</button>`)}
-  ${kv('语音识别 Key','百炼 DashScope，自己申请；「语音」里的识别方式用它',secret('asr_key',s.asr_key_set))}</div>
+  ${kv('语音识别 Key','百炼 DashScope，自己申请；「语音」里的识别方式用它',secret('asr_key',s.asr_key_set))}
+  ${kv('看图模型','对话里「截屏看一眼」用；现在：'+(s.vision_source?esc(s.vision_source):'没有（只能用 Windows 自带 OCR 读文字）')+'。不填 Key 时自动用百炼的 Key（默认 qwen-vl-max）',secret('vision_key',s.vision_key_set))}
+  ${kv('看图模型名','留空 = qwen-vl-max；接口地址留空 = 百炼',inp('vision_model',s.vision_model||'','qwen-vl-max'))}
+  ${kv('看图接口地址','OpenAI 兼容、能带图片的接口，到 /v1 为止；只接受 https',inp('vision_base',s.vision_base||'','https://dashscope.aliyuncs.com/compatible-mode/v1'))}</div>
 
   ${grp('set-voice','语音','按住空格说话')}<div class="card">
   ${kv('按住空格说话','按住 0.35 秒开始听，短按照常打空格',sw('ptt',s.ptt))}
@@ -643,7 +652,8 @@ function stepHtml(x,i){if(x.kind==='note')return `<div class="note">${esc(x.desc
   const ic=x.state==='ok'?'<span class="ic ok">✓</span>':x.state==='fail'?'<span class="ic fail">!</span>':x.state==='wait'?'<span class="ic wait">…</span>':'<span class="ic run"></span>';
   const out=String(x.output||''),long=out.length>600;
   const det=`<details><summary>详情</summary><pre>${esc(x.detail||'')}</pre>${out?`<pre id="out-${i}">${esc(long?out.slice(0,600)+'…':out)}</pre>${long?`<button class="tag" onclick="this.previousElementSibling.textContent=decodeURIComponent('${encodeURIComponent(out)}');this.remove()">展开全部（${out.length} 字）</button>`:''}`:''}</details>`;
-  return `<div class="sp">${ic}<div class="bd"><div class="ds">${esc(x.desc||x.detail||'')}</div>${x.state==='fail'?`<div class="er">${esc(clipTxt(x.summary,160))}</div>`:x.state==='ok'&&x.summary&&x.summary!=='命令执行完了'?`<div class="ok1">${esc(clipTxt(x.summary,120))}</div>`:''}${det}</div></div>`}
+  const art=(x.image?`<div class="shot"><img data-art="${esc(x.image)}" alt="截图" onclick="viewArt(this.dataset.art)"></div>`:'')+(x.file?`<div class="shot"><button class="tag" data-art="${esc(x.file)}" onclick="viewArt(this.dataset.art)">查看 ${esc(String(x.file).split(/[\\/]/).pop())}</button></div>`:'');
+  return `<div class="sp">${ic}<div class="bd"><div class="ds">${esc(x.desc||x.detail||'')}</div>${art}${x.state==='fail'?`<div class="er">${esc(clipTxt(x.summary,160))}</div>`:x.state==='ok'&&x.summary&&x.summary!=='命令执行完了'?`<div class="ok1">${esc(clipTxt(x.summary,120))}</div>`:''}${det}</div></div>`}
 function askHtml(c){const offerTask=!!c.task_scope,dis=cfArmed&&cfId===c.id?'':'disabled';
   return `<div class="ask" id="ask-${c.id}"><div class="q">这一步要你批准</div><div class="cmdl">${esc(String(c.detail||'').replace(/^本机对话 请求：/,''))}</div>
   <div class="row">${offerTask?`<button class="btn sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event,'task')">允许本次任务</button>`:''}<button class="btn ${offerTask?'ghost ':''}sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event)">允许一次</button><button class="btn ghost sm" id="cfdeny" onclick="cfAns(${c.id},false,false,event)">拒绝</button>
@@ -676,8 +686,18 @@ function renderChat(){const c=S.chat, box=$('msgin');
    `<div class="welcome"><h2>想让电脑做什么？</h2><div>直接说指令（锁屏、截图、打开B站），或者随便聊。<br>${S.settings.llm_key_set?'':'在「设置 › 模型与密钥」填上 API Key 才能聊天，指令不需要 Key。'}</div></div>`)+(inflight&&!S.chat_running?'<div class="m a typing">思考中…</div>':'');
   // [approvals-1118] 只有本来就在底部（或刚自己发了消息）才跟到底；在往上看就不动，给一个「↓ 有新消息」
   if(atBottom||justSent){$('msgs').scrollTop=1e9;justSent=false;newBelow(false)}else newBelow(true);
-  armInline()}
+  armInline();loadArts()}
 let justSent=false;
+// [devtools-1118] 任务卡里的截图按需取（只给对话里登记过的路径）；点开在内置查看器里看，不用 file: 地址
+const ARTS={};
+async function getArt(p){if(ARTS[p])return ARTS[p];if(!LIVE)return null;try{const r=await api('artifact',{path:p});if(r&&r.ok){ARTS[p]=r;return r}}catch(e){}return null}
+async function loadArts(){for(const im of document.querySelectorAll('img[data-art]')){if(im.getAttribute('src'))continue;const r=await getArt(im.dataset.art);
+  if(r&&r.b64)im.src='data:'+r.mime+';base64,'+r.b64;else im.alt='图片取不到了'}}
+async function viewArt(p){const r=await getArt(p);if(!r){snack('文件取不到了');return}let v=$('viewer');
+  if(!v){v=document.createElement('div');v.id='viewer';v.onclick=e=>{if(e.target===v)v.classList.remove('on')};document.body.appendChild(v)}
+  v.innerHTML=`<div class="box"><div class="vh"><span class="n">${esc(r.name||'')}</span><button class="tag" onclick="$('viewer').classList.remove('on')">关闭</button></div>${r.b64?`<img src="data:${esc(r.mime)};base64,${r.b64}">`:`<pre>${esc(r.text_body||'')}</pre>`}</div>`;
+  v.classList.add('on')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){const v=$('viewer');if(v)v.classList.remove('on')}});
 function newBelow(on){let b=$('newbelow');if(!b){b=document.createElement('button');b.id='newbelow';b.className='chip';b.textContent='↓ 有新消息';
   b.style.cssText='position:absolute;left:50%;transform:translateX(-50%);bottom:110px;z-index:4;box-shadow:0 2px 10px rgba(0,0,0,.12);display:none';
   b.onclick=()=>{$('msgs').scrollTop=1e9;newBelow(false)};$('chat').appendChild(b)}b.style.display=on?'':'none'}
@@ -766,7 +786,7 @@ document.addEventListener('visibilitychange',()=>cfWindow(document.visibilitySta
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&cfId){e.preventDefault();e.stopPropagation();cfAns(cfId,false,false,e)}},true);
 // 窗口关闭：在等的请求按拒绝（程序那边界面 8 秒没动静也会按拒绝）
 window.addEventListener('pagehide',()=>{if(!LIVE||!cfId)return;try{fetch('/api/confirm',{method:'POST',keepalive:true,headers:{'X-OneSay-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify({op:'closed'})})}catch(e){}});
-async function setv(k,v){if(!LIVE){S.settings[k]=v;if(k==='llm_key'||k==='asr_key')S.settings[k+'_set']=!!v;render();return}
+async function setv(k,v){if(!LIVE){S.settings[k]=v;if(k==='llm_key'||k==='asr_key'||k==='vision_key')S.settings[k+'_set']=!!v;render();return}
   const r=await api('settings',{[k]:v});snack(r.text);if(r.settings)S.settings=r.settings;render()}
 async function testLlm(){snack('测试中…');const r=await api('test_llm',{});snack(r.text)}
 async function showPair(){pairShown=!pairShown;if(!pairShown){lastPair='';render();return}

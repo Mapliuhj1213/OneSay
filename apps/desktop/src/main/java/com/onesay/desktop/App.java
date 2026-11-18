@@ -544,6 +544,12 @@ public final class App {
         s.put("asr_key_set", !cfg.asrKey.isEmpty());
         s.put("llm_provider", cfg.llmProvider);
         s.put("llm_key_set", !cfg.llmKey.isEmpty());
+        s.put("vision_key_set", !cfg.visionKey.isEmpty()); // [devtools-1118] Key 本身不回界面
+        s.put("vision_base", cfg.visionBase);
+        s.put("vision_model", cfg.visionModel);
+        DeviceTools.Vision vz = DeviceTools.Vision.from(cfg);
+        s.put("vision_source", vz == null ? "" : vz.source + " · " + vz.model);
+        s.put("adb_path", cfg.adbPath);
         s.put("llm_model", cfg.llmModel);
         s.put("llm_model_default", Llm.defaultModel(cfg.llmProvider));
         s.put("llm_base", cfg.llmBase);
@@ -609,6 +615,7 @@ public final class App {
         ui.on("chat", b -> chat.send(str(b, "text", ""), "text"));
         ui.on("chat_clear", b -> { if (chat.running()) return fail("任务还在做，先点「停止」"); store.clear("chat"); return ok("已清空对话，记忆保留"); });
         ui.on("chat_stop", b -> chat.stop() ? ok("做完当前这一步就停") : ok("没有在做的任务"));
+        ui.on("artifact", b -> chat.artifact(str(b, "path", ""))); // [devtools-1118] 任务卡里的截图 / 文件（只给对话里登记过的路径）
         ui.on("memory", b -> { store.setMemory(str(b, "text", ""), System.currentTimeMillis()); return ok("记忆已保存"); });
         ui.on("todo", b -> {
             String op = str(b, "op", "");
@@ -823,6 +830,10 @@ public final class App {
                     case "chat_timeout_min": try { cfg.chatTimeoutMin = Math.max(5, Math.min(1440, Integer.parseInt(v))); } catch (NumberFormatException nfe) { return fail("时长写分钟数"); } break;
                     case "autostart": autostart(v.equals("true")); break;
                     case "media_quality": cfg.mediaQuality = MediaArgs.quality(v); break;
+                    case "vision_key": if (v.equals("-")) cfg.visionKey = ""; else if (!v.isEmpty()) cfg.visionKey = v; break; // [devtools-1118]
+                    case "vision_base": if (v.isEmpty() || v.startsWith("https://") || v.startsWith("http://127.0.0.1") || v.startsWith("http://localhost")) cfg.visionBase = v; else return fail("看图模型接口地址要用 https"); break;
+                    case "vision_model": cfg.visionModel = v; break;
+                    case "adb_path": cfg.adbPath = v; break;
                     default: break;
                 }
             }

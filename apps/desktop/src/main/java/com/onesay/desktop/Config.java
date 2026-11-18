@@ -69,6 +69,12 @@ public final class Config {
     /** [approvals-1118] 打开习惯（OpenTarget.parseHabits）：bilibili → 本地应用 / 网页；只在电脑界面上能看 / 改。 */
     public String openHabits = "";
     public String workspaceDir = "";
+    /** [devtools-1118] 看图模型（OpenAI 兼容、消息里能带图片）：单独的 Key / 接口 / 模型名；Key 空 = 用百炼大模型或百炼语音识别的 Key（DeviceTools.Vision.from）。 */
+    public String visionKey = "";
+    public String visionBase = "";
+    public String visionModel = "";
+    /** [devtools-1118] adb 的完整路径；空 = 自己找（PATH / MuMu / Android SDK）。 */
+    public String adbPath = "";
     /** 链接下载：默认清晰度 best / 1080 / 720（MediaArgs.quality）。 */
     public String mediaQuality = "best";
     /** 链接下载的文件夹；空 = %USERPROFILE%\OneSay\Downloads。 */
@@ -141,6 +147,10 @@ public final class Config {
         c.openHabits = OpenTarget.formatHabits(OpenTarget.parseHabits(p.getProperty("open_habits", "")));
         c.chatAllowPrefixes = ChatPolicy.formatRules(ChatPolicy.parseRules(p.getProperty("chat_allow_prefixes", "")));
         c.workspaceDir = p.getProperty("workspace_dir", "").trim();
+        c.visionKey = p.getProperty("vision_key", "").trim();
+        c.visionBase = p.getProperty("vision_base", "").trim();
+        c.visionModel = p.getProperty("vision_model", "").trim();
+        c.adbPath = p.getProperty("adb_path", "").trim();
         c.mediaQuality = MediaArgs.quality(p.getProperty("media_quality", "best"));
         c.mediaDir = p.getProperty("media_dir", "").trim();
         return c;
@@ -208,6 +218,10 @@ public final class Config {
         p.setProperty("chat_timeout_min", String.valueOf(chatTimeoutMin));
         p.setProperty("chat_allow_prefixes", chatAllowPrefixes == null ? "" : chatAllowPrefixes);
         p.setProperty("workspace_dir", workspaceDir);
+        p.setProperty("vision_key", visionKey);
+        p.setProperty("vision_base", visionBase);
+        p.setProperty("vision_model", visionModel);
+        p.setProperty("adb_path", adbPath);
         p.setProperty("media_quality", MediaArgs.quality(mediaQuality));
         p.setProperty("media_dir", mediaDir);
         p.setProperty("llm_provider", llmProvider);

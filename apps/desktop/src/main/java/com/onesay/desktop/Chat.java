@@ -2,6 +2,8 @@ package com.onesay.desktop;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -175,7 +177,7 @@ public final class Chat {
                 List<String> leftovers = new ArrayList<>();
                 try {
                     ChatAgent.Exec pe = pcExec;
-                    ChatAgent.Exec ex = (cmd, args) -> "open_target".equals(cmd) ? openTarget(pe, args) : cmd.startsWith("phone_") ? phoneTool(cmd, args) : pe.run(cmd, args);
+                    ChatAgent.Exec ex = (cmd, args) -> local(pe, cmd, args);
                     o = agent.run(context(), b, ex, new CardSteps(card));
                 } finally {
                     PcGuard.TASK.set("");
@@ -259,6 +261,205 @@ public final class Chat {
         }
         if (r != null && r.ok) r = new Actions.Result(true, r.text + "（" + ("app".equals(d[0]) ? "本地应用" : "网页") + how + "）", r.data);
         return r;
+    }
+
+    /** 本机对话的一步：打开 / 手机 / 截屏 / 显示文件在这里做，其余走电脑执行链（PcGuard）。 */
+    Actions.Result local(ChatAgent.Exec pe, String cmd, Map<String, Object> args) throws Exception {
+        if ("open_target".equals(cmd)) return openTarget(pe, args);
+        if (cmd.startsWith("phone_")) return phoneTool(cmd, args);
+        if ("screen_look".equals(cmd)) return screenLook(args);
+        if ("show_file".equals(cmd)) return showFile(String.valueOf(args.get("path")));
+        Actions.Result r = pe.run(cmd, args);
+        if ("file_write".equals(cmd) && r != null && r.ok) {
+            // [devtools-1118] 写好的文件在任务卡里能点开看
+            Path f = resolve(String.valueOf(args.get("path")));
+            if (f != null && Files.isRegularFile(f)) {
+                Map<String, Object> d = new TreeMap<>();
+                if (r.data != null) d.putAll(r.data);
+                d.put(isImage(f) ? "image" : "file", f.toString());
+                r = new Actions.Result(true, r.text, d);
+            }
+        }
+        return r;
+    }
+
+    // ------------------------------------------------------------------ [devtools-1118] 截屏 / 看图 / 显示文件
+
+    /** 截屏（测试换）：target = pc / android / adb 序列号 → PNG 字节和说明（[0]=byte[]，[1]=来源名）。 */
+    public interface Shooter { Object[] shoot(String target) throws Exception; }
+
+    /** 看图（测试换）：配了看图模型时用；返回 null 表示没配。 */
+    public interface Looker { String look(byte[] png, String question) throws Exception; }
+
+    public interface Reader { String read(Path png) throws Exception; }
+
+    volatile Shooter shooter = this::shootReal;
+    volatile java.util.function.Supplier<Looker> looker = this::realLooker;
+
+    Looker realLooker() {
+        DeviceTools.Vision v = DeviceTools.Vision.from(cfg);
+        return v == null ? null : new Looker() {
+            @Override public String look(byte[] png, String q) throws Exception { return v.look(png, q); }
+            @Override public String toString() { return v.model; }
+        };
+    }
+    volatile Reader ocr = DeviceTools::ocr;
+
+    Path workspacePath() {
+        String ws = workspace == null || workspace.isEmpty() ? String.valueOf(cfg.workspace()) : workspace;
+        return java.nio.file.Paths.get(ws);
+    }
+
+    String adb() {
+        return DeviceTools.findAdb(cfg.adbPath, System.getenv());
+    }
+
+    Object[] shootReal(String target) throws Exception {
+        String t = target == null || target.isBlank() ? "pc" : target.trim();
+        if (t.equalsIgnoreCase("pc") || t.equals("电脑")) return new Object[] {DeviceTools.png(DeviceTools.capturePc()), "pc"};
+        String adb = adb();
+        if (adb == null) throw new Exception("这台电脑上没找到 adb（可以在设置里填 adb 的完整路径，MuMu 的在安装目录 shell\\adb.exe）");
+        Map<String, String> devs = DeviceTools.devices(adb);
+        String serial = DeviceTools.pickSerial(devs, t);
+        if (serial == null) throw new Exception(devs.isEmpty() ? "adb 没连着任何安卓设备（MuMu 模拟器是 127.0.0.1:16384）" : "连着好几台设备，指定一个序列号：" + devs);
+        String st = DeviceTools.ensureDevice(adb, serial);
+        if (!"device".equals(st)) throw new Exception("设备 " + serial + (st == null ? " 没连上" : " 状态是 " + st + (st.equals("unauthorized") ? "（要在设备上允许 USB 调试）" : "")));
+        return new Object[] {DeviceTools.screencap(adb, serial), serial};
+    }
+
+    Actions.Result screenLook(Map<String, Object> a) {
+        String target = String.valueOf(a.getOrDefault("target", "pc"));
+        String q = a.get("question") == null ? "" : String.valueOf(a.get("question"));
+        byte[] png;
+        String who;
+        try {
+            Object[] s = shooter.shoot(target);
+            png = (byte[]) s[0];
+            who = String.valueOf(s[1]);
+        } catch (Exception e) {
+            return Actions.Result.fail("没截到屏：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+        }
+        Path f;
+        try {
+            f = DeviceTools.saveShot(workspacePath(), "pc".equals(who) ? "pc" : who, png);
+        } catch (Exception e) {
+            return Actions.Result.fail("截到了，但存不进工作区：" + e.getClass().getSimpleName());
+        }
+        String size = "";
+        try {
+            java.awt.image.BufferedImage im = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(png));
+            if (im != null) size = im.getWidth() + "×" + im.getHeight();
+        } catch (Exception ignored) { }
+        String how, seen, note = "";
+        Looker lk = null;
+        try { lk = looker.get(); } catch (RuntimeException ignored) { }
+        if (lk != null) {
+            try {
+                seen = lk.look(png, q);
+                how = "看图模型（" + lk + "）的描述";
+            } catch (Exception e) {
+                note = "看图模型没成功（" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + "），改用 OCR。";
+                lk = null;
+                seen = null;
+                how = null;
+            }
+        } else {
+            seen = null;
+            how = null;
+        }
+        if (lk == null) {
+            try {
+                seen = ocr.read(f);
+                how = "OCR 读出的文字（Windows 自带文字识别：只有文字，没有图标 / 颜色 / 布局，没配看图模型）";
+                if (seen.isBlank()) seen = "（OCR 没读到文字）";
+            } catch (Exception e) {
+                how = "没看图";
+                seen = "没配看图模型，系统 OCR 也不可用（" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + "）。图已存好显示在任务卡里，可以请用户看一眼。";
+            }
+        }
+        Map<String, Object> d = new TreeMap<>();
+        d.put("image", f.toString());
+        d.put("how", how);
+        d.put("output", "【" + how + "】" + note + "\n" + seen);
+        return Actions.Result.ok("截好了（" + ("pc".equals(who) ? "这台电脑" : who) + (size.isEmpty() ? "" : "，" + size) + "），" + how.replaceAll("（.*", ""), d);
+    }
+
+    static boolean isImage(Path f) {
+        return f.getFileName().toString().toLowerCase(java.util.Locale.ROOT).matches(".*\\.(png|jpe?g|gif|webp|bmp)");
+    }
+
+    static boolean isText(Path f) {
+        return f.getFileName().toString().toLowerCase(java.util.Locale.ROOT).matches(".*\\.(txt|log|md|json|csv|xml|ps1|bat|cmd|sh|py|js|html?|css|ini|cfg|conf|yaml|yml|properties|reg)");
+    }
+
+    /** 相对路径按工作区；~ 开头按用户目录。不合法返回 null。 */
+    Path resolve(String p) {
+        if (p == null || p.isBlank()) return null;
+        try {
+            String s = p.trim();
+            if (s.startsWith("~")) s = home + s.substring(1);
+            Path x = java.nio.file.Paths.get(s);
+            return (x.isAbsolute() ? x : workspacePath().resolve(x)).normalize();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** 可以在任务卡里显示的位置：工作区、用户目录、临时目录。 */
+    boolean viewable(Path f) {
+        List<Path> roots = new ArrayList<>();
+        roots.add(workspacePath().toAbsolutePath().normalize());
+        if (home != null && !home.isBlank()) roots.add(java.nio.file.Paths.get(home).toAbsolutePath().normalize());
+        roots.add(java.nio.file.Paths.get(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize());
+        Path a = f.toAbsolutePath().normalize();
+        for (Path r : roots) if (a.startsWith(r)) return true;
+        return false;
+    }
+
+    Actions.Result showFile(String p) {
+        Path f = resolve(p);
+        if (f == null || !Files.isRegularFile(f)) return Actions.Result.fail("没有这个文件：" + p);
+        if (!viewable(f)) return Actions.Result.fail("只显示工作区、用户目录和临时目录里的文件");
+        if (!isImage(f) && !isText(f)) return Actions.Result.fail("这种文件没法在任务卡里预览（图片或文本才行）：" + f.getFileName());
+        Map<String, Object> d = new TreeMap<>();
+        d.put(isImage(f) ? "image" : "file", f.toString());
+        return Actions.Result.ok("已在任务卡里显示：" + f.getFileName(), d);
+    }
+
+    /**
+     * 界面取任务卡里的图片 / 文件（本机口令保护）。只给对话里某一步登记过的路径（截图、写好的文件、show_file），别的路径一律不给。
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> artifact(String path) {
+        Map<String, Object> out = new TreeMap<>();
+        boolean listed = false;
+        if (path != null && !path.isBlank()) for (Map<String, Object> m : store.list("chat")) {
+            Object st = m.get("steps");
+            if (!(st instanceof List)) continue;
+            for (Object o : (List<Object>) st) if (o instanceof Map && (path.equals(((Map<String, Object>) o).get("image")) || path.equals(((Map<String, Object>) o).get("file")))) { listed = true; break; }
+            if (listed) break;
+        }
+        out.put("ok", false);
+        if (!listed) { out.put("text", "这个文件不在对话记录里"); return out; }
+        Path f = java.nio.file.Paths.get(path);
+        try {
+            if (!Files.isRegularFile(f)) { out.put("text", "文件已经不在了"); return out; }
+            long n = Files.size(f);
+            if (isImage(f)) {
+                if (n > 20L * 1024 * 1024) { out.put("text", "图片太大（超过 20 MB）"); return out; }
+                String ext = f.getFileName().toString().toLowerCase(java.util.Locale.ROOT).replaceAll(".*\\.", "");
+                out.put("mime", "image/" + (ext.equals("jpg") ? "jpeg" : ext));
+                out.put("b64", java.util.Base64.getEncoder().encodeToString(Files.readAllBytes(f)));
+            } else {
+                if (n > 512 * 1024) { out.put("text", "文本太长（超过 512 KB），在文件夹里打开看"); return out; }
+                out.put("text_body", new String(Files.readAllBytes(f), java.nio.charset.StandardCharsets.UTF_8));
+            }
+            out.put("name", f.getFileName().toString());
+            out.put("ok", true);
+        } catch (Exception e) {
+            out.put("text", "读不出来：" + e.getClass().getSimpleName());
+        }
+        return out;
     }
 
     static final String PHONE_HOWTO = "连手机的办法：在手机 OneSay 的「控制台 › 电脑联动」里打开「接受电脑指令」，用「扫码配对」扫电脑 OneSay「设置 › 连接」里的配对二维码；"

@@ -151,6 +151,16 @@ public final class ChatAgent {
         po.put("description", prop("string", DESC));
         po.put("goal", prop("string", "要手机做的事，一句完整的中文目标（如「打开设置查一下系统版本」「在微信里打开文件传输助手」），最多 500 字"));
         l.add(fn("phone_operate", "把一个目标交给手机上的 OneSay，由手机自己看屏幕、规划、点按去做（和用户在手机上说这句话一样）。打电话、发短信、付款、给别人发消息手机上会弹卡让用户确认。只负责交过去，结果要再用 phone_status 或截图确认。", po, List.of("description", "goal")));
+        // [devtools-1118] 看屏幕 / 给用户看文件
+        Map<String, Object> sc = new TreeMap<>();
+        sc.put("description", prop("string", DESC));
+        sc.put("target", prop("string", "截哪块屏幕：pc = 这台电脑（默认）；android = 用 adb 连着的安卓设备（只有一台时）；或 adb 序列号，如 MuMu 模拟器 127.0.0.1:16384"));
+        sc.put("question", prop("string", "可选：想从屏幕上确认什么（如「有没有弹出 root 授权框」「命令输出里有没有 uid=0」）"));
+        l.add(fn("screenshot", "截屏并看图：图存进工作区 shots/，在任务卡里直接显示给用户；配了看图模型就交给它描述画面，没配就用 Windows 自带 OCR 读出文字（结果会标明是哪种）。", sc, List.of("description")));
+        Map<String, Object> sf = new TreeMap<>();
+        sf.put("description", prop("string", DESC));
+        sf.put("path", prop("string", "文件路径（工作区里的相对路径，或完整路径）：图片会显示在任务卡里，文本文件可以在卡里点开看"));
+        l.add(fn("show_file", "把你生成或找到的图片 / 文本文件显示在任务卡里给用户看（不要用 open_url 打开 file: 地址）。", sf, List.of("description", "path")));
         return l;
     }
 
@@ -210,6 +220,18 @@ public final class ChatAgent {
             }
             case "phone_status":
                 return new Object[] {"phone_status", out};
+            case "screenshot": {
+                String tg = a.get("target") == null ? "" : String.valueOf(a.get("target")).trim();
+                out.put("target", tg.isEmpty() ? "pc" : tg);
+                if (a.get("question") != null && !String.valueOf(a.get("question")).isBlank()) out.put("question", clip(String.valueOf(a.get("question")).trim(), 300));
+                return new Object[] {"screen_look", out};
+            }
+            case "show_file": {
+                Object p = a.get("path");
+                if (p == null || String.valueOf(p).isBlank()) return null;
+                out.put("path", String.valueOf(p).trim());
+                return new Object[] {"show_file", out};
+            }
             case "phone_open_app": {
                 String n = a.get("name") == null ? "" : String.valueOf(a.get("name")).trim();
                 String pk = a.get("package") == null ? "" : String.valueOf(a.get("package")).trim();
@@ -289,6 +311,8 @@ public final class ChatAgent {
                 + "手机：用户的手机通过 OneSay 手机联动和这台电脑配对，phone_status / phone_open_app / phone_operate 就是通过这条链路操作手机的。"
                 + "不要说你没法控制手机：先看下面的「运行环境」里有没有连着的手机，没有就照那里的说法告诉用户怎么连上；phone_operate 被手机拒（没打开这一项）时告诉用户在手机上打开。"
                 + "模拟器或开了 USB / 无线调试的手机也可以用 adb（run_command）。\n"
+                + "看屏幕（这台电脑，或 adb 连着的模拟器 / 手机）用 screenshot：结果写明是看图模型的描述还是 OCR 读出的文字；OCR 只有文字，看不出图标、颜色和布局，拿不准就如实说。"
+                + "不要用截图文件的大小、修改时间去猜屏幕上是什么。截图和你生成的文件会显示在任务卡里；要给用户看某个文件用 show_file，不要用 open_url 打开 file: 地址。\n"
                 + "用户说「继续」「接着做」时，根据上面对话里已经做过的步骤（▶ 开头的记录）接着做。做完后用一两句话汇报结果（做了什么、现在是什么状态）。"
                 + (memory == null || memory.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准）：\n" + memory);
     }
@@ -397,7 +421,9 @@ public final class ChatAgent {
                 done++;
                 String reason = r.data == null ? "" : String.valueOf(r.data.getOrDefault("reason", ""));
                 Object out = r.data == null ? null : r.data.get("output");
-                steps.step(stepEv("done", done, desc, cmd, args, r.ok, summary(r), out == null ? "" : String.valueOf(out), stepText(cmd, args, r)));
+                Map<String, Object> ev = stepEv("done", done, desc, cmd, args, r.ok, summary(r), out == null ? "" : String.valueOf(out), stepText(cmd, args, r));
+                if (r.data != null) for (String k : new String[] {"image", "file"}) if (r.data.get(k) != null) ev.put(k, String.valueOf(r.data.get(k))); // [devtools-1118] 任务卡里显示
+                steps.step(ev);
                 msgs.add(toolMsg(c.id, resultJson(r)));
                 if (LinkPolicy.R_CONFIRM_DENIED.equals(reason))
                     return new Outcome("你在确认框里拒绝了这一步（" + desc + "），我停在这里，没有换别的办法去做。要换个做法或继续，直接告诉我。", "denied", done);
@@ -559,7 +585,7 @@ public final class ChatAgent {
     }
 
     /** 后加的工具缺哪个字段（badArgs 用）。 */
-    static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "target"));
+    static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "description"));
 
     static Map<String, Object> toolMsg(String id, String content) {
         Map<String, Object> m = new TreeMap<>();
@@ -577,6 +603,8 @@ public final class ChatAgent {
             case "open_app": return "打开程序：" + clip(String.valueOf(a.containsKey("path") ? a.get("path") : a.get("name")), 200);
             case "open_target": return "打开：" + clip(String.valueOf(a.get("name")), 200);
             case "phone_status": return "查手机状态";
+            case "screen_look": return "截屏：" + ("pc".equals(a.get("target")) ? "这台电脑" : clip(String.valueOf(a.get("target")), 60)) + (a.get("question") != null ? "（看：" + clip(String.valueOf(a.get("question")), 80) + "）" : "");
+            case "show_file": return "显示文件：" + clip(String.valueOf(a.get("path")), 200);
             case "phone_open_app": return "手机上打开：" + clip(String.valueOf(a.containsKey("name") ? a.get("name") : a.get("package")), 200);
             case "phone_operate": return "交给手机去做：" + clip(String.valueOf(a.get("goal")), 200);
             default: return cmd;
@@ -596,7 +624,7 @@ public final class ChatAgent {
         m.put("ok", r.ok);
         m.put("text", r.text == null ? "" : r.text);
         if (r.data != null) {
-            for (String k : new String[] {"output", "exit", "reason", "reason_zh", "path"}) {
+            for (String k : new String[] {"output", "exit", "reason", "reason_zh", "path", "image", "file", "how"}) {
                 Object v = r.data.get(k);
                 if (v == null) continue;
                 m.put(k, "output".equals(k) ? clip(String.valueOf(v), OUTPUT_TO_MODEL) : v);
