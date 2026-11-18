@@ -52,13 +52,27 @@ public final class AppWhitelist {
             "com.bixbyui", "com.bixbyui.debug", "com.onesay.assistant", "com.onesay.assistant.debug",
             "com.android.packageinstaller", "com.google.android.packageinstaller", "com.android.permissioncontroller",
             "com.google.android.permissioncontroller", "moe.shizuku.privileged.api", "com.topjohnwu.magisk", "com.android.shell",
-            "com.android.systemui"};
+            "com.android.systemui",
+            // ★ rel-1118 B13：厂商安装器 / 安全中心 / 权限管理（魅族本机就是 com.meizu.safe）、系统设置、其它 root / 内核补丁管理器
+            "com.android.settings", "com.meizu.safe", "com.meizu.permissioncontroller",
+            "com.miui.packageinstaller", "com.miui.securitycenter", "com.miui.securitycore",
+            "com.coloros.safecenter", "com.oplus.safecenter", "com.coloros.securitypermission", "com.oplus.securitypermission", "com.oppo.safe",
+            "com.samsung.android.packageinstaller", "com.samsung.android.permissioncontroller", "com.samsung.android.lool", "com.samsung.android.sm.devicesecurity",
+            "com.huawei.systemmanager", "com.huawei.securitymgr", "com.hihonor.systemmanager", "com.hihonor.securitymgr",
+            "com.vivo.permissionmanager", "com.vivo.safecenter", "com.iqoo.secure", "com.bbk.account",
+            "me.weishu.kernelsu", "io.github.huskydg.magisk", "io.github.vvb2060.magisk", "me.bmax.apatch"};
     private static final String[] NEVER_WINDOWS = {
             "onesay.exe", "javaw.exe", "java.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "powershell_ise.exe", "wscript.exe", "cscript.exe",
             "mshta.exe", "rundll32.exe", "regsvr32.exe", "regedit.exe", "reg.exe", "msiexec.exe", "schtasks.exe", "sc.exe", "net.exe", "net1.exe",
             "wmic.exe", "bash.exe", "wsl.exe", "python.exe", "pythonw.exe", "py.exe", "node.exe", "certutil.exe", "bitsadmin.exe", "taskmgr.exe",
             "mmc.exe", "explorer.exe", "conhost.exe", "windowsterminal.exe", "wt.exe", "psexec.exe", "psexec64.exe", "runas.exe", "consent.exe",
-            "control.exe", "installutil.exe", "msbuild.exe", "forfiles.exe", "winget.exe", "curl.exe", "bitsadmin.exe"};
+            "control.exe", "installutil.exe", "msbuild.exe", "forfiles.exe", "winget.exe", "curl.exe", "bitsadmin.exe",
+            // ★ rel-1118 B13：卷影 / 启动配置 / 日志 / 磁盘 / 文件所有权与 ACL / 关机等高危系统工具
+            "vssadmin.exe", "bcdedit.exe", "bcdboot.exe", "wevtutil.exe", "diskpart.exe", "takeown.exe", "icacls.exe", "cacls.exe",
+            "shutdown.exe", "netsh.exe", "fsutil.exe", "cipher.exe", "wbadmin.exe", "reagentc.exe", "sdelete.exe", "sdelete64.exe",
+            "auditpol.exe", "format.exe"};
+    /** ★ rel-1118 B13：8.3 短名（POWERS~1.EXE）看不出真名，一律不收。 */
+    private static final Pattern SHORT_83 = Pattern.compile(".*~[0-9]+(\\.exe)?");
 
     // ================================================================== 条目
 
@@ -140,6 +154,7 @@ public final class AppWhitelist {
         if (n == null) return ANDROID.equals(platform) ? "包名写法不对（例如 com.example.app）" : WINDOWS.equals(platform) ? "程序名写法不对（例如 notepad.exe）" : "平台只能是 android 或 windows";
         String low = n.toLowerCase(Locale.ROOT);
         String[] never = ANDROID.equals(platform) ? NEVER_ANDROID : NEVER_WINDOWS;
+        if (WINDOWS.equals(platform) && SHORT_83.matcher(low).matches()) return "8.3 短名（带 ~数字）看不出是哪个程序，不能加白名单，请写完整程序名";
         for (String x : never) if (x.equals(low)) return ANDROID.equals(platform) ? "系统安装器 / 权限管理 / 助手自己这类应用不能加白名单" : "命令行、脚本解释器、系统管理工具和助手自己不能加白名单（加了等于关掉审批）";
         if (ANDROID.equals(platform) && (low.startsWith("com.onesay.") || low.startsWith("com.bixbyui"))) return "助手自己不能加白名单";
         return null;

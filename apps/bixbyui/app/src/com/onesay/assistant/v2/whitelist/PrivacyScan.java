@@ -52,7 +52,8 @@ public final class PrivacyScan {
     private static final Pattern ID18 = Pattern.compile("(?<![0-9A-Za-z])[1-9]\\d{5}(?:18|19|20)\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}[0-9Xx](?![0-9A-Za-z])");
     private static final Pattern ID15 = Pattern.compile("(?<![0-9A-Za-z])[1-9]\\d{5}\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}(?![0-9A-Za-z])");
     private static final Pattern DIGITS = Pattern.compile("(?<![0-9])[2-6]\\d{14,18}(?![0-9])");
-    private static final Pattern MOBILE = Pattern.compile("(?<![0-9])(?:\\+?86)?1[3-9]\\d{9}(?![0-9])");
+    /** ★ rel-1118 B14：国际前缀 +86 / 86 / 0086 都认（「0086 138…」粘连后是 0086138…）。 */
+    private static final Pattern MOBILE = Pattern.compile("(?<![0-9])(?:\\+?86|0086)?1[3-9]\\d{9}(?![0-9])");
     private static final Pattern ADDR_KW = Pattern.compile("(收货地址|家庭住址|居住地址|通讯地址|联系地址|详细地址|现住址|住址|地址)\\s*[:：]?\\s*[\\u4e00-\\u9fa5A-Za-z0-9]{4,}");
     private static final Pattern ADDR_SHAPE = Pattern.compile("[\\u4e00-\\u9fa5]{1,8}(省|市|区|县|州|旗)[\\u4e00-\\u9fa5A-Za-z0-9]{0,20}(路|街|巷|弄|道|胡同|大街|村|镇|乡|小区|花园|苑|公寓|大厦)[\\u4e00-\\u9fa5A-Za-z0-9\\-]{0,20}(号|栋|幢|座|单元|室|楼|层)");
     private static final Pattern NAME_KW = Pattern.compile("(姓名|真实姓名|收件人|收货人|联系人|持卡人|户名|开户名)\\s*[:：]?\\s*[\\u4e00-\\u9fa5·]{2,5}");
@@ -114,12 +115,12 @@ public final class PrivacyScan {
         return b.toString();
     }
 
-    /** 数字之间的空格 / 横线 / 点去掉（「6222 0212 3456 7890」→ 连着的数字）。 */
+    /** 数字之间的空格 / 横线 / 点去掉（「6222 0212 3456 7890」→ 连着的数字；★ rel-1118 B14：「138.0013.8000」的点以前没去）。 */
     static String glue(String s) {
         StringBuilder b = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            if ((c == ' ' || c == '-' || c == '\u00a0') && i > 0 && i + 1 < s.length() && Character.isDigit(s.charAt(i + 1)) && Character.isDigit(lastNonSep(s, i))) continue;
+            if ((c == ' ' || c == '-' || c == '\u00a0' || c == '.') && i > 0 && i + 1 < s.length() && Character.isDigit(s.charAt(i + 1)) && Character.isDigit(lastNonSep(s, i))) continue;
             b.append(c);
         }
         return b.toString();
@@ -128,7 +129,7 @@ public final class PrivacyScan {
     private static char lastNonSep(String s, int i) {
         for (int k = i - 1; k >= 0; k--) {
             char c = s.charAt(k);
-            if (c != ' ' && c != '-' && c != '\u00a0') return c;
+            if (c != ' ' && c != '-' && c != '\u00a0' && c != '.') return c;
         }
         return ' ';
     }
@@ -165,8 +166,9 @@ public final class PrivacyScan {
         if (line == null) return "";
         String s = fold(line);
         s = EMAIL_RE.matcher(s).replaceAll("<邮箱>");
-        s = Pattern.compile("(?<![0-9])(?:\\+?86)?1[3-9](?:[ \\-]?\\d){9}(?![0-9])").matcher(s).replaceAll("<号码>");
-        s = Pattern.compile("(?<![0-9A-Za-z])\\d(?:[ \\-]?\\d){11,}[0-9Xx]?").matcher(s).replaceAll("<数字>");
+        // ★ rel-1118 B14：号码里的点（138.0013.8000）和 0086 前缀也打码
+        s = Pattern.compile("(?<![0-9])(?:(?:\\+|00)?86[ \\-.\u00a0]?)?1[3-9](?:[ \\-.\u00a0]?\\d){9}(?![0-9])").matcher(s).replaceAll("<号码>");
+        s = Pattern.compile("(?<![0-9A-Za-z])\\d(?:[ \\-.\u00a0]?\\d){11,}[0-9Xx]?").matcher(s).replaceAll("<数字>");
         return s;
     }
 }

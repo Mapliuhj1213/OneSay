@@ -73,8 +73,8 @@
 
 ## 6. 共享文件登记（sha256，去掉 package 行；改了要重算：`tools/hashes.sh`）
 <!-- hashes -->
-- AppWhitelist.java `c08775ba9a327a2daebbd3ea9c233c0276e43f9de0675cccfc2add423f4b0658`
-- PrivacyScan.java `9ca5d2d640073e63821b51f0f086a2cddb4fb03fd736f8704a7cf0404c5e820c`
+- AppWhitelist.java `e5fb032805882e67cafc24f38e0dd7de8b51c941593b90c6236bc3c41b23e736`
+- PrivacyScan.java `be3203fa7f74ec02fd7c53a5424bb5b721828dba3437491467bef5fd7c558199`
 - ActionPolicy.java `169758b85c7c5df65705faa8cc4a6e8423e542b641a15fa1737cc9fd578462a4`
 - AppWhitelistSharedTest.java `eedeae2fa50dfde7a839132a17e6ccc48a13c6d5d6c5979fb280afe10a1f663c`
-- app-whitelist-vectors.json `0ca4c18c03eb2448cd0cb37a8cb269456b272f325c66452769e27b91c78dddbc`
+- app-whitelist-vectors.json `09d72148fe20fcd7534c8de65fff54df5bcc906c555016c68fb5f7142ca74c9e`
