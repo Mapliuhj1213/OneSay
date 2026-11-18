@@ -411,6 +411,9 @@ public final class SchedEngine {
     }
 
     private Plan planCreate(String q, long now, boolean kw) {
+        // ★ fix-1118：删 / 取消没找到对象时绝不反过来新建（「取消今天7点的任务」以前被建成日程「取消的任务」）；
+        //   否定句（「不许7点叫我」）也不新建。交回分诊（S3 取消 / ASK）。
+        if (CANCEL_HEAD.matcher(q).find() || com.onesay.assistant.v2.router.NegationGuard.reason(q) != null) return null;
         boolean remind = REMIND_WORD.matcher(q).find() && !CnTime.LEAD.matcher(q).find() && !CnTime.NO_REMIND.matcher(q).find();
         // ★ int/1102：「提醒我明天下午三点开会」= 日程 + 到点提醒（日历 + 提醒）；只有相对时长（10 分钟后）或叫醒 / 闹钟才归 S3 / 闹钟
         boolean remindAt = false;
@@ -495,8 +498,9 @@ public final class SchedEngine {
     }
 
     /** ★ backlog #5：管理 / 查看已有提醒（取消 / 删 / 关 / 改 / 推迟 / 看看 / 有哪些 … 提醒），「提醒我取消订阅」这种新事项不算。 */
+    static final Pattern CANCEL_HEAD = Pattern.compile("^(请|帮我|麻烦)?(取消|删除|删掉|删了|删去|去掉|移除|撤掉|撤销|关掉|停掉)");
     static final Pattern REMIND_MANAGE = Pattern.compile(
-            "(取消|删除|删掉|删了|删去|去掉|关掉|关闭|关了|停掉|停止|撤掉|改到|改成|改为|挪到|推迟|延后|提前到|查看|看看|看一下|列出|列一下|有哪些|有什么|有没有|有几个|还有).{0,12}提醒(?!我)"
+            "(取消|删除|删掉|删了|删去|去掉|关掉|关闭|关了|停掉|停止|撤掉|改到|改成|改为|挪到|推迟|延后|提前到|查看|看看|看一下|列出|列一下|有哪些|有什么|有没有|有几个|还有).{0,12}(提醒(?!我)|定时任务|任务$|闹钟$)"
                     + "|提醒(?!我)(的)?.{0,8}(取消|删掉|删除|删了|关掉|关了|不要了|改到|改成|改为|挪到|推迟|延后|提前)");
 
     /** ★ backlog #5：改日程的提醒提前量（「改成提前一小时提醒」「提前10分钟提醒」），不算管理提醒。 */
