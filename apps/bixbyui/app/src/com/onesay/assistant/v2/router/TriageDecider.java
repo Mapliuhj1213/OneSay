@@ -172,8 +172,18 @@ public final class TriageDecider {
             "油价", "金价", "比特币", "限行", "路况", "多少钱", "价格", "比分", "日出", "日落", "多少度", "几度",
     };
     /** 算术/换算 —— AskEngine 本地答或问答通道。 */
-    private static final String ARITH_RE =
-            ".*([0-9零一二两三四五六七八九十百千万]+(加|减|乘以|乘|除以|除|\\+|-|\\*|/|x)[0-9零一二两三四五六七八九十百千万]+).*|.*(等于几|等于多少|等于多少米|是多少米|多少公斤|换算).*";
+    /** ★ rel-1118 B08：原来是 {@code .*(数字+运算+数字+).*} 整句 matches，长数字串（5000 个「九」）灾难性回溯、2 万字卡死。
+     *  改成 find：最长数字串前不得紧挨数字（后行断言）+ 独占量词，判定与原式等价（存在「数字 运算 数字」子串，或含换算词），线性时间。 */
+    private static final java.util.regex.Pattern ARITH =
+            java.util.regex.Pattern.compile("(?<![0-9零一二两三四五六七八九十百千万])[0-9零一二两三四五六七八九十百千万]++(?:加|减|乘以|乘|除以|除|\\+|-|\\*|/|x)[0-9零一二两三四五六七八九十百千万]"
+                    + "|等于几|等于多少|是多少米|多少公斤|换算");
+    /** ★ rel-1118 B08：规则层只看前这么多字。再长的不是口头指令（粘贴的长文 / 攻击输入）：本地规则一律不接，交给模型分诊（模型拿到全文）。 */
+    public static final int MAX_RULE_LEN = 2000;
+
+    /** ★ rel-1118 B08：超长输入不跑本地规则（快路径、L0、决策表都先问这里）。 */
+    public static boolean tooLongForRules(String utterance) {
+        return utterance != null && utterance.length() > MAX_RULE_LEN;
+    }
 
     /** 条件 / 评估 —— 必须先看结果再决定，MIXED。 */
     private static final String[] CONDITIONAL = {
@@ -364,6 +374,10 @@ public final class TriageDecider {
     public static Decision decide(String utterance, Signals s, boolean allowDiagnose, boolean allowImplicitMemory, boolean allowImageSave,
                                   boolean allowSummary, boolean allowS3) {
         if (s == null) s = Signals.offline();
+        // ★ rel-1118 B08：超长输入（> MAX_RULE_LEN 字）不跑规则表，交模型分诊；core 只留前 MAX_RULE_LEN 字（本地问答引擎不会再扫全文）
+        if (tooLongForRules(utterance)) {
+            return build(Label.AMBIGUOUS, 0.0, "0-too-long", utterance.substring(0, MAX_RULE_LEN), false, false, "rule", s);
+        }
         String q = normalize(utterance);
         if (q.length() == 0) {
             return build(Label.AMBIGUOUS, 0.0, "1-empty", "", false, false, "rule", s);
@@ -540,7 +554,7 @@ public final class TriageDecider {
         if (containsAny(q, ASK_VERBS) && !isMessageWriting(q) && !isMessageSend(q)) {
             return build(Label.ASK, 0.9, "3-ask-verb", core, false, false, "rule", s);
         }
-        if (q.matches(ARITH_RE)) {
+        if (ARITH.matcher(q).find()) {
             return build(Label.ASK, 0.9, "3-arith", core, false, false, "rule", s);
         }
         if (containsAny(q, WORLD_INFO) && !startsWithLaunch(core)) {

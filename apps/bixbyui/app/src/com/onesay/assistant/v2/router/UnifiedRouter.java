@@ -225,6 +225,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
 
     private Invocation safeL0(String q) {
         if (q == null || q.trim().length() == 0) return null;
+        if (TriageDecider.tooLongForRules(q)) return null;   // ★ rel-1118 B08：超长输入 L0 不接
         try {
             Invocation inv = mL0.route(q);
             // ★ 11-04 ②：「搜索 X」不再零 LLM 拉起百度网页；没明确说浏览器 → 当未命中（调研 / 问答走搜索 API）
@@ -877,6 +878,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
     public Invocation routeOffline(String query) {
         if (query == null || query.trim().length() == 0) return null;
         if (isAckEcho(query)) return null;
+        if (TriageDecider.tooLongForRules(query)) return null;   // ★ rel-1118 B08
 
         String askAnswer = AskEngine.tryAnswer(query);
         if (askAnswer != null) return askReply(askAnswer, query);
