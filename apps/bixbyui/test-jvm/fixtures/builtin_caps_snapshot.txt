@@ -51,7 +51,7 @@ browser.engine.open.bing | af68fe21e8d8ed92
 browser.engine.open.baidu | 56094256ec6e0e6e
 browser.engine.open.google | e96b124e206107c8
 browser.engine.open.sogou | 8c1575a57505fce4
-browser.default.check | db9acdd84fd67725
+browser.default.check | e911273198ed9ded
 browser.default.set | fc4c464dcf09f460
 notes.new | 8ac032fe1e8a5382
 notes.new.text | a8ab4908d9c2b72b

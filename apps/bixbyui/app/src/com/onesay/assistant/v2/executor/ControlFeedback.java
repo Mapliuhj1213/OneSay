@@ -44,6 +44,18 @@ public final class ControlFeedback {
             if ("settings.brightness.set".equals(sign)
                     || "settings.brightness.up".equals(sign)
                     || "settings.brightness.down".equals(sign)) {
+                // ★ fix-1118 c32：调亮 / 调暗的执行输出是「n/满格」（厂商刻度可能远大于 255），优先按它算
+                Matcher st = com.onesay.assistant.v2.executor.backend.BrightnessScale.P_STEP_OUT.matcher(nz(execOut));
+                if (st.matches()) {
+                    long n = Long.parseLong(st.group(1)), max = Long.parseLong(st.group(2));
+                    java.util.regex.Matcher rb = java.util.regex.Pattern.compile("^\\s*(\\d{1,10})\\s*$").matcher(nz(checkOut));
+                    if (rb.matches()) n = Long.parseLong(rb.group(1));   // 回读为准（满格取执行端算出的）
+                    if (max <= 0 || n < 0 || n > max) return null;
+                    int pct = n <= 0 ? 0 : (int) Math.max(1, Math.min(100, Math.round(n * 100.0 / max)));
+                    if ("settings.brightness.up".equals(sign) && n >= max) return "亮度已经最高了（100%）";
+                    if ("settings.brightness.down".equals(sign) && n <= 1) return "亮度已经最低了";
+                    return ("settings.brightness.up".equals(sign) ? "亮度调高到 " : "settings.brightness.down".equals(sign) ? "亮度调低到 " : "亮度已调到 ") + pct + "%";
+                }
                 int v = firstInt(out);
                 if (v < 0 || v > BRIGHTNESS_MAX) return null;
                 int pct = brightnessPercent(v);

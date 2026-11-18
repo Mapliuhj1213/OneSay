@@ -205,13 +205,14 @@ public final class AppCaps {
                 .entities("setting")
                 .examples("调整设置")
                 .category("app")
-                .sideEffect(SideEffect.DEVICE_CONTROL)
+                .sideEffect(SideEffect.NONE)   // ★ fix-1118：只读查询
                 .risk(0, false)
                 .executor("shell")
                 // 原命令 `query-activities | grep -m1 Activity` 输出一大坨
                 //   dump（"Activity #0: priority=... match=..."），直接回给用户很丑。
                 //   改用 --brief，一行输出即 `pkg/.Activity`，正是用户想知道的。
-                .cmd("cmd package resolve-activity --brief -a android.intent.action.VIEW -d http://example.com 2>/dev/null | tail -1")
+                // ★ fix-1118：原来带 `2>/dev/null | tail -1`，特权白名单按 `>` 拒（真机 DAEMON_DENIED）；执行改走 ShellPrograms.BROWSER_CHECK（单条命令，Java 取末行）
+                .cmd("cmd package resolve-activity --brief -a android.intent.action.VIEW -d http://example.com")
                 .say("默认浏览器是什么", "当前浏览器是哪个", "默认浏览器是哪个")
                 .reply("当前默认浏览器：{out}")
                 .build());
