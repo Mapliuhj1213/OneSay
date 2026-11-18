@@ -50,18 +50,44 @@ public final class SensitiveGuard {
      * @return null = 不是；否则是给用户看的一句话。
      */
     public static String userMustTap(PhonePlan.Step s, UiTree screen) {
-        if (s == null || screen == null || s.id < 0) return null;
+        if (s == null || screen == null) return null;
         if (!"tap".equals(s.op) && !"long".equals(s.op)) return null;
-        UiTree.El e = screen.find(s.id);
+        UiTree.El e = target(s, screen);   // ★ sec-audit-1118 S2：0–999 坐标点也按坐标下面的元素判（以前 s.id < 0 直接放行）
         if (e == null || e.edit) return null;
         if (!com.onesay.assistant.v2.pclink.LinkPolicy.finalPayLabel(e.label)) return null;
         String n = e.label.length() > 16 ? e.label.substring(0, 16) + "…" : e.label;
         return "付款 / 转账的最后一下（「" + n + "」）只能你自己点";
     }
 
+    /**
+     * ★ sec-audit-1118 S2：这一步实际会落到的元素。按编号（@eN）的照旧；没给编号、只给了 0–999 坐标（mika.dosteps）的，
+     * 按与 {@code FastScreenDriver.tapXY} 同一换算（{@link com.onesay.assistant.plug.screen.core.UiElement#denormalize}）找坐标下面的元素：
+     * 优先可点的，同类里取面积最小的（最内层的按钮）。以前坐标点三道闸（付款亲手点 / 敏感步骤 / 污点确认）都拿不到元素，一律放行。
+     */
+    public static UiTree.El target(PhonePlan.Step s, UiTree screen) {
+        if (s == null || screen == null) return null;
+        if (s.id >= 0) return screen.find(s.id);
+        if (s.x < 0 || s.y < 0) return null;
+        int px = com.onesay.assistant.plug.screen.core.UiElement.denormalize(s.x, screen.screenW);
+        int py = com.onesay.assistant.plug.screen.core.UiElement.denormalize(s.y, screen.screenH);
+        UiTree.El best = null;
+        long bestArea = Long.MAX_VALUE;
+        boolean bestClick = false;
+        for (UiTree.El e : screen.els) {
+            if (e == null || px < e.l || px >= e.r || py < e.t || py >= e.b) continue;
+            long area = (long) (e.r - e.l) * (long) (e.b - e.t);
+            if (best == null || (e.click && !bestClick) || (e.click == bestClick && area < bestArea)) {
+                best = e;
+                bestArea = area;
+                bestClick = e.click;
+            }
+        }
+        return best;
+    }
+
     /** @return null = 不敏感；否则是给用户看的原因（「这一步是付款」）。 */
     public static String check(PhonePlan.Step s, UiTree screen) {
-        UiTree.El e = s.id >= 0 && screen != null ? screen.find(s.id) : null;
+        UiTree.El e = target(s, screen);   // ★ sec-audit-1118 S2：坐标点同样判
         if (s.op.equals("type")) {
             if (e != null && (e.password || SECRET_FIELD.matcher(e.rid + " " + e.label).find())) return "要往密码 / 验证码框里填写";
             return null;

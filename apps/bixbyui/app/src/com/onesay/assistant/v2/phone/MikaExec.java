@@ -245,7 +245,7 @@ public final class MikaExec {
      */
     public String consent(PhonePlan.Step s, UiTree cur, String sensitive) {
         if (!f.actgate || cur == null) return null;
-        UiTree.El e = s.id >= 0 ? cur.find(s.id) : null;
+        UiTree.El e = SensitiveGuard.target(s, cur);   // ★ sec-audit-1118 S2：坐标点也找到元素再判
         if (e == null) return null;
         RiskGate.Irrev hit = RiskGate.detect(s.op, e.label, e.rid, e.edit);
         if (hit == null) return null;
@@ -261,7 +261,7 @@ public final class MikaExec {
     /** 这一步是对外动作时的节奏键（包名）；不是对外动作为 null。 */
     public String paceSite(PhonePlan.Step s, UiTree cur) {
         if (!f.pacing || cur == null) return null;
-        UiTree.El e = s.id >= 0 ? cur.find(s.id) : null;
+        UiTree.El e = SensitiveGuard.target(s, cur);   // ★ sec-audit-1118 S2：坐标点也找到元素再判
         if (e == null) return null;
         return RiskGate.detect(s.op, e.label, e.rid, e.edit) == null ? null : OutwardPacing.siteOf(cur.pkg, false);
     }

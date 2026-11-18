@@ -81,7 +81,7 @@ public final class RiskLabel {
      */
     public static String taintedSendLike(PhonePlan.Step s, UiTree screen) {
         if (s == null) return null;
-        UiTree.El e = s.id >= 0 && screen != null ? screen.find(s.id) : null;
+        UiTree.El e = SensitiveGuard.target(s, screen);   // ★ sec-audit-1118 S2：坐标点按坐标下面的元素判（以前只看模型自填的 target）
         if ("tap".equals(s.op) || "long".equals(s.op)) {
             if (e == null) {
                 String t = s.target == null ? "" : s.target;
@@ -92,6 +92,15 @@ public final class RiskLabel {
             String rid = UiTree.shortRid(e.rid);
             if (rid.length() > 0 && RID_SEND_LIKE.matcher(rid).find() && !SEARCHY.matcher(rid).find()) return reason(name.length() > 0 ? name : rid);
             return null;
+        }
+        if ("key".equals(s.op) && "enter".equals(s.key)) {
+            // ★ sec-audit-1118 S3：读过外部内容后，「先 type 不带回车、再单独 key enter」= 回车发送，以前三道闸都不看这一步。
+            //   焦点在可编辑框上、且不是搜索框 → 和「type + enter」同口径确认；没有焦点框 / 搜索框照旧放行。
+            UiTree.El f = null;
+            if (screen != null) for (UiTree.El x : screen.els) if (x != null && x.focused && x.edit) { f = x; break; }
+            if (f == null) return null;
+            if (SEARCHY.matcher(f.label + " " + f.rid).find()) return null;
+            return "读过外部内容后，在输入框里单独按回车（可能直接发出去）也要你确认";
         }
         if ("type".equals(s.op) && s.enter) {
             String where = e == null ? "" : (e.label + " " + e.rid);
