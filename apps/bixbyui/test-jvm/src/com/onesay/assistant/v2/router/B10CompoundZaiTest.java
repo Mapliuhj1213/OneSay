@@ -54,7 +54,7 @@ public class B10CompoundZaiTest {
 
     @Test public void bareZaiBeforeDeviceVerbSplits() {
         assertEquals(Arrays.asList("volume.notif.set", "battery.saver.on"), plan("通知音量5再打开省电模式"));
-        assertEquals(Arrays.asList("notes.new.text", "settings.edge_lighting.on"), plan("记一下买牛奶再打开侧屏闪光"));
+        assertEquals(Arrays.asList("notes.new.text", "settings.ambient.on"), plan("记一下买牛奶再打开侧屏闪光"));  // 开源版「侧屏闪光」L0 落 settings.ambient.on（无三星侧屏闪光能力）；本例只验「再」切分
         assertEquals(Arrays.asList("connectivity.bt.on", "connectivity.wifi.off"), plan("打开蓝牙，另外关闭wifi"));
         assertEquals(Arrays.asList("connectivity.bt.on", "connectivity.wifi.off"), plan("打开蓝牙再关闭wifi"));
     }
