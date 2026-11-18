@@ -963,6 +963,28 @@ public final class PcGuard {
         return p.exitValue() == 0 ? Actions.Result.ok("命令执行完了", d) : new Actions.Result(false, "命令失败（" + p.exitValue() + "）", d);
     }
 
+    /** PowerShell -EncodedCommand 的参数：UTF-16LE 再 base64。 */
+    static String encodePs(String script) {
+        return java.util.Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
+    }
+
+    /**
+     * 命令输出解码：先按 UTF-8（命令里设了 OutputEncoding）；不是合法 UTF-8 的（PowerShell 在执行前就报的解析错误、
+     * 老程序直接写控制台代码页）按 GBK（中文 Windows 的默认代码页）解，不再显示成一串「�」。
+     */
+    static String decodeOut(byte[] b) {
+        try {
+            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(b)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            try {
+                return new String(b, java.nio.charset.Charset.forName("GBK"));
+            } catch (RuntimeException e2) {
+                return new String(b, StandardCharsets.UTF_8);
+            }
+        }
+    }
+
     /** 本机对话的输出上限（字符）。 */
     static final int LOCAL_OUT_MAX = 16000;
 
@@ -973,9 +995,12 @@ public final class PcGuard {
     Actions.Result execLocal(String command, File ws, int timeoutSec) throws Exception {
         if (command.isBlank()) return Actions.Result.fail("没有命令");
         int to = Math.max(5, Math.min(900, timeoutSec));
+        // -EncodedCommand（UTF-16LE base64）：Java 在 Windows 上拼命令行时不转义参数里的双引号，
+        // 用 -Command 传 "…*MuMu*…" 这类带引号的命令会被拆坏（真机实测：Where-Object { $_.Name -like "*MuMu*" } 解析失败）。
+        // 安全检查看的是模型给的原命令（check() 里），这里只是换个不会被拆坏的传法。
         ProcessBuilder pb = SafeExec.WINDOWS
-                ? new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-                        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$ProgressPreference='SilentlyContinue';" + command)
+                ? new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodePs(
+                        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$ProgressPreference='SilentlyContinue';" + command))
                 : new ProcessBuilder("sh", "-c", command);
         if (ws.isDirectory()) pb.directory(ws);
         Process p = SafeExec.start(pb.redirectErrorStream(true));
@@ -994,7 +1019,7 @@ public final class PcGuard {
         if (!fin) p.destroyForcibly();
         rd.join(2000);
         String out;
-        synchronized (buf) { out = new String(buf.toByteArray(), SafeExec.WINDOWS ? StandardCharsets.UTF_8 : java.nio.charset.Charset.defaultCharset()).trim(); }
+        synchronized (buf) { out = decodeOut(buf.toByteArray()).trim(); }
         if (out.length() > LOCAL_OUT_MAX) out = out.substring(0, LOCAL_OUT_MAX) + "…（输出太长，已截断）";
         Map<String, Object> d = new TreeMap<>();
         d.put("output", out);

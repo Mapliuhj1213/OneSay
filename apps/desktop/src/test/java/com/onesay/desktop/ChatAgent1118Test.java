@@ -298,6 +298,10 @@ public class ChatAgent1118Test {
                 "Get-Content 'C:\\a\\Remove-Item.txt'",
                 "where.exe adb",
                 "Get-ChildItem C:\\x\\onesay-test",
+                // 真机上模型实际写出来的两条（以前都被当成要确认）
+                "Get-ChildItem 'C:\\Program Files','C:\\Program Files (x86)' -Directory -ErrorAction SilentlyContinue | Where-Object Name -match 'MuMu|Nemu' | Select-Object -ExpandProperty FullName",
+                "Get-ChildItem \"C:\\Program Files\" -Directory | Where-Object { $_.Name -like \"*MuMu*\" -or $_.Name -like '*Nemu*' } | Select-Object FullName",
+                "Get-Item 'C:\\Program Files\\MuMu\\emulator\\nx_main\\MuMuNxMain.exe' | Select-Object -ExpandProperty VersionInfo",
         };
         for (String c : ok) assertTrue(c, LocalReadOnly.ok(c));
         String[] no = {
@@ -306,6 +310,9 @@ public class ChatAgent1118Test {
                 "Get-CimInstance Win32_Product", "iwr https://example.com -OutFile a.apk", "Get-Content x > y", "[IO.File]::Delete('x')",
                 "$a = 1", "Get-ChildItem $profile", "adb shell rm -rf /sdcard", "Get-ChildItem x -Exclude y | Invoke-Item", "cmd /c dir",
                 "Get-Date `\n; Stop-Computer", "", "Get-Content x -Encoding utf8 | Set-Content y",
+                "Get-ChildItem x | Where-Object { $_.Delete() }", "Get-ChildItem x | Where-Object { Remove-Item $_ }",
+                "Get-ChildItem x | Where-Object { $_.Name -like \"$(Remove-Item y)\" }", "Get-ChildItem x | ForEach-Object { $_.Name -eq 'a' }",
+                "Get-ChildItem x | Where-Object { $_.Name -like 'a' }; Remove-Item y", "Get-ChildItem 'a|b' | Remove-Item",
         };
         for (String c : no) assertFalse(c, LocalReadOnly.ok(c));
     }
@@ -571,5 +578,13 @@ public class ChatAgent1118Test {
         assertTrue(never.contains("直接拒绝"));
         assertFalse(never.contains("弹确认框交给用户"));
         assertTrue(ChatAgent.policyLine(new LinkPolicy.Mode(LinkPolicy.Sandbox.READ_ONLY, LinkPolicy.Approval.UNTRUSTED)).contains("只能查询"));
+    }
+
+    @Test public void localExecPassesCommandSafelyAndDecodesGbkErrors() throws Exception {
+        String cmd = "Get-ChildItem | Where-Object { $_.Name -like \"*MuMu*\" }";
+        String enc = PcGuard.encodePs(cmd);
+        assertEquals("UTF-16LE base64，引号原样保留", cmd, new String(java.util.Base64.getDecoder().decode(enc), StandardCharsets.UTF_16LE));
+        assertEquals("中文 ok", PcGuard.decodeOut("中文 ok".getBytes(StandardCharsets.UTF_8)));
+        assertEquals("字符串缺少终止符", PcGuard.decodeOut("字符串缺少终止符".getBytes("GBK")));
     }
 }

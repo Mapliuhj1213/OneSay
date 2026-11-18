@@ -45,12 +45,21 @@ final class LocalReadOnly {
     private static final Pattern VERB_NOUN = Pattern.compile("(?<![\\w-])([A-Za-z]+-[A-Za-z]+)(?![\\w-])");
     private static final Pattern WORD = Pattern.compile("[^\\s'\"|,]+");
 
+    /**
+     * Where-Object 后面的简单条件块：{ $_.属性 -like / -match / -eq … '文字' 或数字 [-and / -or 再来一个] }。
+     * 只认这种形状（只比较属性和常量，不调用任何东西），先换成占位词再做后面的检查。
+     */
+    private static final String COND = "\\$_\\.[A-Za-z_]\\w*\\s+-[ci]?(?:like|notlike|match|notmatch|eq|ne|gt|lt|ge|le|contains|notcontains)\\s+(?:'[^'{}$`]*'|\"[^\"{}$`]*\"|\\d+)";
+    private static final Pattern WHERE_BLOCK = Pattern.compile(
+            "(?i)((?:^|\\|)\\s*(?:where-object|where|\\?)\\s*)\\{\\s*" + COND + "(?:\\s+-(?:and|or)\\s+" + COND + ")*\\s*\\}");
+
     /** 明显只读返回 true；认不准返回 false（照旧弹确认）。 */
     static boolean ok(String command) {
         if (command == null) return false;
         String s = command.trim();
         if (s.isEmpty() || s.length() > 600) return false;
-        if (FORBIDDEN.matcher(s).find()) return false;
+        s = WHERE_BLOCK.matcher(s).replaceAll("$1OneSayCond");
+        if (FORBIDDEN.matcher(literalsBlanked(s)).find()) return false;
         Matcher v = VAR.matcher(s);
         while (v.find()) {
             String n = v.group(1).replace("{", "").replace("}", "").toLowerCase(Locale.ROOT);
@@ -71,7 +80,7 @@ final class LocalReadOnly {
                 return false;
             }
         }
-        for (String seg : s.split("\\|")) {
+        for (String seg : splitPipes(s)) {
             String t = seg.trim();
             if (t.isEmpty()) return false;
             Matcher w = WORD.matcher(t);
@@ -85,6 +94,44 @@ final class LocalReadOnly {
             if (WRITE_ALIASES.contains(x) && !inQuotes(s, w.start())) return false;
         }
         return true;
+    }
+
+    /**
+     * 把纯文字的引号内容换成空格（'C:\Program Files (x86)' 里的括号只是路径）：单引号里 PowerShell 不做任何展开；
+     * 双引号里只在没有 $ 和 ` 时才算纯文字，否则原样留着（$( ) 子表达式照旧被拦）。没配对的引号原样留着。
+     */
+    static String literalsBlanked(String s) {
+        StringBuilder b = new StringBuilder(s);
+        int i = 0;
+        while (i < s.length()) {
+            char c = s.charAt(i);
+            if (c == '\'' || c == '"') {
+                int j = s.indexOf(c, i + 1);
+                if (j < 0) break;
+                String inner = s.substring(i + 1, j);
+                if (c == '\'' || (inner.indexOf('$') < 0 && inner.indexOf('`') < 0))
+                    for (int k = i + 1; k < j; k++) b.setCharAt(k, ' ');
+                i = j + 1;
+                continue;
+            }
+            i++;
+        }
+        return b.toString();
+    }
+
+    /** 按引号外的 | 切段（'MuMu|Nemu' 里的 | 不切）。 */
+    static java.util.List<String> splitPipes(String s) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean sq = false, dq = false;
+        for (char c : s.toCharArray()) {
+            if (c == '\'' && !dq) sq = !sq;
+            else if (c == '"' && !sq) dq = !dq;
+            if (c == '|' && !sq && !dq) { out.add(cur.toString()); cur.setLength(0); continue; }
+            cur.append(c);
+        }
+        out.add(cur.toString());
+        return out;
     }
 
     static boolean inQuotes(String s, int pos) {
