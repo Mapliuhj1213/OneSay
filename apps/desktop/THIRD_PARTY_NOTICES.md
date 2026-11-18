@@ -12,8 +12,37 @@
 |---|---|---|---|
 | yt-dlp | https://github.com/yt-dlp/yt-dlp/releases（官方 SHA2-256SUMS 校验） | Unlicense | 链接下载的引擎，以独立子进程调用，参数由 OneSay 固定白名单拼装 |
 | FFmpeg（FFmpeg-Builds 的 **LGPL** 静态构建，如 ffmpeg-n8.1-latest-win64-lgpl-8.1.zip） | https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases（官方 checksums.sha256 校验） | LGPL-3.0（构建时 --enable-version3，不含 GPL 组件） | yt-dlp 合并音视频 / 转 m4a、mp3 时调用；独立可执行文件，不与 OneSay 链接；许可原文随 zip 里的 LICENSE.txt 一起解到 tools\ffmpeg\ |
+| scrcpy **v5.0.1** Windows 发行版（scrcpy-win64-v5.0.1.zip / scrcpy-winarm64-v5.0.1.zip） | https://github.com/Genymobile/scrcpy/releases（版本锁定；代码里写死官方 SHA-256，并与发布页 SHA256SUMS.txt 再核对一次） | Apache-2.0（Copyright (C) 2018 Genymobile；Copyright (C) 2018-2026 Romain Vimont） | 「手机投屏」：OneSay 以独立子进程启动 scrcpy.exe（参数由 OneSay 固定白名单拼装），不与 OneSay 链接；包里的 LICENSE.txt 一起解到 tools\scrcpy\。只在你在「手机投屏」页点「安装」后下载 |
 
 只认文件名里带 `-lgpl-` 的静态构建；发布页上找不到 LGPL 构建时不自动安装（GPL 构建只能由你自己作为本机外部工具单独安装）。
+
+### scrcpy 官方包里附带的其他组件（随 scrcpy 一起下载，OneSay 不改动）
+| 文件 | 来源 | 许可 | 说明 |
+|---|---|---|---|
+| adb.exe、AdbWinApi.dll、AdbWinUsbApi.dll | Android SDK Platform-Tools r37.0.1（scrcpy 构建脚本 app/deps/adb_windows.sh 从 dl.google.com 取） | Android SDK 条款（**待核实**） | **TODO(adb-redistribution)**：platform-tools 的再分发条款和 Apache-2.0 不是一回事，发布前要核实；核实前**不要**把 adb 打进安装包或 release 配置，只走「用户点安装 → 从 scrcpy 官方发布页下载」这条路 |
+| avcodec / avformat / avutil / swresample DLL | FFmpeg（scrcpy 自己的精简构建：app/deps/ffmpeg.sh，--disable-everything，未见 --enable-gpl） | LGPL-2.1+（按构建参数推断，**待核实**） | 只解码 H.264 / H.265 / AV1 等 |
+| SDL3.dll | SDL | zlib | 窗口与输入 |
+| libusb-1.0.dll | libusb | LGPL-2.1+ | scrcpy 的 OTG 模式用 |
+
+scrcpy 仓库没有 NOTICE 文件（v5.0.1 标签下 /NOTICE 为 404），许可证原文见下。
+
+## scrcpy 许可声明（Apache-2.0）
+```
+Copyright (C) 2018 Genymobile
+Copyright (C) 2018-2026 Romain Vimont
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
 
 ## 设计参考（没有拷贝代码）
 | 项目 | 许可 | 参考了什么 | 用在哪 |

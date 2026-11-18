@@ -122,6 +122,9 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .qr{width:150px;height:150px;border-radius:14px;background:#fff;border:1px solid var(--line);padding:10px}
 .log{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;color:var(--text2);line-height:1.9;padding:14px 20px}
 .log b{color:var(--text);font-weight:400}
+.mrdrop{margin:8px 20px 14px;border:1.5px dashed var(--line,#ccd);border-radius:12px;padding:16px;text-align:center;font-size:13px;color:var(--text2);line-height:1.6}
+.mrdrop.on{border-color:var(--accent);background:rgba(3,129,254,.06);color:var(--accent)}
+.mrapps{max-height:260px;overflow:auto;margin:0 20px 12px}
 .note{font-size:12px;color:var(--text3);margin:10px 6px 0;line-height:1.6}
 
 /* ---------- 说话浮条（实际在屏幕底部居中，任何程序之上） ---------- */
@@ -242,6 +245,7 @@ input.field::placeholder{color:var(--text3)}
 
     <div class="grp">设备</div>
     <button class="nav" data-p="phone"><span class="ic" style="background:var(--device)">▯</span>手机</button>
+    <button class="nav" data-p="mirror"><span class="ic" style="background:var(--device)">⧉</span>手机投屏</button>
     <button class="nav" data-p="pc"><span class="ic" style="background:var(--device)">▭</span>这台电脑</button>
 
     <div class="grow"></div>
@@ -265,6 +269,7 @@ input.field::placeholder{color:var(--text3)}
     <section class="page" id="autos"></section>
     <section class="page" id="shortcuts"></section>
     <section class="page" id="phone"></section>
+    <section class="page" id="mirror"></section>
     <section class="page" id="pc"></section>
     <section class="page" id="settings"></section>
   </main>
@@ -319,7 +324,10 @@ const DEMO={version:'0.5.1',phone_level:'',phone_level_zh:'',pc_level:'auto',pc_
  todos:[{id:'t1',title:'交电费',due:'今天 18:00 前',done:false},{id:'t2',title:'买猫粮',due:'明天',done:false},{id:'t3',title:'回复房东',due:'',done:true}],
  tickets:[{id:'k1',title:'G1234 上海虹桥 → 北京南',at:t0+D+8*H,seat:'05 车 12F',code:''}],
  pickups:[{id:'p1',code:'6-2-3015',place:'菜鸟驿站 · 东门',deadline:'今天 20:00 前',done:false}],
- autos:[{id:'a1',title:'晚上 11 点手机勿扰',desc:'每天 23:00',device:'手机',enabled:true},{id:'a2',title:'下班模式',desc:'工作日 18:30 · 快捷指令',device:'电脑',enabled:true}]};
+ autos:[{id:'a1',title:'晚上 11 点手机勿扰',desc:'每天 23:00',device:'手机',enabled:true},{id:'a2',title:'下班模式',desc:'工作日 18:30 · 快捷指令',device:'电脑',enabled:true}],
+ mirror:{tools:{installed:true,ok:true,pinned:'v5.0.1',version:'v5.0.1',license:'scrcpy Apache-2.0（Genymobile / Romain Vimont）'},install:'',status:'',max_apps:3,uhid:false,
+  devices:[{serial:'M21PRO0001',name:'MEIZU 21 PRO',state:'available',state_zh:'可投屏',transport_zh:'USB',android:'16',brand:'meizu',flyme:true,audio:true,app_windows:true,apps:[],note:''},
+   {serial:'ce0817',name:'Note 8',state:'unauthorized',state_zh:'待授权',transport_zh:'USB',apps:[],note:''}]}};
 
 async function api(p,b){
   if(!LIVE){snack('演示模式：不执行');return {ok:false,text:'演示模式'}}
@@ -684,6 +692,67 @@ $('al-days').querySelectorAll('span').forEach(x=>x.onclick=()=>x.classList.toggl
 async function alarmSet(){const days=[...$('al-days').children].map((x,i)=>x.classList.contains('on')?i+1:0).filter(Boolean);
   alarm(false);phone('alarm_set',{time:$('al-time').value,days,label:$('al-name').value||'闹钟'})}
 
+// ---------- phone-mirror M1：手机投屏（官方 scrcpy，Apache-2.0；只在你点「投屏」时才开窗口） ----------
+let mrApps={},mrQ='',mrMsg={},mrDrag=false,mrAsked=false;
+const MR_ST={unauthorized:'wait',connecting:'run',no_permission:'red',available:'green',mirroring:'run',other:''};
+P.mirror=()=>{const m=S.mirror||{tools:{},devices:[],install:'',status:''},t=m.tools||{},d=m.devices||[],kb=(S.settings||{}).mirror_keyboard||'sdk';
+  const toolSt=t.installed?`<span class="tag ${t.ok?'green':'red'}">${t.ok?'已校验':'校验不过'}</span>`:`<span class="tag">${t.auto===false?'需自己安装':'未安装'}</span>`;
+  return head('手机投屏','用 USB 线把手机接到这台电脑：在电脑上看手机、用键盘鼠标操作、把文件拖过去')+
+  (!t.installed||!t.ok?sec('var(--device)','投屏组件')+`<div class="card">${kv('scrcpy '+esc(t.pinned||''),esc(t.license||'Apache-2.0')+' · 不随安装包附带。点「安装」才从 scrcpy 官方发布页下载，核对官方 SHA-256 后才运行'+(t.why?'<br>'+esc(t.why):'')+(m.install?'<br>'+esc(m.install):''),toolSt+' <button class="btn sm" onclick="mrInstall()">'+(t.installed?'重新安装':'安装')+'</button>')}</div>`:'')+
+  (m.status?`<p class="note">${esc(m.status)}</p>`:'')+
+  sec('var(--device)','连着的手机',d.length?d.length+' 台':'')+
+  (t.installed&&t.ok?(d.length?d.map(mrCard).join(''):empty('还没发现手机。用 USB 线连上，并在手机上打开「USB 调试」（见下面的设置指引）')):empty('先安装投屏组件'))+
+  sec('var(--auto)','键盘和剪贴板')+`<div class="card">
+  ${kv('键盘模式','普通键盘：英文数字直接打，中文请在电脑上打好后 Ctrl+V 粘过去。物理键盘（UHID）：用手机自己的输入法打中文（第一次要在手机上设一下实体键盘布局；老手机可能不支持，打不开就改回普通键盘）。改了下次开窗口生效',`<div class="seg">${[['sdk','普通键盘'],['uhid','物理键盘（可打中文）']].map(([v,l])=>`<span class="${v===kb?'on':''}" onclick="setv('mirror_keyboard','${v}')">${l}</span>`).join('')}</div>`)}
+  ${kv('剪贴板','手机上复制会同步到电脑；在投屏窗口里按 Ctrl+V 会先把电脑剪贴板发到手机再粘贴。注意：发到手机的内容手机上的 App 都能读到，密码别这样传','<span class="tag green">自动</span>')}
+  ${kv('鼠标','右键 = 返回，中键 = 主屏幕，Ctrl + 拖动 = 双指缩放','')}</div>`+
+  mrGuide(d.some(x=>x.flyme))+
+  `<p class="note">投屏用的是开源的 scrcpy（Apache-2.0，Genymobile / Romain Vimont），以独立程序运行，OneSay 只负责启动它和传文件。插上手机不会自动投屏，点「投屏」才开。这些操作只在这台电脑上由你点出来，手机发来的指令和对话都不能用它。</p>`};
+function mrCard(x){const s=encodeURIComponent(x.serial),st=MR_ST[x.state]||'',apps=mrApps[x.serial],msg=mrMsg[x.serial];
+  const meta=[x.transport_zh,x.android?'安卓 '+x.android:'',x.brand].filter(Boolean).map(esc).join(' · ');
+  let body='';
+  if(x.state==='unauthorized')body=`<div class="kv"><div class="k"><div>在手机上允许 USB 调试</div><p>手机上会弹出「允许 USB 调试吗？」：勾上「始终允许使用这台计算机进行调试」，再点「允许」。没看到弹框：解锁手机、拔插一次线；还不行就在手机「开发者选项」里点「撤销 USB 调试授权」后重插</p></div></div>`;
+  else if(x.state==='connecting')body=kv('正在连接','等几秒；一直这样就拔插一次线','');
+  else if(x.state==='no_permission')body=kv('电脑没权限访问这台手机','Linux 上要配 udev 规则；Windows 上一般是驱动没装好','');
+  else if(x.state==='available'||x.state==='mirroring'){
+    body=kv('投屏',x.state==='mirroring'?'窗口已打开；直接在窗口里操作，关掉窗口就结束':'在电脑上打开一个窗口显示手机屏幕'+(x.audio?'，手机声音也转到电脑':''),x.state==='mirroring'?`<button class="btn ghost sm danger" onclick="mrClose('${s}','')">关掉投屏</button>`:`<button class="btn sm" onclick="mrMirror('${s}')">投屏</button>`)+
+    `<div class="mrdrop" ondragover="mrOver(event,this)" ondragleave="mrLeave(this)" ondrop="mrDrop(event,'${s}',this)">把文件拖到这里：<b>APK</b> 会装到手机，其他文件放到手机的 <b>Download</b> 文件夹（同名不覆盖）<br><label class="btn ghost sm" style="margin-top:8px;display:inline-flex">选择文件<input type="file" multiple style="display:none" onchange="mrPick(this,'${s}')"></label></div>`+
+    (msg?`<div class="kv"><div class="k"><div>${esc(msg.text)}</div>${msg.flyme?'<p>魅族 / Flyme 第一次用要在开发者选项里打开「USB 安装」，见下面的设置指引</p>':''}</div>${msg.pending?`<button class="btn ghost sm" onclick="mrPushInstead('${s}','${esc(msg.pending)}')">改为放到 Download</button>`:''}</div>`:'')+
+    (x.app_windows===false?kv('单个 App 开成窗口','这台手机系统太老（需要安卓 10 以上），只能整屏投屏',''):
+    kv('单个 App 开成窗口','每个 App 一个窗口，最多同时 '+(S.mirror.max_apps||3)+' 个；关掉窗口 App 回到手机'+(x.apps&&x.apps.length?'。开着：'+x.apps.map(esc).join('、'):''),`<button class="btn ghost sm" onclick="mrList('${s}')">${apps?'刷新列表':'列出 App'}</button>`)+
+    (apps?`<div class="kv" style="padding-top:0"><input class="field" placeholder="按包名筛选" value="${esc(mrQ)}" oninput="mrQ=this.value;mrFilter()"></div><div class="mrapps" id="mrapps-${s}">${mrAppRows(x)}</div>`:''))}
+  else body=kv('手机不在正常开机状态','（'+esc(x.state_zh)+'）','');
+  return `<div class="card"><div class="kv"><div class="k"><div style="font-weight:600">${esc(x.name)}</div><p>${meta}</p></div><span class="tag ${st}">${esc(x.state_zh)}</span></div>${body}${x.note?`<p class="note" style="margin:0 20px 12px">${esc(x.note)}</p>`:''}</div>`}
+function mrAppRows(x){const s=encodeURIComponent(x.serial),q=mrQ.trim().toLowerCase(),open=x.apps||[];
+  const l=(mrApps[x.serial]||[]).filter(p=>!q||p.toLowerCase().includes(q));
+  return l.length?l.slice(0,200).map(p=>`<div class="item"><div class="tx"><div class="tt mono" style="font-size:12.5px">${esc(p)}</div></div>${open.includes(p)?`<button class="tag danger" onclick="mrClose('${s}','${esc(p)}')">关掉窗口</button>`:`<button class="tag blue" onclick="mrApp('${s}','${esc(p)}')">开窗口</button>`}</div>`).join(''):'<div class="empty">没有匹配的 App</div>'}
+function mrFilter(){(S.mirror.devices||[]).forEach(x=>{const e=$('mrapps-'+encodeURIComponent(x.serial));if(e)e.innerHTML=mrAppRows(x)})}
+function mrGuide(flyme){return sec('var(--todo)',flyme?'魅族 / Flyme 手机设置指引':'手机设置指引')+`<div class="card">
+  ${kv('① 打开开发者选项','在手机「设置 › 关于手机」里连续点「版本号」（魅族是「Flyme 版本」或「版本号」）7 次左右，直到提示已进入开发者模式','')}
+  ${kv('② 打开「USB 调试」','「设置」里搜「开发者选项」→ 打开「USB 调试」。插线后手机弹框点「允许」，并勾上「始终允许」','')}
+  ${kv('③ 魅族：打开「USB 安装」','拖 APK 到这里安装要它：开发者选项里打开「USB 安装」（可能要登录魅族账号或验证）。没打开时安装会被手机拦下，可以改为把 APK 放到 Download 再在手机上点开装','')}
+  ${kv('④ 无线调试（以后用）','安卓 11 以上在开发者选项里有「无线调试」，以后可以不插线投屏；这一版先用 USB 线','')}
+  ${kv('支付 / 银行页面','这类页面在投屏窗口里会是黑的，请在手机上完成','')}</div>`}
+async function mrInstall(){if(!LIVE){snack('演示模式');return}const r=await api('mirror',{op:'install'});snack(r.text);refresh()}
+async function mrMirror(s){const r=await api('mirror',{op:'mirror',serial:decodeURIComponent(s)});snack(r.text);refresh()}
+async function mrClose(s,p){const r=await api('mirror',{op:'close',serial:decodeURIComponent(s),package:p});snack(r.text);refresh()}
+async function mrApp(s,p){const r=await api('mirror',{op:'open_app',serial:decodeURIComponent(s),package:p});snack(r.text);refresh()}
+async function mrList(s){const serial=decodeURIComponent(s);snack('正在读 App 列表…');const r=await api('mirror',{op:'apps',serial});if(!r.ok){snack(r.text);return}mrApps[serial]=r.apps||[];render()}
+function mrOver(e,el){e.preventDefault();e.dataTransfer.dropEffect='copy';mrDrag=true;el.classList.add('on')}
+function mrLeave(el){mrDrag=false;el.classList.remove('on')}
+function mrDrop(e,s,el){e.preventDefault();mrLeave(el);mrSend(decodeURIComponent(s),[...(e.dataTransfer.files||[])])}
+function mrPick(inp,s){const f=[...inp.files];inp.value='';mrSend(decodeURIComponent(s),f)}
+async function mrSend(serial,files){if(!LIVE){snack('演示模式');return}if(!files.length){snack('没拿到文件（文件夹不能拖）');return}
+  for(const f of files){mrMsg[serial]={text:'正在传 '+f.name+'…'};render();
+    try{const r=await fetch('/upload/mirror_drop?serial='+encodeURIComponent(serial)+'&name='+encodeURIComponent(f.name),{method:'POST',headers:{'X-OneSay-Token':TOKEN},body:f});
+      const j=await r.json();mrMsg[serial]={text:j.text||(j.ok?'好了':'没办成'),pending:j.pending||'',flyme:!!j.flyme};snack(j.text||'')}
+    catch(e){mrMsg[serial]={text:f.name+'：传送中断'}}
+    render()}}
+async function mrPushInstead(s,id){const serial=decodeURIComponent(s);mrMsg[serial]={text:'正在放到 Download…'};render();const r=await api('mirror',{op:'push_instead',id});mrMsg[serial]={text:r.text};snack(r.text);render()}
+// 拖到页面别处时不让窗口跳去打开文件
+window.addEventListener('dragover',e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes('Files'))e.preventDefault()});
+window.addEventListener('drop',e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes('Files'))e.preventDefault()});
+
 // ---------- 渲染与切页 ----------
 function render(){if(!S)return;
   confirmBar();
@@ -694,6 +763,7 @@ function render(){if(!S)return;
   const un=S.notes.filter(n=>!n.read).length;$('nbadge').style.display=un?'':'none';$('nbadge').textContent=un;
   if(page==='chat'){renderChat();return}
   const ae=document.activeElement;if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')&&$(page).contains(ae))return; // 正在输入时不重绘
+  if(page==='mirror'&&mrDrag)return; // 拖文件经过投屏区时不重绘（不然放手时元素已换掉）
   $(page).innerHTML=P[page]();markDanger($(page));if(page==='settings'&&pairShown&&lastPair)drawQr(lastPair)}
 // ★ console-align：按钮文字是危险动词（DANGER，与手机 ConsoleStyle 同一张表）→ 红字
 function markDanger(root){root.querySelectorAll('button.btn,button.tag').forEach(b=>{if(isDanger(b.textContent))b.classList.add('danger')})}

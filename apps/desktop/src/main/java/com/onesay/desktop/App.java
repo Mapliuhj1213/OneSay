@@ -137,6 +137,7 @@ public final class App {
             return Actions.Result.ok("记忆已同步", m);
         });
         setupMedia();
+        setupMirror();
         setupWhitelist();
         agent.confirms.onNew = d -> notify.post("pc", d != null && d.startsWith(ChatAgent.FROM) ? "OneSay 要在这台电脑上执行操作，需要你确认" : "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点，或在已配对手机屏幕上的确认卡上点；60 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
         agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
@@ -156,7 +157,7 @@ public final class App {
         ui.onShow = () -> openWindow(ui.url());
         log.accept("界面 " + ui.baseUrl());   // ★ fix-1118 SEC L2：入口钥匙不进日志
         Host.ready(ui.url()); // OneSay.exe 托管时：记下地址，再次双击 OneSay.exe 就叫出窗口
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); }));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); mirror.shutdown(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();
         new Thread(App::ensureShortcuts, "onesay-shortcuts").start();
     }
@@ -287,6 +288,42 @@ public final class App {
         m.put("broken", w.broken());
         m.put("audit", w.recentAudit(30));
         return m;
+    }
+
+    // ---------- phone-mirror M1：手机投屏（官方 scrcpy；只响应电脑界面上的点击 / 拖拽，不给 agent 用） ----------
+    PhoneMirror mirror;
+
+    void setupMirror() {
+        MirrorTools mt = MirrorTools.forThisPc();
+        mirror = new PhoneMirror(mt, mt.dir().resolveSibling("phone-drop"), log);
+        mirror.uhid = () -> "uhid".equals(cfg.mirrorKeyboard);
+        mirror.onEvent = e -> {
+            if ("needs_auth".equals(e.kind)) notify.post("pc", "手机投屏", "在手机上点「允许 USB 调试」，勾上「始终允许这台电脑」", "");
+            else if ("authorized".equals(e.kind)) notify.post("pc", "手机投屏", e.zh + "，在 OneSay「手机投屏」里点「投屏」", "");
+        };
+        mirror.start();
+    }
+
+    Map<String, Object> mirrorApi(Map<String, Object> b) {
+        String op = str(b, "op", "state"), serial = str(b, "serial", "");
+        switch (op) {
+            case "install": { String e = mirror.installTools(); return e == null ? ok("开始安装") : fail(e); }
+            case "mirror": { String e = mirror.mirror(serial); return e == null ? ok("正在打开投屏窗口…") : fail(e); }
+            case "open_app": { String e = mirror.openApp(serial, str(b, "package", "")); return e == null ? ok("正在打开 App 窗口…") : fail(e); }
+            case "close": return mirror.close(serial, str(b, "package", "")) ? ok("已关掉") : fail("没有开着的窗口");
+            case "apps": {
+                try {
+                    Map<String, Object> m = ok("");
+                    m.put("apps", new ArrayList<Object>(mirror.apps(serial)));
+                    return m;
+                } catch (Exception e) {
+                    return fail(MediaTools.msg(e));
+                }
+            }
+            case "push_instead": return mirror.pushInstead(str(b, "id", ""));
+            case "state": { Map<String, Object> m = ok(""); m.put("mirror", mirror.view()); return m; }
+            default: return fail("不认识的操作");
+        }
     }
 
     // ---------- 链接下载 ----------
@@ -554,6 +591,7 @@ public final class App {
         s.put("net_allow", cfg.netAllow);
         s.put("trusted_domains", cfg.trusted);
         s.put("media_quality", MediaArgs.quality(cfg.mediaQuality));
+        s.put("mirror_keyboard", "uhid".equals(cfg.mirrorKeyboard) ? "uhid" : "sdk");
         return s;
     }
 
@@ -590,6 +628,7 @@ public final class App {
             if (whitelist != null) { s.put("whitelist", whitelist.view()); s.put("whitelist_broken", whitelist.broken()); }
             s.put("workspace", cfg.workspace().toString());
             s.put("media", mediaState());
+            s.put("mirror", mirror.view());
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
         });
@@ -666,6 +705,8 @@ public final class App {
         ui.on("confirm", b -> confirmApi(agent.confirms, b, log));
         ui.on("whitelist", b -> whitelistApi(whitelist, b, log));
         ui.on("media", this::mediaApi);
+        ui.on("mirror", this::mirrorApi);   // phone-mirror M1：只给电脑界面用（本机口令保护），不进 agent.local
+        ui.onUpload("mirror_drop", (q, size, in) -> mirror.drop(q.getOrDefault("serial", ""), q.getOrDefault("name", ""), size, in));
         // 「以后这类不用问」记住的动作类型：看 / 撤销（只能在电脑界面上；远程改不了）
         ui.on("remembered", b -> {
             String op = str(b, "op", "list");
@@ -755,6 +796,7 @@ public final class App {
                     case "trusted_domains": cfg.trusted = String.join(",", LinkPolicy.parseDomains(v)); break;
                     case "autostart": autostart(v.equals("true")); break;
                     case "media_quality": cfg.mediaQuality = MediaArgs.quality(v); break;
+                    case "mirror_keyboard": cfg.mirrorKeyboard = "uhid".equals(v) ? "uhid" : "sdk"; log.accept("投屏键盘 → " + ("uhid".equals(v) ? "物理键盘（UHID）" : "普通键盘")); break;
                     default: break;
                 }
             }
