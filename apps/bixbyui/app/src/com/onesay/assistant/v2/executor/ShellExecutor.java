@@ -21,6 +21,35 @@ import java.io.InputStreamReader;
 public class ShellExecutor implements ShellRunner {
 
     private static final String TAG = "ShellExecutor";
+    /** ★ fix-1118：BatteryManager 粘性广播读电量 / 温度 / 充电状态，输出与 dumpsys battery 同格式。读不到 = null。 */
+    private ShellResponse localBattery(String command) {
+        try {
+            android.content.Intent b = mContext.registerReceiver(null, new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            if (b == null) return null;
+            int lv = b.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1), sc = b.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100);
+            int pct = lv < 0 || sc <= 0 ? -1 : Math.round(lv * 100f / sc);
+            int plug = b.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0);
+            String out = com.onesay.assistant.v2.platform.ShizukuCompat.localBatteryDump(command, pct,
+                    b.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Integer.MIN_VALUE),
+                    b.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1),
+                    (plug & android.os.BatteryManager.BATTERY_PLUGGED_AC) != 0, (plug & android.os.BatteryManager.BATTERY_PLUGGED_USB) != 0);
+            Log.i(TAG, "[EXEC] 电量本地读取（BatteryManager，不经特权通道）");
+            return new ShellResponse(0, out, false, false);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 守护通道是否可能在线（探测缓存说离线就不去排 1.5 s 超时）。 */
+    private boolean daemonLikelyUp() {
+        try {
+            com.onesay.assistant.v2.platform.DeviceProfile p = com.onesay.assistant.v2.platform.DeviceCapabilityProbe.cached(mContext);
+            return p == null || p.get(com.onesay.assistant.v2.platform.DeviceCap.EXEC_DAEMON) != com.onesay.assistant.v2.platform.Tri.NO;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     /**
      * 审计 B-2：全局 IPC 锁从 synchronized 改成可 tryLock 的 ReentrantLock。
      * 普通命令照旧排队（{@link #execute}）；轮询类只读命令用 {@link #executePoll}：
@@ -95,11 +124,24 @@ public class ShellExecutor implements ShellRunner {
     private static ShellResponse viaBackend(String command, long timeoutMs) {
         // ★ priv-llm：执行档位 su / root 守护 / Shizuku 特权（白名单）/ 原守护，见 ExecTierRouter
         com.onesay.assistant.v2.platform.ExecTierRouter.Route rt = com.onesay.assistant.v2.platform.ExecBackendHost.route(command);
+        String grep = null;
+        if (rt.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.DENY && rt.denyReason != null && rt.denyReason.startsWith("SHIZUKU_")) {
+            // ★ fix-1118：模板旧写法（service call bluetooth_manager / dumpsys battery | grep）换成白名单里的等价命令再判一次，不放宽白名单
+            com.onesay.assistant.v2.platform.ShizukuCompat.Rewrite w = com.onesay.assistant.v2.platform.ShizukuCompat.rewrite(command);
+            if (w != null) {
+                com.onesay.assistant.v2.platform.ExecTierRouter.Route r2 = com.onesay.assistant.v2.platform.ExecBackendHost.route(w.command);
+                if (r2.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.BACKEND) {
+                    rt = r2;
+                    command = w.command;
+                    grep = w.grep;
+                }
+            }
+        }
         if (rt.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.DENY) return ShellResponse.denied(rt.denyReason);
         if (rt.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.DAEMON) return null;
         com.onesay.plugin.api.exec.ExecResult r = rt.backend.run(command, timeoutMs);
         if (r.rc == ExecProtocol.RC_DENIED && r.output.startsWith("DENY ")) return ShellResponse.denied(r.output.substring(5).trim());
-        return new ShellResponse(r.rc, r.output, r.timedOut, r.backendDown);
+        return new ShellResponse(r.rc, com.onesay.assistant.v2.platform.ShizukuCompat.filter(r.output, grep), r.timedOut, r.backendDown);
     }
 
     /**
@@ -113,8 +155,23 @@ public class ShellExecutor implements ShellRunner {
         if (command == null || command.trim().length() == 0) {
             return new ShellResponse(0, "", false, false);
         }
+        // ★ fix-1118：电量不需要任何特权 —— 「dumpsys battery | grep level」直接用 BatteryManager 本地答（没 root / 没 Shizuku 也能用）
+        if (com.onesay.assistant.v2.platform.ShizukuCompat.isBatteryRead(command) && !"dumpsys battery".equals(command.trim())) {
+            ShellResponse lb = localBattery(command);
+            if (lb != null) return lb;
+        }
         ShellResponse viaB = viaBackend(command, TIMEOUT_MS);
-        if (viaB != null) return viaB;
+        if (viaB != null) {
+            if (!viaB.isSuccess() && com.onesay.assistant.v2.platform.ShizukuCompat.isBatteryRead(command)) {
+                ShellResponse lb = localBattery(command);
+                if (lb != null) return lb;
+            }
+            return viaB;
+        }
+        if (com.onesay.assistant.v2.platform.ShizukuCompat.isBatteryRead(command) && !daemonLikelyUp()) {
+            ShellResponse lb = localBattery(command);
+            if (lb != null) return lb;
+        }
         IPC_LOCK.lock();
         try {
             return runLocked(command, TIMEOUT_MS);

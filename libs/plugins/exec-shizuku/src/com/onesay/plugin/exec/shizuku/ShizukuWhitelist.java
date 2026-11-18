@@ -17,7 +17,13 @@ import java.util.List;
  *       {@code settings get secure enabled_notification_listeners}（只读）；</li>
  *   <li><b>模拟按键</b>：{@code input keyevent [--longpress] <KEYCODE_名|数字>}（电源键除外，避免误锁屏 / 关机菜单）；</li>
  *   <li><b>截屏</b>：{@code screencap -p <路径>.png}，路径只能是 {@code /data/local/tmp/onesay*.png} 或本包外部私有目录 cache/ 下。</li>
+ *   <li><b>常用开关（fix-1118，逐个 argv 精确匹配）</b>：只读 {@code dumpsys battery}、{@code settings get system screen_brightness[_mode]}、
+ *       {@code settings get global bluetooth_on|wifi_on}、{@code cmd wifi status}；
+ *       写 {@code cmd bluetooth_manager enable|disable}、{@code svc wifi enable}、{@code settings put system screen_brightness <0-255>}。
+ *       关 Wi-Fi（{@code svc wifi disable}）不放：无线调试 / 电脑联动会跟着断。</li>
  * </ol>
+ * 键码：电源 / 睡眠键，以及接打电话（CALL 5 / ENDCALL 6 / HEADSETHOOK 79）、相机（CAMERA 27）、语音助手（VOICE_ASSIST 231）一律不放
+ * （sec-audit-1118 M4：这些键全局生效，能挂断 / 接起电话、拉起相机或别家助手）。
  */
 public final class ShizukuWhitelist {
 
@@ -41,7 +47,7 @@ public final class ShizukuWhitelist {
     }
 
     public static final String CAT_CLIPBOARD = "clipboard", CAT_NOTIFICATION = "notification", CAT_KEYEVENT = "keyevent",
-            CAT_SCREENCAP = "screencap";
+            CAT_SCREENCAP = "screencap", CAT_READ = "read", CAT_TOGGLE = "toggle";
 
     private static final String META = ";|&`$()<>\\\"'\n\r*?{}[]!~#";
     private static final String TMP_DIR = "/data/local/tmp/";
@@ -76,6 +82,8 @@ public final class ShizukuWhitelist {
         if ("settings".equals(p)) return settings(a);
         if ("input".equals(p)) return input(a);
         if ("screencap".equals(p)) return screencap(a);
+        if ("dumpsys".equals(p)) return dumpsys(a);
+        if ("svc".equals(p)) return svc(a);
         return deny("PROG_NOT_WHITELISTED(" + p + ")");
     }
 
@@ -104,12 +112,35 @@ public final class ShizukuWhitelist {
             }
             return deny("LISTENER_NOT_OWN(" + comp + ")");
         }
+        // fix-1118：蓝牙开关、Wi-Fi 状态（argv 精确匹配）
+        if (a.size() == 3 && "bluetooth_manager".equals(a.get(1)) && ("enable".equals(a.get(2)) || "disable".equals(a.get(2)))) {
+            return allow(CAT_TOGGLE, a);
+        }
+        if (a.size() == 3 && "wifi".equals(a.get(1)) && "status".equals(a.get(2))) return allow(CAT_READ, a);
         return deny("CMD_ARGS");
     }
 
     private Verdict settings(List<String> a) {
         if (a.size() == 4 && "get".equals(a.get(1)) && "secure".equals(a.get(2)) && "enabled_notification_listeners".equals(a.get(3))) {
             return allow(CAT_NOTIFICATION, a);
+        }
+        // fix-1118：亮度 / 蓝牙 / Wi-Fi 状态只读；亮度写只收 0–255 的十进制整数
+        if (a.size() == 4 && "get".equals(a.get(1))) {
+            String ns = a.get(2), key = a.get(3);
+            if ("system".equals(ns) && ("screen_brightness".equals(key) || "screen_brightness_mode".equals(key))) return allow(CAT_READ, a);
+            if ("global".equals(ns) && ("bluetooth_on".equals(key) || "wifi_on".equals(key))) return allow(CAT_READ, a);
+        }
+        if (a.size() == 5 && "put".equals(a.get(1)) && "system".equals(a.get(2)) && "screen_brightness".equals(a.get(3))) {
+            String v = a.get(4);
+            if (v.matches("[0-9]{1,3}")) {
+                int n = Integer.parseInt(v);
+                if (n <= 255) {
+                    a = new ArrayList<String>(a);
+                    a.set(4, String.valueOf(n));
+                    return allow(CAT_TOGGLE, a);
+                }
+            }
+            return deny("BRIGHTNESS_VALUE(" + v + ")");
         }
         return deny("SETTINGS_ARGS");
     }
@@ -129,6 +160,10 @@ public final class ShizukuWhitelist {
         // 电源 / 睡眠 / 软睡眠（锁屏）键不放：KEYCODE_SOFT_SLEEP = 276
         if (k.equals("KEYCODE_POWER") || k.equals("26") || k.equals("KEYCODE_SLEEP") || k.equals("223") || k.equals("KEYCODE_SOFT_SLEEP") || k.equals("276"))
             return deny("KEY_BLOCKED(" + k + ")");
+        // sec-audit-1118 M4：接 / 挂电话、耳机键、相机、语音助手键全局生效，不放
+        if (k.equals("KEYCODE_CALL") || k.equals("5") || k.equals("KEYCODE_ENDCALL") || k.equals("6") || k.equals("KEYCODE_HEADSETHOOK") || k.equals("79")
+                || k.equals("KEYCODE_CAMERA") || k.equals("27") || k.equals("KEYCODE_VOICE_ASSIST") || k.equals("231"))
+            return deny("KEY_BLOCKED(" + k + ")");
         if (k.matches("KEYCODE_[A-Z0-9_]{1,40}") || k.matches("[0-9]{1,3}")) return allow(CAT_KEYEVENT, a);
         return deny("KEY_ARGS(" + k + ")");
     }
@@ -146,6 +181,18 @@ public final class ShizukuWhitelist {
             return allow(CAT_SCREENCAP, a);
         }
         return deny("SCREENCAP_PATH(" + path + ")");
+    }
+
+    /** fix-1118：只放 {@code dumpsys battery}（电量 / 充电状态），不带任何别的参数。 */
+    private Verdict dumpsys(List<String> a) {
+        if (a.size() == 2 && "battery".equals(a.get(1))) return allow(CAT_READ, a);
+        return deny("DUMPSYS_ARGS");
+    }
+
+    /** fix-1118：只放 {@code svc wifi enable}。关 Wi-Fi 不放（无线调试 / 电脑联动会断）。 */
+    private Verdict svc(List<String> a) {
+        if (a.size() == 3 && "wifi".equals(a.get(1)) && "enable".equals(a.get(2))) return allow(CAT_TOGGLE, a);
+        return deny("SVC_ARGS");
     }
 
     private static Verdict allow(String cat, List<String> argv) {

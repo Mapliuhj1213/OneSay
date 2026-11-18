@@ -702,6 +702,7 @@ com/onesay/assistant/v2/llm/ProviderRoute.java
 com/onesay/assistant/v2/llm/ProviderRouting.java
 com/onesay/assistant/v2/llm/ProviderStore.java
 com/onesay/assistant/v2/platform/ExecTierRouter.java
+com/onesay/assistant/v2/platform/ShizukuCompat.java
 com/onesay/assistant/v2/platform/ShizukuActions.java
 com/onesay/assistant/v2/ui/console/ConsoleStatus.java
 # 2026-11-08 compat-vyrse：VYRSE 兼容插件 core（纯 Java + org.json）+ 适配层（只编译，确保接线能过 javac）

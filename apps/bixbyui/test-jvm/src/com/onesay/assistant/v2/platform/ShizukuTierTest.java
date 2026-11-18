@@ -150,7 +150,7 @@ public class ShizukuTierTest {
     @Test public void tierRouting() {
         FakeBridge b = new FakeBridge();
         ShizukuExecBackend shz = new ShizukuExecBackend(b, wl());
-        String key = "input keyevent KEYCODE_HOME", other = "svc wifi enable";
+        String key = "input keyevent KEYCODE_HOME", other = "pm list packages";   // fix-1118：svc wifi enable 已进白名单，换一条白名单外的
         // 没开插件、没选后端 → 原守护通道（与之前一致）
         assertEquals(ExecTierRouter.Kind.DAEMON, ExecTierRouter.route(key, null, shz, false).kind);
         // 开了插件、Shizuku 可用：白名单内 → Shizuku；白名单外 → 直接拒绝
