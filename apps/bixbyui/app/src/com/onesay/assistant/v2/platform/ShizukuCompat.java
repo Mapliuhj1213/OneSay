@@ -30,6 +30,17 @@ public final class ShizukuCompat {
     private static final Pattern SCREENCAP_QUOTED = Pattern.compile("^screencap\\s+-p\\s+'([A-Za-z0-9_./\\-]{1,200}\\.png)'$");
     private static final Pattern BT_SVC = Pattern.compile("^svc\\s+bluetooth\\s+(enable|disable)$");
 
+    /** ★ fix-1118 B19 真机：「am start -a android.intent.action.VIEW -d '<market / http(s) 链接>'」不用特权，App 自己 startActivity。 */
+    private static final Pattern VIEW_URI = Pattern.compile(
+            "^am\\s+start\\s+-a\\s+android\\.intent\\.action\\.VIEW\\s+-d\\s+'((?:market|https?)://[^'\\s\\\\]{1,500})'$");
+
+    /** 是这一种「只打开一个链接」的模板 → 返回链接（market:// / http(s)://）；其余 null（照旧走特权通道）。 */
+    public static String viewUri(String command) {
+        if (command == null) return null;
+        Matcher m = VIEW_URI.matcher(command.trim());
+        return m.matches() ? m.group(1) : null;
+    }
+
     public static Rewrite rewrite(String command) {
         if (command == null) return null;
         String c = command.trim().replaceAll("\\s+", " ");

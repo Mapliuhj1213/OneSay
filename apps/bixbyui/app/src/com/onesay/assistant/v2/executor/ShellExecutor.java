@@ -160,6 +160,19 @@ public class ShellExecutor implements ShellRunner {
             ShellResponse lb = localBattery(command);
             if (lb != null) return lb;
         }
+        // ★ fix-1118 B19 真机：只打开一个应用商店 / 网页链接 → App 自己 startActivity（Shizuku 白名单不放带引号的 am start）
+        String viewUri = com.onesay.assistant.v2.platform.ShizukuCompat.viewUri(command);
+        if (viewUri != null) {
+            try {
+                android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(viewUri));
+                it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                mContext.startActivity(it);
+                Log.i(TAG, "[EXEC] 打开链接（App 内 startActivity，不经特权通道）");
+                return new ShellResponse(0, "Starting: Intent { act=android.intent.action.VIEW }", false, false);
+            } catch (Throwable t) {
+                Log.w(TAG, "[EXEC] App 内打开链接失败，交特权通道: " + t.getClass().getSimpleName());
+            }
+        }
         ShellResponse viaB = viaBackend(command, TIMEOUT_MS);
         if (viaB != null) {
             if (!viaB.isSuccess() && com.onesay.assistant.v2.platform.ShizukuCompat.isBatteryRead(command)) {
