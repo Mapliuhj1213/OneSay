@@ -136,7 +136,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
     public Invocation route(String query) {
         if (query == null || query.trim().length() == 0) return null;
 
-        String raw = query.trim();
+        String raw = TriageDecider.stripTrailingThanksRaw(query.trim()).trim();   // ★ rel-1118 B09：句尾「，谢谢」不进槽位、不挡模板
         // [kernel] 插件 L0 直达规则（顺序 = L0 优先级）：存图「保存图片 / 存这张图 / 全部保存…」→ image.save（bixby_imgsave），
         //   摘要「总结一下 / 这篇讲了什么 / 太长不看…」→ screen.summary（bixby_summary）；都不注册进能力表
         com.onesay.assistant.v2.kernel.FeatureKernel.Hit direct = com.onesay.assistant.v2.kernel.FeatureKernel.get().l0(mContext, raw);

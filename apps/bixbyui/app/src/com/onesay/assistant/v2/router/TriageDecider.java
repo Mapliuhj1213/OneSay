@@ -826,7 +826,51 @@ public final class TriageDecider {
                 }
             }
         }
+        return stripTrailingThanks(q);
+    }
+
+    /** ★ rel-1118 B09：句尾道谢（「关闭网络，谢谢」「打开漫游流量 谢谢」）不改变指令本身；剥掉后剩下的至少 2 个字才剥（单说「谢谢」仍是闲聊）。 */
+    private static final String[] THANKS_TAIL = {
+            "谢谢你了", "谢谢你啦", "谢谢你", "谢谢啦", "谢谢了", "谢谢", "多谢了", "多谢", "谢啦", "感谢",
+            "thankyou", "thanks", "thx",
+    };
+
+    /** 已归一化（无空白 / 标点、小写）的句子去掉句尾道谢；可重复（「谢谢谢谢」）。 */
+    static String stripTrailingThanks(String q) {
+        if (q == null) return null;
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (String t : THANKS_TAIL) {
+                if (q.endsWith(t) && q.length() - t.length() >= 2) {
+                    String rest = q.substring(0, q.length() - t.length());
+                    if (rest.endsWith("不用") || rest.endsWith("非常") || rest.endsWith("十分") || rest.endsWith("太")) return q;
+                    q = rest;
+                    changed = true;
+                    break;
+                }
+            }
+        }
         return q;
+    }
+
+    private static final java.util.regex.Pattern THANKS_TAIL_RAW = java.util.regex.Pattern.compile(
+            "[\\s，,。.！!～~、]*(?:谢谢你了|谢谢你啦|谢谢你|谢谢啦|谢谢了|谢谢|多谢了|多谢|谢啦|感谢|thank\\s*you|thanks|thx)[\\s。.！!～~]*$",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** ★ rel-1118 B09：原句版（L0 在原句上取槽位）：「删除软件微信，谢谢」→「删除软件微信」；剩下不足 2 个字或是「不用谢谢」之类不剥。 */
+    public static String stripTrailingThanksRaw(String raw) {
+        if (raw == null) return null;
+        String cur = raw;
+        for (int i = 0; i < 4; i++) {
+            java.util.regex.Matcher m = THANKS_TAIL_RAW.matcher(cur);
+            if (!m.find()) break;
+            String rest = cur.substring(0, m.start());
+            String rn = rest.trim();
+            if (rn.length() < 2 || rn.endsWith("不用") || rn.endsWith("非常") || rn.endsWith("十分") || rn.endsWith("太")) break;
+            cur = rest;
+        }
+        return cur;
     }
 
     /** 剥礼貌框架（前后缀，可重复）。 */
