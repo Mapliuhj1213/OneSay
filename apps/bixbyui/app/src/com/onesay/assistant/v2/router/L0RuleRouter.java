@@ -165,9 +165,19 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         }
 
         Collections.sort(candidates);
-        MatchCandidate best = candidates.get(0);
-
-        JSONObject args = restoreRawSlots(raw, best.args);   // ★ rel-1118 B01：文本槽位按原句取回（不丢标点 / 空格 / 大小写）
+        // ★ rel-1118 B18：「打开网页{url}」是贪婪模板，「打开网页浏览器嘛」会被它吃成 url=浏览器嘛。
+        //   网址槽位按原句取回后不像网址（没有 http(s):// 也没有「主机.后缀」）的候选整条丢掉，换下一个候选。
+        MatchCandidate best = null;
+        JSONObject args = null;
+        for (MatchCandidate c : candidates) {
+            JSONObject a = restoreRawSlots(raw, c.args);   // ★ rel-1118 B01：文本槽位按原句取回（不丢标点 / 空格 / 大小写）
+            if (a.has("url") && !plausibleUrl(a.optString("url", null))) {
+                SafeLog.i(TAG, "L0 跳过候选：网址槽位不像网址（" + c.capability.sign + "）");
+                continue;
+            }
+            best = c; args = a; break;
+        }
+        if (best == null) return null;
         // ★ rel-1118 B02 / B06：归一化删掉了负号和小数点（「-5秒」「1.5」）→ 数值类能力不在本地执行
         if (RawNumber.numeric(args) && RawNumber.suspicious(raw, RawNumber.isClock(best.capability.sign))) {
             SafeLog.i(TAG, "L0 放弃：原句数值带负号 / 小数（" + best.capability.sign + "）");
@@ -179,6 +189,17 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         }
         SafeLog.i(TAG, "L0 命中能力: " + best.capability.sign + " (字面量权重=" + best.literalScore + ", 参数=" + com.onesay.assistant.v2.util.LogText.args(best.args) + ")");
         return new Invocation(best.capability.sign, args, 1.0, Invocation.RouteSource.L0_RULE, query);
+    }
+
+    /** ★ rel-1118 B18：http(s)://… 或「主机.后缀」（可带端口 / 路径）才算网址；「浏览器嘛」「百度」不算。 */
+    private static final java.util.regex.Pattern URL_LIKE = java.util.regex.Pattern.compile(
+            "^(?:https?://\\S+|(?:[\\p{L}\\p{N}](?:[\\p{L}\\p{N}-]*[\\p{L}\\p{N}])?\\.)+[A-Za-z\\p{IsHan}]{2,}(?::\\d{1,5})?(?:[/?#]\\S*)?)$",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    static boolean plausibleUrl(String url) {
+        if (url == null) return false;
+        String u = url.trim();
+        return u.length() > 0 && u.length() <= 2048 && URL_LIKE.matcher(u).matches();
     }
 
     /** ★ rel-1118 B01：这些文本槽位要原样（网址、笔记正文、搜索词、号码、包名）。 */
