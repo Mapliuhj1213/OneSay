@@ -77,8 +77,8 @@ public final class PrivacyScan {
             if (g.length() == 18 && out.contains(ID_CARD)) continue;
             if (luhn(g)) { out.add(BANK_CARD); break; }
         }
-        if (MOBILE.matcher(glued).find()) out.add(PHONE);
-        if (EMAIL_RE.matcher(s).find()) out.add(EMAIL);
+        if (MOBILE.matcher(glued).find() || MOBILE.matcher(glue(cnDigits(s))).find()) out.add(PHONE);
+        if (EMAIL_RE.matcher(s).find() || EMAIL_OBF.matcher(s).find()) out.add(EMAIL);
         if (ADDR_KW.matcher(s).find() || ADDR_SHAPE.matcher(s).find()) out.add(ADDRESS);
         if (NAME_KW.matcher(s).find()) out.add(NAME);
         if (DOC_KW.matcher(s).find()) out.add(DOC_WORD);
@@ -100,6 +100,51 @@ public final class PrivacyScan {
         out.addAll(text(ocr));
         if (IMG_KW.matcher(fold(ocr)).find()) out.add(DOC_WORD);
         return out;
+    }
+
+    /** ★ rel-1118 B21：邮箱写成 a[at]b[dot]com / a(at)b.com / a {at} b {dot} com（at / dot 必须带括号，免得误伤英文句子）。 */
+    private static final Pattern EMAIL_OBF = Pattern.compile(
+            "(?<![A-Za-z0-9._%+\\-])[A-Za-z0-9._%+\\-]{1,64}\\s*[\\[({<]\\s*at\\s*[\\])}>]\\s*[A-Za-z0-9\\-]{1,63}"
+            + "(?:\\s*(?:\\.|[\\[({<]\\s*dot\\s*[\\])}>])\\s*[A-Za-z0-9\\-]{1,63})*\\s*(?:\\.|[\\[({<]\\s*dot\\s*[\\])}>])\\s*[A-Za-z]{2,24}(?![A-Za-z])",
+            Pattern.CASE_INSENSITIVE);
+    private static final String CN_DIGITS = "零〇一二三四五六七八九", CN_EXTRA = "幺两";
+
+    /**
+     * ★ rel-1118 B21：连续 7 个以上的中文数字（中间可夹空格 / 横线）逐位换成阿拉伯数字（「一三八零零一三八零零零」→ 13800138000，「幺」= 1、「两」= 2）；
+     * 不足 7 位的（「三四个」「一二三」）原样不动，免得把普通句子认成号码。
+     */
+    static String cnDigits(String s) {
+        StringBuilder b = new StringBuilder(s.length());
+        int i = 0;
+        while (i < s.length()) {
+            int j = i, n = 0;
+            while (j < s.length()) {
+                char c = s.charAt(j);
+                if (cnDigit(c) >= 0) { j++; n++; continue; }
+                // 中文数字之间的空格 / 横线算同一串（「一三八 零零一三 八零零零」）
+                if (n > 0 && (c == ' ' || c == '-' || c == '\u00a0') && j + 1 < s.length() && cnDigit(s.charAt(j + 1)) >= 0) { j++; continue; }
+                break;
+            }
+            if (n >= 7) {
+                for (int k = i; k < j; k++) { int d = cnDigit(s.charAt(k)); if (d >= 0) b.append((char) ('0' + d)); }
+                i = j;
+            } else if (j > i) {
+                b.append(s, i, j);
+                i = j;
+            } else {
+                b.append(s.charAt(i++));
+            }
+        }
+        return b.toString();
+    }
+
+    private static int cnDigit(char c) {
+        int k = CN_DIGITS.indexOf(c);
+        if (k == 0 || k == 1) return 0;
+        if (k > 1) return k - 1;
+        if (c == '幺') return 1;
+        if (c == '两') return 2;
+        return -1;
     }
 
     /** 全角 → 半角；去零宽 / 方向控制符。 */

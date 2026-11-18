@@ -102,7 +102,12 @@ public final class AppWhitelist {
             if (c != 0) return c > 0;
             int n = a.name.compareTo(b.name);
             if (n != 0) return n > 0;
-            return a.addedAt > b.addedAt;
+            if (a.addedAt != b.addedAt) return a.addedAt > b.addedAt;
+            // ★ rel-1118 B20：以前到这里就「先到的赢」，id 只差大小写 / origin_kind 不同的两条在两端合并结果不一样（不满足交换律）。
+            //   再比 id（区分大小写的字典序）和 origin_kind，全同才算同一条。
+            int i = a.id == null ? (b.id == null ? 0 : -1) : (b.id == null ? 1 : a.id.compareTo(b.id));
+            if (i != 0) return i > 0;
+            return a.originKind.compareTo(b.originKind) > 0;
         }
 
         Map<String, Object> toMap() {
