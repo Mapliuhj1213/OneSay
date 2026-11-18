@@ -177,6 +177,18 @@
             </intent-filter>
         </service>
 
+        <!-- 快捷开关「唤醒词」：临时关掉 / 恢复唤醒词监听（只有系统能绑定）。 -->
+        <service
+            android:name="com.onesay.assistant.v2.entry.MicListenTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_entry_mic"
+            android:label="唤醒词"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- 桌面小部件（APPWIDGET_UPDATE 只由系统投递）。 -->
         <receiver
             android:name="com.onesay.assistant.v2.entry.SummonWidgetProvider"

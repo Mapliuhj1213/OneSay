@@ -332,6 +332,14 @@ public class WakeService extends Service {
     /** ★ r2/sysux R1：麦克风是否真的在录（PARTIAL 唤醒锁的前提）。 */
     private final MicRecordingState mMicState = new MicRecordingState();
     private final Object mPauseLock = new Object();
+    // ★ mic-1118：唤醒词什么时候开麦（MicListenPolicy）。null = 还没判过 → 按旧行为听。
+    private volatile MicListenPolicy.Decision mListen;
+    private volatile boolean mCharging;
+    private volatile long mUnlockedAt = Long.MIN_VALUE;
+    private android.content.SharedPreferences.OnSharedPreferenceChangeListener mListenPrefsListener;
+    private final Runnable mListenRecheck = new Runnable() {
+        @Override public void run() { reevalListen("timer"); }
+    };
     private android.content.SharedPreferences.OnSharedPreferenceChangeListener mPauseListener;
     private long mScreenGateLogAt;
     private FileObserver mTriggerObserver;
@@ -2022,7 +2030,7 @@ public class WakeService extends Service {
         while (!mAbort && mAudioRecord != null) {
             // ★ r2/screenoff-wake：暂停即真暂停（声纹注册 / 暂停前已开的捕获窗例外，收完再停）
             if (ScreenOffPolicy.micShouldPause(mPausedCached, mVpRecording || liveTap() != null, mEnrollSession,
-                    SystemClock.elapsedRealtime() < mCaptureUntil, liveOwnMicActive())) {
+                    SystemClock.elapsedRealtime() < mCaptureUntil, liveOwnMicActive()) || listenGateClosed()) {
                 if (!pauseMicUntilResumed()) break;
                 continue;
             }
@@ -2456,6 +2464,7 @@ public class WakeService extends Service {
         long windowMs = clampCaptureWindow(now, wantWindowMs);
         if (windowMs <= 0) windowMs = CAPTURE_MS;   // 兜底：不应发生
         mCaptureUntil = now + windowMs;
+        wakePauseWaiter();   // ★ mic-1118：唤醒词没在听时，按键 / 快捷开关 / 手势叫出来 → 立即重新开麦收这一句
         mPromptPlan = planFor(mLastWakeSource);   // ★ r2/sysux P1-1：提示音 / 起点 / 预录
         mCaptureFrom = now + mPromptPlan.captureFromMs; // 隐私起点（按下即听：所有来源 +300 ms，[唤醒, +300) 由预录补上）
         focusListen();   // ★ r2/sysux P1-2：收音 = GAIN_TRANSIENT（暂停媒体）
@@ -4143,6 +4152,8 @@ public class WakeService extends Service {
             f.addAction(Intent.ACTION_SCREEN_OFF);
             f.addAction(Intent.ACTION_SCREEN_ON);
             f.addAction(Intent.ACTION_USER_PRESENT);
+            f.addAction(Intent.ACTION_POWER_CONNECTED);      // ★ mic-1118：「仅充电时」模式
+            f.addAction(Intent.ACTION_POWER_DISCONNECTED);
             registerReceiver(mScreenReceiver, f);
             com.onesay.assistant.v2.jobs.InstallWaitHooks.attach(this);   // ★ install-wait：恢复等待任务 + 动态 PACKAGE_ADDED
         } catch (Throwable t) {
@@ -4152,7 +4163,61 @@ public class WakeService extends Service {
         }
         Log.i(TAG, "[SCREEN] 初始 screenOn=" + mScreenPolicy.screenOn() + " locked=" + mScreenPolicy.keyguardLocked()
                 + " paused=" + mPausedCached + " | " + mScreenPolicy.config());
+        initListenGate();
     }
+
+    // ==================== ★ mic-1118：唤醒词什么时候开麦 ====================
+
+    private void initListenGate() {
+        mCharging = chargingNow();
+        if (mScreenPolicy.screenOn() && !mScreenPolicy.keyguardLocked()) mUnlockedAt = SystemClock.elapsedRealtime();
+        try {
+            mListenPrefsListener = new android.content.SharedPreferences.OnSharedPreferenceChangeListener() {
+                @Override public void onSharedPreferenceChanged(android.content.SharedPreferences sp, String key) {
+                    reevalListen("prefs:" + key);
+                }
+            };
+            MicListenSettings.sp(this).registerOnSharedPreferenceChangeListener(mListenPrefsListener);
+        } catch (Throwable t) {
+            Log.w(TAG, "[MIC-LISTEN] 注册设置监听失败: " + t);
+        }
+        reevalListen("init");
+    }
+
+    private boolean chargingNow() {
+        try {
+            Intent b = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            int plugged = b == null ? 0 : b.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0);
+            return plugged != 0;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 唤醒词判定为「不听」（模式 / 快捷开关）；捕获窗、声纹注册时照样开麦。 */
+    private boolean listenGateClosed() {
+        MicListenPolicy.Decision d = mListen;
+        if (d == null) return false;
+        return !MicListenPolicy.micOpen(d, SystemClock.elapsedRealtime() < mCaptureUntil, mVpRecording || mEnrollSession);
+    }
+
+    /** 屏幕 / 锁屏 / 充电 / 设置 / 定时器变化时重判；变了就叫醒读循环（开麦）或让读循环下一帧停录。 */
+    void reevalListen(String why) {
+        if (mScreenPolicy == null) return;
+        long now = SystemClock.elapsedRealtime();
+        MicListenPolicy.Decision d = MicListenSettings.decide(this, new MicListenPolicy.State(
+                mScreenPolicy.screenOn(), mScreenPolicy.keyguardLocked(), mCharging, mUnlockedAt, now));
+        MicListenPolicy.Decision old = mListen;
+        mListen = d;
+        mMainHandler.removeCallbacks(mListenRecheck);
+        if (d.recheckAt >= 0) mMainHandler.postDelayed(mListenRecheck, Math.max(1000L, d.recheckAt - now + 200L));
+        if (old == null || old.listen != d.listen) {
+            Log.i(TAG, "[MIC-LISTEN] " + d + " ← " + why + " mode=" + MicListenSettings.mode(this));
+        }
+        wakePauseWaiter();
+        updateWakeLock("listen:" + why);
+    }
+
 
     private boolean keyguardLockedNow() {
         try {
@@ -4165,6 +4230,11 @@ public class WakeService extends Service {
 
     private void onScreenIntent(String action) {
         if (action == null || mScreenPolicy == null) return;
+        if (Intent.ACTION_POWER_CONNECTED.equals(action) || Intent.ACTION_POWER_DISCONNECTED.equals(action)) {
+            mCharging = Intent.ACTION_POWER_CONNECTED.equals(action);
+            reevalListen(mCharging ? "power-connected" : "power-disconnected");
+            return;
+        }
         if (Intent.ACTION_SCREEN_OFF.equals(action)) {
             mScreenPolicy.setConfig(screenOffConfig());
             mScreenPolicy.setScreenOn(false);
@@ -4177,9 +4247,13 @@ public class WakeService extends Service {
             Log.i(TAG, "[SCREEN] 亮屏 → KWS 恢复逐帧 | " + mScreenPolicy.stats());
         } else if (Intent.ACTION_USER_PRESENT.equals(action)) {
             mScreenPolicy.setKeyguardLocked(false);
+            mUnlockedAt = SystemClock.elapsedRealtime();
             Log.i(TAG, "[SCREEN] 已解锁");
         }
+        // 没设锁屏密码的机器亮屏即解锁，不一定发 USER_PRESENT
+        if (Intent.ACTION_SCREEN_ON.equals(action) && !mScreenPolicy.keyguardLocked()) mUnlockedAt = SystemClock.elapsedRealtime();
         updateWakeLock("screen:" + action.substring(action.lastIndexOf('.') + 1));
+        reevalListen("screen:" + action.substring(action.lastIndexOf('.') + 1));
     }
 
     /** 暂停开关变了（prefs 监听 / 控制台回调）：刷新缓存、叫醒读循环、调整唤醒锁。 */
@@ -4213,10 +4287,14 @@ public class WakeService extends Service {
         }
         boolean forLive = liveOwnMicActive();
         sLiveMicReleased = forLive;
-        Log.i(TAG, forLive ? "[LIVE-MIC] 相机对话自己开麦 → 本服务已停止录音、不跑 KWS" : "[PAUSE] 助手已暂停 → 已停止录音、不跑 KWS");
+        boolean byGate = !forLive && !mPausedCached && listenGateClosed();
+        Log.i(TAG, forLive ? "[LIVE-MIC] 相机对话自己开麦 → 本服务已停止录音、不跑 KWS"
+                : byGate ? "[MIC-LISTEN] 唤醒词不需要听（" + (mListen != null ? mListen.reason : "") + "）→ 已停止录音，麦克风指示随之熄灭"
+                : "[PAUSE] 助手已暂停 → 已停止录音、不跑 KWS");
         mMicState.onStopped("暂停");   // 相机对话让出麦克风也记作暂停（同一把锁逻辑）
         updateWakeLock("mic-paused");
-        while (!mAbort && ScreenOffPolicy.micShouldPause(mPausedCached, mVpRecording || liveTap() != null, mEnrollSession, false, liveOwnMicActive())) {
+        while (!mAbort && (ScreenOffPolicy.micShouldPause(mPausedCached, mVpRecording || liveTap() != null, mEnrollSession, false, liveOwnMicActive())
+                || listenGateClosed())) {
             synchronized (mPauseLock) {
                 try {
                     mPauseLock.wait(5000);
@@ -4527,6 +4605,11 @@ public class WakeService extends Service {
             try { getSharedPreferences(AssistantPause.PREF, Context.MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(mPauseListener); } catch (Throwable ignore) {}
             mPauseListener = null;
         }
+        if (mListenPrefsListener != null) {
+            try { MicListenSettings.sp(this).unregisterOnSharedPreferenceChangeListener(mListenPrefsListener); } catch (Throwable ignore) {}
+            mListenPrefsListener = null;
+        }
+        try { mMainHandler.removeCallbacks(mListenRecheck); } catch (Throwable ignore) {}
         if (mScreenWakeLock != null) {
             try { if (mScreenWakeLock.isHeld()) mScreenWakeLock.release(); } catch (Throwable ignore) {}
             mScreenWakeLock = null;

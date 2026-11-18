@@ -45,6 +45,68 @@ final class VoicePage extends Console.BuiltPage {
         return new VoicePage(c, MODE_READ);
     }
 
+    /** ★ mic-1118：「唤醒词监听」组 —— 监听时机（亮屏解锁 / 解锁后 N 分钟 / 仅充电 / 一直 / 关闭）+ 暂时关闭。 */
+    private void buildMicListen(LinearLayout col) {
+        final ConsoleKit k = c.kit;
+        final android.app.Activity act = c.act;
+        LinearLayout g = k.group(col, "唤醒词监听");
+        final ConsoleKit.RowImpl modeRow = k.actionRow(g, "监听时机", micModeSub(act),
+                com.onesay.assistant.v2.wake.MicListenPolicy.title(com.onesay.assistant.v2.wake.MicListenSettings.mode(act)), null);
+        modeRow.button.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                final String[][] modes = com.onesay.assistant.v2.wake.MicListenPolicy.MODES;
+                String[] names = new String[modes.length];
+                int cur = 0;
+                String now = com.onesay.assistant.v2.wake.MicListenSettings.mode(act);
+                for (int i = 0; i < modes.length; i++) { names[i] = modes[i][1]; if (modes[i][0].equals(now)) cur = i; }
+                k.dialog().setTitle("监听时机").setSingleChoiceItems(names, cur, new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int which) {
+                        d.dismiss();
+                        final String id = modes[which][0];
+                        if (com.onesay.assistant.v2.wake.MicListenPolicy.MODE_AFTER_UNLOCK.equals(id)) {
+                            final int[] mins = {5, 10, 30, 60};
+                            String[] mn = {"5 分钟", "10 分钟", "30 分钟", "1 小时"};
+                            k.dialog().setTitle("解锁后听多久").setItems(mn, new android.content.DialogInterface.OnClickListener() {
+                                @Override public void onClick(android.content.DialogInterface d2, int w) {
+                                    com.onesay.assistant.v2.wake.MicListenSettings.setMinutes(act, mins[w]);
+                                    com.onesay.assistant.v2.wake.MicListenSettings.setMode(act, id);
+                                    refreshMicRow(modeRow);
+                                }
+                            }).show();
+                            return;
+                        }
+                        com.onesay.assistant.v2.wake.MicListenSettings.setMode(act, id);
+                        refreshMicRow(modeRow);
+                    }
+                }).show();
+            }
+        });
+        k.switchRow(g, "暂时关闭唤醒词", "麦克风马上停止监听；按键、快捷开关、手势照常能叫出来。下拉通知栏的「唤醒词」开关也能切换",
+                com.onesay.assistant.v2.wake.MicListenSettings.quickOff(act), new ConsoleHost.Toggle() {
+            @Override public void onToggle(boolean on) {
+                com.onesay.assistant.v2.wake.MicListenSettings.setQuickOff(act, on);
+            }
+        });
+    }
+
+    private void refreshMicRow(ConsoleKit.RowImpl row) {
+        row.setSub(micModeSub(c.act));
+        row.button.setText(com.onesay.assistant.v2.wake.MicListenPolicy.title(com.onesay.assistant.v2.wake.MicListenSettings.mode(c.act)));
+    }
+
+    static String micModeSub(android.content.Context ctx) {
+        String m = com.onesay.assistant.v2.wake.MicListenSettings.mode(ctx);
+        for (String[] r : com.onesay.assistant.v2.wake.MicListenPolicy.MODES) {
+            if (r[0].equals(m)) {
+                if (com.onesay.assistant.v2.wake.MicListenPolicy.MODE_AFTER_UNLOCK.equals(m)) {
+                    return "每次解锁后听 " + com.onesay.assistant.v2.wake.MicListenSettings.minutes(ctx) + " 分钟，之后停止监听";
+                }
+                return r[2];
+            }
+        }
+        return "";
+    }
+
     @Override void build(LinearLayout col) {
         final ConsoleKit k = c.kit;
         if (mode == MODE_READ) {
@@ -88,6 +150,8 @@ final class VoicePage extends Console.BuiltPage {
         });
         if (!vp.isActive()) refreshVp();
         }
+
+        if (mode != MODE_FEEL) buildMicListen(col);   // ★ mic-1118：唤醒词什么时候开麦
 
         final WakeTuning tuning = WakeTuning.get(c.act);
         if (mode != MODE_BASIC) {

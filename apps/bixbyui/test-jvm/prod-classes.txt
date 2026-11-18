@@ -734,3 +734,4 @@ com/onesay/assistant/v2/whitelist/PrivacyScan.java
 com/onesay/assistant/v2/whitelist/ActionPolicy.java
 com/onesay/assistant/v2/whitelist/WhitelistState.java
 com/onesay/assistant/v2/whitelist/PhoneWhitelistGate.java
+com/onesay/assistant/v2/wake/MicListenPolicy.java
