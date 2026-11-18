@@ -133,14 +133,14 @@ public class ChatAgent1118Test {
         assertEquals(ChatAgent.MAX_REPEAT - 1, ex.calls.size());
     }
 
-    @Test public void stepLimitAsksToContinue() {
+    /** [approvals-1118] 没有步数上限：40 步照样做完（以前 15 步就停下要「继续」）。 */
+    @Test public void noStepLimitTaskRunsToTheEnd() {
         AtomicInteger n = new AtomicInteger();
-        ChatAgent.Brain b = (m, t) -> call("c" + n.get(), "run_command", "{\"command\":\"Get-Date -Format " + n.incrementAndGet() + "\"}");
+        ChatAgent.Brain b = (m, t) -> n.get() >= 40 ? say("全部做完了") : call("c" + n.get(), "run_command", "{\"command\":\"Get-Date -Format " + n.incrementAndGet() + "\"}");
         Rec ex = new Rec();
         ChatAgent.Outcome o = new ChatAgent().run(ctx("x"), b, ex, t -> { });
-        assertEquals("max_steps", o.status);
-        assertEquals(ChatAgent.MAX_STEPS, ex.calls.size());
-        assertTrue(o.text.contains("继续"));
+        assertEquals("done", o.status);
+        assertEquals(40, ex.calls.size());
     }
 
     @Test public void cancelStops() {
@@ -177,7 +177,10 @@ public class ChatAgent1118Test {
         assertNull(ChatAgent.map(new Llm.ToolCall("1", "run_command", "{\"command\":\"  \"}")));
         List<String> names = new ArrayList<>();
         for (Map<String, Object> t : ChatAgent.tools()) names.add(String.valueOf(((Map<?, ?>) t.get("function")).get("name")));
-        assertEquals(List.of("run_command", "open_url", "write_file"), names);
+        assertEquals(List.of("run_command", "open_url", "open_app", "write_file"), names);
+        // [approvals-1118] 每个工具都要 description（任务卡上的进度说明）
+        for (Map<String, Object> t : ChatAgent.tools()) assertTrue(String.valueOf(((Map<?, ?>) ((Map<?, ?>) t.get("function")).get("parameters")).get("required")).contains("description"));
+        assertEquals("open_app", ChatAgent.map(new Llm.ToolCall("1", "open_app", "{\"description\":\"打开 MuMu\",\"name\":\"MuMu模拟器\"}"))[0]);
     }
 
     @Test public void parseTurnReadsToolCalls() throws Exception {
@@ -203,7 +206,7 @@ public class ChatAgent1118Test {
         assertFalse(p.contains("不能直接操作电脑"));
         assertTrue(p.contains("run_command"));
         assertTrue(p.contains("不要只给教程"));
-        assertTrue(p.contains("确认框"));
+        assertTrue(p.contains("批准"));
         assertTrue(p.contains("继续"));
         for (String bad : new String[] {"Bixby", "bixby", "三星", "小布"}) assertFalse(p.contains(bad));
     }
@@ -230,14 +233,14 @@ public class ChatAgent1118Test {
         for (Map<String, Object> m : b.seen.get(1)) all.append(m.get("content")).append('|');
         assertTrue(all.toString().contains("Mindustry"));
         assertTrue(all.toString().endsWith("继续。|"));
-        // 任务步骤写进了对话（via=step），下一次「继续」能看到做到哪了
-        boolean step = false;
-        for (Map<String, Object> m : s.list("chat")) if ("step".equals(m.get("via"))) step = true;
-        assertTrue(step);
+        // [approvals-1118] 任务步骤写进任务卡（via=task，「继续」接着同一张卡），下一次「继续」能看到做到哪了
+        int cards = 0;
+        for (Map<String, Object> m : s.list("chat")) if ("task".equals(m.get("via"))) cards++;
+        assertEquals("「继续」接着同一张任务卡", 1, cards);
         List<Map<String, Object>> c2 = ch.context();
         StringBuilder all2 = new StringBuilder();
         for (Map<String, Object> m : c2) all2.append(m.get("content")).append('|');
-        assertTrue(all2.toString().contains("▶ 执行命令：Get-ChildItem"));
+        assertTrue(all2.toString().contains("执行命令：Get-ChildItem"));
     }
 
     @Test public void continueWithoutTaskStillControlsMedia() throws Exception {
@@ -386,20 +389,26 @@ public class ChatAgent1118Test {
         PcGuard.Outcome remote = new PcGuard(cfg(), rs).check("phone-x", "sys_exec", new TreeMap<>(Map.of("command", dl)));
         assertNotNull(remote.reply);
         assertEquals(LinkPolicy.R_PLUGIN_BLOCKED, remote.reply.data.get("reason"));
-        // 本机对话：改成确认，卡上写「要联网」，不给「以后这类不用问」
+        // [approvals-1118] 本机对话（默认预设）：改成确认，卡上写「要联网」；下载命令不给按前缀记住（会放行下载到任何位置）
         Stub st = new Stub();
         PcGuard.Outcome o = localCheck(new PcGuard(cfg(), st), dl);
         assertNotNull(o.pass);
         assertEquals(1, st.asked.size());
         assertTrue(st.asked.get(0).contains("联网"));
-        assertTrue("联网这类不能记住", st.kinds.isEmpty() || st.kinds.get(0).isEmpty());
-        // 审批「从不询问」：照旧拒绝
+        assertTrue("下载不按前缀记住", st.kinds.isEmpty() || !st.kinds.get(0).startsWith("prefix:"));
+        // 完全访问预设：不问
+        Config full = cfg();
+        full.chatPreset = "full";
+        Stub sf = new Stub();
+        PcGuard.Outcome n = localCheck(new PcGuard(full, sf), dl);
+        assertNotNull(n.pass);
+        assertTrue(sf.asked.isEmpty());
+        // 手机远程的「从不询问」不影响本机对话（本机对话只看对话预设）
         Config never = cfg();
         never.pcApproval = "never";
         Stub sn = new Stub();
-        PcGuard.Outcome n = localCheck(new PcGuard(never, sn), dl);
-        assertNotNull(n.reply);
-        assertTrue(sn.asked.isEmpty());
+        assertNotNull(localCheck(new PcGuard(never, sn), dl).pass);
+        assertEquals(1, sn.asked.size());
     }
 
     @Test public void localHardRulesStillHold() throws Exception {
@@ -431,19 +440,23 @@ public class ChatAgent1118Test {
         Actions.Result w = a.runLocal("file_write", new TreeMap<>(Map.of("path", "notes/a.txt", "text", "hi")));
         assertTrue(w.text, w.ok);
         assertEquals("hi", Files.readString(Path.of(c.workspaceDir, "notes", "a.txt"), StandardCharsets.UTF_8));
-        // OneSay 是管理员时（整个登录会话就是管理员）：只读照常直接做；改动类每一步确认，卡上写明带管理员权限，且不能记住
+        // OneSay 是管理员时（整个登录会话就是管理员）：只读照常直接做；工作区里写直接做（[approvals-1118] 不再一律确认）；
+        // 要确认的那步卡上写明带管理员权限，但可以按前缀记住（用户要求：管理员会话里也能「以后不用问」，硬规则照旧）
         SafeExec.reset(() -> true, null);
         Stub st2 = new Stub();
         a.guard.confirmer = st2;
         Actions.Result e = a.runLocal("sys_exec", new TreeMap<>(Map.of("command", "Get-ChildItem $HOME")));
         assertNotEquals("不再一律拒绝", LinkPolicy.R_PLUGIN_BLOCKED, e.data == null ? null : e.data.get("reason"));
         assertTrue("只读不弹确认", st2.asked.isEmpty());
-        st2.answer = PcGuard.DENY;
         Actions.Result w2 = a.runLocal("file_write", new TreeMap<>(Map.of("path", "notes/b.txt", "text", "hi")));
-        assertFalse(w2.ok);
+        assertTrue(w2.text, w2.ok);
+        assertTrue("工作区里写不问", st2.asked.isEmpty());
+        st2.answer = PcGuard.DENY;
+        Actions.Result w3 = a.runLocal("sys_exec", new TreeMap<>(Map.of("command", "winget install --id Some.App")));
+        assertFalse(w3.ok);
         assertEquals(1, st2.asked.size());
         assertTrue(st2.asked.get(0).contains("管理员权限"));
-        assertTrue("管理员下不能记住", st2.kinds.isEmpty() || st2.kinds.get(0).isEmpty());
+        assertTrue("管理员下也能按前缀记住", st2.kinds.get(0).startsWith("prefix:"));
         Actions.Result up = a.runLocal("sys_exec", new TreeMap<>(Map.of("command", "Start-Process cmd -Verb RunAs")));
         assertEquals("提权照旧拦", LinkPolicy.R_PLUGIN_BLOCKED, up.data.get("reason"));
         // 手机远程照旧：管理员时降不了权就拒（不变）
@@ -572,8 +585,11 @@ public class ChatAgent1118Test {
         for (Map<String, Object> t : ChatAgent.tools()) assertTrue(p.contains(String.valueOf(((Map<?, ?>) t.get("function")).get("name"))));
         assertTrue(p.contains("工作区可写"));
         assertTrue(p.contains("不是不做的理由"));
-        assertTrue("提示只读查询写成单条简单命令", p.contains("单条简单命令"));
-        assertTrue(p.contains("确认框"));
+        assertTrue("提示只读查询写成简单命令", p.contains("简单命令"));
+        assertTrue(p.contains("description"));
+        String dp = ChatAgent.systemPrompt("now", "C:\\ws", "C:\\Users\\a", "", ChatPolicy.Preset.DEFAULT);
+        assertTrue(dp.contains("权限预设：默认"));
+        assertTrue(ChatAgent.systemPrompt("n", "w", "h", "", ChatPolicy.Preset.FULL).contains("完全访问"));
         String never = ChatAgent.policyLine(new LinkPolicy.Mode(LinkPolicy.Sandbox.WORKSPACE_WRITE, LinkPolicy.Approval.NEVER));
         assertTrue(never.contains("直接拒绝"));
         assertFalse(never.contains("弹确认框交给用户"));

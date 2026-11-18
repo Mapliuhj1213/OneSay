@@ -60,6 +60,12 @@ public final class Config {
     public String approveKinds = "";
     public String shortcutApprovals = ""; // 手机触发快捷指令「以后直接执行」的批准表：id=内容哈希,...（LinkPolicy.parseApprovals）
     public String trusted = "";       // 手机让电脑打开网址时的信任域名，逗号分隔
+    /** [approvals-1118] 本机对话的权限预设：read_only 只读 / default 默认 / full 完全访问（ChatPolicy.Preset）；只在电脑界面上改。 */
+    public String chatPreset = "default";
+    /** [approvals-1118] 本机对话「以后以 … 开头的命令不用问」的前缀规则（JSON 数组的数组，ChatPolicy.parseRules）；只在电脑界面上能看 / 撤销。 */
+    public String chatAllowPrefixes = "";
+    /** [approvals-1118] 本机对话一个任务最长跑多少分钟（兜底；没有步数上限）。 */
+    public int chatTimeoutMin = ChatAgent.DEFAULT_TIMEOUT_MIN;
     public String workspaceDir = "";
     /** 链接下载：默认清晰度 best / 1080 / 720（MediaArgs.quality）。 */
     public String mediaQuality = "best";
@@ -128,6 +134,9 @@ public final class Config {
         c.trusted = p.getProperty("trusted_domains", "").trim();
         c.shortcutApprovals = LinkPolicy.formatApprovals(LinkPolicy.parseApprovals(p.getProperty("shortcut_approvals", "")));
         c.approveKinds = LinkPolicy.formatKinds(LinkPolicy.parseKinds(p.getProperty("approve_kinds", "")));
+        c.chatPreset = ChatPolicy.Preset.of(p.getProperty("chat_preset", "default")).id;
+        try { c.chatTimeoutMin = Math.max(5, Math.min(1440, Integer.parseInt(p.getProperty("chat_timeout_min", "" + ChatAgent.DEFAULT_TIMEOUT_MIN).trim()))); } catch (NumberFormatException e) { c.chatTimeoutMin = ChatAgent.DEFAULT_TIMEOUT_MIN; }
+        c.chatAllowPrefixes = ChatPolicy.formatRules(ChatPolicy.parseRules(p.getProperty("chat_allow_prefixes", "")));
         c.workspaceDir = p.getProperty("workspace_dir", "").trim();
         c.mediaQuality = MediaArgs.quality(p.getProperty("media_quality", "best"));
         c.mediaDir = p.getProperty("media_dir", "").trim();
@@ -191,6 +200,9 @@ public final class Config {
         p.setProperty("trusted_domains", trusted);
         p.setProperty("shortcut_approvals", shortcutApprovals);
         p.setProperty("approve_kinds", approveKinds);
+        p.setProperty("chat_preset", ChatPolicy.Preset.of(chatPreset).id);
+        p.setProperty("chat_timeout_min", String.valueOf(chatTimeoutMin));
+        p.setProperty("chat_allow_prefixes", chatAllowPrefixes == null ? "" : chatAllowPrefixes);
         p.setProperty("workspace_dir", workspaceDir);
         p.setProperty("media_quality", MediaArgs.quality(mediaQuality));
         p.setProperty("media_dir", mediaDir);

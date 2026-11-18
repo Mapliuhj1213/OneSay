@@ -37,8 +37,15 @@ public final class Chat {
     /** 测试用：换掉大模型（null = 按设置连 {@link Llm}）。 */
     volatile ChatAgent.Brain brain;
     /** 正在跑的任务（界面「停止」用）。 */
-    private final ChatAgent agent = new ChatAgent();
+    final ChatAgent agent = new ChatAgent();
     private volatile boolean running;
+    /** [approvals-1118] 当前 / 上一个任务的 id 和任务卡消息 id（「继续」接着同一个任务、同一张卡）。 */
+    volatile String taskId = "", taskCard = "";
+    /** 新任务开始（App 接到 PcGuard.taskStarted：上一个任务的批准不带过来）。 */
+    public volatile Consumer<String> onTaskStart = t -> { };
+    /** 任务进行中发来、还没交给模型的消息 id（先进先出，和 agent.inbox 对应）。 */
+    private final java.util.concurrent.ConcurrentLinkedQueue<String> queuedIds = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private final Object queueLock = new Object();
     /** 「继续」算接着上一件事：上一条助手回复是模型 / 任务的，且不超过这么久。 */
     static final long CONTINUE_WINDOW_MS = 60L * 60 * 1000;
     /** 工作区、用户目录（写进系统提示）。 */
@@ -50,6 +57,11 @@ public final class Chat {
         this.actions = actions;
         this.shortcuts = shortcuts;
         this.log = log;
+        agent.preset = () -> ChatPolicy.Preset.of(cfg.chatPreset);
+        agent.delivered = x -> {
+            String id = queuedIds.poll();
+            if (id != null) store.update("chat", id, Map.of("queued", false));
+        };
     }
 
     private Map<String, Object> add(String role, String text, String via) {
@@ -61,12 +73,34 @@ public final class Chat {
         return store.add("chat", m, Store.MAX_CHAT);
     }
 
-    /** 处理一句话（打字或语音转来的），返回助手回复那一条。 */
-    public synchronized Map<String, Object> send(String text, String via) {
+    /**
+     * 处理一句话（打字或语音转来的），返回助手回复那一条。
+     * [approvals-1118] 任务进行中发来的不再卡住：立刻记进对话（标「已收到，下一步处理」）并排进任务，下一步之前交给模型；「停」直接停。
+     */
+    public Map<String, Object> send(String text, String via) {
         text = text == null ? "" : text.trim();
         if (text.isEmpty()) return add("assistant", "没收到内容", null);
         if (text.length() > 4000) text = text.substring(0, 4000);
-        add("user", text, via);
+        synchronized (queueLock) {
+            if (running) {
+                Map<String, Object> u = new TreeMap<>();
+                u.put("role", "user");
+                u.put("text", text);
+                u.put("at", System.currentTimeMillis());
+                u.put("queued", true);
+                if (via != null) u.put("via", via);
+                Map<String, Object> m = store.add("chat", u, Store.MAX_CHAT);
+                queuedIds.add(String.valueOf(m.get("id")));
+                agent.inbox.add(text);
+                if (ChatAgent.stopWord(text)) agent.cancel.set(true);
+                return m;
+            }
+        }
+        return handle(text, via, true);
+    }
+
+    private synchronized Map<String, Object> handle(String text, String via, boolean addUser) {
+        if (addUser) add("user", text, via);
 
         Llm llm0 = Llm.from(cfg);
         boolean modelOk = brain != null || llm0.ready();
@@ -126,16 +160,50 @@ public final class Chat {
                         return new Llm.Turn(llm.chat(m2, 0.7, 60) + "\n\n（当前模型服务不支持工具调用，这次没法替你在电脑上执行。换成 DeepSeek / 百炼等支持工具调用的模型后可以直接做。）", List.of(), Llm.msg("assistant", ""));
                     }
                 };
-                running = true;
+                synchronized (queueLock) { running = true; }
                 ChatAgent.Outcome o;
+                String card = startTask(cont);
+                agent.timeoutMs = Math.max(5, Math.min(24 * 60, cfg.chatTimeoutMin)) * 60_000L;
+                PcGuard.TASK.set(taskId);
+                List<String> leftovers = new ArrayList<>();
                 try {
-                    o = agent.run(context(), b, pcExec, t -> add("assistant", t, "step"));
+                    o = agent.run(context(), b, pcExec, new CardSteps(card));
                 } finally {
-                    running = false;
+                    PcGuard.TASK.set("");
+                    synchronized (queueLock) {
+                        running = false;
+                        for (String x; (x = agent.inbox.poll()) != null; ) leftovers.add(x);
+                    }
                 }
                 log.accept("对话任务结束：" + o.status + "（" + o.steps + " 步）");
                 reply = o.text;
-                if ("error".equals(o.status) && o.steps == 0) return add("assistant", reply, "error");
+                Map<String, Object> cardNow = store.find("chat", card);
+                Object stl = cardNow == null ? null : cardNow.get("steps");
+                if ("error".equals(o.status) && o.steps == 0 && (!(stl instanceof List) || ((List<?>) stl).isEmpty()) && leftovers.isEmpty()) {
+                    store.remove("chat", card); // 第一轮模型就出错：一条报错消息，不留空任务卡
+                    taskCard = "";
+                    return add("assistant", reply, "error");
+                }
+                Map<String, Object> patch = new TreeMap<>();
+                patch.put("state", o.status);
+                patch.put("answer", reply);
+                patch.put("ended_at", System.currentTimeMillis());
+                store.update("chat", card, patch);
+                turnsSinceMemory++;
+                if (brain == null) maybeUpdateMemory(llm);
+                // 任务结束时还没交给模型的话：按顺序当新消息处理（不丢）
+                if (!leftovers.isEmpty()) {
+                    List<String> ids = new ArrayList<>();
+                    for (int i = 0; i < leftovers.size(); i++) { String id = queuedIds.poll(); if (id != null) ids.add(id); }
+                    new Thread(() -> {
+                        for (int i = 0; i < leftovers.size(); i++) {
+                            if (i < ids.size()) store.update("chat", ids.get(i), Map.of("queued", false));
+                            if (ChatAgent.stopWord(leftovers.get(i))) continue;
+                            handle(leftovers.get(i), "text", false);
+                        }
+                    }, "onesay-chat-queued").start();
+                }
+                return store.find("chat", card);
             } else {
                 reply = llm.chat(context(), 0.7, 60);
             }
@@ -146,6 +214,119 @@ public final class Chat {
         } catch (Exception e) {
             return add("assistant", e.getMessage() == null ? "大模型出错" : e.getMessage(), "error");
         }
+    }
+
+    /** 开始（或「继续」接着）一个任务：返回任务卡消息 id。 */
+    String startTask(boolean cont) {
+        Map<String, Object> old = cont && !taskCard.isEmpty() ? store.find("chat", taskCard) : null;
+        if (old != null) {
+            store.update("chat", taskCard, Map.of("state", "running", "answer", ""));
+            return taskCard;
+        }
+        taskId = "t" + Long.toString(System.currentTimeMillis(), 36);
+        try { onTaskStart.accept(taskId); } catch (RuntimeException ignored) { }
+        String title = "";
+        List<Map<String, Object>> all = store.list("chat");
+        for (int i = all.size() - 1; i >= 0; i--) if ("user".equals(all.get(i).get("role"))) { title = String.valueOf(all.get(i).get("text")); break; }
+        Map<String, Object> m = new TreeMap<>();
+        m.put("role", "assistant");
+        m.put("via", "task");
+        m.put("task", taskId);
+        m.put("title", title.length() > 60 ? title.substring(0, 60) + "…" : title);
+        m.put("state", "running");
+        m.put("steps", new ArrayList<Object>());
+        m.put("text", "");
+        m.put("at", System.currentTimeMillis());
+        taskCard = String.valueOf(store.add("chat", m, Store.MAX_CHAT).get("id"));
+        return taskCard;
+    }
+
+    /** 把一步步进展写进任务卡（界面每次刷新都读得到）。 */
+    final class CardSteps implements ChatAgent.Steps {
+        final String card;
+
+        CardSteps(String card) { this.card = card; }
+
+        @Override public void add(String text) { }
+
+        @SuppressWarnings("unchecked")
+        @Override public void step(Map<String, Object> ev) {
+            Map<String, Object> c = store.find("chat", card);
+            if (c == null) return;
+            List<Object> steps = new ArrayList<>(c.get("steps") instanceof List ? (List<Object>) c.get("steps") : List.of());
+            String phase = String.valueOf(ev.get("phase"));
+            Map<String, Object> st = new TreeMap<>();
+            if ("note".equals(phase)) {
+                st.put("kind", "note");
+                st.put("desc", ev.get("desc"));
+                steps.add(st);
+            } else if ("start".equals(phase)) {
+                st.put("kind", "step");
+                st.putAll(ev);
+                st.put("state", "run");
+                st.put("started", System.currentTimeMillis());
+                steps.add(st);
+            } else {
+                // done：改最后一条同号的步骤
+                for (int i = steps.size() - 1; i >= 0; i--) {
+                    Map<String, Object> x = (Map<String, Object>) steps.get(i);
+                    if ("step".equals(x.get("kind")) && String.valueOf(ev.get("n")).equals(String.valueOf(x.get("n")))) {
+                        Map<String, Object> y = new TreeMap<>(x);
+                        y.putAll(ev);
+                        y.put("state", Boolean.TRUE.equals(ev.get("ok")) ? "ok" : "fail");
+                        steps.set(i, y);
+                        st = null;
+                        break;
+                    }
+                }
+                if (st != null) {
+                    st.put("kind", "step");
+                    st.putAll(ev);
+                    st.put("state", Boolean.TRUE.equals(ev.get("ok")) ? "ok" : "fail");
+                    steps.add(st);
+                }
+            }
+            while (steps.size() > 200) steps.remove(0);
+            store.update("chat", card, Map.of("steps", steps));
+        }
+    }
+
+    /** 任务卡里真实执行过的步骤，作为程序记录（用户角色、明确标注）。没有步骤返回空串。 */
+    @SuppressWarnings("unchecked")
+    static String cardRecord(Map<String, Object> m) {
+        StringBuilder b = new StringBuilder();
+        Object st = m.get("steps");
+        int n = 0;
+        if (st instanceof List) for (Object o : (List<Object>) st) {
+            if (!(o instanceof Map)) continue;
+            Map<String, Object> x = (Map<String, Object>) o;
+            if (!"step".equals(x.get("kind"))) continue;
+            n++;
+            String s = String.valueOf(x.getOrDefault("state", ""));
+            b.append(n).append(". ").append(x.get("desc")).append(" —— ").append(x.get("detail")).append(" —— ")
+                    .append(s.equals("ok") ? "成功" : s.equals("fail") ? "失败" : "没做完").append("：").append(x.getOrDefault("summary", "")).append('\n');
+        }
+        if (n == 0) return "";
+        return "（OneSay 程序记录，不是用户说的话：任务「" + m.getOrDefault("title", "") + "」实际执行过的步骤，状态 " + m.getOrDefault("state", "") + "）\n" + b;
+    }
+
+    /** 任务卡给模型看的样子：每步一行（▶ 说明 ✓/✗ 结论）+ 最后的答复。 */
+    @SuppressWarnings("unchecked")
+    static String cardText(Map<String, Object> m) {
+        StringBuilder b = new StringBuilder();
+        Object st = m.get("steps");
+        if (st instanceof List) for (Object o : (List<Object>) st) {
+            if (!(o instanceof Map)) continue;
+            Map<String, Object> x = (Map<String, Object>) o;
+            if (!"step".equals(x.get("kind"))) continue;
+            b.append("▶ ").append(x.get("desc")).append("（").append(x.get("detail")).append("）");
+            String s = String.valueOf(x.getOrDefault("state", ""));
+            b.append(s.equals("ok") ? " ✓ " : s.equals("fail") ? " ✗ " : " … ").append(x.getOrDefault("summary", "")).append('\n');
+        }
+        Object a = m.get("answer");
+        if (a != null && !String.valueOf(a).isBlank()) b.append(a);
+        else b.append("（任务状态：").append(m.getOrDefault("state", "")).append("）");
+        return b.toString();
     }
 
     /** 界面「停止」：正在跑的任务做完当前这一步就停。 */
@@ -194,7 +375,7 @@ public final class Chat {
             String mem = String.valueOf(store.memory().getOrDefault("text", ""));
             String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm EEEE", java.util.Locale.CHINA));
             String ws = workspace == null || workspace.isEmpty() ? String.valueOf(cfg.workspace()) : workspace;
-            return ChatAgent.systemPrompt(now, ws, home, mem, cfg.mode());
+            return ChatAgent.systemPrompt(now, ws, home, mem, ChatPolicy.Preset.of(cfg.chatPreset));
         }
         return chatOnlyPrompt();
     }
@@ -221,6 +402,16 @@ public final class Chat {
             if (!user && ("cmd".equals(m.get("via")) || "error".equals(m.get("via")))) { skipUser = true; continue; }
             skipUser = false;
             if ("system".equals(m.get("role"))) continue;
+            if ("task".equals(m.get("via")) && "running".equals(m.get("state"))) continue; // 正在跑的这张卡：步骤在循环里，不重复给
+            if ("task".equals(m.get("via"))) {
+                // [approvals-1118] 任务卡：真实执行过的步骤作为「程序记录」给模型（不放进助手的嘴里，免得模型学着把步骤当文字写），再给最后的答复
+                String rec = cardRecord(m), ans = String.valueOf(m.getOrDefault("answer", ""));
+                if (used + rec.length() + ans.length() > CONTEXT_CHARS && !picked.isEmpty()) { cut = true; break; }
+                used += rec.length() + ans.length();
+                if (!ans.isBlank()) picked.add(0, Llm.msg("assistant", ans));
+                if (!rec.isEmpty()) picked.add(0, Llm.msg("user", rec));
+                continue;
+            }
             String t = String.valueOf(m.get("text"));
             if (used + t.length() > CONTEXT_CHARS && !picked.isEmpty()) { cut = true; break; }
             used += t.length();
@@ -249,6 +440,7 @@ public final class Chat {
         int start = Math.max(0, chat.size() - 30);
         for (Map<String, Object> m : chat.subList(start, chat.size())) {
             if ("cmd".equals(m.get("via")) || "error".equals(m.get("via")) || "step".equals(m.get("via"))) continue; // 任务步骤（命令和输出）不进记忆
+            if ("task".equals(m.get("via"))) { Object a = m.get("answer"); if (a == null || String.valueOf(a).isBlank()) continue; convo.append("助手：").append(a).append('\n'); continue; }
             convo.append("assistant".equals(m.get("role")) ? "助手：" : "用户：").append(m.get("text")).append('\n');
         }
         String old = String.valueOf(store.memory().getOrDefault("text", ""));

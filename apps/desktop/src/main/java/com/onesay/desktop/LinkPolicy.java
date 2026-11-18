@@ -321,7 +321,7 @@ public final class LinkPolicy {
         static Decision script(String reason, String text) { return new Decision(Verdict.SCRIPT, reason, text, false); }
 
         /** 确认卡上能不能给「以后这类不用问」：要确认、有动作类型。硬规则（拒绝 / 只生成脚本）永远不是。 */
-        public boolean rememberable() { return verdict == Verdict.CONFIRM && kind.length() > 0 && knownKind(kind); }
+        public boolean rememberable() { return verdict == Verdict.CONFIRM && kind.length() > 0 && (knownKind(kind) || ChatPolicy.validKey(kind)); }
 
         @Override public String toString() {
             return verdict + (reason.length() > 0 ? "/" + reason : "") + (headsUp ? "/heads-up" : "") + (kind.length() > 0 ? "/" + kind : "")
@@ -675,7 +675,8 @@ public final class LinkPolicy {
         return in(c, "settings", "settings_set", "config_set", "pc_level", "level_set", "set_level", "sandbox_set", "approval_set", "plugin_set", "plugin_off",
                 "trust_add", "trusted_add", "net_allow_add", "shortcut_approve", "policy_set", "remember_type", "remember_kind", "remembered_add", "approve_type",
                 "approve_types", "clip_autoclear", "rx_enable", "rx_set", "cmd_enable", "switch_set",
-                "whitelist_add", "whitelist_set", "whitelist_remove", "app_whitelist_add", "app_whitelist_set"); // [app-whitelist-1116] 白名单只能本机加删，经 whitelist_sync 同步
+                "whitelist_add", "whitelist_set", "whitelist_remove", "app_whitelist_add", "app_whitelist_set",
+                "chat_preset", "chat_preset_set", "chat_rule_add", "chat_rules"); // [approvals-1118] 本机对话的预设 / 前缀规则同样只能在电脑界面上改 // [app-whitelist-1116] 白名单只能本机加删，经 whitelist_sync 同步
     }
 
     /**
@@ -728,7 +729,7 @@ public final class LinkPolicy {
                     + "|(\\bdpm\\s+set-(active-admin|device-owner|profile-owner))|(\\bcmd\\s+device_policy\\b)"
                     + "|(\\bcmd\\s+package\\s+(grant|revoke|set-permission-flags|set-installer)\\b)" // [sync-1114 ← 手机]
                     + "|(\\bshizuku\\b)|(moe\\.shizuku)|(\\bmagisk\\b.*(--sqlite\\b|\\bpolic(y|ies)\\b))|(\\bsupolicy\\b)" // [sync-1114 ← 手机] 原 \\b--sqlite 永远匹配不上
-                    + "|(\\bAdd-MpPreference\\b)|(\\bicacls\\b)|(\\btakeown\\b)|(\\bSet-Acl\\b)|(\\bnet\\s+localgroup\\b)",
+                    + "|(\\b(Add|Set|Remove)-MpPreference\\b)|(\\bUninstall-WindowsFeature\\s+Windows-Defender)|(\\bicacls\\b)|(\\btakeown\\b)|(\\bSet-Acl\\b)|(\\bnet\\s+localgroup\\b)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PHONE_SIMPLE = Pattern.compile(
             "^\\s*(settings\\s+put\\s+system\\s+(screen_brightness|screen_brightness_mode|screen_off_timeout)\\s+\\S+"
@@ -1477,7 +1478,7 @@ public final class LinkPolicy {
                     // [fix-1114 B10] 关掉 OneSay 的其它写法：Get-Process onesay | Stop-Process、wmic … onesay … delete、Invoke-CimMethod Terminate
                     + "|(\\b(get-process|gps|ps)\\b[^|;]*onesay[^;]*\\|\\s*(stop-process|spps|kill)\\b)|(\\b(wmic|get-wmiobject|gwmi|get-ciminstance|gcim)\\b[^;]*onesay[^;]*\\b(delete|terminate)\\b)"
                     // [fix-1114 B12] OneSay 的数据目录：%APPDATA% 展开后的真实路径 AppData\Roaming\OneSay（还有 Local / LocalLow 下的 OneSay）
-                    + "|(appdata[\\\\/]onesay)|(appdata[\\\\/](roaming|local|locallow)[\\\\/]onesay\\b)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts|remembered))|(approve_kinds)|(clip_autoclear)",
+                    + "|(appdata[\\\\/]onesay)|(appdata[\\\\/](roaming|local|locallow)[\\\\/]onesay\\b)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts|remembered|chat_rules))|(approve_kinds)|(clip_autoclear)|(chat_preset)|(chat_allow_prefixes)|(\\bnet_allow\\b)",
             Pattern.CASE_INSENSITIVE);
 
     public static String selfAuthorizeReason(String normalized, List<String> selfPaths) {

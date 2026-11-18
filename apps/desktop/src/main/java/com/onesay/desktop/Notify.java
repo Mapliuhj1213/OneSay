@@ -52,5 +52,11 @@ public final class Notify {
         return saved;
     }
 
+    /** [approvals-1118] 只弹一下托盘气泡、不进通知列表（确认卡这类：通知列表只留提醒）。 */
+    public void flash(String title, String text) {
+        TrayIcon t = tray;
+        if (t != null) try { t.displayMessage(clip(title == null ? "OneSay" : title, 80), clip(text == null ? "" : text, 200), TrayIcon.MessageType.INFO); } catch (Exception ignored) { }
+    }
+
     static String clip(String s, int n) { return s.length() > n ? s.substring(0, n) + "…" : s; }
 }

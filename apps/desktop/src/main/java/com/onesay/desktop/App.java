@@ -138,10 +138,12 @@ public final class App {
         });
         setupMedia();
         setupWhitelist();
-        agent.confirms.onNew = d -> notify.post("pc", d != null && d.startsWith(ChatAgent.FROM) ? "OneSay 要在这台电脑上执行操作，需要你确认" : "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点，或在已配对手机屏幕上的确认卡上点；60 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
-        agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
+        // [approvals-1118] 确认卡不进通知列表（通知只留提醒）：只弹托盘气泡把人叫回窗口，卡片在对话 / 窗口里点；记录进「设置 › 权限记录」
+        agent.confirms.onNew = d -> notify.flash(d != null && d.startsWith(ChatAgent.FROM) ? "OneSay 等你批准这一步" : "手机请求，需要你确认", "回到 OneSay 窗口里点（60 秒不点算拒绝）");
+        agent.guard.notify = t -> { log.accept("权限：" + t); agent.guard.logPerm(t, "提醒", ""); };
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
+        chat.onTaskStart = agent.guard::taskStarted; // [approvals-1118] 新任务开始：上一个任务的「允许本次任务」不带过来
         chat.pcExec = agent::runLocal; // [chat-agent-1118] 「对话」能执行任务：同一条安全链（插件 → 矩阵 → 电脑上确认 → 凭证）
         chat.workspace = cfg.workspace().toString();
         asr = new AsrRoute(cfg);
@@ -553,6 +555,8 @@ public final class App {
         s.put("plugin_encoded", cfg.pluginEncoded);
         s.put("net_allow", cfg.netAllow);
         s.put("trusted_domains", cfg.trusted);
+        s.put("chat_preset", ChatPolicy.Preset.of(cfg.chatPreset).id);
+        s.put("chat_timeout_min", (long) cfg.chatTimeoutMin);
         s.put("media_quality", MediaArgs.quality(cfg.mediaQuality));
         return s;
     }
@@ -587,6 +591,10 @@ public final class App {
             s.put("shortcut_policy", agent.guard.shortcutView());
             s.put("shortcut_approvals", agent.guard.approvalView());
             s.put("remembered", agent.guard.rememberedView());
+            s.put("chat_rules", ChatPolicy.view(agent.guard.chatRules()));
+            s.put("perm_log", agent.guard.permLogView());
+            s.put("grants", agent.guard.grantView());
+            s.put("chat_preset", ChatPolicy.Preset.of(cfg.chatPreset).id);
             if (whitelist != null) { s.put("whitelist", whitelist.view()); s.put("whitelist_broken", whitelist.broken()); }
             s.put("workspace", cfg.workspace().toString());
             s.put("media", mediaState());
@@ -678,6 +686,24 @@ public final class App {
             m.put("remembered", agent.guard.rememberedView());
             return m;
         });
+        // [approvals-1118] 本机对话：前缀规则（以后以 … 开头的命令不用问）看 / 撤销；任务 / 运行级批准撤销；权限记录
+        ui.on("chat_rules", b -> {
+            String op = str(b, "op", "list");
+            if (op.equals("revoke")) {
+                String k = str(b, "key", "");
+                if (!agent.guard.forgetRule(k)) return fail("没有这条规则");
+                agent.guard.logPerm(ChatPolicy.keyZh(k), "撤销", "");
+                log.accept("撤销了对话前缀规则：" + k);
+            } else if (op.equals("revoke_grants")) {
+                agent.guard.revokeGrants();
+                agent.guard.logPerm("「允许本次任务 / 这次运行都允许」", "撤销", "");
+            } else if (!op.equals("list")) return fail("不认识的操作");
+            Map<String, Object> m = ok(op.equals("list") ? "对话规则" : "已撤销，下次会再问你");
+            m.put("chat_rules", ChatPolicy.view(agent.guard.chatRules()));
+            m.put("grants", agent.guard.grantView());
+            m.put("perm_log", agent.guard.permLogView());
+            return m;
+        });
         // 快捷指令批准表：看 / 撤销（批准只能在手机触发时的确认里点「以后直接执行」）
         ui.on("shortcuts", b -> {
             String op = str(b, "op", "list");
@@ -753,6 +779,17 @@ public final class App {
                     case "plugin_encoded": cfg.pluginEncoded = v.equals("true"); log.accept("编码 / 隐藏命令拦截 → " + (cfg.pluginEncoded ? "开" : "关")); break;
                     case "net_allow": cfg.netAllow = String.join(",", LinkPolicy.parseDomains(v)); break;
                     case "trusted_domains": cfg.trusted = String.join(",", LinkPolicy.parseDomains(v)); break;
+                    case "chat_preset": {
+                        ChatPolicy.Preset np = ChatPolicy.Preset.of(v);
+                        if (!np.id.equals(cfg.chatPreset)) {
+                            cfg.chatPreset = np.id;
+                            agent.guard.revokeGrants(); // 改预设：之前的任务 / 运行级批准作废
+                            agent.guard.logPerm("对话权限预设 → " + np.zh, "设置", "");
+                            log.accept("对话权限预设 → " + np.zh);
+                        }
+                        break;
+                    }
+                    case "chat_timeout_min": try { cfg.chatTimeoutMin = Math.max(5, Math.min(1440, Integer.parseInt(v))); } catch (NumberFormatException nfe) { return fail("时长写分钟数"); } break;
                     case "autostart": autostart(v.equals("true")); break;
                     case "media_quality": cfg.mediaQuality = MediaArgs.quality(v); break;
                     default: break;
@@ -810,12 +847,13 @@ public final class App {
         boolean allow = Boolean.TRUE.equals(b.get("allow"));
         boolean always = allow && Boolean.TRUE.equals(b.get("always"));
         boolean remember = allow && !always && Boolean.TRUE.equals(b.get("remember"));
+        String scope = allow ? str(b, "scope", "") : "";
         ConfirmGate.Input in = Boolean.TRUE.equals(b.get("trusted")) ? ConfirmGate.Input.of(b.get("input")) : ConfirmGate.Input.UNKNOWN;
-        ConfirmGate.Answer a = cf.answer(((Number) id).intValue(), allow, always, remember, in);
+        ConfirmGate.Answer a = cf.answer(((Number) id).intValue(), allow, always, remember, scope, in);
         switch (a) {
             case ACCEPTED:
                 log.accept((allow ? (always ? "允许（以后直接执行）" : remember ? "允许（以后这类不用问）" : "允许") : "拒绝") + "了一条远程请求（" + (in.local() ? (in == ConfirmGate.Input.KEYBOARD ? "键盘" : "鼠标") : "界面") + "）");
-                return ok(allow ? (always ? "已允许，以后直接执行" : remember ? "已允许，以后这类不用问" : "已允许一次") : "已拒绝");
+                return ok(allow ? ("task".equals(scope) ? "已允许本次任务" : "session".equals(scope) ? "这次运行都允许" : always ? "已允许，以后直接执行" : remember ? "已允许，以后这类不用问" : "已允许一次") : "已拒绝");
             case NOT_LOCAL: {
                 log.accept("一条不是本机鼠标 / 键盘的「允许」没算数：" + LinkPolicy.R_VOICE_APPROVAL_BLOCKED);
                 Map<String, Object> f = fail(LinkPolicy.reasonZh(LinkPolicy.R_VOICE_APPROVAL_BLOCKED));

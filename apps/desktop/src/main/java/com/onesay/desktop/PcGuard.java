@@ -38,6 +38,8 @@ public final class PcGuard {
     public static final long CONFIRM_MS = LinkPolicy.CONFIRM_TIMEOUT_MS;
     /** 确认结果：ALWAYS = 快捷指令「以后直接执行」；REMEMBER = 允许并「以后这类不用问」（按动作类型）。 */
     public static final int ALLOW = 1, DENY = 0, TIMEOUT = -1, ALWAYS = 2, REMEMBER = 3;
+    /** [approvals-1118] 「允许本次任务」/「这次运行都允许」（只在本机对话的确认卡上给）。 */
+    public static final int TASK_ALLOW = 4, SESSION_ALLOW = 5;
     /** 快捷指令文件太大就不认（正常的快捷指令只有几 KB）。 */
     public static final long SHORTCUT_MAX = 256 * 1024;
 
@@ -53,6 +55,11 @@ public final class PcGuard {
         /** rememberKind 非空：确认框多一个「以后这类不用问」勾选，勾了并允许返回 {@link #REMEMBER}。 */
         default int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways, String rememberKind) {
             return ask(from, cmd, detail, timeoutMs, offerAlways);
+        }
+
+        /** [approvals-1118] offerTask：多给「允许本次任务」「这次运行都允许」，选了返回 {@link #TASK_ALLOW} / {@link #SESSION_ALLOW}。 */
+        default int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways, String rememberKind, boolean offerTask) {
+            return ask(from, cmd, detail, timeoutMs, offerAlways, rememberKind);
         }
     }
 
@@ -137,9 +144,13 @@ public final class PcGuard {
         }
 
         @Override public int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways, String rememberKind) {
+            return ask(from, cmd, detail, timeoutMs, offerAlways, rememberKind, false);
+        }
+
+        @Override public int ask(String from, String cmd, String detail, long timeoutMs, boolean offerAlways, String rememberKind, boolean offerTask) {
             int id = seq.getAndIncrement();
             long t0 = now();
-            String rk = rememberKind != null && LinkPolicy.knownKind(rememberKind) ? rememberKind : "";
+            String rk = rememberKind != null && (LinkPolicy.knownKind(rememberKind) || ChatPolicy.validKey(rememberKind)) ? rememberKind : "";
             Map<String, Object> info = new TreeMap<>();
             info.put("id", (long) id);
             info.put("from", from);
@@ -149,7 +160,9 @@ public final class PcGuard {
             info.put("always", offerAlways);
             info.put("arm_ms", ConfirmGate.ARM_MS);
             info.put("remember_kind", rk);
-            info.put("remember_zh", rk.isEmpty() ? "" : LinkPolicy.kindZh(rk));
+            info.put("remember_zh", rk.isEmpty() ? "" : ChatPolicy.validKey(rk) ? ChatPolicy.keyZh(rk) : LinkPolicy.kindZh(rk));
+            info.put("task_scope", offerTask);
+            info.put("task", TASK.get() == null ? "" : TASK.get());
             Pending p = new Pending(info, new ConfirmGate(t0, timeoutMs));
             pending.put(id, p);
             byte[] tk = new byte[18];
@@ -208,10 +221,22 @@ public final class PcGuard {
 
         /** 同上；remember = 勾了「以后这类不用问」（只在这条给了这个勾选、且是允许时算数）。 */
         public ConfirmGate.Answer answer(int id, boolean allow, boolean always, boolean remember, ConfirmGate.Input in) {
+            return answer(id, allow, always, remember, "", in);
+        }
+
+        /** [approvals-1118] scope = "task"（允许本次任务）/ "session"（这次运行都允许）/ 空（允许一次）；只在这条给了时算数。 */
+        public ConfirmGate.Answer answer(int id, boolean allow, boolean always, boolean remember, String scope, ConfirmGate.Input in) {
             Pending p = pending.get(id);
             if (p == null) return ConfirmGate.Answer.GONE;
             ConfirmGate.Answer a = p.gate.check(now(), allow, in);
             if (a != ConfirmGate.Answer.ACCEPTED) return a;
+            if (allow && Boolean.TRUE.equals(p.info.get("task_scope")) && ("task".equals(scope) || "session".equals(scope))) {
+                int v = "task".equals(scope) ? TASK_ALLOW : SESSION_ALLOW;
+                if (!p.res.compareAndSet(PENDING, v)) return ConfirmGate.Answer.GONE;
+                pending.remove(id);
+                p.latch.countDown();
+                return ConfirmGate.Answer.ACCEPTED;
+            }
             return finish(id, p, allow, always, remember);
         }
 
@@ -304,6 +329,10 @@ public final class PcGuard {
         public boolean whitelisted;
         /** [app-whitelist-1116] 分层策略这一步的结论（null = 没过白名单相关的层；测试 / 日志用）。 */
         public ActionPolicy.Decision layered;
+        /** [approvals-1118] 本机对话：执行成功后要记成「对话自己建的」的路径（新建的文件 / 目录）。 */
+        public List<String> creates = List.of();
+        /** [approvals-1118] 本机对话：确认卡上多写的一句（要联网 / 改已有文件 / 只读预设）。 */
+        public String localNote = "";
     }
 
     private final Config cfg;
@@ -429,21 +458,45 @@ public final class PcGuard {
             if (sc != null) a.put("_sha256", f.shortcutHash); // 执行前再核对一次，防判定后文件被换掉
         }
         LinkPolicy.Hit hit = plugin(cmd, a);
+        boolean loc = local();
+        ChatPolicy.Preset preset = loc ? chatPreset() : null;
+        LinkPolicy.Mode mode = loc ? ChatPolicy.mode(preset) : cfg.mode();
+        String netNote = "";
+        PathScope.Plan plan = null;
+        List<String> ruleHit = null;
         if (hit != null) {
             f.pluginBlocked = hit.text;
             f.pluginReason = hit.code;
-        } else if (local() && "sys_exec".equals(cmd) && cfg.mode().sandbox != LinkPolicy.Sandbox.FULL_ACCESS) {
-            // [chat-agent-1118] 本机对话：沙箱断网拦的下载命令 → 每次确认（不能记住），卡上写清楚要联网
-            String nr = LinkPolicy.netReason(LinkPolicy.normalizeCommand(str(a, "command")), rules().netAllow);
-            if (!nr.isEmpty()) f.suspect = (f.suspect == null || f.suspect.isEmpty() ? "" : f.suspect + "；") + "这条命令要联网（" + nr + "），这一次要你确认";
+        } else if (loc) {
+            // [approvals-1118] 本机对话：8.3 短名照旧算可疑；联网不再一律「每次确认、不能记住」，交给下面按预设判
+            String command = str(a, "command");
+            if ("sys_exec".equals(cmd)) f.suspect = LinkPolicy.shortNameReason(command, false);
+            if ("sys_exec".equals(cmd) && mode.sandbox != LinkPolicy.Sandbox.FULL_ACCESS) {
+                String norm = LinkPolicy.normalizeCommand(command);
+                netNote = LinkPolicy.netReason(norm, rules().netAllow);
+                if (netNote.isEmpty()) netNote = LinkPolicy.netMaybeReason(norm, rules().netAllow);
+                // 只读查询（UNC 共享、nslookup…）和只读预设：要联网的照旧每次确认、不能记住
+                if (!netNote.isEmpty() && (cat == LinkPolicy.Cat.QUERY || preset == ChatPolicy.Preset.READ_ONLY))
+                    f.suspect = (f.suspect.isEmpty() ? "" : f.suspect + "；") + "这条命令要联网（" + netNote + "）";
+            }
+            if (preset == ChatPolicy.Preset.DEFAULT) {
+                PathScope.Env env = pathEnv();
+                if ("sys_exec".equals(cmd) && cat == LinkPolicy.Cat.SHELL_EXEC) {
+                    plan = PathScope.analyze(command, env);
+                    if (!plan.ok) {
+                        plan = null;
+                        ruleHit = ChatPolicy.matches(command, chatRules());
+                    }
+                } else if ("file_write".equals(cmd) && cat == LinkPolicy.Cat.OUTSIDE_WRITE) {
+                    plan = PathScope.writeFile(str(a, "path"), env);
+                    if (!plan.ok) plan = null;
+                }
+            }
         }
-        if (local() && hit == null && cat != LinkPolicy.Cat.QUERY && cat != LinkPolicy.Cat.READ_PRIVATE && cat != LinkPolicy.Cat.HARMLESS && SafeExec.elevated()) {
-            // [chat-agent-1118] OneSay 以管理员身份运行：本机对话里改动类的每一步都写明会带管理员权限，且不能记住
-            String adm = "OneSay 正以管理员身份运行，这一步会带管理员权限执行，请看清再允许";
-            f.suspect = (f.suspect == null || f.suspect.isEmpty() ? "" : f.suspect + "；") + adm;
-        }
-        LinkPolicy.Decision d = LinkPolicy.remembered(LinkPolicy.decide(LinkPolicy.Target.PC, cfg.mode(), cat, f), rememberedKinds());
+        LinkPolicy.Decision d = LinkPolicy.decide(LinkPolicy.Target.PC, mode, cat, f);
+        if (preset != ChatPolicy.Preset.READ_ONLY) d = LinkPolicy.remembered(d, rememberedKinds()); // 只读预设：记住过的类型也问
         if (d.remembered) o.rememberedKind = d.kind;
+        if (loc) d = localRefine(preset, cmd, a, cat, f, d, plan, ruleHit, netNote, o);
         d = layered(from, cmd, a, cat, f, d, o); // [app-whitelist-1116] 分层策略：硬拒 → 支付 / 隐私外发 → 读过隐私后外发 → 认不准 → 白名单 → 原结论
         switch (d.verdict) {
             case DENY:
@@ -469,16 +522,25 @@ public final class PcGuard {
             case CONFIRM: {
                 String detail = from + " 请求：" + detail(cmd, a, d.text);
                 if (!f.suspect.isEmpty() && !detail.contains(f.suspect)) detail += "\n⚠ " + f.suspect; // 可疑升级的确认：卡上写一句原因
-                if (o.layered != null && o.layered.verdict == ActionPolicy.Verdict.CONFIRM && !detail.contains(o.layered.text)) detail += "\n⚠ " + o.layered.text; // [app-whitelist-1116] 白名单没放行的原因（付款 / 隐私 / 读过隐私 / 次数上限）
+                if (o.layered != null && o.layered.verdict == ActionPolicy.Verdict.CONFIRM && !detail.contains(o.layered.text)) detail += "\n⚠ " + o.layered.text;
+                if (loc && !o.localNote.isEmpty() && !detail.contains(o.localNote)) detail += "\n⚠ " + o.localNote; // [approvals-1118] 要联网 / 改已有文件的原因
+                if (loc && SafeExec.elevated()) detail += "\n⚠ OneSay 正以管理员身份运行，这一步会带管理员权限执行，请看清再允许"; // [approvals-1118] 只写在卡上，不再因此不能记住 // [app-whitelist-1116] 白名单没放行的原因（付款 / 隐私 / 读过隐私 / 次数上限）
                 Confirmer c = confirmer;
                 boolean offer = sc != null;
                 String rk = d.rememberable() ? d.kind : "";
+                boolean offerTask = loc && preset == ChatPolicy.Preset.DEFAULT && !TASK.get().isEmpty() && taskGrantable(cmd, a, cat, d, plan);
                 int r;
                 try {
-                    r = c == null ? TIMEOUT : rk.isEmpty() ? c.ask(from, cmd, detail, CONFIRM_MS, offer) : c.ask(from, cmd, detail, CONFIRM_MS, offer, rk);
+                    r = c == null ? TIMEOUT : offerTask ? c.ask(from, cmd, detail, CONFIRM_MS, offer, rk, true)
+                            : rk.isEmpty() ? c.ask(from, cmd, detail, CONFIRM_MS, offer) : c.ask(from, cmd, detail, CONFIRM_MS, offer, rk);
                 } catch (Throwable t) {
                     r = DENY; // 确认框出错 = 拒绝，绝不放行
                 }
+                if ((r == TASK_ALLOW || r == SESSION_ALLOW) && !offerTask) r = ALLOW;
+                if (r == TASK_ALLOW) { grantTask(TASK.get()); r = ALLOW; logPerm(detail(cmd, a, d.text), "允许本次任务", from); }
+                else if (r == SESSION_ALLOW) { grantSession(); r = ALLOW; logPerm(detail(cmd, a, d.text), "这次运行都允许", from); }
+                else if (loc) logPerm(detail(cmd, a, d.text), r == ALLOW ? "允许一次" : r == REMEMBER ? "允许并记住" : r == TIMEOUT ? "没人确认（拒绝）" : "拒绝", from);
+                if (loc && (r == ALLOW || r == REMEMBER) && approvedSame.size() < 500) approvedSame.add(sameKey(cmd, a));
                 if (r == REMEMBER && rk.isEmpty()) r = ALLOW; // 这条没给「以后这类不用问」：只算允许一次
                 if (offer) {
                     // 快捷指令：没批准下来时原因码是 shortcut_needs_approval / shortcut_changed，确认结果另放 confirm_result
@@ -502,8 +564,9 @@ public final class PcGuard {
                 else {
                     if (r == REMEMBER) {
                         remember(rk);
-                        try { notify.accept("以后「" + LinkPolicy.kindZh(rk) + "」不用再问（可在设置页撤销）"); } catch (Exception ignored) { }
+                        try { notify.accept(ChatPolicy.validKey(rk) ? ChatPolicy.keyZh(rk) + "（可在设置页撤销）" : "以后「" + LinkPolicy.kindZh(rk) + "」不用再问（可在设置页撤销）"); } catch (Exception ignored) { }
                     }
+                    o.creates = plan == null ? List.of() : new ArrayList<>(plan.creates);
                     if (f.protectedPath) a.put("_protected_ok", Boolean.TRUE);
                     if (f.mediaToolsMissing) a.put("_media_install_ok", Boolean.TRUE); // 这张卡批的是「先装工具再下载」
                     o.pass = new Pass(cmd, a);
@@ -511,16 +574,254 @@ public final class PcGuard {
                 return o;
             }
             default:
-                if (d.headsUp) {
+                if (d.headsUp && !(loc && "open_url".equals(cmd))) {
                     o.headsUp = true;
                     o.headsText = d.text;
                     try { notify.accept(from + "：" + d.text); } catch (Exception ignored) { }
                 }
                 if (f.protectedPath && d.remembered) a.put("_protected_ok", Boolean.TRUE);
+                if (plan != null) o.creates = new ArrayList<>(plan.creates); // [approvals-1118] 执行成功后记成「对话自己建的」
+                if (loc && !d.text.isEmpty() && cat != LinkPolicy.Cat.QUERY) logPerm(detail(cmd, a, d.text), "自动放行", d.text);
                 if (f.mediaToolsMissing && cat == LinkPolicy.Cat.MEDIA_DOWNLOAD) a.put("_media_install_ok", Boolean.TRUE); // 完全访问 + 从不询问 / 记住过「安装下载工具」
                 o.pass = new Pass(cmd, a);
                 return o;
         }
+    }
+
+    // ------------------------------------------------------------------ [approvals-1118] 本机对话：预设 / 前缀规则 / 按路径放行 / 任务级批准
+
+    /** 这条线程正在执行的对话任务（Chat 设上）；空 = 不是对话任务，不给「允许本次任务」。 */
+    public static final ThreadLocal<String> TASK = ThreadLocal.withInitial(() -> "");
+    /** 用户点了「允许本次任务」的任务 id（同一时间只有一个）；点的时间。 */
+    volatile String grantedTask = "";
+    volatile long grantedAt;
+    /** 用户点了「这次运行都允许」（OneSay 重启 / 改预设 / 手动撤销后失效）。 */
+    volatile boolean sessionGrant;
+    /** 任务批准最长有效期（防止一个任务挂一整天）。 */
+    static final long TASK_GRANT_MS = 6 * 3600_000L;
+    /** 这次运行里对话自己新建的文件 / 目录（规范化小写）：覆盖 / 删除它们不用问。 */
+    public final java.util.Set<String> chatCreated = ConcurrentHashMap.newKeySet();
+    /** 这次运行里用户批准过的完全一样的步骤（Codex 的 approved-for-session：同一条命令再来不再问）。 */
+    final java.util.Set<String> approvedSame = ConcurrentHashMap.newKeySet();
+
+    static String sameKey(String cmd, Map<String, Object> a) {
+        Map<String, Object> m = new TreeMap<>();
+        for (Map.Entry<String, Object> e : a.entrySet()) if (!e.getKey().startsWith("_")) m.put(e.getKey(), e.getValue());
+        return cmd + "|" + Json.stringify(m);
+    }
+
+    /** 判定路径用的环境（测试换掉）。 */
+    public volatile java.util.function.Supplier<PathScope.Env> pathEnvSource = this::defaultPathEnv;
+    /** 权限记录（设置 › 权限记录）：最近的批准 / 拒绝 / 自动放行。 */
+    final java.util.Deque<Map<String, Object>> permLog = new java.util.concurrent.ConcurrentLinkedDeque<>();
+    static final int PERM_LOG_MAX = 300;
+
+    public ChatPolicy.Preset chatPreset() { return ChatPolicy.Preset.of(cfg.chatPreset); }
+
+    public List<List<String>> chatRules() { return ChatPolicy.parseRules(cfg.chatAllowPrefixes); }
+
+    PathScope.Env pathEnv() {
+        PathScope.Env e;
+        try { e = pathEnvSource.get(); } catch (RuntimeException x) { e = null; }
+        if (e == null) e = new PathScope.Env();
+        e.created = new java.util.HashSet<>(chatCreated);
+        return e;
+    }
+
+    PathScope.Env defaultPathEnv() {
+        PathScope.Env e = new PathScope.Env();
+        if (!SafeExec.WINDOWS) return e; // 只认 Windows 路径；别的系统上一律不按路径放行
+        Map<String, String> env = System.getenv();
+        for (String k : new String[] {"USERPROFILE", "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "OneDrive", "PUBLIC"}) {
+            String v = env.get(k);
+            if (v != null) e.envVars.put(k.toLowerCase(Locale.ROOT), v);
+        }
+        e.userProfile = env.getOrDefault("USERPROFILE", "");
+        e.temp = env.getOrDefault("TEMP", "");
+        e.workspace = workspace().getAbsolutePath();
+        e.exists = p -> { try { return Files.exists(Paths.get(p), java.nio.file.LinkOption.NOFOLLOW_LINKS); } catch (RuntimeException x) { return true; } };
+        e.isDir = p -> { try { return Files.isDirectory(Paths.get(p)); } catch (RuntimeException x) { return false; } };
+        e.real = p -> {
+            try {
+                Path q = Paths.get(p);
+                Path cur = q;
+                while (cur != null && !Files.exists(cur)) cur = cur.getParent();
+                if (cur == null) return p;
+                Path r = cur.toRealPath();
+                return r.resolve(cur.relativize(q)).toString();
+            } catch (Exception x) {
+                return "\\\\unresolved"; // 解析不了 = 当不在地盘里
+            }
+        };
+        return e;
+    }
+
+    /** 执行成功后：把对话新建的路径记下（之后覆盖 / 删除它们不用问）。 */
+    public void noteCreated(List<String> paths) {
+        if (paths == null) return;
+        for (String p : paths) if (chatCreated.size() < 2000) chatCreated.add(p.toLowerCase(Locale.ROOT));
+    }
+
+    /** 现在这一步能不能按「允许本次任务 / 这次运行都允许」直接做。 */
+    boolean granted() {
+        if (sessionGrant) return true;
+        String t = TASK.get();
+        return t != null && !t.isEmpty() && t.equals(grantedTask) && System.currentTimeMillis() - grantedAt < TASK_GRANT_MS;
+    }
+
+    public synchronized void grantTask(String task) {
+        if (task == null || task.isEmpty()) return;
+        grantedTask = task;
+        grantedAt = System.currentTimeMillis();
+    }
+
+    public synchronized void grantSession() { sessionGrant = true; }
+
+    /** 撤销任务 / 运行级批准（改预设、界面上点撤销、新任务开始时）。 */
+    public synchronized void revokeGrants() {
+        grantedTask = "";
+        sessionGrant = false;
+    }
+
+    /** 新任务开始：上一个任务的批准不带过来。 */
+    public synchronized void taskStarted(String task) {
+        if (!grantedTask.isEmpty() && !grantedTask.equals(task)) grantedTask = "";
+    }
+
+    public Map<String, Object> grantView() {
+        Map<String, Object> m = new TreeMap<>();
+        m.put("task", !grantedTask.isEmpty() && System.currentTimeMillis() - grantedAt < TASK_GRANT_MS);
+        m.put("session", sessionGrant);
+        return m;
+    }
+
+    /** 删除 / 卸载 / 改系统设置这类：任务批准也不覆盖，每次都问。 */
+    static final java.util.regex.Pattern RISKY_WORDS = java.util.regex.Pattern.compile(
+            "(?i)(?<![\\w-])(remove-item|ri|rm|del|erase|rd|rmdir|clear-content|clear-item|remove-itemproperty|stop-computer|restart-computer|format-volume|clear-disk|clear-recyclebin|uninstall-package|remove-appxpackage|msiexec|set-itemproperty|new-itemproperty|set-service|stop-service|disable-\\w+|unregister-\\w+|set-date|set-timezone)(?![\\w-])|(?<![\\w-])shutdown(\\.exe)?\\s+[/-][srhpfl]\\b|卸载|(^|[\\s\"'/\\-])(uninstall|uninst|/x)([\\s\"'=]|$)");
+
+    /** 任务 / 运行级批准能覆盖这一步吗（只看这一步本身的风险，硬规则根本走不到这里）。 */
+    static boolean taskGrantable(String cmd, Map<String, Object> a, LinkPolicy.Cat cat, LinkPolicy.Decision d, PathScope.Plan plan) {
+        if (d.verdict != LinkPolicy.Verdict.CONFIRM) return false;
+        if (LinkPolicy.R_SUSPECT.equals(d.reason) || LinkPolicy.R_SUSPICIOUS_FORM.equals(d.reason)) return false; // 写法可疑：每次都问
+        switch (cat) {
+            case SHELL_EXEC: {
+                String c = str(a, "command");
+                if (plan != null) return true;
+                return !RISKY_WORDS.matcher(LocalReadOnly.literalsBlanked(c)).find() && !RISKY_WORDS.matcher(c).find();
+            }
+            case OUTSIDE_WRITE:
+            case OPEN_URL:
+            case MEDIA_DOWNLOAD:
+            case RUN_WS_SCRIPT:
+                return !LinkPolicy.R_UNTRUSTED_URL.equals(d.reason) || "pc.url".equals(d.kind) || d.kind.startsWith("url:");
+            case WORKSPACE_WRITE:
+                return true;
+            default:
+                return false; // 设置、关机、卸载、系统程序、支付类程序、敏感剪贴板：每次都问
+        }
+    }
+
+    /**
+     * 本机对话按预设细化结论（拒绝 / 只生成脚本照旧）：
+     * 只读 —— 查询以外都问、不能记住；完全访问 —— 照两轴（完全访问 · 从不）；默认 —— 按路径放行、前缀规则、普通网址直接开、
+     * 「允许本次任务 / 这次运行都允许」覆盖本任务里的同类步骤（删除 / 卸载 / 设置 / 可疑写法照旧每次问）。
+     */
+    LinkPolicy.Decision localRefine(ChatPolicy.Preset preset, String cmd, Map<String, Object> a, LinkPolicy.Cat cat, LinkPolicy.Facts f,
+                                    LinkPolicy.Decision d, PathScope.Plan plan, List<String> ruleHit, String netNote, Outcome o) {
+        if (d.verdict == LinkPolicy.Verdict.DENY || d.verdict == LinkPolicy.Verdict.SCRIPT) return d;
+        if (preset == ChatPolicy.Preset.FULL) return d;
+        if (preset == ChatPolicy.Preset.READ_ONLY) {
+            if (cat == LinkPolicy.Cat.QUERY || cat == LinkPolicy.Cat.READ_PRIVATE || cat == LinkPolicy.Cat.HARMLESS) return d;
+            o.localNote = "权限预设是「只读」：除了查询每一步都要你确认";
+            return new LinkPolicy.Decision(LinkPolicy.Verdict.CONFIRM, d.reason, d.text.isEmpty() ? cmd : d.text, false, "", false);
+        }
+        if (d.verdict == LinkPolicy.Verdict.ALLOW) {
+            if (cat == LinkPolicy.Cat.OPEN_URL && !d.remembered && f.url != null && !f.url.trusted) {
+                String why = ChatPolicy.dataLike(str(a, "url"));
+                if (!why.isEmpty()) {
+                    o.localNote = why;
+                    LinkPolicy.Decision c = new LinkPolicy.Decision(LinkPolicy.Verdict.CONFIRM, "", "打开网址：" + f.url.shown, false, ChatPolicy.urlKey(f.url.host), false);
+                    return granted() && taskGrantable(cmd, a, cat, c, plan) ? viaGrant(c) : c;
+                }
+                return new LinkPolicy.Decision(LinkPolicy.Verdict.ALLOW, "", "", false); // 普通网址：直接开，不弹通知
+            }
+            return d;
+        }
+        // CONFIRM
+        LinkPolicy.Decision c = d;
+        if (cat == LinkPolicy.Cat.SHELL_EXEC || cat == LinkPolicy.Cat.OUTSIDE_WRITE) {
+            if (plan != null && !LinkPolicy.R_SUSPECT.equals(d.reason)) {
+                List<String> bad = new ArrayList<>();
+                for (String h : plan.hosts) if (!LinkPolicy.trustedHost(h, rules().netAllow)) bad.add(h);
+                if (bad.isEmpty()) return new LinkPolicy.Decision(LinkPolicy.Verdict.ALLOW, "", "在桌面 / 下载 / 文档 / 工作区 / 临时目录里新建或写入", false);
+                o.localNote = "要联网下载（" + String.join("、", bad) + "）";
+                c = new LinkPolicy.Decision(LinkPolicy.Verdict.CONFIRM, "", d.text, false, bad.size() == 1 ? ChatPolicy.netKey(bad.get(0)) : "", false);
+            } else if (ruleHit != null && !LinkPolicy.R_SUSPECT.equals(d.reason)) {
+                return new LinkPolicy.Decision(LinkPolicy.Verdict.ALLOW, "", "按「以后以「" + ChatPolicy.ruleText(ruleHit) + "」开头的命令不用问」直接执行", true, ChatPolicy.prefixKey(ruleHit), true);
+            } else if (!LinkPolicy.R_SUSPECT.equals(d.reason)) {
+                List<String> sug = "sys_exec".equals(cmd) ? ChatPolicy.suggest(str(a, "command")) : null;
+                if (!netNote.isEmpty()) o.localNote = "这条命令要联网（" + netNote + "）";
+                c = new LinkPolicy.Decision(LinkPolicy.Verdict.CONFIRM, d.reason, d.text, false, sug == null ? "" : ChatPolicy.prefixKey(sug), false);
+            }
+        }
+        if (granted() && taskGrantable(cmd, a, cat, c, plan)) return viaGrant(c);
+        if (taskGrantable(cmd, a, cat, c, plan) && approvedSame.contains(sameKey(cmd, a)))
+            return new LinkPolicy.Decision(LinkPolicy.Verdict.ALLOW, "", "这条完全一样的步骤这次运行里批准过：" + c.text, false);
+        return c;
+    }
+
+    LinkPolicy.Decision viaGrant(LinkPolicy.Decision c) {
+        return new LinkPolicy.Decision(LinkPolicy.Verdict.ALLOW, "", (sessionGrant ? "按「这次运行都允许」" : "按「允许本次任务」") + "直接执行：" + c.text, false);
+    }
+
+    /** 记一条权限记录（不进通知列表）。 */
+    public void logPerm(String what, String result, String detail) {
+        Map<String, Object> m = new TreeMap<>();
+        m.put("at", System.currentTimeMillis());
+        m.put("what", what == null ? "" : what);
+        m.put("result", result == null ? "" : result);
+        m.put("detail", detail == null ? "" : (detail.length() > 300 ? detail.substring(0, 300) + "…" : detail));
+        m.put("task", TASK.get() == null ? "" : TASK.get());
+        permLog.addFirst(m);
+        while (permLog.size() > PERM_LOG_MAX) permLog.pollLast();
+    }
+
+    public List<Object> permLogView() { return new ArrayList<Object>(permLog); }
+
+    /** 「以后不用问」的键（前缀 / 网址域名 / 联网域名）记进配置。 */
+    synchronized boolean rememberRule(String key) {
+        List<String> p = ChatPolicy.keyPrefix(key);
+        if (p != null) {
+            List<List<String>> r = new ArrayList<>(chatRules());
+            if (!r.contains(p)) r.add(p);
+            cfg.chatAllowPrefixes = ChatPolicy.formatRules(r);
+            save();
+            return true;
+        }
+        String h = ChatPolicy.keyHost(key);
+        if (h == null) return false;
+        if (key.startsWith("url:")) {
+            List<String> d = new ArrayList<>(LinkPolicy.parseDomains(cfg.trusted));
+            if (!d.contains(h)) d.add(h);
+            cfg.trusted = String.join(",", d);
+        } else {
+            List<String> d = new ArrayList<>(LinkPolicy.parseDomains(cfg.netAllow));
+            if (!d.contains(h)) d.add(h);
+            cfg.netAllow = String.join(",", d);
+        }
+        save();
+        return true;
+    }
+
+    /** 撤销一条前缀规则（键 prefix:[…]）。 */
+    public synchronized boolean forgetRule(String key) {
+        List<String> p = ChatPolicy.keyPrefix(key);
+        if (p == null) return false;
+        List<List<String>> r = new ArrayList<>(chatRules());
+        if (!r.remove(p)) return false;
+        cfg.chatAllowPrefixes = ChatPolicy.formatRules(r);
+        save();
+        return true;
     }
 
     // ------------------------------------------------------------------ [app-whitelist-1116] 统一分层策略
@@ -783,6 +1084,7 @@ public final class PcGuard {
 
     /** 记下一类（只收认识的类型；硬规则根本不会走到确认，记不了）。 */
     public synchronized boolean remember(String kind) {
+        if (ChatPolicy.validKey(kind)) return rememberRule(kind);
         if (!LinkPolicy.knownKind(kind)) return false;
         List<String> k = rememberedKinds();
         if (!k.contains(kind)) k.add(kind);
@@ -910,6 +1212,9 @@ public final class PcGuard {
                     SafeExec.start(pb.directory(ws).redirectErrorStream(true));
                     return Actions.Result.ok("已开始运行 " + n);
                 }
+                case "open_app":
+                    if (local()) return openAppLocal(str(a, "name"), str(a, "path"));
+                    return null;
                 case "sys_exec":
                     if (local()) {
                         Object t = a.get("timeout_sec");
@@ -927,6 +1232,17 @@ public final class PcGuard {
         } catch (Exception e) {
             return Actions.Result.fail(cmd + " 出错：" + e.getClass().getSimpleName());
         }
+    }
+
+    /** [approvals-1118] 本机对话打开已装的程序（不带参数）：开始菜单快捷方式用 explorer 打开，exe 直接启动。 */
+    Actions.Result openAppLocal(String name, String path) throws Exception {
+        Map<String, String> env = System.getenv();
+        File f = LocalLaunch.resolve(name, path, cfg.appMap(), LocalLaunch.startMenus(env), LocalLaunch.installRoots(env));
+        if (f == null) return Actions.Result.fail("没找到已安装的程序「" + (name.isEmpty() ? path : name) + "」（只认开始菜单里的程序、设置里配置的程序和安装目录里的 exe；命令行工具请用 run_command）");
+        ProcessBuilder pb = f.getName().toLowerCase(Locale.ROOT).endsWith(".lnk") ? new ProcessBuilder("explorer.exe", f.getAbsolutePath())
+                : new ProcessBuilder(f.getAbsolutePath()).directory(f.getParentFile());
+        SafeExec.start(pb);
+        return Actions.Result.ok("已打开 " + f.getName().replaceAll("(?i)\\.(lnk|exe)$", ""));
     }
 
     File scriptFile(String n) {
@@ -994,6 +1310,7 @@ public final class PcGuard {
      */
     Actions.Result execLocal(String command, File ws, int timeoutSec) throws Exception {
         if (command.isBlank()) return Actions.Result.fail("没有命令");
+        if (!ws.isDirectory()) ws.mkdirs(); // [approvals-1118] 真机上工作区还没建：模型按提示里的工作目录做事，先建出来
         int to = Math.max(5, Math.min(900, timeoutSec));
         // -EncodedCommand（UTF-16LE base64）：Java 在 Windows 上拼命令行时不转义参数里的双引号，
         // 用 -Command 传 "…*MuMu*…" 这类带引号的命令会被拆坏（真机实测：Where-Object { $_.Name -like "*MuMu*" } 解析失败）。

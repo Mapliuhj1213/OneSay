@@ -174,6 +174,13 @@ public final class Agent {
         PcGuard.LOCAL.set(Boolean.TRUE);
         SafeExec.REMOTE.set(Boolean.FALSE);
         try {
+            // [approvals-1118] run_command 里的「打开网址 / 打开已装程序」改走 open_url / open_app（同一套检查，低风险的直接做）
+            Object[] rw = LocalLaunch.rewrite(cmd, args);
+            if (rw != null) {
+                cmd = (String) rw[0];
+                @SuppressWarnings("unchecked") Map<String, Object> na = (Map<String, Object>) rw[1];
+                args = na;
+            }
             PcGuard.Outcome o = guard.check(ChatAgent.FROM, cmd, args);
             if (o.reply != null) {
                 r = o.reply;
@@ -184,6 +191,7 @@ public final class Agent {
                 log.accept("对话执行 " + cmd);
                 Actions.Result b = guard.builtin(cmd, o.args);
                 r = b != null ? b : actions.run(cmd, o.args);
+                if (r != null && r.ok) guard.noteCreated(o.creates); // [approvals-1118] 对话自己建的，之后改 / 删不用问
             }
         } catch (SafeExec.Refused t) {
             Map<String, Object> d = new TreeMap<>();
