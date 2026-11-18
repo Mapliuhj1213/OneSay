@@ -23,7 +23,10 @@ public class TriageIslandTest {
 
     @Test public void singleStepIsLazyButStillUsesLoop() {
         TriageDecider.Signals l0 = new TriageDecider.Signals("store.search.market", false, false);
-        TriageDecider.Decision dl = TriageDecider.decide("下载微信", l0);
+        // ★ fix-1118 B19：「下载微信」L0 整句接住 store.search（模板自带达成型动词）→ 本地打开商店搜索，不再进循环；
+        //   L0 没接住的达成型句子照旧进循环
+        assertFalse(TriageDecider.decide("下载微信", l0).useAgentLoop);
+        TriageDecider.Decision dl = TriageDecider.decide("帮我把微信下载好", TriageDecider.Signals.offline());
         assertTrue("达成型单步照旧进循环", dl.useAgentLoop);
         assertFalse("但不一开始就上岛", TriageDecider.islandUpFront(dl));
         assertFalse(TriageDecider.islandUpFront(d("能不能把亮度调高")));

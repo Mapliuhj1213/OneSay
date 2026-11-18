@@ -437,8 +437,11 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
                 } else if (cap.sign.startsWith("browser.search")
                         || cap.paramsSchema.getRules().containsKey("keyword")) {
                     try { args.put("keyword", nClean); } catch (Exception ignored) {}
-                } else if ("phone.call".equals(cap.sign)) {
-                    try { args.put("number", nClean); } catch (Exception ignored) {}
+                } else if ("sms.send".equals(cap.sign) && !nStr.trim().matches("\\+?[0-9][0-9 -]{2,19}")) {
+                    return null;   // 只认号码；「发短信给张三」要查联系人，交给后面的层
+                } else if ("phone.call".equals(cap.sign) || "sms.send".equals(cap.sign)) {
+                    // ★ fix-1118 B19：「发短信给10086」—— 号码槽位按原文（不取宾语），正文没说就空着，打开短信编辑页由用户写、再点发送（确认卡照旧）
+                    try { args.put("number", "sms.send".equals(cap.sign) ? nStr.trim() : nClean); } catch (Exception ignored) {}
                 } else if (textSlot) {
                     // 兜底：文本槽位但参数名不在上面三类，按占位符本身的名字回填
                     // （例如 store.search.* 用 keyword 已覆盖；此处防将来新增自定义文本槽）

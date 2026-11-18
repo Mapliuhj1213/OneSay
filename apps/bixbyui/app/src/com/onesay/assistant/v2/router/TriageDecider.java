@@ -549,6 +549,16 @@ public final class TriageDecider {
             Label l = isReadOnlySign(s.l0Sign) ? Label.DO_READ : Label.DO_ACT;
             return build(l, 0.85, "3x-l0-explicit", core, false, false, "rule", s);
         }
+        // 3l. ★ fix-1118 B19：L0 整句接住了「模板就是这个动作」的能力（应用商店搜索 / 下载、新建笔记、写草稿、息屏开关、
+        //     打开设置页、查默认浏览器、发短信给号码），句里的第二个动作词（「打开应用商店<b>下载</b>」「新建笔记<b>记录</b>」
+        //     「打开息屏<b>提醒</b>」）或达成型动词（下载 / 安装）只是模板的一部分，不再因此判成多步进 AgentLoop，
+        //     「是什么」也不再判成问答。否定 / 反悔 / 风险闸都在上面先判；多步（然后 / 再 / 并且…）、三个以上动作、超长句照旧。
+        //     发短信照样走本地能力的确认卡（sms.send risk 2 + CommsRisk）。
+        if (s.l0Sign != null && isTemplateSelfContainedSign(s.l0Sign) && !containsAny(q, SEQUENCE) && !isAndJoinedActs(core)
+                && actCount <= 2 && core.length() <= 24) {
+            Label l = isReadOnlySign(s.l0Sign) || s.l0Sign.endsWith(".check") ? Label.DO_READ : Label.DO_ACT;
+            return build(l, 0.85, "3l-l0-template", core, false, false, "rule", s);
+        }
         // 3a. D-3b：两地距离问句 → ASK（外部世界信息）；有动作动词（导航/打车）的不在这里
         if (actCount == 0 && DISTANCE_Q.matcher(q).find()) {
             return build(Label.ASK, 0.85, "3-distance", core, false, false, "rule", s);
@@ -836,6 +846,20 @@ public final class TriageDecider {
     }
 
     /** ★ rel-1118 B11：句子本身点名了动作载体的 L0 能力（问句 / 时效词只是参数）。 */
+    /** ★ fix-1118 B19：说法模板本身带两个动作词 / 达成型动词、但一步就做完的本地能力（前缀或全名）。 */
+    private static final String[] TEMPLATE_SELF_CONTAINED = {
+            "store.search.", "store.detail.", "notes.new.", "mail.draft.", "settings.aod.", "settings.smartcapture.",
+            "settings.page.", "browser.default.check", "sms.send",
+    };
+
+    static boolean isTemplateSelfContainedSign(String sign) {
+        if (sign == null) return false;
+        for (String p : TEMPLATE_SELF_CONTAINED) {
+            if (p.endsWith(".") ? sign.startsWith(p) : sign.equals(p)) return true;
+        }
+        return false;
+    }
+
     static boolean isExplicitTargetSign(String sign) {
         return sign != null && (sign.startsWith("browser.search.") || sign.equals("vision.screen.understand"));
     }
