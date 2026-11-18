@@ -90,6 +90,8 @@ public final class App {
             if (showWindow && !askShow(up)) openWindow("http://127.0.0.1:" + up + "/");   // ★ fix-1118 SEC L2：页面要入口钥匙，交给正在运行的那个开窗口
             return;
         }
+        // ★ exe-handoff-1118：直接 javaw -jar 启动、但本机装了加载同一个 jar 的 OneSay.exe → 交给它（窗口属于 OneSay.exe，不落到 Edge）
+        if (ExeHandoff.tryHandoff(!showWindow)) return;
         autoSetup(cfg);
         cfg.tls(); // 协议 v2：第一次运行生成本机证书
         App app = new App(cfg);
@@ -875,13 +877,25 @@ public final class App {
     }
 
     // ---------- 窗口与托盘 ----------
+    /** ★ exe-handoff-1118：Edge 后备窗口的地址带这个片段，页面据此在标题和顶部写明「Edge 后备窗口」（片段不发给服务端）。 */
+    static final String EDGE_FALLBACK_MARK = "#edge-fallback";
+
+    /** Edge 后备窗口打开的地址：原地址加 {@link #EDGE_FALLBACK_MARK}（已有片段就替换）。 */
+    static String edgeFallbackUrl(String url) {
+        int h = url.indexOf('#');
+        return (h >= 0 ? url.substring(0, h) : url) + EDGE_FALLBACK_MARK;
+    }
+
     /**
-     * OneSay.exe 托管时用它自己进程里的窗口（WebView2，窗口属于 OneSay.exe）；
-     * 否则 / 没有 WebView2 运行时：Edge 应用窗口（无地址栏、独立图标）；没有 Edge 就用默认浏览器。
+     * OneSay.exe 托管时用它自己进程里的窗口（WebView2，窗口属于 OneSay.exe）——正常情况；直接用 java 启动时
+     * {@link ExeHandoff} 会先交给 OneSay.exe。都不行（没装 OneSay.exe / 装的 jar 不同 / 没有 WebView2 运行时）才是
+     * 最后的后备：Edge 应用窗口（标明「Edge 后备窗口」）；没有 Edge 就用默认浏览器。
      */
     static void openWindow(String url) {
         if (Host.open(url)) return;
         if (isWindows()) {
+            System.err.println("[window] 后备：Edge 应用窗口（不是 OneSay.exe 托管，窗口会算在 Edge 名下）");
+            String edgeUrl = edgeFallbackUrl(url);
             List<String> cands = new ArrayList<>();
             for (String env : List.of("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")) {
                 String base = System.getenv(env);
@@ -891,7 +905,7 @@ public final class App {
                 if (!new File(c).isFile()) continue;
                 try {
                     String profile = Config.defaultDir().resolve("window").toString();
-                    new ProcessBuilder(c, "--app=" + url, "--user-data-dir=" + profile, "--window-size=1200,800", "--no-first-run", "--no-default-browser-check").start();
+                    new ProcessBuilder(c, "--app=" + edgeUrl, "--user-data-dir=" + profile, "--window-size=1200,800", "--no-first-run", "--no-default-browser-check").start();
                     return;
                 } catch (IOException ignored) { }
             }
