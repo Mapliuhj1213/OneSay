@@ -48,6 +48,9 @@ com/onesay/assistant/v2/vision/screenref/ScreenRefCapabilities.java
 # [s1] 看得见的后台 + 剪贴板芯片（纯 Java 部分）
 com/onesay/assistant/v2/island/IslandModel.java
 com/onesay/assistant/v2/island/IslandGeometry.java
+com/onesay/assistant/v2/island/CutoutGeometry.java
+com/onesay/assistant/v2/island/LiquidMotion.java
+com/onesay/assistant/v2/island/IslandMorph.java
 com/onesay/assistant/v2/island/IslandSettings.java
 com/onesay/assistant/v2/island/Subgoal.java
 com/onesay/assistant/v2/s1/AskUserBroker.java

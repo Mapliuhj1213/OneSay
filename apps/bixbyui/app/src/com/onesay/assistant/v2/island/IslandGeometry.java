@@ -96,17 +96,55 @@ public final class IslandGeometry {
         public final int top;
         public final boolean fullscreen;
         public final int statusBarPx;
+        // ★ island-cutout-1118（{@link CutoutGeometry}）：岛从哪里长出来、紧凑态是否包住挖孔
+        /** 挖孔类型（NONE = 没有挖孔；NOTCH / SIDE = 有但不用，回落上方居中）。 */
+        public final CutoutGeometry.Kind cutout;
+        /** 源点：孔（或上方居中的 28dp 种子）的中心与外接尺寸（像素）。出现从这里长出来，收起缩回这里。 */
+        public final float originCx, originCy, originW, originH;
+        /** 紧凑态高（像素）：包孔时 = max(28dp, 孔径 + 2×5dp)，否则 28dp。 */
+        public final int compactH;
+        /** 紧凑态 / 展开卡包住挖孔（上沿 = 孔心 − 紧凑高 / 2）。 */
+        public final boolean wrap;
+        /** 包孔时孔这条「过道」的屏幕 x（内容不进这里）。 */
+        public final float laneL, laneR;
 
         Anchor(int cx, int top, boolean fullscreen, int statusBarPx) {
+            this(cx, top, fullscreen, statusBarPx, CutoutGeometry.Kind.NONE, cx, Float.NaN, 0f, 0f, 0, false, 0f, 0f);
+        }
+
+        Anchor(int cx, int top, boolean fullscreen, int statusBarPx, CutoutGeometry.Kind cutout, float originCx, float originCy,
+                float originW, float originH, int compactH, boolean wrap, float laneL, float laneR) {
             this.cx = cx;
             this.top = top;
             this.fullscreen = fullscreen;
             this.statusBarPx = statusBarPx;
+            this.cutout = cutout == null ? CutoutGeometry.Kind.NONE : cutout;
+            this.originCx = originCx;
+            this.originCy = originCy;
+            this.originW = originW;
+            this.originH = originH;
+            this.compactH = compactH;
+            this.wrap = wrap;
+            this.laneL = laneL;
+            this.laneR = laneR;
+        }
+
+        /** 有真实的源点（孔 / 种子）；旧的 4 参构造没有 → 按 v3 从锚点处的小胶囊长出来。 */
+        public boolean hasOrigin() {
+            return !Float.isNaN(originCy) && originW > 0f && originH > 0f;
+        }
+
+        /** 源点上沿（像素）。 */
+        public float originTop() {
+            return originCy - originH / 2f;
         }
 
         @Override
         public String toString() {
-            return "cx=" + cx + " top=" + top + " statusBar=" + statusBarPx + (fullscreen ? " fullscreen" : "");
+            return "cx=" + cx + " top=" + top + " statusBar=" + statusBarPx + (fullscreen ? " fullscreen" : "")
+                    + (cutout != CutoutGeometry.Kind.NONE || hasOrigin() ? " cutout=" + cutout + " origin=" + Math.round(originCx) + ","
+                    + (Float.isNaN(originCy) ? "-" : String.valueOf(Math.round(originCy))) + " " + Math.round(originW) + "x"
+                    + Math.round(originH) + " compactH=" + compactH + (wrap ? " wrap lane=" + Math.round(laneL) + ".." + Math.round(laneR) : "") : "");
         }
     }
 

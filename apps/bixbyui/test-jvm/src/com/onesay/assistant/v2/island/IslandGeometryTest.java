@@ -118,8 +118,11 @@ public class IslandGeometryTest {
         assertEquals("uses-permission 不变（52 条，含 fix/triage-fast 的 ACCESS_NOTIFICATION_POLICY、planner-link 的 bixbyplan ACCESS、时钟 ALARM_CONTROL、link-v2 的 CHANGE_WIFI_MULTICAST_STATE、priv-llm 的 Shizuku API_V23）", 52, perms);
         String ctl = file("app/src/com/onesay/assistant/v2/s1/IslandController.java");
         assertFalse(ctl.contains("TYPE_ACCESSIBILITY_OVERLAY"));
-        assertFalse("不用挖孔模式", ctl.contains("LAYOUT_IN_DISPLAY_CUTOUT_MODE"));
-        assertFalse("不读 DisplayCutout", ctl.contains("getBoundingRect"));
+        // ★ island-cutout-1118：岛从挖孔长出来 → 读 DisplayCutout、窗口允许进短边挖孔区，且只在 API 28+ 设
+        assertTrue("读挖孔外接框", ctl.contains("getBoundingRects()"));
+        assertTrue("挖孔模式 = SHORT_EDGES", ctl.contains("LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES"));
+        assertTrue("挖孔模式只在 API 28+", ctl.contains("if (Build.VERSION.SDK_INT >= 28) {\n                // ★ island-cutout-1118")
+                || ctl.contains("if (Build.VERSION.SDK_INT >= 28) {\r\n"));
         assertFalse("岛窗口不用 NO_LIMITS", ctl.substring(ctl.indexOf("private void placeIsland"), ctl.indexOf("private void removeIsland"))
                 .contains("FLAG_LAYOUT_NO_LIMITS"));
         assertTrue(ctl.contains("FLAG_WATCH_OUTSIDE_TOUCH"));
