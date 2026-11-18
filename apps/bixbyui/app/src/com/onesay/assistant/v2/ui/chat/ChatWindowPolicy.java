@@ -28,7 +28,7 @@ public final class ChatWindowPolicy {
      * 服务侧用 {@link #routeLabel} 拼路由（详情 i 里也能看到「本地规则」）。
      */
     public static final String LOCAL_RULE = "本地规则";
-    public static final String HINT_IDLE = "有问题尽管问我…";
+    public static final String HINT_IDLE = "尽管问…";   // ★ fix-1118：底栏输入框窄（左图标 + 右「+」麦克风），原「有问题尽管问我…」被截成「有问题尽管讠」
     public static final String HINT_LISTENING = "聆听中…";
     /** 追问建议胶囊最多几个。 */
     public static final int MAX_SUGGESTIONS = 4;

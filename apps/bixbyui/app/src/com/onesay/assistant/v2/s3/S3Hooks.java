@@ -288,8 +288,9 @@ public final class S3Hooks {
         }
         final LinearLayout list = host.group(root, isTasks ? "全部任务" : "未完成");
         final android.widget.TextView foot = host.footer(root, isTasks
-                ? "说「每天早上8点读一下QQ邮箱未读」「明天下午3点提醒我取快递」建任务；「取消早上8点的任务」删除。"
+                ? "说「每天早上8点读一下QQ邮箱未读」「明天下午3点提醒我取快递」建任务；点每条右边的「删除」，或说「取消早上8点的任务」删除。"
                 : "说「记个待办 买牛奶」「我的待办」「买牛奶做完了」。");
+        final List<S3Store.Task>[] tasks0 = newTaskHolder();
         com.onesay.assistant.v2.util.Threads.start("s3-console-list", new Runnable() {
             @Override public void run() {
                 String text;
@@ -298,6 +299,7 @@ public final class S3Hooks {
                     S3Engine e = engine(act);
                     long now = System.currentTimeMillis();
                     text = isTasks ? e.listText(now) : e.todoListText(now);
+                    if (isTasks) tasks0[0] = new java.util.ArrayList<S3Store.Task>(e.activeTasks());
                     if (isTasks && !e.activeTasks().isEmpty()) {
                         long at = S3Scheduler.scheduledAt(act);
                         if (at > 0) nextAt = new java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(new java.util.Date(at));
@@ -309,6 +311,52 @@ public final class S3Hooks {
                 final String next = nextAt;
                 host.ui(new Runnable() {
                     @Override public void run() {
+                        if (isTasks && tasks0[0] != null && !tasks0[0].isEmpty()) {
+                            // ★ fix-1118：自动任务每条一行带「删除」（点一次提示、3 秒内再点才删，删完重排闹钟）
+                            long now = System.currentTimeMillis();
+                            for (final S3Store.Task t : tasks0[0]) {
+                                String when = S3Schedule.describe(t.repeat, t.hour, t.minute, t.weekMask, t.onceAt, now, java.util.TimeZone.getDefault());
+                                final com.onesay.assistant.v2.kernel.ConsoleHost.Row[] row = new com.onesay.assistant.v2.kernel.ConsoleHost.Row[1];
+                                final long[] armed = {0L};
+                                row[0] = host.actionRow(list, t.label(), when, "删除", new Runnable() {
+                                    @Override public void run() {
+                                        long n = System.currentTimeMillis();
+                                        if (!TaskDelete.secondTap(armed[0], n)) {
+                                            armed[0] = n;
+                                            row[0].setSub("再点一次「删除」确认");
+                                            row[0].setSubTone(com.onesay.assistant.v2.kernel.ConsoleHost.TONE_WARN);
+                                            return;
+                                        }
+                                        armed[0] = 0L;
+                                        com.onesay.assistant.v2.util.Threads.start("s3-console-del", new Runnable() {
+                                            @Override public void run() {
+                                                boolean ok;
+                                                try {
+                                                    org.json.JSONObject a = new org.json.JSONObject();
+                                                    a.put("id", String.valueOf(t.id));
+                                                    a.put("preview", t.label());
+                                                    ok = engine(act).execute(S3Capabilities.SIGN_TASK_CANCEL, a, System.currentTimeMillis()).ok;
+                                                    if (ok) S3Scheduler.reschedule(act, "console-delete");
+                                                } catch (Throwable x) {
+                                                    ok = false;
+                                                }
+                                                final boolean done = ok;
+                                                host.ui(new Runnable() {
+                                                    @Override public void run() {
+                                                        row[0].setSub(done ? "已删除" : "删除失败，稍后再试");
+                                                        row[0].setSubTone(done ? com.onesay.assistant.v2.kernel.ConsoleHost.TONE_OK
+                                                                : com.onesay.assistant.v2.kernel.ConsoleHost.TONE_WARN);
+                                                        if (done) row[0].setEnabled(false);
+                                                    }
+                                                });
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                            if (next != null) foot.setText("下一次闹钟：" + next + "\n" + foot.getText());
+                            return;
+                        }
                         if (lines.length <= 1) {
                             host.valueRow(list, lines[0], null, "", com.onesay.assistant.v2.kernel.ConsoleHost.TONE_NORMAL);
                             return;
@@ -325,6 +373,11 @@ public final class S3Hooks {
     }
 
 
+
+    @SuppressWarnings("unchecked")
+    private static List<S3Store.Task>[] newTaskHolder() {
+        return (List<S3Store.Task>[]) new List[1];
+    }
 
     public static String debugStatus(Context ctx) {
         S3Engine e = engine(ctx);

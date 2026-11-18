@@ -20,7 +20,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * ★ ui-K1 对话窗底栏（悬浮圆角）：左 圈选识屏；中 输入框（左 Bixby 彩色标、占位「有问题尽管问我…」、右「+」与麦克风，
+ * ★ ui-K1 对话窗底栏（悬浮圆角）：左 圈选识屏；中 输入框（左 Bixby 彩色标、占位「尽管问…」、右「+」与麦克风，
  * 录音时占位「聆听中…」、麦克风换成跳动的紫色波点）；右 通话（= 相机对话）。「+」展开 拍照 / 从相册选图，选完缩略图附在输入框上方。
  */
 public final class ChatBottomBar extends LinearLayout {
@@ -140,6 +140,7 @@ public final class ChatBottomBar extends LinearLayout {
         mEdit.setHintTextColor(HINT);
         mEdit.setHint(ChatWindowPolicy.HINT_IDLE);
         mEdit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+        mEdit.setEllipsize(android.text.TextUtils.TruncateAt.END);   // ★ fix-1118：放不下时省略号收尾，不再截半个字
         mEdit.setInputType(InputType.TYPE_CLASS_TEXT);
         mEdit.setImeOptions(EditorInfo.IME_ACTION_SEND);
         mEdit.setPadding(dp(8), 0, dp(4), 0);
