@@ -65,10 +65,47 @@ public final class RiskGate {
     private static final Pattern SEND = Pattern.compile("(?i)(发送|^发$|发布|发表|转发|评论|回复|分享|上传|发朋友圈|发动态|拨打|呼叫|打电话|send\\b|send_|post\\b|publish|reply|share|upload|\\bcall\\b)");
     private static final Pattern SUBMIT = Pattern.compile("(?i)(提交|投递|申请|报名|立即预约|submit|apply)");   // 「确认 / 确定 / 同意」单独出现太常见（普通弹窗），不算
 
+    /**
+     * ★ sec-audit-1118 H3（严格）：开通 / 续费 / 订阅 / 确认收货 / 签署 / 授权 / 一键购买这类按完就生效的按钮。
+     * 在 {@link com.onesay.assistant.v2.security.SafetyText#squash} 之后的<b>整串</b>上找（不截 24 字、不因为长就当导航），
+     * 西里尔 / 希腊同形字、U+034F、零宽字符、全角、繁体、空格和分隔标点都先折掉。
+     * 「订阅号」（微信的入口）不算订阅。
+     */
+    private static final Pattern STRICT_PAY = Pattern.compile("立即付|自动续费|确认收货|agreeandpay|agreetopay");
+    private static final Pattern STRICT_ORDER = Pattern.compile("立即开通|订阅(?!号)|subscribe|placeyourorder|buywith1click|buywithoneclick|1clickbuy");
+    private static final Pattern STRICT_SUBMIT = Pattern.compile("签署|同意授权|确认授权");
+    /** 只有「订阅 / subscribe」这一档（入口条目里也常见，如「订阅管理」）：只取消「超长当导航」，不取消名词收尾的导航判定。 */
+    private static final Pattern STRICT_SOFT = Pattern.compile("订阅(?!号)|subscribe");
+    static final int STRICT_SCAN_MAX = 200;
+
+    /** 严格词表命中哪一类（null = 没命中）。 */
+    public static Irrev strictIrreversible(String label) {
+        if (label == null) return null;
+        String t = com.onesay.assistant.v2.security.SafetyText.squash(label);
+        if (t.length() == 0) return null;
+        if (t.length() > STRICT_SCAN_MAX) t = t.substring(0, STRICT_SCAN_MAX);
+        if (STRICT_PAY.matcher(t).find()) return Irrev.PAY;
+        if (STRICT_ORDER.matcher(t).find()) return Irrev.ORDER;
+        if (STRICT_SUBMIT.matcher(t).find()) return Irrev.SUBMIT;
+        return null;
+    }
+
+    /** 命中的只是「订阅 / subscribe」这一软档吗（没有别的严格词）。 */
+    public static boolean strictSoftOnly(String label) {
+        if (label == null) return false;
+        String t = com.onesay.assistant.v2.security.SafetyText.squash(label);
+        if (t.length() > STRICT_SCAN_MAX) t = t.substring(0, STRICT_SCAN_MAX);
+        return STRICT_SOFT.matcher(t).find() && !STRICT_PAY.matcher(t).find() && !STRICT_SUBMIT.matcher(t).find()
+                && !STRICT_ORDER.matcher(STRICT_SOFT.matcher(t).replaceAll("")).find();
+    }
+
     /** 按目标元素的名字 / 资源 id 认不可逆动作（只对改界面的点 / 回车）。 */
     public static Irrev detect(String verb, String name, String resourceId, boolean editable) {
         if (!"tap".equals(verb) && !"key".equals(verb) && !"long".equals(verb)) return null;
         if (editable) return null;
+        Irrev strict = strictIrreversible(name);   // ★ sec-audit-1118 H3：整串先判，长按钮文字不再截掉后半句
+        if (strict == null) strict = strictIrreversible(resourceId);
+        if (strict != null) return strict;
         String s = (fold(name, true) + " " + fold(resourceId, true)).trim().toLowerCase(Locale.ROOT);
         if (s.length() == 0) return null;
         if (s.length() > 24) s = s.substring(0, 24);   // 长段落不是按钮（误伤正文）
@@ -100,7 +137,7 @@ public final class RiskGate {
     private static final String SIMP = "删发转账账购买订单结确认注销绑传号拨预约报评论复红钱储录联系将应并开关";
 
     /**
-     * ★ rel-1118 B05：按钮文字归一化 —— NFKC（全角 ＰＡＹ → pay）、去掉零宽 / 格式字符（「付\u200b款」），keepSpace=false 时连空白也去掉（「支 付」）、
+     * ★ rel-1118 B05：按钮文字归一化 —— NFKC（全角 ＰＡＹ → pay）、去掉零宽 / 格式字符（「付\u200b款」；sec-audit-1118 H3 起含 U+034F，并折西里尔 / 希腊同形字），keepSpace=false 时连空白也去掉（「支 付」）、
      * 常见繁体折成简体（「刪除」「發送」）。资源 id 也走一遍（无害）。
      */
     static String fold(String in, boolean keepSpace) {
@@ -109,7 +146,8 @@ public final class RiskGate {
         StringBuilder b = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            if (Character.getType(c) == Character.FORMAT) continue;
+            if (com.onesay.assistant.v2.security.SafetyText.isInvisible(c)) continue;   // ★ sec-audit-1118 H3：含 U+034F / 变体选择符 / 韩文填充符
+            c = com.onesay.assistant.v2.security.SafetyText.homo(c);                     // ★ sec-audit-1118 H3：西里尔 / 希腊同形字（Рау → Pay）
             if (Character.isWhitespace(c) || Character.isSpaceChar(c)) {
                 if (keepSpace && b.length() > 0 && b.charAt(b.length() - 1) != ' ') b.append(' ');
                 continue;
