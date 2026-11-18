@@ -124,7 +124,7 @@ public final class ShizukuWhitelist {
         if (a.size() == 4 && "get".equals(a.get(1)) && "secure".equals(a.get(2)) && "enabled_notification_listeners".equals(a.get(3))) {
             return allow(CAT_NOTIFICATION, a);
         }
-        // fix-1118：亮度 / 蓝牙 / Wi-Fi 状态只读；亮度写只收 0–255 的十进制整数
+        // fix-1118：亮度 / 蓝牙 / Wi-Fi 状态只读；亮度写只收 0–65535 的十进制整数（★ fix-1118 c32）
         if (a.size() == 4 && "get".equals(a.get(1))) {
             String ns = a.get(2), key = a.get(3);
             if ("system".equals(ns) && ("screen_brightness".equals(key) || "screen_brightness_mode".equals(key))) return allow(CAT_READ, a);
@@ -132,9 +132,10 @@ public final class ShizukuWhitelist {
         }
         if (a.size() == 5 && "put".equals(a.get(1)) && "system".equals(a.get(2)) && "screen_brightness".equals(a.get(3))) {
             String v = a.get(4);
-            if (v.matches("[0-9]{1,3}")) {
+            // ★ fix-1118 c32：部分厂商亮度刻度远大于 255（真机 Meizu 读到 5968）—— 放到 0–65535 的十进制整数
+            if (v.matches("[0-9]{1,5}")) {
                 int n = Integer.parseInt(v);
-                if (n <= 255) {
+                if (n <= 65535) {
                     a = new ArrayList<String>(a);
                     a.set(4, String.valueOf(n));
                     return allow(CAT_TOGGLE, a);

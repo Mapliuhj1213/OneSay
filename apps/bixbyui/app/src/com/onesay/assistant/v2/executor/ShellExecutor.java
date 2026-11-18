@@ -40,6 +40,20 @@ public class ShellExecutor implements ShellRunner {
         }
     }
 
+    /** ★ fix-1118：本地查默认浏览器（VIEW http://example.com 的默认处理者）。查不到 = null（交特权通道）。 */
+    private ShellResponse localResolveBrowser() {
+        try {
+            android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("http://example.com"));
+            it.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+            android.content.pm.ResolveInfo ri = mContext.getPackageManager().resolveActivity(it, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+            if (ri == null || ri.activityInfo == null) return new ShellResponse(0, "No activity found", false, false);
+            Log.i(TAG, "[EXEC] 默认浏览器本地查询（PackageManager，不经特权通道）");
+            return new ShellResponse(0, ri.activityInfo.packageName + "/" + ri.activityInfo.name, false, false);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     /** 守护通道是否可能在线（探测缓存说离线就不去排 1.5 s 超时）。 */
     private boolean daemonLikelyUp() {
         try {
@@ -159,6 +173,12 @@ public class ShellExecutor implements ShellRunner {
         if (com.onesay.assistant.v2.platform.ShizukuCompat.isBatteryRead(command) && !"dumpsys battery".equals(command.trim())) {
             ShellResponse lb = localBattery(command);
             if (lb != null) return lb;
+        }
+        // ★ fix-1118「默认浏览器是什么」：resolve-activity 不在 Shizuku 白名单里 → App 自己 PackageManager.resolveActivity（targetSdk 28，无包可见性限制），
+        //   输出与 cmd package resolve-activity --brief 末行同格式（包名/类名），ShellPrograms.BROWSER_CHECK 照常解析
+        if (com.onesay.assistant.v2.executor.backend.ShellPrograms.RESOLVE_BROWSER.equals(command.trim())) {
+            ShellResponse lr = localResolveBrowser();
+            if (lr != null) return lr;
         }
         // ★ fix-1118 B19 真机：只打开一个应用商店 / 网页链接 → App 自己 startActivity（Shizuku 白名单不放带引号的 am start）
         String viewUri = com.onesay.assistant.v2.platform.ShizukuCompat.viewUri(command);

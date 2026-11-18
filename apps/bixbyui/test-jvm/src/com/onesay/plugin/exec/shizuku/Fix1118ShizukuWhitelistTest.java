@@ -35,14 +35,15 @@ public class Fix1118ShizukuWhitelistTest {
         for (String c : new String[]{"dumpsys battery", "settings get system screen_brightness", "settings get system screen_brightness_mode",
                 "settings get global bluetooth_on", "settings get global wifi_on", "cmd bluetooth_manager enable", "cmd bluetooth_manager disable",
                 "cmd wifi status", "svc wifi enable", "settings put system screen_brightness 0", "settings put system screen_brightness 128",
-                "settings put system screen_brightness 255"}) allow(c);
+                "settings put system screen_brightness 255",
+                "settings put system screen_brightness 256", "settings put system screen_brightness 7253", "settings put system screen_brightness 65535"}) allow(c);   // ★ fix-1118 c32：厂商大刻度
         assertEquals(Arrays.asList("settings", "put", "system", "screen_brightness", "8"), W.check("settings put system screen_brightness 008").argv);
     }
 
     @Test public void everythingElseStillDenied() {
         for (String c : new String[]{"svc wifi disable", "svc data enable", "svc bluetooth enable", "dumpsys battery set level 5", "dumpsys battery unplug",
                 "dumpsys", "dumpsys package com.tencent.mm", "dumpsys battery | grep level", "dumpsys battery; reboot",
-                "settings put system screen_brightness 256", "settings put system screen_brightness -1", "settings put system screen_brightness 1e2",
+                "settings put system screen_brightness 65536", "settings put system screen_brightness 100000", "settings put system screen_brightness -1", "settings put system screen_brightness 1e2",
                 "settings put system screen_brightness_mode 0", "settings put global wifi_on 0", "settings put global bluetooth_on 1",
                 "settings get secure android_id", "settings get global adb_enabled", "cmd bluetooth_manager enable now",
                 "cmd wifi set-wifi-enabled disabled", "cmd wifi status extra", "cmd package uninstall com.tencent.mm",
