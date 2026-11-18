@@ -208,6 +208,48 @@ public final class Agent {
     }
 
     /**
+     * [overnight-1119] 手机交给电脑的任务（pc_task）里，模型发起的每一步：按「这台手机发来的指令」走同一条远程安全链
+     * （安全插件 → 两轴矩阵 / 白名单 → 确认框（电脑上，并发到这台手机的屏幕上）→ 一次性凭证），不享受本机对话的放宽。
+     * 所以手机借电脑的模型做事，权限不会比手机直接下令大。
+     */
+    public Actions.Result runAsPeer(String from, String cmd, Map<String, Object> args) {
+        Actions.Result r;
+        if (from == null || from.isEmpty() || !cfg.peerAllowed(from)) return Actions.Result.fail("这台手机没有被允许下令");
+        SafeExec.REMOTE.set(Boolean.TRUE);
+        PcGuard.LOCAL.set(Boolean.FALSE);
+        try {
+            Object[] rw = LocalLaunch.rewrite(cmd, args);
+            if (rw != null) {
+                cmd = (String) rw[0];
+                @SuppressWarnings("unchecked") Map<String, Object> na = (Map<String, Object>) rw[1];
+                args = na;
+            }
+            PcGuard.Outcome o = guard.check(from, cmd, new TreeMap<>(args));
+            if (o.reply != null) {
+                r = o.reply;
+                log.accept("手机任务没执行 " + cmd + "：" + (r.data == null ? "" : r.data.get("reason")));
+            } else if (o.pass == null || !o.pass.consume(cmd, o.args)) {
+                r = Actions.Result.fail("没有通过审批，不执行");
+            } else {
+                log.accept("手机任务执行 " + cmd + "（来自 " + from + "）");
+                Actions.Result b = guard.builtin(cmd, o.args);
+                r = b != null ? b : actions.run(cmd, o.args);
+            }
+        } catch (SafeExec.Refused t) {
+            Map<String, Object> d = new TreeMap<>();
+            d.put("reason", LinkPolicy.R_PLUGIN_BLOCKED);
+            d.put("reason_zh", LinkPolicy.reasonZh(LinkPolicy.R_PLUGIN_BLOCKED));
+            r = new Actions.Result(false, t.getMessage(), d);
+        } catch (Throwable t) {
+            r = Actions.Result.fail(cmd + " 出错：" + t.getClass().getSimpleName());
+        } finally {
+            SafeExec.REMOTE.set(Boolean.FALSE);
+        }
+        noteRead(from, cmd, r);
+        return r;
+    }
+
+    /**
      * [app-whitelist-1116] 这条指令把电脑上的内容交给了手机（读剪贴板、读文件、截图）：认出隐私就记进这台手机本次会话
      * （截图电脑认不出内容，按「认不出的图片」算隐私，宁可多问）。只记类别，不记内容。
      */

@@ -79,6 +79,8 @@ public final class Config {
     public String mediaQuality = "best";
     /** 链接下载的文件夹；空 = %USERPROFILE%\OneSay\Downloads。 */
     public String mediaDir = "";  // 空 = %USERPROFILE%\OneSay\Downloads（不回退，见 UserDirs.downloadsDir）
+    /** phone-mirror M1：投屏窗口的键盘模式 sdk（普通，默认）/ uhid（物理键盘，中文用手机输入法）。 */
+    public String mirrorKeyboard = "sdk";
 
     private transient Tls tls;
 
@@ -153,6 +155,7 @@ public final class Config {
         c.adbPath = p.getProperty("adb_path", "").trim();
         c.mediaQuality = MediaArgs.quality(p.getProperty("media_quality", "best"));
         c.mediaDir = p.getProperty("media_dir", "").trim();
+        c.mirrorKeyboard = "uhid".equals(p.getProperty("mirror_keyboard", "sdk").trim()) ? "uhid" : "sdk";
         return c;
     }
 
@@ -224,6 +227,7 @@ public final class Config {
         p.setProperty("adb_path", adbPath);
         p.setProperty("media_quality", MediaArgs.quality(mediaQuality));
         p.setProperty("media_dir", mediaDir);
+        p.setProperty("mirror_keyboard", "uhid".equals(mirrorKeyboard) ? "uhid" : "sdk");
         p.setProperty("llm_provider", llmProvider);
         p.setProperty("llm_key", llmKey);
         p.setProperty("llm_model", llmModel);

@@ -122,6 +122,37 @@ public final class App {
         }
     }
 
+    /** [overnight-1119] 手机 ⇄ 电脑互传文件。 */
+    final FileXfer xfer = new FileXfer();
+
+    /**
+     * [overnight-1119] 双端连通：手机交任务给电脑（pc_task / pc_task_status，结果推回手机）、手机发文件到电脑（file_put，落在工作区「来自手机」），
+     * 电脑发文件到手机（界面按钮 / 对话工具，分块 file_put）。
+     */
+    void setupLinks1119() {
+        chat.peerExec = from -> (cmd, args) -> agent.runAsPeer(from, cmd, args);
+        chat.xfer = xfer;
+        agent.local.put("pc_task", a -> chat.startPhoneTask(str(a, "goal", ""), str(a, "_from", "")));
+        agent.local.put("pc_task_status", a -> chat.phoneTaskStatus(str(a, "_from", "")));
+        agent.local.put("file_put", a -> {
+            Map<String, Object> r = xfer.receive(cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE), a, str(a, "_from", ""));
+            return new Actions.Result(Boolean.TRUE.equals(r.get("ok")), String.valueOf(r.get("text")), r);
+        });
+        xfer.onDone = st -> notify.post("task", "收到手机发来的文件", st.name + "（" + FileXfer.human(st.size) + "）→ " + st.path, st.peer);
+        chat.onPhoneTaskEnd = (from, card) -> {
+            if (card == null || from == null || from.isEmpty()) return;
+            Map<String, Object> n = new TreeMap<>();
+            n.put("title", "电脑任务" + Outcomes.zh(String.valueOf(card.getOrDefault("state", ""))));
+            n.put("text", Chat.phoneTaskLine(card));
+            try {
+                Actions.Result r = agent.callPeer(from, "notify", n, 4000, 8000).get(14, java.util.concurrent.TimeUnit.SECONDS);
+                log.accept("手机任务结果" + (r.ok ? "已推回手机 " : "没推到手机（手机可以自己查）：" + r.text + " ") + from);
+            } catch (Exception e) {
+                log.accept("手机任务结果没推到手机（手机可以自己查）：" + from);
+            }
+        };
+    }
+
     /** [overnight-1119] 托盘图标（有确认卡等着时只改它的提示文字，不弹通知）。 */
     volatile TrayIcon trayIcon;
 
@@ -130,6 +161,24 @@ public final class App {
         if (t == null) return;
         String want = text == null ? "OneSay " + cfg.deviceId : text;
         try { if (!want.equals(t.getToolTip())) t.setToolTip(want); } catch (Exception ignored) { }
+    }
+
+    /** 在电脑上弹系统选文件框（发到手机用）。 */
+    java.io.File pickFile() {
+        if (java.awt.GraphicsEnvironment.isHeadless()) return null;
+        java.io.File[] out = new java.io.File[1];
+        try {
+            java.awt.EventQueue.invokeAndWait(() -> {
+                java.awt.FileDialog d = new java.awt.FileDialog((java.awt.Frame) null, "选一个文件发到手机", java.awt.FileDialog.LOAD);
+                d.setAlwaysOnTop(true);
+                d.setVisible(true);
+                if (d.getFile() != null) out[0] = new java.io.File(d.getDirectory(), d.getFile());
+                d.dispose();
+            });
+        } catch (Exception e) {
+            return null;
+        }
+        return out[0];
     }
 
     void start() throws Exception {
@@ -147,6 +196,7 @@ public final class App {
             return Actions.Result.ok("记忆已同步", m);
         });
         setupMedia();
+        setupMirror();
         setupWhitelist();
         // [overnight-1119] 审批不进通知（列表和 Windows 通知中心都不进，也不弹托盘气泡）：卡片在对话的任务卡 / 窗口里点；
         // 有卡等着时只改托盘图标的提示文字，点击次数记进「设置 › 权限审批记录」
@@ -157,6 +207,7 @@ public final class App {
         agent.guard.notify = t -> { log.accept("权限：" + t); agent.guard.logPerm(t, "提醒", ""); };
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
+        setupLinks1119();
         chat.phones = agent::peers;             // [phone-tools-1118] 对话的运行环境里写连着哪些手机
         chat.lastPhone = () -> cfg.phoneLast;
         chat.onTaskEnd = (st, t) -> { String[] p2 = t.split("\n", 2); notify.post("task", "任务" + Outcomes.zh(st) + "：" + p2[0], p2.length > 1 ? p2[1] : "", ""); }; // [overnight-1119]
@@ -176,7 +227,7 @@ public final class App {
         ui.onShow = () -> openWindow(ui.url());
         log.accept("界面 " + ui.baseUrl());   // ★ fix-1118 SEC L2：入口钥匙不进日志
         Host.ready(ui.url()); // OneSay.exe 托管时：记下地址，再次双击 OneSay.exe 就叫出窗口
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); }));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); mirror.shutdown(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();
         new Thread(App::ensureShortcuts, "onesay-shortcuts").start();
     }
@@ -306,6 +357,42 @@ public final class App {
         m.put("broken", w.broken());
         m.put("audit", w.recentAudit(30));
         return m;
+    }
+
+    // ---------- phone-mirror M1：手机投屏（官方 scrcpy；只响应电脑界面上的点击 / 拖拽，不给 agent 用） ----------
+    PhoneMirror mirror;
+
+    void setupMirror() {
+        MirrorTools mt = MirrorTools.forThisPc();
+        mirror = new PhoneMirror(mt, mt.dir().resolveSibling("phone-drop"), log);
+        mirror.uhid = () -> "uhid".equals(cfg.mirrorKeyboard);
+        mirror.onEvent = e -> {
+            if ("needs_auth".equals(e.kind)) notify.post("pc", "手机投屏", "在手机上点「允许 USB 调试」，勾上「始终允许这台电脑」", "");
+            else if ("authorized".equals(e.kind)) notify.post("pc", "手机投屏", e.zh + "，在 OneSay「手机投屏」里点「投屏」", "");
+        };
+        mirror.start();
+    }
+
+    Map<String, Object> mirrorApi(Map<String, Object> b) {
+        String op = str(b, "op", "state"), serial = str(b, "serial", "");
+        switch (op) {
+            case "install": { String e = mirror.installTools(); return e == null ? ok("开始安装") : fail(e); }
+            case "mirror": { String e = mirror.mirror(serial); return e == null ? ok("正在打开投屏窗口…") : fail(e); }
+            case "open_app": { String e = mirror.openApp(serial, str(b, "package", "")); return e == null ? ok("正在打开 App 窗口…") : fail(e); }
+            case "close": return mirror.close(serial, str(b, "package", "")) ? ok("已关掉") : fail("没有开着的窗口");
+            case "apps": {
+                try {
+                    Map<String, Object> m = ok("");
+                    m.put("apps", new ArrayList<Object>(mirror.apps(serial)));
+                    return m;
+                } catch (Exception e) {
+                    return fail(MediaTools.msg(e));
+                }
+            }
+            case "push_instead": return mirror.pushInstead(str(b, "id", ""));
+            case "state": { Map<String, Object> m = ok(""); m.put("mirror", mirror.view()); return m; }
+            default: return fail("不认识的操作");
+        }
     }
 
     // ---------- 链接下载 ----------
@@ -581,6 +668,7 @@ public final class App {
         s.put("chat_preset", ChatPolicy.Preset.of(cfg.chatPreset).id);
         s.put("chat_timeout_min", (long) cfg.chatTimeoutMin);
         s.put("media_quality", MediaArgs.quality(cfg.mediaQuality));
+        s.put("mirror_keyboard", "uhid".equals(cfg.mirrorKeyboard) ? "uhid" : "sdk");
         return s;
     }
 
@@ -616,7 +704,9 @@ public final class App {
             s.put("remembered", agent.guard.rememberedView());
             s.put("chat_rules", ChatPolicy.view(agent.guard.chatRules()));
             s.put("perm_log", agent.guard.permLogView());
-            s.put("perm_stats", PermStats.view(store.permStats())); // [overnight-1119] 权限审批记录：按类型 允许 x 次 / 拒绝 x 次
+            s.put("perm_stats", PermStats.view(store.permStats()));
+            s.put("xfers", xfer.view()); // [overnight-1119] 文件互传进度
+            s.put("xfer_dir", cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE).toString()); // [overnight-1119] 权限审批记录：按类型 允许 x 次 / 拒绝 x 次
             s.put("grants", agent.guard.grantView());
             s.put("chat_preset", ChatPolicy.Preset.of(cfg.chatPreset).id);
             s.put("choices", chat.choices.list());
@@ -624,6 +714,7 @@ public final class App {
             if (whitelist != null) { s.put("whitelist", whitelist.view()); s.put("whitelist_broken", whitelist.broken()); }
             s.put("workspace", cfg.workspace().toString());
             s.put("media", mediaState());
+            s.put("mirror", mirror.view());
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
         });
@@ -633,6 +724,34 @@ public final class App {
             return chat.send(str(b, "text", ""), "text", att);
         });
         ui.on("attach", b -> chat.attach(str(b, "name", ""), str(b, "b64", ""))); // [overnight-1119] 粘贴截图 / 拖进来 / 附件按钮
+        // [overnight-1119] 文件互传：看进度、选文件发到手机、打开「来自手机」文件夹
+        ui.on("xfer", b -> {
+            String op = str(b, "op", "list");
+            if (op.equals("pick_send")) {
+                String phone = agent.phoneTarget("");
+                if (phone == null || phone.isEmpty() || !agent.peers().containsKey(phone)) return fail("手机没连着（先在手机上打开 OneSay，确认电脑联动在线）");
+                java.io.File f = pickFile();
+                if (f == null) return fail("没选文件");
+                new Thread(() -> {
+                    Actions.Result r = xfer.send(f, phone, this::callPhone);
+                    log.accept("发文件到手机：" + (r.ok ? "成功 " : "失败 ") + f.getName());
+                    notify.post("task", r.ok ? "文件已发到手机" : "文件没发到手机", r.text, phone);
+                }, "onesay-xfer-send").start();
+                return ok("开始发：" + f.getName() + "（" + FileXfer.human(f.length()) + "），进度看下面");
+            }
+            if (op.equals("open_dir")) {
+                try {
+                    java.nio.file.Path d = cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE);
+                    Files.createDirectories(d);
+                    SafeExec.start(new ProcessBuilder("explorer.exe", d.toString()));
+                    return ok("已打开");
+                } catch (Exception e) { return fail("打不开：" + e.getClass().getSimpleName()); }
+            }
+            Map<String, Object> m = ok("传输");
+            m.put("xfers", xfer.view());
+            m.put("dir", cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE).toString());
+            return m;
+        });
         ui.on("chat_clear", b -> { if (chat.running()) return fail("任务还在做，先点「停止」"); store.clear("chat"); return ok("已清空对话，记忆保留"); });
         ui.on("chat_stop", b -> chat.stop() ? ok("做完当前这一步就停") : ok("没有在做的任务"));
         ui.on("artifact", b -> chat.artifact(str(b, "path", ""))); // [devtools-1118] 任务卡里的截图 / 文件（只给对话里登记过的路径）
@@ -706,6 +825,8 @@ public final class App {
         ui.on("confirm", b -> confirmApi(agent.confirms, b, log));
         ui.on("whitelist", b -> whitelistApi(whitelist, b, log));
         ui.on("media", this::mediaApi);
+        ui.on("mirror", this::mirrorApi);   // phone-mirror M1：只给电脑界面用（本机口令保护），不进 agent.local
+        ui.onUpload("mirror_drop", (q, size, in) -> mirror.drop(q.getOrDefault("serial", ""), q.getOrDefault("name", ""), size, in));
         // 「以后这类不用问」记住的动作类型：看 / 撤销（只能在电脑界面上；远程改不了）
         ui.on("remembered", b -> {
             String op = str(b, "op", "list");
@@ -858,6 +979,7 @@ public final class App {
                     case "vision_base": if (v.isEmpty() || v.startsWith("https://") || v.startsWith("http://127.0.0.1") || v.startsWith("http://localhost")) cfg.visionBase = v; else return fail("看图模型接口地址要用 https"); break;
                     case "vision_model": cfg.visionModel = v; break;
                     case "adb_path": cfg.adbPath = v; break;
+                    case "mirror_keyboard": cfg.mirrorKeyboard = "uhid".equals(v) ? "uhid" : "sdk"; log.accept("投屏键盘 → " + ("uhid".equals(v) ? "物理键盘（UHID）" : "普通键盘")); break;
                     default: break;
                 }
             }

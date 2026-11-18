@@ -50,6 +50,19 @@ public final class UiServer {
 
     public void on(String path, Function<Map<String, Object>, Object> h) { api.put(path, h); }
 
+    /** phone-mirror M1：大文件上传（拖到「手机投屏」的文件）。query 是解码后的查询参数，size = Content-Length，body 流式读。 */
+    public interface Upload {
+        Object accept(Map<String, String> query, long size, InputStream body) throws IOException;
+    }
+
+    private final Map<String, Upload> uploads = new TreeMap<>();
+
+    /** 注册 POST /upload/<path>（同样要 X-OneSay-Token 和 Host 校验；不经 256 KB 的 JSON 限制）。 */
+    public void onUpload(String path, Upload h) { uploads.put(path, h); }
+
+    /** 测试用。 */
+    Upload upload(String path) { return uploads.get(path); }
+
     /** 测试用：直接拿某个接口的处理函数（不经 HTTP / 口令）。 */
     Function<Map<String, Object>, Object> handler(String path) { return api.get(path); }
 
@@ -112,6 +125,7 @@ public final class UiServer {
                 send(ex, 200, "text/plain", "ok".getBytes());
                 return;
             }
+            if (path.startsWith("/upload/") && ex.getRequestMethod().equals("POST")) { handleUpload(ex, path.substring(8)); return; }
             if (!path.startsWith("/api/")) { send(ex, 404, "text/plain", "not found".getBytes()); return; }
             String t = ex.getRequestHeaders().getFirst("X-OneSay-Token");
             if (t == null || !MessageDigest.isEqual(t.getBytes(StandardCharsets.UTF_8), token.getBytes(StandardCharsets.UTF_8))) { send(ex, 401, "text/plain", "no token".getBytes()); return; }
@@ -137,6 +151,41 @@ public final class UiServer {
         } finally {
             ex.close();
         }
+    }
+
+    /** phone-mirror M1：POST /upload/<name>?k=v —— 口令同 /api；要 Content-Length；处理函数自己限制大小。 */
+    private void handleUpload(HttpExchange ex, String name) throws IOException {
+        String t = ex.getRequestHeaders().getFirst("X-OneSay-Token");
+        if (t == null || !MessageDigest.isEqual(t.getBytes(StandardCharsets.UTF_8), token.getBytes(StandardCharsets.UTF_8))) { send(ex, 401, "text/plain", "no token".getBytes()); return; }
+        Upload h = uploads.get(name);
+        if (h == null) { send(ex, 404, "text/plain", "no upload".getBytes()); return; }
+        long size;
+        try { size = Long.parseLong(String.valueOf(ex.getRequestHeaders().getFirst("Content-Length")).trim()); } catch (NumberFormatException e) { size = -1; }
+        if (size < 0) { send(ex, 411, "text/plain", "length required".getBytes()); return; }
+        Object out;
+        try (InputStream in = ex.getRequestBody()) {
+            out = h.accept(query(ex.getRequestURI().getRawQuery()), size, in);
+        } catch (IOException | RuntimeException e) {
+            Map<String, Object> err = new TreeMap<>();
+            err.put("ok", false);
+            err.put("text", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            out = err;
+        }
+        send(ex, 200, "application/json; charset=utf-8", Json.stringify(out).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 解析查询串（URL 解码，UTF-8）；坏的参数跳过。 */
+    static Map<String, String> query(String raw) {
+        Map<String, String> m = new TreeMap<>();
+        if (raw == null) return m;
+        for (String kv : raw.split("&")) {
+            int eq = kv.indexOf('=');
+            if (eq <= 0) continue;
+            try {
+                m.put(java.net.URLDecoder.decode(kv.substring(0, eq), StandardCharsets.UTF_8), java.net.URLDecoder.decode(kv.substring(eq + 1), StandardCharsets.UTF_8));
+            } catch (IllegalArgumentException ignored) { }
+        }
+        return m;
     }
 
     static byte[] resource(String name) throws IOException {

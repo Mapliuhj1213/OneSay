@@ -372,6 +372,10 @@ public final class PcGuard {
     public static LinkPolicy.Cat category(String cmd, Map<String, Object> a, File ws) {
         if ("sys_exec".equals(cmd)) return LinkPolicy.classifyShell(LinkPolicy.Target.PC, str(a, "command"));
         if ("file_write".equals(cmd)) return ws != null && LinkPolicy.resolveInside(ws, str(a, "path")) != null ? LinkPolicy.Cat.WORKSPACE_WRITE : LinkPolicy.Cat.OUTSIDE_WRITE;
+        // [overnight-1119] 双端连通：交任务（每一步再单独按手机来的指令判定）、查任务、收文件（只落在工作区「来自手机」里）
+        if ("pc_task".equals(cmd)) return LinkPolicy.Cat.HARMLESS;
+        if ("pc_task_status".equals(cmd)) return LinkPolicy.Cat.QUERY;
+        if ("file_put".equals(cmd)) return LinkPolicy.Cat.WORKSPACE_WRITE;
         return LinkPolicy.pcCat(cmd);
     }
 

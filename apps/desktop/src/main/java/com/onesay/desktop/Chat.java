@@ -92,6 +92,83 @@ public final class Chat {
 
     Store store() { return store; }
 
+    // ------------------------------------------------------------------ [overnight-1119] 手机交给电脑的任务（pc_task）
+
+    /** 发来任务的手机 → 这台手机身份下的执行（App 接到 {@link Agent#runAsPeer}）。 */
+    public volatile java.util.function.Function<String, ChatAgent.Exec> peerExec;
+    /** [overnight-1119] 发文件到手机（App 接上）。 */
+    public volatile FileXfer xfer;
+    /** 正在跑的任务是哪台手机交来的（空 = 本机对话）。 */
+    volatile String origin = "";
+    /** 手机任务结束：(手机, 任务卡)。App 把结果推回手机。 */
+    public volatile java.util.function.BiConsumer<String, Map<String, Object>> onPhoneTaskEnd = (p, c) -> { };
+
+    /** 手机交来一个目标：立刻回「收到了」，后台按这台手机的权限做；做完把结果推回手机（手机也能用 pc_task_status 查）。 */
+    public Actions.Result startPhoneTask(String goal, String from) {
+        String g = goal == null ? "" : goal.trim();
+        if (g.isEmpty()) return Actions.Result.fail("没说要电脑做什么");
+        if (g.length() > 1000) g = g.substring(0, 1000);
+        if (brain == null && !Llm.from(cfg).ready()) return Actions.Result.fail("电脑上的 OneSay 没配大模型（设置 › 模型与密钥），没法替手机做任务；单条指令（锁屏、截图、打开网址…）照常能用");
+        if (peerExec == null) return Actions.Result.fail("电脑联动没接好");
+        synchronized (queueLock) { if (running) return Actions.Result.fail("电脑正在做另一个任务，做完再发（或者先在电脑上点停止）"); }
+        final String goalF = g;
+        Thread t = new Thread(() -> {
+            origin = from;
+            try {
+                Map<String, Object> card = handle(goalF, "phone", true);
+                Map<String, Object> c = card == null ? null : store.find("chat", String.valueOf(card.get("id")));
+                try { onPhoneTaskEnd.accept(from, c == null ? card : c); } catch (RuntimeException ignored) { }
+            } finally {
+                origin = "";
+            }
+        }, "onesay-phone-task");
+        t.setDaemon(true);
+        t.start();
+        Map<String, Object> d = new TreeMap<>();
+        d.put("goal", g);
+        return Actions.Result.ok("电脑收到了，开始做：" + ChatAgent.clip(g, 60) + "。做完会把结果发回手机（也可以问「电脑任务做完了吗」）", d);
+    }
+
+    /** 这台手机最近交来的任务现在怎样。 */
+    @SuppressWarnings("unchecked")
+    public Actions.Result phoneTaskStatus(String from) {
+        List<Map<String, Object>> all = store.list("chat");
+        for (int i = all.size() - 1; i >= 0; i--) {
+            Map<String, Object> m = all.get(i);
+            if (!"task".equals(m.get("via")) || !String.valueOf(from).equals(m.get("origin"))) continue;
+            return Actions.Result.ok(phoneTaskLine(m), phoneTaskData(m));
+        }
+        return Actions.Result.ok("这台手机还没交过任务给电脑", new TreeMap<>(Map.of("state", "none")));
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> phoneTaskData(Map<String, Object> m) {
+        Map<String, Object> d = new TreeMap<>();
+        d.put("state", String.valueOf(m.getOrDefault("state", "")));
+        d.put("state_zh", "running".equals(m.get("state")) ? "进行中" : Outcomes.zh(String.valueOf(m.getOrDefault("state", ""))));
+        d.put("title", String.valueOf(m.getOrDefault("title", "")));
+        d.put("answer", String.valueOf(m.getOrDefault("answer", "")));
+        int n = 0;
+        List<Object> lines = new ArrayList<>();
+        if (m.get("steps") instanceof List) for (Object o : (List<Object>) m.get("steps")) {
+            if (!(o instanceof Map) || !"step".equals(((Map<String, Object>) o).get("kind"))) continue;
+            n++;
+            Map<String, Object> x = (Map<String, Object>) o;
+            String st = String.valueOf(x.getOrDefault("state", ""));
+            if (lines.size() < 30) lines.add((st.equals("ok") ? "✓ " : st.equals("warn") ? "⚠ " : st.equals("fail") ? "✗ " : "… ") + x.getOrDefault("desc", ""));
+        }
+        d.put("steps", (long) n);
+        d.put("step_lines", lines);
+        return d;
+    }
+
+    static String phoneTaskLine(Map<String, Object> m) {
+        String st = String.valueOf(m.getOrDefault("state", ""));
+        String ans = String.valueOf(m.getOrDefault("answer", ""));
+        if ("running".equals(st)) return "电脑还在做「" + m.getOrDefault("title", "") + "」";
+        return "电脑任务「" + m.getOrDefault("title", "") + "」" + Outcomes.zh(st) + (ans.isBlank() ? "" : "：" + ChatAgent.clip(ans, 300));
+    }
+
     // ------------------------------------------------------------------ [overnight-1119] 附件：粘贴截图 / 拖进来 / 附件按钮
 
     /** 单个附件最大（字节）。 */
@@ -234,7 +311,7 @@ public final class Chat {
         boolean tasks = modelOk && pcExec != null;
         // [chat-agent-1118] 「继续」接着上一件事（上一条助手回复是模型 / 任务的）：交给模型，不再被当成「播放 / 暂停」媒体键
         boolean cont = modelOk && Intent.isContinuation(text) && continuing();
-        Intent it = cont || (pa != null && modelOk) ? null : Intent.parse(text, cfg.appMap(), shortcuts.get(), tasks); // 带附件的交给模型
+        Intent it = cont || (pa != null && modelOk) || "phone".equals(via) ? null : Intent.parse(text, cfg.appMap(), shortcuts.get(), tasks); // 带附件的、手机交来的交给模型
         if (it == null) return answer(llm0, tasks, true);
         if (it.phoneCmd != null) return add("assistant", runPhone(it), "cmd");
         if (it.cmd != null) {
@@ -301,7 +378,8 @@ public final class Chat {
                 PcGuard.TASK.set(taskId);
                 List<String> leftovers = new ArrayList<>();
                 try {
-                    ChatAgent.Exec pe = pcExec;
+                    String org = origin;
+                    ChatAgent.Exec pe = org == null || org.isEmpty() || peerExec == null ? pcExec : peerExec.apply(org); // [overnight-1119] 手机交来的：按这台手机的权限
                     ChatAgent.Exec ex = (cmd, args) -> local(pe, cmd, args);
                     o = agent.run(context(), b, ex, new CardSteps(card));
                 } finally {
@@ -396,6 +474,12 @@ public final class Chat {
 
     /** 本机对话的一步：打开 / 手机 / 截屏 / 显示文件在这里做，其余走电脑执行链（PcGuard）。 */
     Actions.Result local(ChatAgent.Exec pe, String cmd, Map<String, Object> args) throws Exception {
+        if (origin != null && !origin.isEmpty()) {
+            // [overnight-1119] 手机交来的任务：选择卡弹在电脑上手机看不到；安卓界面点按不走远程安全链 → 不做
+            if ("ask_choice".equals(cmd)) return new Actions.Result(false, "这个任务是手机交来的，电脑上弹选择卡手机看不到：把 2–3 个候选写进答复、标【需要你操作】，让用户在手机上回话选哪个",
+                    new TreeMap<>(Map.of("reason", "choice_remote")));
+            if ("android_ui".equals(cmd)) return Actions.Result.fail("手机交来的任务不能替你点安卓界面（在电脑上直接说就行）");
+        }
         if ("open_target".equals(cmd)) return openTarget(pe, args);
         if (cmd.startsWith("phone_")) return phoneTool(cmd, args);
         if ("screen_look".equals(cmd)) return screenLook(args);
@@ -776,6 +860,27 @@ public final class Chat {
                     r = p.apply("open_app", x);
                     return r.ok ? r : offline(r, "open_app");
                 }
+                case "phone_send_file": {
+                    // [overnight-1119] 发电脑上的文件到手机（分块，手机放在「下载 / OneSay」）
+                    Path f = resolve(String.valueOf(a.getOrDefault("path", "")));
+                    if (f == null || !Files.isRegularFile(f)) return Actions.Result.fail("电脑上没有这个文件：" + a.getOrDefault("path", ""));
+                    FileXfer x = xfer;
+                    if (x == null) return Actions.Result.fail("文件互传没接上");
+                    String to = on.isEmpty() ? String.valueOf(last) : on.keySet().iterator().next();
+                    Actions.Result sr = x.send(f.toFile(), to, (c2, a2) -> p.apply(c2, a2));
+                    return sr.ok ? sr : offline(sr, "file_put");
+                }
+                case "phone_shortcuts": {
+                    r = p.apply("shortcut_list", new TreeMap<>());
+                    return r.ok ? r : offline(r, "shortcut_list");
+                }
+                case "phone_run_shortcut": {
+                    Map<String, Object> x = new TreeMap<>();
+                    x.put("name", String.valueOf(a.getOrDefault("name", "")).trim());
+                    if (String.valueOf(x.get("name")).isEmpty()) return Actions.Result.fail("要给快捷指令名");
+                    r = p.apply("shortcut_run", x);
+                    return r.ok ? r : offline(r, "shortcut_run");
+                }
                 case "phone_operate": {
                     Map<String, Object> x = new TreeMap<>();
                     x.put("goal", String.valueOf(a.getOrDefault("goal", "")).trim());
@@ -865,6 +970,7 @@ public final class Chat {
         m.put("task", taskId);
         m.put("title", title.length() > 60 ? title.substring(0, 60) + "…" : title);
         m.put("state", "running");
+        if (origin != null && !origin.isEmpty()) { m.put("origin", origin); m.put("title", "来自手机：" + (title.length() > 54 ? title.substring(0, 54) + "…" : title)); } // [overnight-1119]
         m.put("steps", new ArrayList<Object>());
         m.put("text", "");
         m.put("at", System.currentTimeMillis());
