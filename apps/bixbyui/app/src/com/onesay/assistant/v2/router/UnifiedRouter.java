@@ -420,7 +420,9 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         //   直接交付：不查也不写 L1 / ASK 缓存、不登记待验证、不进 AgentLoop；写入类交给执行层（ExecutionGate → 各插件后端）。
         //   日志口径不变：[ROUTE-IMG] / [ROUTE-SUM] / [ROUTE-S3] / [ROUTE-S2] / [ROUTE-DIAG]；
         //   需要的插件先跑一次 triage(query)，只为 [TRIAGE] 日志口径一致（规则判，不触网；5 秒内复用）。
-        com.onesay.assistant.v2.kernel.FeatureKernel.Hit take = com.onesay.assistant.v2.kernel.FeatureKernel.get().takeover(mContext, query, mL2);
+        // ★ rel-1118 B04：否定 / 反悔 / 只是在问的句子不给插件本地接管（S3 建提醒、记一记、诊断…），直接进分诊落 ASK
+        com.onesay.assistant.v2.kernel.FeatureKernel.Hit take = NegationGuard.blocks(query) ? null
+                : com.onesay.assistant.v2.kernel.FeatureKernel.get().takeover(mContext, query, mL2);
         if (take != null) {
             if (take.plugin.triageBeforeRouteLog(take.inv)) triage(query);
             SafeLog.i(TAG, take.plugin.routeLog() + take.inv.sign + mode);

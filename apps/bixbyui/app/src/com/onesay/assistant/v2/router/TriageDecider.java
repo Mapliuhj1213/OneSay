@@ -375,6 +375,11 @@ public final class TriageDecider {
         if (isNegatedCommand(q)) {
             return new Decision(Label.ASK, false, 0.9, "0n-negated", q, false, false, "rule");
         }
+        // ★ rel-1118 B04：否定 / 反悔（「，算了不用了」「个屁」）/ 只是在问（「…要多久」「关机吗」）—— 与快路径、插件接管同一个判定
+        String guard = NegationGuard.reason(utterance);
+        if (guard != null) {
+            return new Decision(Label.ASK, false, 0.9, guard, q, false, false, "rule");
+        }
 
         // ★ fix/shop-research（R5）：「好 / 你决定」接回上一轮任务（TaskContinuation 改写过）→ 直接进 AgentLoop，不重新分诊成问答
         if (TaskContinuation.isContinuation(utterance)) {

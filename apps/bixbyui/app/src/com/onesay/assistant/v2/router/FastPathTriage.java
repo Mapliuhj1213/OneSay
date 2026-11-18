@@ -22,6 +22,7 @@ public final class FastPathTriage {
     static UnifiedRouter.Triage triage(String query, CompoundSplitter.Resolver l0) {
         if (query == null || query.trim().length() == 0) return null;
         if (com.onesay.assistant.v2.trip.TripIntent.isTrigger(query)) return null;   // ★ trip-decompose：交决策表进规划模式
+        if (NegationGuard.blocks(query)) return null;   // ★ rel-1118 B04：否定 / 反悔 / 只是在问 → 交决策表落 ASK，快路径不接
         Invocation f = FastIntents.route(query);
         if (f != null) {
             return new UnifiedRouter.Triage(TriageDecider.fastPath(query, f.sign, false), f, null);
