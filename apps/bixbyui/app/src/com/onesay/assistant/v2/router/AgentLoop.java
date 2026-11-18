@@ -1144,6 +1144,22 @@ public class AgentLoop {
                             fin = checked;
                         }
                     }
+                    // ★ fix-1118（真机 c27 / c28）：「点开 X」没一步屏幕操作成功却说已打开 / 识屏失败没提 → 如实说明
+                    {
+                        java.util.List<UiClaimCheck.StepView> sv = new java.util.ArrayList<UiClaimCheck.StepView>();
+                        for (final Step st : steps) {
+                            sv.add(new UiClaimCheck.StepView() {
+                                @Override public String tool() { return st.tool; }
+                                @Override public boolean ok() { return st.ok; }
+                                @Override public boolean gated() { return st.gated; }
+                            });
+                        }
+                        String honest = UiClaimCheck.verify(query, fin, sv);
+                        if (honest != null && !honest.equals(fin)) {
+                            SafeLog.w(TAG, "[AGENT-LOOP] [UI-CLAIM] 答复与执行不符（没点到 / 识屏失败）→ 如实说明");
+                            fin = honest;
+                        }
+                    }
                     if (!(cb instanceof Unattended)) TaskContinuation.record(query, fin, TaskContinuation.Origin.AGENT, System.currentTimeMillis());
                     if (gateKind != ResearchGate.Kind.NONE && marketSnap == null) {   // ★ 11-04 ④：调研 / 购物结论配图（代表款缩略图 + 价格条形图）
                         ResearchVisuals.Model vm = ResearchVisuals.attach(fin, System.currentTimeMillis());

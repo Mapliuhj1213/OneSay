@@ -305,6 +305,16 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
     }
 
     void confirmRequired() {
+        confirmRequired(false);
+    }
+
+    void confirmRequired(boolean sheetVisible) {
+        if (sheetVisible) {
+            // ★ fix-1118：面板可见时确认卡只在面板里出一张
+            apply(mModel.confirmRequiredOnVisibleSheet(mConfirmTitle, mConfirmDetail), "confirmRequired(sheet)");
+            Log.i(TAG, "[ISLAND] 需要确认 → 面板在屏幕上，确认卡只画在面板里（岛不重复展开）");
+            return;
+        }
         List<IslandModel.Effect> e = mModel.confirmRequired(mConfirmTitle, mConfirmDetail);
         if (!e.isEmpty()) {
             Log.i(TAG, "[ISLAND] 需要确认 → " + (mModel.mode() == IslandModel.Mode.ISLAND

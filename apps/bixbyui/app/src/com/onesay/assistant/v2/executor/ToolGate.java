@@ -106,6 +106,11 @@ public class ToolGate {
             // ★ 11-04 E（用户：「30分钟后叫醒我」还要确认，没必要）：新建闹钟 / 计时器是本机、可撤销、不外发、不花钱的动作，
             //   污点（会话历史读过网页）下也直接放行；删除 / 批量 / 花钱 / 对外发送仍按下面强制确认。
             //   2026-11-14 对抗测试 P2-4a：只在能力本身不要求确认时才放行（静态声明 risk2+确认的，污点下不能比不污点更宽）。
+            // ★ fix-1118（真机 c28：「在设置里点开关于手机」光打开设置页就弹「做了就撤不回来」红卡）：只是打开系统设置页 / 设置 App，
+            //   不改任何东西、不外发，污点下也放行；页里真要改开关的下一步仍按上面 / 下面的规则确认。
+            if (!baseConfirmRequired && isSettingsNavigation(cap, args)) {
+                return new GateResult(Decision.ALLOW, "只是打开系统设置页，允许执行");
+            }
             if (isBenignCreate(cap) && !baseConfirmRequired) {
                 return new GateResult(Decision.ALLOW, "新建闹钟 / 计时器，允许执行");
             }
@@ -133,5 +138,30 @@ public class ToolGate {
 
         // 其他均放行
         return new GateResult(Decision.ALLOW, "允许执行");
+    }
+
+    private static final java.util.Set<String> SETTINGS_APPS = new java.util.HashSet<String>(java.util.Arrays.asList(
+            "设置", "系统设置", "手机设置", "settings", "com.android.settings"));
+
+    /** ★ fix-1118：打开系统设置（route.open 的 settings.open / settings.page、app.launch 设置、settings.page.*），参数里不带网址 / 外部协议。 */
+    public static boolean isSettingsNavigation(Capability cap, JSONObject args) {
+        if (cap == null || cap.sign == null) return false;
+        String s = cap.sign;
+        if (s.startsWith("settings.page.")) return true;
+        if (args == null) return false;
+        java.util.Iterator<String> it = args.keys();
+        while (it.hasNext()) {
+            String v = String.valueOf(args.opt(it.next()));
+            if (v.length() > 40 || v.contains("://") || v.matches("(?i).*\\b(intent|content|file|javascript|market|tel|sms|mailto):.*")) return false;
+        }
+        if ("route.open".equals(s)) {
+            String in = args.optString("intent", "").trim().toLowerCase(java.util.Locale.ROOT);
+            return in.equals("settings.open") || in.equals("settings.page") || in.startsWith("settings.page.");
+        }
+        if ("app.launch".equals(s)) {
+            String a = args.optString("app", args.optString("package", "")).trim().toLowerCase(java.util.Locale.ROOT);
+            return SETTINGS_APPS.contains(a);
+        }
+        return false;
     }
 }

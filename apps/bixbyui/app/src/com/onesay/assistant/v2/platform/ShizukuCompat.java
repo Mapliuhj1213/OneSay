@@ -27,6 +27,7 @@ public final class ShizukuCompat {
     private static final Pattern BATTERY_GREP = Pattern.compile(
             "^dumpsys\\s+battery\\s*\\|\\s*grep(?:\\s+-m\\s*1)?\\s+'?\\s*(level|temperature|status|AC powered|USB powered)(:)?\\s*'?$");
     private static final Pattern BT_SERVICE = Pattern.compile("^service\\s+call\\s+bluetooth_manager\\s+(\\d+)(?:\\s+.*)?$");
+    private static final Pattern SCREENCAP_QUOTED = Pattern.compile("^screencap\\s+-p\\s+'([A-Za-z0-9_./\\-]{1,200}\\.png)'$");
     private static final Pattern BT_SVC = Pattern.compile("^svc\\s+bluetooth\\s+(enable|disable)$");
 
     public static Rewrite rewrite(String command) {
@@ -44,6 +45,10 @@ public final class ShizukuCompat {
         }
         m = BT_SVC.matcher(c);
         if (m.matches()) return new Rewrite("cmd bluetooth_manager " + m.group(1), null);
+        // 识屏截图（真机 c27）：模板给路径加了单引号（守护按 shell 规则），白名单不认引号 —— 路径本身只含安全字符时去掉引号；
+        //   路径仍要过白名单（只认 /data/local/tmp/onesay*.png 与本包外部 cache/）
+        m = SCREENCAP_QUOTED.matcher(c);
+        if (m.matches()) return new Rewrite("screencap -p " + m.group(1), null);
         return null;
     }
 

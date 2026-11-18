@@ -1999,7 +1999,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                     }
                                     // [s1] 确认卡绝不能藏在胶囊里：收起状态先强制展开面板（[island] 岛：待确认 → 1 s 后岛上展开确认卡）
                                     com.onesay.assistant.v2.s1.S1Hooks.onConfirmInfo(cap, args);   // [island]
-                                    com.onesay.assistant.v2.s1.S1Hooks.onConfirmRequired(FloatingSheetService.this);
+                                    com.onesay.assistant.v2.s1.S1Hooks.onConfirmRequired(FloatingSheetService.this, sheetOnScreen());   // ★ fix-1118：面板在屏上 → 岛不重复出卡
                                     mSheetView.showConfirmCard(cap, args, tainted, tier,
                                             "确认后，我会继续完成剩余的步骤。");
                                     playConfirmPrompt();
@@ -3299,7 +3299,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     public void run() {
                         if (mSheetView != null && mIsAttached) {
                             mSheetView.setAskStreamStage(stage);
-                            mSheetView.updateState("正在识屏", Color.parseColor("#A9A7A2"), stage);
+                            mSheetView.updateState("正在识屏", Color.parseColor("#A9A7A2"), promptDisplay);   // ★ fix-1118 c27：进度只进进度行，用户气泡保持原问题（以前被换成「正在捕获当前屏幕画面…」）
                         }
                     }
                 });
@@ -3665,6 +3665,16 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         return mSheetView != null && mIsAttached && !mHiding;
     }
     // ===== [screenref] END =====
+
+    /** ★ fix-1118：面板此刻真在屏幕上（挂在窗口、可见、没收成胶囊）。 */
+    private boolean sheetOnScreen() {
+        try {
+            return mSheetView != null && mSheetView.isAttachedToWindow() && mSheetView.isShown()
+                    && mSheetView.getVisibility() == android.view.View.VISIBLE && mSheetView.getAlpha() > 0.5f;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
 
     // ===== [s1] BEGIN S1 桥接（整块可原样搬运；只被 s1/* 调用）=====
     /**
