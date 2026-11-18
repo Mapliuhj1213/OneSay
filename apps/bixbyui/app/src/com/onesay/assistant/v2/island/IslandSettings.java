@@ -14,6 +14,8 @@ import android.content.SharedPreferences;
  *       关掉 = 不画任何浮层：任务留在面板、S3 提醒走通知（2026-10-10 第 6 项起没有胶囊回落）</td><td>开</td></tr>
  *   <tr><td>{@code fullscreen}</td><td>状态栏隐藏（全屏视频 / 游戏）时岛也隐藏，只有关键事件在屏幕上沿 8dp 展开</td><td>开</td></tr>
  *   <tr><td>{@code tuck}</td><td>横滑岛 = 暂避 60 秒（关键事件会提前叫回）</td><td>开</td></tr>
+ *   <tr><td>{@code cutout}</td><td>有挖孔摄像头（中间 / 角落圆孔、双摄药丸孔）时岛包住孔、从孔里长出来；关掉 = 停在状态栏下 2dp，仍从孔里长出来。
+ *       刘海 / 水滴 / 无孔 / 横屏一律上方居中</td><td>开</td></tr>
  * </table>
  *
  * <h3>Kill-switch（文件存在即关，删除即恢复，无需重装）</h3>
@@ -28,6 +30,8 @@ public final class IslandSettings {
     public static final String KEY_ENABLED = "enabled";
     public static final String KEY_FULLSCREEN_HIDE = "fullscreen";
     public static final String KEY_TUCK = "tuck";
+    /** ★ island-cutout-1118：有挖孔摄像头时岛包住孔（关 = 停在状态栏下 2dp，但仍从孔里长出来）。 */
+    public static final String KEY_CUTOUT = "cutout";
     public static final String KILL = "island.off";
     public static final String KILL_TMP = com.onesay.assistant.v2.BuildVariant.KILL_TMP_ROOT + "/bixby_island.off";
 
@@ -64,6 +68,10 @@ public final class IslandSettings {
         return ctx != null && pref(ctx, KEY_FULLSCREEN_HIDE);
     }
 
+    public static boolean cutoutWrap(Context ctx) {
+        return ctx != null && pref(ctx, KEY_CUTOUT);
+    }
+
     public static boolean tuckEnabled(Context ctx) {
         return ctx != null && pref(ctx, KEY_TUCK);
     }
@@ -81,7 +89,7 @@ public final class IslandSettings {
     }
 
     public static String dump(Context ctx) {
-        return "enabled=" + enabled(ctx) + " pref=" + pref(ctx, KEY_ENABLED) + " fullscreen=" + pref(ctx, KEY_FULLSCREEN_HIDE) + " tuck=" + pref(ctx, KEY_TUCK)
+        return "enabled=" + enabled(ctx) + " pref=" + pref(ctx, KEY_ENABLED) + " fullscreen=" + pref(ctx, KEY_FULLSCREEN_HIDE) + " tuck=" + pref(ctx, KEY_TUCK) + " cutout=" + pref(ctx, KEY_CUTOUT)
                 + " killed=" + killed(ctx) + " override=" + sOverride;
     }
 }

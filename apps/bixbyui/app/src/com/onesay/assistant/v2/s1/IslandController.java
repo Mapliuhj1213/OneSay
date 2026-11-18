@@ -27,6 +27,7 @@ import android.view.WindowManager;
 import com.onesay.assistant.v2.capability.Capability;
 import com.onesay.assistant.v2.executor.ExecutionGate;
 import com.onesay.assistant.v2.executor.ToolGate;
+import com.onesay.assistant.v2.island.CutoutGeometry;
 import com.onesay.assistant.v2.island.IslandGeometry;
 import com.onesay.assistant.v2.island.IslandModel;
 import com.onesay.assistant.v2.island.IslandSettings;
@@ -50,7 +51,7 @@ import java.util.TimeZone;
  * <h3>浮层（v3：不再有无障碍服务；2026-10-10 第 6 项：旧悬浮胶囊与旧取件码浮卡已删除）</h3>
  * <ul>
  *   <li><b>岛</b>（有悬浮窗权限 + bixby_island.enabled + 没有 island.off）：{@link IslandView}，<b>TYPE_APPLICATION_OVERLAY</b>，
- *       状态栏下方 2dp、水平居中（不读 DisplayCutout）；全屏时只显示关键事件，上沿 8dp；</li>
+ *       有挖孔摄像头时包住孔、从孔里长出来（island-cutout-1118，CutoutGeometry），否则状态栏下方 2dp、水平居中；全屏时只显示关键事件，上沿 8dp；</li>
  *   <li><b>不画浮层</b>（{@link IslandModel.Mode#NONE}：island.off / 岛开关关 / 没有悬浮窗权限 / 岛窗口挂载失败）：
  *       不收起面板，长任务的步骤、确认卡、结果都留在面板上（与接入 S1 前一致）；S3 提醒与结果走通知，
  *       S3 无人值守的确认没法弹 → 按拒绝处理并发一条通知说明（见 S3Runner）；取件码不上屏（短信本身仍在通知栏）。</li>
@@ -92,6 +93,8 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
     private IslandView mIsland;
     private WindowManager.LayoutParams mIslandParams;
     private IslandGeometry.Anchor mAnchor;
+    /** 算锚点时的「包孔」设置 / 是否还没读到挖孔（Android 9 要等窗口挂上）。 */
+    private boolean mAnchorWrapPref = true, mAnchorNoCutoutYet;
     private Rect mLastWin = new Rect();
 
     // 全屏探针
@@ -733,6 +736,7 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
             if (Build.VERSION.SDK_INT >= 23) overlay = Settings.canDrawOverlays(mSvc);
         } catch (Throwable ignored) {
         }
+        if (mAnchor != null && mAnchorWrapPref != IslandSettings.cutoutWrap(mSvc)) onDisplayChanged();   // ★ 包孔开关改了 → 重算锚点
         boolean pref = IslandSettings.enabled(mSvc);   // 已含 island.off 与调试覆盖
         IslandModel.Mode m = IslandModel.chooseMode(pref, false, overlay);
         IslandModel.Mode old = mModel.mode();
@@ -1120,6 +1124,10 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
                     PixelFormat.TRANSLUCENT);
             mIslandParams.gravity = Gravity.TOP | Gravity.START;
             mIslandParams.setTitle("OneSay-Island");
+            if (Build.VERSION.SDK_INT >= 28) {
+                // ★ island-cutout-1118：岛要画进挖孔所在的那一条（包孔 / 从孔里长出来），横竖屏都允许进短边挖孔区
+                mIslandParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            }
             Log.i(TAG, "[ISLAND] 窗口模式=" + (mIsland.fixedWindowMode() ? "固定全宽 + 触摸区域只认岛（R11）" : "包住岛（兜底）"));
         }
         mIslandParams.x = r.left;
@@ -1131,6 +1139,14 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
             else {
                 mWm.addView(mIsland, mIslandParams);
                 Log.i(TAG, "[ISLAND] 岛窗口已挂出（TYPE_APPLICATION_OVERLAY）锚点 " + mAnchor);
+                if (Build.VERSION.SDK_INT == 28 && mAnchorNoCutoutYet) {
+                    // Android 9 没有 Display.getCutout()：只能等岛窗口挂上后从 WindowInsets 读 → 读到了就重算一次锚点
+                    mMain.post(new Runnable() {
+                        @Override public void run() {
+                            if (mIsland != null && mIsland.getParent() != null && !cutoutRects().isEmpty()) onDisplayChanged();
+                        }
+                    });
+                }
             }
             mIsland.setWindowOrigin(r.left, r.top);
             if (!r.equals(mLastWin)) {
@@ -1180,8 +1196,9 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
         Point p = screenSize();
         float dens = mSvc.getResources().getDisplayMetrics().density;
         int[] f = IslandGeometry.fixedWindow(p.x, p.y, a.top, dens);
-        float compact = IslandGeometry.compactWidth(60f * dens, dens);
-        return new float[] {a.cx, a.top, IslandGeometry.COMPACT_H_DP * dens, f[3], compact};
+        float compact = CutoutGeometry.compactWidth(60f * dens, p.x, dens);
+        float seed = a.wrap && a.compactH > 0 ? a.compactH : IslandGeometry.COMPACT_H_DP * dens;   // ★ 包孔：种子 = 包孔紧凑高
+        return new float[] {CutoutGeometry.cxFor(a, compact, p.x, dens), a.top, seed, f[3], compact};
     }
 
     /** 岛当前形状（屏幕坐标）+ 圆角，用于「流回」起点；岛不可见 → null。 */
@@ -1211,10 +1228,43 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
     private IslandGeometry.Anchor anchor() {
         if (mAnchor != null) return mAnchor;
         Point scr = screenSize();
-        mAnchor = IslandGeometry.anchor(scr.x, mSvc.getResources().getDisplayMetrics().density, statusBarHeight(), mModel.isFullscreen());
-        Log.i(TAG, "[ISLAND-GEOM] screen=" + scr.x + "x" + scr.y + " density=" + mSvc.getResources().getDisplayMetrics().density
-                + " statusBar=" + statusBarHeight() + " sdk=" + Build.VERSION.SDK_INT + " → 锚点 " + mAnchor);
+        float dens = mSvc.getResources().getDisplayMetrics().density;
+        List<int[]> rects = cutoutRects();
+        mAnchorNoCutoutYet = rects.isEmpty();
+        mAnchorWrapPref = IslandSettings.cutoutWrap(mSvc);
+        // ★ island-cutout-1118：从挖孔长出来（中间 / 角落圆孔、双摄药丸孔）；刘海 / 水滴 / 无孔 / 横屏孔在侧边 → 状态栏下 2dp 居中（v3）
+        mAnchor = CutoutGeometry.anchor(scr.x, scr.y, dens, statusBarHeight(), mModel.isFullscreen(), rects, mAnchorWrapPref);
+        StringBuilder rs = new StringBuilder();
+        for (int[] q : rects) rs.append('[').append(q[0]).append(',').append(q[1]).append(',').append(q[2]).append(',').append(q[3]).append(']');
+        Log.i(TAG, "[ISLAND-GEOM] screen=" + scr.x + "x" + scr.y + " density=" + dens
+                + " statusBar=" + statusBarHeight() + " sdk=" + Build.VERSION.SDK_INT + " cutout=" + (rs.length() == 0 ? "none" : rs.toString())
+                + " → 锚点 " + mAnchor);
         return mAnchor;
+    }
+
+    /** 当前方向的挖孔外接框 {l, t, r, b}（屏幕像素）。API 29+ 读 Display.getCutout()（反射：编译用 android-28），28 读岛窗口的 WindowInsets；更低 = 空。 */
+    private List<int[]> cutoutRects() {
+        List<int[]> out = new ArrayList<int[]>();
+        if (Build.VERSION.SDK_INT < 28) return out;
+        try {
+            Object dc = null;
+            if (Build.VERSION.SDK_INT >= 29) {
+                android.view.Display disp = mWm.getDefaultDisplay();
+                dc = android.view.Display.class.getMethod("getCutout").invoke(disp);
+            }
+            if (dc == null && mIsland != null && mIsland.getParent() != null) {
+                WindowInsets wi = mIsland.getRootWindowInsets();
+                if (wi != null) dc = wi.getDisplayCutout();
+            }
+            if (dc instanceof android.view.DisplayCutout) {
+                for (Rect r : ((android.view.DisplayCutout) dc).getBoundingRects()) {
+                    if (r != null && !r.isEmpty()) out.add(new int[] {r.left, r.top, r.right, r.bottom});
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "[ISLAND-GEOM] 读挖孔失败 → 按无孔处理: " + t);
+        }
+        return out;
     }
 
     private Point screenSize() {

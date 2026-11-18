@@ -57,7 +57,7 @@ public final class IslandPreview {
             super(ctx);
             mD = ctx.getResources().getDisplayMetrics().density;
             mBg.setColor(k.t.island);
-            mDot.setColor(0xFFE5484D);   // 岛的红点（和 IslandView 同色）
+            mDot.setColor(0xFFF0575C);   // 岛的红点（和 IslandView 同色）
             mText.setColor(k.t.islandText);
             mText.setTextSize(13 * ctx.getResources().getDisplayMetrics().scaledDensity);
             mText.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
