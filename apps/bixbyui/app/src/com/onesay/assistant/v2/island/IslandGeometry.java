@@ -266,4 +266,17 @@ public final class IslandGeometry {
     public static boolean fixedWindowAllowed(int sdkInt) {
         return sdkInt < 31;
     }
+
+    /** InputManager.getMaximumObscuringOpacityForTouch() 的出厂值（API 31+；compileSdk 28 拿不到常量）。 */
+    public static final float MAX_OBSCURING_OPACITY = 0.8f;
+
+    /**
+     * ★ meizu-1118 B10：执行护罩是全屏 overlay，靠 touchable region 在注入点「开孔」放行我们自己的点按 / 滑动。
+     * API 31+ 上 WMS 只给 FLAG_NOT_TOUCHABLE 的 overlay 把 alpha 压到 0.8；可触摸的护罩 alpha 仍是 1.0，
+     * 孔里的事件被判「Untrusted touch due to occlusion … obscuring opacity = 1.00」直接丢掉
+     * （真机 Meizu 21 Pro：设置页 3 次滑动全丢 → 「连续 3 轮界面没有任何变化」）。护罩窗口 alpha 设到 0.8 就不算遮挡。
+     */
+    public static float shieldWindowAlpha(int sdkInt) {
+        return sdkInt >= 31 ? MAX_OBSCURING_OPACITY : 1f;
+    }
 }

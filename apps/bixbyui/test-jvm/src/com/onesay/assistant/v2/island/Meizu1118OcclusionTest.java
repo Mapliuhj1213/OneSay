@@ -26,4 +26,12 @@ public class Meizu1118OcclusionTest {
         assertTrue(s.contains("mTouch = IslandGeometry.fixedWindowAllowed(android.os.Build.VERSION.SDK_INT) ? TouchRegion.create(this) : null;"));
         assertTrue(s.contains("mFixedWin = mTouch != null;"));
     }
+
+    /** ★ meizu-1118 B10：API 31+ 护罩窗口 alpha 不超过系统允许的遮挡不透明度，开孔里的注入点按才不会被丢。 */
+    @Test public void shieldAlphaWithinObscuringLimitOnS() {
+        assertEquals(1f, IslandGeometry.shieldWindowAlpha(30), 0f);
+        assertEquals(0.8f, IslandGeometry.shieldWindowAlpha(31), 0f);
+        assertEquals(0.8f, IslandGeometry.shieldWindowAlpha(36), 0f);
+        assertTrue(IslandGeometry.shieldWindowAlpha(36) <= IslandGeometry.MAX_OBSCURING_OPACITY);
+    }
 }

@@ -34,11 +34,47 @@ public final class ShizukuCompat {
     private static final Pattern VIEW_URI = Pattern.compile(
             "^am\\s+start\\s+-a\\s+android\\.intent\\.action\\.VIEW\\s+-d\\s+'((?:market|https?)://[^'\\s\\\\]{1,500})'$");
 
+    /**
+     * ★ meizu-1118 B7：「打开网页www.baidu.com」—— 网址没写协议（主机名里有点、没有冒号）→ 按 https:// 补全后 App 内打开。
+     * ShellCommand 对只含安全字符的值不加引号（{@code -d www.baidu.com}），所以引号可有可无。
+     */
+    private static final Pattern VIEW_ANY = Pattern.compile(
+            "^am\\s+start\\s+-a\\s+android\\.intent\\.action\\.VIEW\\s+-d\\s+(?:'([^'\\s\\\\]{1,500})'|([A-Za-z0-9._~/%:+=\\-]{1,500}))$");
+    private static final Pattern WEB_URI = Pattern.compile("^(?:market|https?)://[^'\\s\\\\]{1,500}$");
+    private static final Pattern BARE_HOST = Pattern.compile("^[^'\\s\\\\:/?#]+\\.[^'\\s\\\\:/?#.]+(?:[/?#][^'\\s\\\\]{0,480})?$");
+
     /** 是这一种「只打开一个链接」的模板 → 返回链接（market:// / http(s)://）；其余 null（照旧走特权通道）。 */
     public static String viewUri(String command) {
         if (command == null) return null;
         Matcher m = VIEW_URI.matcher(command.trim());
-        return m.matches() ? m.group(1) : null;
+        if (m.matches()) return m.group(1);
+        m = VIEW_ANY.matcher(command.trim());
+        if (!m.matches()) return null;
+        String u = m.group(1) != null ? m.group(1) : m.group(2);
+        if (WEB_URI.matcher(u).matches()) return u;
+        if (BARE_HOST.matcher(u).matches()) return "https://" + u;
+        return null;
+    }
+
+    /**
+     * ★ meizu-1118 B8：媒体音量（STREAM_MUSIC = 3）不需要任何特权，App 自己 AudioManager 就能读写；
+     * 无 root 机型上 Shizuku 白名单不放 media（真机 Meizu「音量调到50%」= SHIZUKU_PROG_NOT_WHITELISTED(media)）。
+     * 只认 {@code media volume --stream 3 --get} 与 {@code media volume --stream 3 --set <0-999>}，别的流 / 写法照旧走特权通道。
+     */
+    private static final Pattern MEDIA_VOL = Pattern.compile("^media\\s+volume\\s+--stream\\s+3\\s+--(get|set\\s+([0-9]{1,3}))$");
+
+    /** -1 = 不是媒体音量命令；-2 = 读；≥0 = 设到这个值（调用方再夹到满格）。 */
+    public static int mediaVolume(String command) {
+        if (command == null) return -1;
+        Matcher m = MEDIA_VOL.matcher(command.trim().replaceAll("\\s+", " "));
+        if (!m.matches()) return -1;
+        if ("get".equals(m.group(1))) return -2;
+        return Integer.parseInt(m.group(2));
+    }
+
+    /** 与 cmd media_session volume --get 同格式，ShellPrograms / ControlFeedback / check 照常解析。 */
+    public static String mediaVolumeOut(int v, int max) {
+        return "volume is " + v + " in range [0.." + max + "]";
     }
 
     public static Rewrite rewrite(String command) {
