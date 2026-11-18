@@ -212,8 +212,16 @@ public final class FileXfer {
             return Actions.Result.fail("读不了文件：" + e.getClass().getSimpleName());
         }
         Actions.Result last = null;
+        Progress.Meter meter = new Progress.Meter("发到手机 " + f.getName(), size);
+        Progress.CANCEL.set(false);
         try (InputStream in = Files.newInputStream(f.toPath())) {
+            meter.tick(0, true);
             for (int seq = 0; seq < total; seq++) {
+                if (Progress.CANCEL.get()) {
+                    s.status = "failed";
+                    s.error = "已取消";
+                    return Actions.Result.fail("已取消发送（发了 " + human(s.done) + " / " + human(size) + "）");
+                }
                 byte[] buf = in.readNBytes(CHUNK);
                 Map<String, Object> a = new TreeMap<>();
                 a.put("xfer", id);
@@ -233,6 +241,7 @@ public final class FileXfer {
                 }
                 s.done += buf.length;
                 s.updated = System.currentTimeMillis();
+                meter.tick(s.done, seq == total - 1);
                 last = r;
             }
         } catch (Exception e) {

@@ -478,4 +478,75 @@ public class Overnight1119Test {
         assertTrue(h.contains("按住空格说话现在用不了"));
         assertTrue(h.contains("去设置填识别 Key"));
     }
+
+    // ================================================================== 14 下载进度条
+
+    @Test public void progressLineAndIndeterminate() {
+        Map<String, Object> v = Progress.view("下载 a.apk", 50L * 1048576, 100L * 1048576, 10_000);
+        assertEquals(50L, v.get("percent"));
+        assertEquals(5L * 1048576, v.get("speed"));
+        assertEquals(10L, v.get("eta_sec"));
+        assertTrue(String.valueOf(v.get("text")), String.valueOf(v.get("text")).matches("50%  50\\.0 MB / 100\\.0 MB · 5\\.0 MB/s · 剩 10 秒"));
+        Map<String, Object> u = Progress.view("下载", 3L * 1048576, -1, 1000);
+        assertEquals(-1L, u.get("percent"));
+        assertTrue(String.valueOf(u.get("text")).contains("总大小未知"));
+        // 节流：300 毫秒内只报一次，结束那次一定报
+        List<Map<String, Object>> got = new ArrayList<>();
+        long[] now = {0};
+        Progress.Meter m = new Progress.Meter("x", 100, got::add, () -> now[0]);
+        m.tick(1, false); now[0] = 100; m.tick(2, false); now[0] = 400; m.tick(3, false); m.tick(100, true);
+        assertEquals(3, got.size());
+    }
+
+    @Test public void downloaderReportsProgressAndCanCancel() throws Exception {
+        byte[] data = new byte[700_000];
+        new java.util.Random(1).nextBytes(data);
+        Downloader.Net old = Downloader.net;
+        try {
+            Downloader.net = (url, t) -> new Object[] {200, (long) data.length, new java.io.ByteArrayInputStream(data)};
+            List<Map<String, Object>> prog = new ArrayList<>();
+            Progress.SINK.set(prog::add);
+            Path dest = Files.createTempDirectory("dl").resolve("a.apk");
+            Actions.Result r = Downloader.download("https://example.com/a.apk", dest, 60);
+            assertTrue(r.text, r.ok);
+            assertArrayEquals(data, Files.readAllBytes(dest));
+            assertEquals(FileXfer.hex(java.security.MessageDigest.getInstance("SHA-256").digest(data)), r.data.get("sha256"));
+            assertEquals(100L, prog.get(prog.size() - 1).get("percent"));
+            // 总大小未知
+            Downloader.net = (url, t) -> new Object[] {200, -1L, new java.io.ByteArrayInputStream(data)};
+            prog.clear();
+            assertTrue(Downloader.download("https://example.com/b.apk", dest.resolveSibling("b.apk"), 60).ok);
+            assertEquals(-1L, prog.get(0).get("percent"));
+            // 取消
+            Downloader.net = (url, t) -> new Object[] {200, (long) data.length, new java.io.InputStream() {
+                int n;
+                @Override public int read() { return -1; }
+                @Override public int read(byte[] b, int off, int len) { if (++n == 3) Progress.CANCEL.set(true); return n > 50 ? -1 : Math.min(len, 1000); }
+            }};
+            Actions.Result c = Downloader.download("https://example.com/c.apk", dest.resolveSibling("c.apk"), 60);
+            assertFalse(c.ok);
+            assertTrue(c.text.contains("已取消"));
+            assertFalse("取消后不留半截文件", Files.exists(dest.resolveSibling("c.apk.part")));
+            Downloader.net = (url, t) -> new Object[] {404, -1L, new java.io.ByteArrayInputStream(new byte[0])};
+            assertTrue(Downloader.download("https://example.com/d", dest.resolveSibling("d"), 60).text.contains("404"));
+            assertFalse(Downloader.download("file:///etc/passwd", dest.resolveSibling("e"), 60).ok);
+        } finally {
+            Downloader.net = old;
+            Progress.SINK.remove();
+            Progress.CANCEL.set(false);
+        }
+    }
+
+    @Test public void downloadToolGoesThroughSameApprovalAsInvokeWebRequest() throws Exception {
+        Object[] m = ChatAgent.map(new Llm.ToolCall("1", "download", "{\"description\":\"下载\",\"url\":\"https://github.com/a/b/releases/download/v1/x.apk\",\"path\":\"C:\\\\Users\\\\me\\\\Downloads\\\\x.apk\"}"));
+        assertEquals("net_download", m[0]);
+        assertTrue(ChatAgent.sideEffect("net_download", Map.of()));
+        assertEquals("Invoke-WebRequest -Uri 'https://x/y' -OutFile 'C:\\a''b.apk'", Downloader.equivalentCommand("https://x/y", "C:\\a'b.apk"));
+        assertTrue(src("Agent.java").contains("if (\"net_download\".equals(cmd)) return netDownload(ChatAgent.FROM, args);"));
+        String h = html();
+        assertTrue(h.contains("function progHtml(p)"));
+        assertTrue("不定进度", h.contains("pbar ${ind?'ind':''}"));
+        assertTrue("可取消", h.contains("api('dl_cancel'"));
+        assertTrue(ChatAgent.systemPrompt("n", "w", "h", "").contains("下载文件用 download 工具"));
+    }
 }

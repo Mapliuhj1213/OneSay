@@ -706,6 +706,8 @@ public final class App {
             s.put("perm_log", agent.guard.permLogView());
             s.put("perm_stats", PermStats.view(store.permStats()));
             s.put("xfers", xfer.view()); // [overnight-1119] 文件互传进度
+            Map<String, Object> lv = chat.live;
+            if (lv != null) s.put("progress", lv); // [overnight-1119] 任务卡上的下载 / 传输进度条
             s.put("xfer_dir", cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE).toString()); // [overnight-1119] 权限审批记录：按类型 允许 x 次 / 拒绝 x 次
             s.put("grants", agent.guard.grantView());
             s.put("chat_preset", ChatPolicy.Preset.of(cfg.chatPreset).id);
@@ -754,6 +756,7 @@ public final class App {
         });
         ui.on("chat_clear", b -> { if (chat.running()) return fail("任务还在做，先点「停止」"); store.clear("chat"); return ok("已清空对话，记忆保留"); });
         ui.on("chat_stop", b -> chat.stop() ? ok("做完当前这一步就停") : ok("没有在做的任务"));
+        ui.on("dl_cancel", b -> chat.cancelTransfer() ? ok("已取消，任务会接着往下") : ok("现在没有在下载 / 传的")); // [overnight-1119]
         ui.on("artifact", b -> chat.artifact(str(b, "path", ""))); // [devtools-1118] 任务卡里的截图 / 文件（只给对话里登记过的路径）
         ui.on("memory", b -> { store.setMemory(str(b, "text", ""), System.currentTimeMillis()); return ok("记忆已保存"); });
         ui.on("todo", b -> {

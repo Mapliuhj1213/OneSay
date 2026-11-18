@@ -96,6 +96,16 @@ public final class Chat {
 
     /** 发来任务的手机 → 这台手机身份下的执行（App 接到 {@link Agent#runAsPeer}）。 */
     public volatile java.util.function.Function<String, ChatAgent.Exec> peerExec;
+    /** [overnight-1119] 正在跑的那一步的进度（下载 / 发文件；没有 = null）。 */
+    public volatile Map<String, Object> live;
+
+    /** 界面「取消」：停掉正在下的 / 正在传的（任务本身接着往下，模型会看到「已取消」）。 */
+    public boolean cancelTransfer() {
+        if (live == null) return false;
+        Progress.CANCEL.set(true);
+        return true;
+    }
+
     /** [overnight-1119] 发文件到手机（App 接上）。 */
     public volatile FileXfer xfer;
     /** 正在跑的任务是哪台手机交来的（空 = 本机对话）。 */
@@ -380,7 +390,12 @@ public final class Chat {
                 try {
                     String org = origin;
                     ChatAgent.Exec pe = org == null || org.isEmpty() || peerExec == null ? pcExec : peerExec.apply(org); // [overnight-1119] 手机交来的：按这台手机的权限
-                    ChatAgent.Exec ex = (cmd, args) -> local(pe, cmd, args);
+                    ChatAgent.Exec ex = (cmd, args) -> {
+                        // [overnight-1119] 下载 / 发文件的进度：只放内存（界面每次刷新读 progress），不每 300 毫秒写一次 state.json
+                        Progress.SINK.set(pg -> { Map<String, Object> x = new TreeMap<>(pg); x.put("task", taskId); x.put("at", System.currentTimeMillis()); live = x; });
+                        Progress.CANCEL.set(false);
+                        try { return local(pe, cmd, args); } finally { Progress.SINK.remove(); live = null; }
+                    };
                     o = agent.run(context(), b, ex, new CardSteps(card));
                 } finally {
                     PcGuard.TASK.set("");
@@ -1077,6 +1092,7 @@ public final class Chat {
     public boolean stop() {
         if (!running) return false;
         agent.cancel.set(true);
+        Progress.CANCEL.set(true); // [overnight-1119] 下载 / 传输也停
         choices.cancelAll();
         return true;
     }

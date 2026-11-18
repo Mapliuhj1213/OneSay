@@ -151,6 +151,25 @@ public final class ChatAgent {
         po.put("description", prop("string", DESC));
         po.put("goal", prop("string", "要手机做的事，一句完整的中文目标（如「打开设置查一下系统版本」「在微信里打开文件传输助手」），最多 500 字"));
         l.add(fn("phone_operate", "把一个目标交给手机上的 OneSay，由手机自己看屏幕、规划、点按去做（和用户在手机上说这句话一样）。打电话、发短信、付款、给别人发消息手机上会弹卡让用户确认。只负责交过去，结果要再用 phone_status 或截图确认。", po, List.of("description", "goal")));
+        // [overnight-1119] 下载文件（任务卡上有进度条、可取消）
+        Map<String, Object> dl = new TreeMap<>();
+        dl.put("description", prop("string", DESC));
+        dl.put("url", prop("string", "http(s) 下载地址"));
+        dl.put("path", prop("string", "存到哪：完整路径（如 C:\\Users\\me\\Downloads\\x.apk），或工作区里的相对路径"));
+        dl.put("timeout_sec", prop("integer", "最长等多少秒，默认 1800"));
+        l.add(fn("download", "下载一个文件（安装包、压缩包等）。任务卡上实时显示百分比、已下 / 总大小、速度、剩余时间，用户能取消；下完给出大小和 SHA-256。下载文件用它，不要用 Invoke-WebRequest。", dl, List.of("description", "url", "path")));
+        // [overnight-1119] 文件发到手机、手机上的快捷指令
+        Map<String, Object> pf = new TreeMap<>();
+        pf.put("description", prop("string", DESC));
+        pf.put("path", prop("string", "电脑上文件的路径（工作区里的相对路径或完整路径），最大 1 GB"));
+        l.add(fn("phone_send_file", "把电脑上的一个文件发到已配对的手机（手机存在「下载 / OneSay」里），分块传、带校验，任务卡上有进度。", pf, List.of("description", "path")));
+        Map<String, Object> pl = new TreeMap<>();
+        pl.put("description", prop("string", DESC));
+        l.add(fn("phone_shortcuts", "列出手机上 OneSay 的快捷指令（名字、几步）。", pl, List.of("description")));
+        Map<String, Object> pr = new TreeMap<>();
+        pr.put("description", prop("string", DESC));
+        pr.put("name", prop("string", "快捷指令的名字（先用 phone_shortcuts 查）"));
+        l.add(fn("phone_run_shortcut", "在手机上运行一条 OneSay 快捷指令（手机上照常走确认卡）。", pr, List.of("description", "name")));
         // [devtools-1118] 看屏幕 / 给用户看文件
         Map<String, Object> sc = new TreeMap<>();
         sc.put("description", prop("string", DESC));
@@ -296,6 +315,29 @@ public final class ChatAgent {
                 if (!pk.isEmpty()) out.put("package", pk);
                 return new Object[] {"phone_open_app", out};
             }
+            case "download": {
+                Object u = a.get("url"), p = a.get("path");
+                if (u == null || p == null || String.valueOf(u).isBlank() || String.valueOf(p).isBlank()) return null;
+                out.put("url", String.valueOf(u).trim());
+                out.put("path", String.valueOf(p).trim());
+                Object t = a.get("timeout_sec");
+                if (t instanceof Number) out.put("timeout_sec", Math.max(30L, Math.min(4 * 3600L, ((Number) t).longValue())));
+                return new Object[] {"net_download", out};
+            }
+            case "phone_send_file": {
+                Object p = a.get("path");
+                if (p == null || String.valueOf(p).isBlank()) return null;
+                out.put("path", String.valueOf(p).trim());
+                return new Object[] {"phone_send_file", out};
+            }
+            case "phone_shortcuts":
+                return new Object[] {"phone_shortcuts", out};
+            case "phone_run_shortcut": {
+                Object n = a.get("name");
+                if (n == null || String.valueOf(n).isBlank()) return null;
+                out.put("name", clip(String.valueOf(n).trim(), 80));
+                return new Object[] {"phone_run_shortcut", out};
+            }
             case "phone_operate": {
                 String g = a.get("goal") == null ? "" : String.valueOf(a.get("goal")).trim();
                 if (g.isEmpty()) return null;
@@ -360,6 +402,7 @@ public final class ChatAgent {
                 + "安全：要批准的步骤 OneSay 会在任务卡上请用户点（用户可以一次批准整个任务）；"
                 + "被拒绝或没人确认就停下说明，不要换个写法绕过。不要提权（runas / UAC），不要关闭或绕过杀毒软件、防火墙，不要改 OneSay 自己的设置，不要输出或保存密码和 Key。"
                 + "只从官方或可信来源下载软件。\n"
+                + "下载文件用 download 工具（任务卡上有进度条，用户能取消），不要用 Invoke-WebRequest / curl 下载大文件。"
                 + "只读查询写成简单命令（Get-* / Test-Path，可以 | 接 Select-Object、Where-Object、Sort-Object，不要变量赋值）；写文件、下载用字面的完整路径（不要用变量拼路径），放在桌面 / 下载 / 文档 / 工作区里，这样能直接执行、少打扰用户。"
                 + "用户要「打开某个程序 / 网站」（如打开 B 站、微信）用 open_target：先用本地应用、没有再用网页，用户说了网页 / 网站就填 prefer=web；打开某个具体网址（搜索结果、下载页）用 open_url。\n"
                 + "环境：Windows PowerShell 5.1，非交互；单条命令默认最长 60 秒（run_command 的 timeout_sec 最多 900）；命令的工作目录是 OneSay 工作区 " + workspace
@@ -537,7 +580,7 @@ public final class ChatAgent {
             String g = a == null || a.get("goal") == null ? "" : String.valueOf(a.get("goal"));
             return g.matches("(?s).*(付款|支付|转账|下单|购买|充值|安装|下载).*");
         }
-        return "media_get".equals(cmd);
+        return "media_get".equals(cmd) || "net_download".equals(cmd);
     }
 
     // ------------------------------------------------------------------ [approvals-1118] 正文里漏出来的工具调用
@@ -717,7 +760,7 @@ public final class ChatAgent {
     }
 
     /** 后加的工具缺哪个字段（badArgs 用）。 */
-    static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "description", "ask_choice", "question / options"));
+    static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "description", "ask_choice", "question / options", "phone_send_file", "path", "phone_run_shortcut", "name", "download", "url / path"));
 
     static Map<String, Object> toolMsg(String id, String content) {
         Map<String, Object> m = new TreeMap<>();
@@ -746,6 +789,10 @@ public final class ChatAgent {
             }
             case "phone_open_app": return "手机上打开：" + clip(String.valueOf(a.containsKey("name") ? a.get("name") : a.get("package")), 200);
             case "phone_operate": return "交给手机去做：" + clip(String.valueOf(a.get("goal")), 200);
+            case "net_download": return "下载：" + clip(String.valueOf(a.get("url")), 160) + " → " + clip(String.valueOf(a.get("path")), 120);
+            case "phone_send_file": return "发文件到手机：" + clip(String.valueOf(a.get("path")), 200);
+            case "phone_shortcuts": return "看手机上的快捷指令";
+            case "phone_run_shortcut": return "在手机上运行快捷指令「" + clip(String.valueOf(a.get("name")), 60) + "」";
             default: return cmd;
         }
     }

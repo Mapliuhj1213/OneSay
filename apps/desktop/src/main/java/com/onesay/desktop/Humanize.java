@@ -50,6 +50,9 @@ public final class Humanize {
         TOOLS.put("android_ui", "读 / 点安卓界面");
         TOOLS.put("ask_choice", "让你选");
         TOOLS.put("screen_look", "截屏");
+        TOOLS.put("net_download", "下载文件");
+        TOOLS.put("phone_shortcuts", "看手机上的快捷指令");
+        TOOLS.put("phone_run_shortcut", "在手机上运行快捷指令");
     }
 
     /** 一个手机能力名的中文；不认识的返回「其他功能」（不把 id 原样给人看）。 */

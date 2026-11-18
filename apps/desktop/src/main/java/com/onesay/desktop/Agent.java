@@ -174,6 +174,7 @@ public final class Agent {
         PcGuard.LOCAL.set(Boolean.TRUE);
         SafeExec.REMOTE.set(Boolean.FALSE);
         try {
+            if ("net_download".equals(cmd)) return netDownload(ChatAgent.FROM, args);
             // [approvals-1118] run_command 里的「打开网址 / 打开已装程序」改走 open_url / open_app（同一套检查，低风险的直接做）
             Object[] rw = LocalLaunch.rewrite(cmd, args);
             if (rw != null) {
@@ -207,6 +208,28 @@ public final class Agent {
         return r;
     }
 
+
+    /**
+     * [overnight-1119] 对话的「下载文件」（net_download）：按等价的 Invoke-WebRequest 命令走原来的判定，放行后由 {@link Downloader} 自己下（任务卡有进度、可取消）。
+     */
+    Actions.Result netDownload(String from, Map<String, Object> args) {
+        String url = String.valueOf(args.getOrDefault("url", "")).trim();
+        String path = String.valueOf(args.getOrDefault("path", "")).trim();
+        if (url.isEmpty() || path.isEmpty()) return Actions.Result.fail("要给网址和存到哪");
+        java.nio.file.Path dest = java.nio.file.Paths.get(path);
+        if (!dest.isAbsolute()) dest = cfg.workspace().resolve(path).normalize();
+        Map<String, Object> eq = new TreeMap<>();
+        eq.put("command", Downloader.equivalentCommand(url, dest.toString()));
+        PcGuard.Outcome o = guard.check(from, "sys_exec", eq);
+        if (o.reply != null) return o.reply;
+        if (o.pass == null || !o.pass.consume("sys_exec", o.args)) return Actions.Result.fail("没有通过审批，不执行");
+        log.accept("对话下载 " + LinkPolicy.oneLine(url));
+        Object t = args.get("timeout_sec");
+        Actions.Result r = Downloader.download(url, dest, t instanceof Number ? ((Number) t).intValue() : 1800);
+        if (r.ok) guard.noteCreated(o.creates);
+        return r;
+    }
+
     /**
      * [overnight-1119] 手机交给电脑的任务（pc_task）里，模型发起的每一步：按「这台手机发来的指令」走同一条远程安全链
      * （安全插件 → 两轴矩阵 / 白名单 → 确认框（电脑上，并发到这台手机的屏幕上）→ 一次性凭证），不享受本机对话的放宽。
@@ -218,6 +241,7 @@ public final class Agent {
         SafeExec.REMOTE.set(Boolean.TRUE);
         PcGuard.LOCAL.set(Boolean.FALSE);
         try {
+            if ("net_download".equals(cmd)) return netDownload(from, args);
             Object[] rw = LocalLaunch.rewrite(cmd, args);
             if (rw != null) {
                 cmd = (String) rw[0];

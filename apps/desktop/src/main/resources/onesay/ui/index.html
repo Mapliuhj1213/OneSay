@@ -207,6 +207,9 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .tc .sp{display:flex;gap:10px;align-items:flex-start;padding:5px 0}
 .tc .sp .ic{width:18px;height:18px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:11px;margin-top:2px;font-weight:700}
 .ic.run{border:2px solid var(--accent);border-right-color:transparent;animation:spin 1s linear infinite}
+.pbar{height:6px;border-radius:3px;background:var(--bg);overflow:hidden;margin:6px 0 2px;position:relative}.pbar i{display:block;height:100%;background:var(--accent);border-radius:3px;transition:width .3s}
+.pbar.ind i{width:30%;position:absolute;animation:pind 1.2s ease-in-out infinite}@keyframes pind{0%{left:-30%}100%{left:100%}}
+.pline{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text2)}
 .ic.ok{background:var(--green);color:#fff}.ic.warn{background:#F5B400;color:#fff}.tc .sp .wn{color:#8A6A00;font-size:12.5px}.tc .md b{font-weight:600}.tc .md code,.m .md code{font:12px ui-monospace,Consolas,monospace;background:var(--bg);padding:0 4px;border-radius:4px}.ic.fail{background:var(--red);color:#fff}.ic.wait{background:#FF9500;color:#fff}
 @keyframes spin{to{transform:rotate(360deg)}}
 .tc .sp .bd{flex:1;min-width:0}.tc .sp .ds{color:var(--text)}.tc .sp .er{color:var(--red);font-size:12.5px}
@@ -575,6 +578,7 @@ P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
   <button class="act" onclick="phone('script_list')"><span class="ic" style="background:var(--device)">▤</span>手机脚本列表<span>工作区 scripts/</span></button>
   <button class="act" onclick="phoneScript()"><span class="ic" style="background:var(--device)">▶</span>运行手机脚本<span>.sh，走特权通道</span></button>
   <button class="act" onclick="phoneExec()"><span class="ic" style="background:var(--red)">$</span>手机系统命令<span>走特权通道</span></button></div>
+  ${phoneLinks()}
   <p class="note">也可以在「对话」里说：让手机响一下 / 手机别响了 / 手机亮屏 / 把手机音量调到 30 / 手机打开微信 / 把剪贴板发到手机 / 手机还有多少电。
   手机离线时直接提示没发出去，不偷偷排队。每一项手机上都能单独关掉（手机 OneSay › 设置 › 连接 › 电脑联动）；「更多」里的几项在开源版手机上默认关着。
   手机那边仍然不打开支付 / 银行 / 钱包类 App，网址和剪贴板内容过不了检查就不做。</p>`};
@@ -679,12 +683,16 @@ function md(t){let h=esc(String(t||''));
   h=h.replace(/(^|[^*\w])\*([^*\n]{1,200}?)\*(?!\*)/g,'$1$2');
   h=h.replace(/^#{1,6}\s+(.+)$/gm,'<b>$1</b>').replace(/^\s*[-*]\s+/gm,'• ');
   return h}
-function stepHtml(x,i){if(x.kind==='note')return `<div class="note md">${md(x.desc)}</div>`;
+// [overnight-1119] 下载 / 传文件的进度条：百分比、已下 / 总大小、速度、剩余时间；总大小不知道时是不定进度条；可取消
+function progHtml(p){if(!p)return '';const ind=!(p.total>0);
+  return `<div class="pbar ${ind?'ind':''}"><i style="${ind?'':'width:'+Math.max(1,p.percent)+'%'}"></i></div><div class="pline"><span style="flex:1">${esc(p.text||'')}</span><button class="tag danger" onclick="dlCancel()">取消</button></div>`}
+async function dlCancel(){const r=await api('dl_cancel',{});snack(r.text)}
+function stepHtml(x,i,prog){if(x.kind==='note')return `<div class="note md">${md(x.desc)}</div>`;
   const ic=x.state==='ok'?'<span class="ic ok">✓</span>':x.state==='warn'?'<span class="ic warn">!</span>':x.state==='fail'?'<span class="ic fail">!</span>':x.state==='wait'?'<span class="ic wait">…</span>':'<span class="ic run"></span>';
   const out=String(x.output||''),long=out.length>600;
   const det=`<details><summary>详情</summary><pre>${esc(x.detail||'')}</pre>${out?`<pre id="out-${i}">${esc(long?out.slice(0,600)+'…':out)}</pre>${long?`<button class="tag" onclick="this.previousElementSibling.textContent=decodeURIComponent('${encodeURIComponent(out)}');this.remove()">展开全部（${out.length} 字）</button>`:''}`:''}</details>`;
   const art=(x.image?`<div class="shot"><img data-art="${esc(x.image)}" alt="截图" onclick="viewArt(this.dataset.art)"></div>`:'')+(x.file?`<div class="shot"><button class="tag" data-art="${esc(x.file)}" onclick="viewArt(this.dataset.art)">查看 ${esc(String(x.file).split(/[\\/]/).pop())}</button></div>`:'');
-  return `<div class="sp">${ic}<div class="bd"><div class="ds">${esc(x.desc||x.detail||'')}</div>${art}${x.state==='fail'?`<div class="er">${esc(clipTxt(x.summary,160))}</div>`:x.state==='warn'?`<div class="wn">⚠ ${esc(clipTxt(x.warn||x.summary,160))}</div>`:x.state==='ok'&&x.summary&&x.summary!=='命令执行完了'?`<div class="ok1">${esc(clipTxt(x.summary,120))}</div>`:''}${det}</div></div>`}
+  return `<div class="sp">${ic}<div class="bd"><div class="ds">${esc(x.desc||x.detail||'')}</div>${x.state==='run'&&prog?progHtml(prog):''}${art}${x.state==='fail'?`<div class="er">${esc(clipTxt(x.summary,160))}</div>`:x.state==='warn'?`<div class="wn">⚠ ${esc(clipTxt(x.warn||x.summary,160))}</div>`:x.state==='ok'&&x.summary&&x.summary!=='命令执行完了'?`<div class="ok1">${esc(clipTxt(x.summary,120))}</div>`:''}${det}</div></div>`}
 function askHtml(c){const offerTask=!!c.task_scope,dis=cfArmed&&cfId===c.id?'':'disabled';
   return `<div class="ask" id="ask-${c.id}"><div class="q">这一步要你批准</div><div class="cmdl">${esc(String(c.detail||'').replace(/^本机对话 请求：/,''))}</div>
   <div class="row">${offerTask?`<button class="btn sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event,'task')">允许本次任务</button>`:''}<button class="btn ${offerTask?'ghost ':''}sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event)">允许一次</button><button class="btn ghost sm" id="cfdeny" onclick="cfAns(${c.id},false,false,event)">拒绝</button>
@@ -702,14 +710,15 @@ function taskCard(x,last){const st=STATE_ZH[x.state]||[x.state||'',''],running=x
   const conf=((S.confirms||[]).filter(c=>c.from==='本机对话'&&(c.task===x.task||(!c.task&&running))));
   const ch=((S.choices||[]).filter(c=>c.task===x.task));
   const waiting=conf.length||ch.length;
-  const steps=(x.steps||[]).map(stepHtml).join('');
+  const prog=running&&S.progress&&S.progress.task===x.task?S.progress:null;
+  const steps=(x.steps||[]).map((y,i)=>stepHtml(y,i,prog)).join('');
   const ans=x.answer?`<div class="ans md ${x.state==='done'||x.state==='warn'?'':'why'}">${md(x.answer)}</div>`:'';
   return `<div class="m a tc" data-task="${esc(x.task||'')}"><div class="hd"><span class="ti">${esc(x.title||'任务')}</span><span class="st ${waiting?'wait':st[1]}">${waiting?'等你点':esc(st[0])}</span>${running?'<button class="tag danger" onclick="chatStop()">停止</button>':''}</div>
   ${steps||(running?'<div class="note">开始做…</div>':'')}${conf.map(askHtml).join('')}${ch.map(chooseHtml).join('')}${ans}</div>`}
 function renderChat(){const c=S.chat, box=$('msgin');
   const m=S.memory||{}, lines=(m.text||'').split('\n').filter(x=>x.trim()).length;
   $('memchip').textContent='记忆 · '+(lines?lines+' 条':'空')+(m.updated_at?' · '+ago(m.updated_at):'');
-  const key=c.length+'|'+c.map(x=>x.updated_at||x.at).join(',')+'|'+JSON.stringify(S.confirms||[])+JSON.stringify(S.choices||[])+'|'+inflight+'|'+cfArmed;
+  const key=c.length+'|'+c.map(x=>x.updated_at||x.at).join(',')+'|'+JSON.stringify(S.confirms||[])+JSON.stringify(S.choices||[])+'|'+inflight+'|'+cfArmed+'|'+JSON.stringify(S.progress||null);
   if(key===lastChatKey)return; lastChatKey=key;
   const atBottom=$('msgs').scrollHeight-$('msgs').scrollTop-$('msgs').clientHeight<80;
   let prevTask='';
@@ -791,6 +800,26 @@ async function notes(op){if(op==='clear'&&!await confirm('清空通知？\n\n电
 async function runSc(n){const r=await api('run',{cmd:'shortcut_run',args:{name:n}});snack(r.text)}
 async function phone(cmd,args){snack('正在发给手机…');const r=await api('phone',{cmd,args:args||{}});
   const d=r.data||{};let t=r.text;if(r.ok&&d.files)t+='：'+d.files.slice(0,8).join('、')+(d.files.length>8?'…':'');if(r.ok&&d.scripts)t+='：'+(d.scripts.join('、')||'没有');if(r.ok&&d.output)t+='：'+String(d.output).slice(0,120);snack(t)}
+// [overnight-1119] 双端连通：文件互传（进度 / 失败原因 / 落盘位置）、手机上的快捷指令、把任务交给手机
+let PSC=null;
+function xferRow(x){const ind=!(x.size>0),pc=x.percent||0;
+  return `<div class="item"><div class="tx"><div class="tt">${x.dir==='in'?'⇩ 手机发来 ':'⇧ 发到手机 '}${esc(x.name)}</div>
+  <div class="st">${x.status==='running'?`<div class="pbar ${ind?'ind':''}"><i style="${ind?'':'width:'+Math.max(1,pc)+'%'}"></i></div>${pc}% · ${fmtB(x.done)} / ${fmtB(x.size)}`:x.status==='done'?'完成 · '+fmtB(x.size)+(x.path?' · 存在 '+esc(x.path):''):'失败：'+esc(x.error)}</div></div>
+  <span class="tag ${x.status==='done'?'green':x.status==='failed'?'red':''}">${x.status==='done'?'完成':x.status==='failed'?'失败':'传输中'}</span></div>`}
+function fmtB(n){n=Number(n||0);return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':n<1073741824?(n/1048576).toFixed(1)+' MB':(n/1073741824).toFixed(2)+' GB'}
+function phoneLinks(){const xs=S.xfers||[];
+  return `${sec('var(--accent)','文件互传','电脑 → 手机：存在手机「下载 / OneSay」；手机 → 电脑：存在 '+esc(S.xfer_dir||'工作区\\来自手机'))}
+  <div class="acts"><button class="act" onclick="xferSend()"><span class="ic" style="background:var(--accent)">⇧</span>发文件到手机<span>选一个文件，最大 1 GB，分块带校验</span></button>
+  <button class="act" onclick="xferOpen()"><span class="ic" style="background:var(--accent)">⇩</span>打开「来自手机」<span>手机发来的文件在这里</span></button>
+  <button class="act" onclick="phoneOperate()"><span class="ic" style="background:var(--todo)">✦</span>交给手机去做<span>说一句目标，手机自己做（要手机上开「按目标操作手机」）</span></button></div>
+  ${xs.length?card(xs.map(xferRow)):''}
+  ${sec('var(--auto)','手机上的快捷指令','在手机上建的，这里能看能运行（手机上照常走确认卡）')}
+  ${PSC===null?`<p class="note"><button class="btn ghost sm" onclick="phoneScList()">看手机上的快捷指令</button></p>`:PSC.length?card(PSC.map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.steps||'')}</div></div><button class="btn sm" onclick="phoneScRun(${esc(JSON.stringify(x.name))})">在手机上运行</button></div>`)):empty('手机上还没有快捷指令')}`}
+async function xferSend(){snack('在电脑上选文件…');const r=await api('xfer',{op:'pick_send'});snack(r.text);refresh()}
+async function xferOpen(){const r=await api('xfer',{op:'open_dir'});if(!r.ok)snack(r.text)}
+async function phoneScList(){const r=await api('phone',{cmd:'shortcut_list',args:{}});if(!r.ok){snack(r.text);return}PSC=((r.data||{}).shortcuts||[]);render()}
+async function phoneScRun(n){if(!await confirm('在手机上运行快捷指令「'+n+'」？\n\n手机上会照常弹确认卡。'))return;phone('shortcut_run',{name:n})}
+function phoneOperate(){const g=(prompt('让手机做什么？（一句完整的目标，如「打开设置看看安卓版本」）','')||'').trim();if(!g)return;phone('operate',{goal:g})}
 function phoneSet(){const n=(prompt('改手机上的哪个设置？\nbrightness 亮度 / volume 音量 / screen_timeout 屏幕超时（秒）/ dnd 勿扰 / ringer 铃声模式 / wifi / bluetooth，以及 airplane、mobile_data、location 等（走特权通道）','brightness')||'').trim();if(!n)return;
   const v=(prompt('改成什么？（数字，或 on / off）','50')||'').trim();if(!v)return;phone('setting_set',{name:n,value:v})}
 function phoneFile(){const p=(prompt('写到手机工作区里的哪个文件？（相对路径，如 inbox/a.txt）','inbox/note.txt')||'').trim();if(!p)return;const t=prompt('文件内容','');if(t===null)return;phone('file_write',{path:p,text:t})}

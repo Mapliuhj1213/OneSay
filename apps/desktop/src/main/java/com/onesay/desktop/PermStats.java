@@ -55,6 +55,7 @@ public final class PermStats {
                 return "执行命令（" + (first.length() > 24 ? first.substring(0, 24) : first) + "）";
             }
             case "file_write": return "写文件";
+            case "net_download": return "下载文件 / 联网";
             case "open_url": return "打开网址";
             case "open_app": return "打开程序";
             case "open_target": return "打开程序 / 网站";
