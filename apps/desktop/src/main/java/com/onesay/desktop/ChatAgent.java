@@ -3,6 +3,7 @@ package com.onesay.desktop;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
@@ -39,7 +40,8 @@ public final class ChatAgent {
     volatile ChatPolicy.Preset toldPreset;
     /** 时钟（测试换）。 */
     volatile java.util.function.LongSupplier clock = System::currentTimeMillis;
-    public static final int OUTPUT_TO_MODEL = 6000;
+    /** 给模型的输出上限（字符）：和本机执行收的上限一样，界面上折叠但模型看全（[approvals-1118] 6000 → 16000）。 */
+    public static final int OUTPUT_TO_MODEL = 16000;
 
     /** 模型：给消息和工具，回一轮。 */
     public interface Brain {
@@ -258,6 +260,7 @@ public final class ChatAgent {
         List<Map<String, Object>> tools = tools();
         int done = 0, fails = 0;
         boolean nudged = false, fakeNudged = false;
+        int toolTextNudges = 0;
         String lastKey = "";
         int repeat = 0;
         cancel.set(false);
@@ -286,7 +289,20 @@ public final class ChatAgent {
                 return new Outcome(done > 0 ? m + "。已经做了 " + done + " 步，说「继续」接着做。" : m, "error", done);
             }
             if (t.calls.isEmpty()) {
+                // [approvals-1118] DeepSeek 偶尔把工具调用写成正文里的 DSML 标记（</｜｜DSML｜｜ parameter> …）：能还原就当真的工具调用
+                List<Llm.ToolCall> rec = recoverCalls(t.content);
+                if (!rec.isEmpty()) t = asCalls(t.content, rec);
+            }
+            if (t.calls.isEmpty()) {
                 String raw = t.content == null ? "" : t.content.trim();
+                if (looksLikeToolText(raw) && toolTextNudges < 2) {
+                    // 像工具调用的文字但还原不出来：不当答复收工，带一句更正再要一次
+                    toolTextNudges++;
+                    msgs.add(Llm.msg("assistant", stripToolText(raw).isEmpty() ? "（略）" : stripToolText(raw)));
+                    msgs.add(Llm.msg("user", "（OneSay 内部提示）你上一条回复里有工具调用的标记 / 步骤文字，但没有形成真正的工具调用，所以什么都没执行。"
+                            + "请用工具调用（function calling）重新发起要做的那一步；任务做完了就直接用中文说结果，不要写任何调用标记。"));
+                    continue;
+                }
                 String text = stripFakeSteps(raw);
                 if (!text.equals(raw) && !fakeNudged && done == 0) {
                     // [approvals-1118] 模型把「▶ 执行命令 … ✓ 完成」当文字写出来，其实一步没做：打回一次，叫它真的调工具（这段文字不进对话）
@@ -352,6 +368,74 @@ public final class ChatAgent {
                     return new Outcome("连续 " + fails + " 步都失败了（最后一步：" + desc + "：" + summary(r) + "），看起来没有进展，我先停下。你看一下情况，或者告诉我换个思路。", "no_progress", done);
             }
         }
+    }
+
+    // ------------------------------------------------------------------ [approvals-1118] 正文里漏出来的工具调用
+
+    static final Pattern DSML_INVOKE = Pattern.compile("<\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*invoke\\s+name\\s*=\\s*\"([A-Za-z_]+)\"\\s*>(.*?)<\\s*/\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*invoke\\s*>", Pattern.DOTALL);
+    static final Pattern DSML_PARAM = Pattern.compile("<\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*parameter\\s+name\\s*=\\s*\"([A-Za-z_]+)\"[^>]*>(.*?)<\\s*/\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*parameter\\s*>", Pattern.DOTALL);
+    static final Pattern DSML_ANY = Pattern.compile("[｜|]{2}\\s*DSML\\s*[｜|]{2}|<\\s*/?\\s*(tool_call|function_calls|invoke)\\b|\\{\\s*\"name\"\\s*:\\s*\"(run_command|open_url|open_target|write_file)\"");
+    /** 只剩收尾标记的那种：「▶ 执行命令：<命令></｜｜DSML｜｜ parameter></｜｜DSML｜｜ invoke>…」（A 轮 / 用户手测里实际出现的样子）。 */
+    static final Pattern DSML_TAIL = Pattern.compile("(?s)^\\s*(?:▶\\s*)?执行命令[：:]\\s*(.+?)<\\s*/\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*parameter\\s*>");
+
+    /** 从正文里还原工具调用（只认已有的工具名、参数要能组成合法 JSON）；还原不了返回空。 */
+    static List<Llm.ToolCall> recoverCalls(String content) {
+        List<Llm.ToolCall> out = new ArrayList<>();
+        if (content == null || !DSML_ANY.matcher(content).find()) return out;
+        java.util.regex.Matcher m = DSML_INVOKE.matcher(content);
+        int n = 0;
+        while (m.find()) {
+            String name = m.group(1);
+            if (!Set.of("run_command", "open_url", "open_target", "write_file").contains(name)) continue;
+            Map<String, Object> a = new TreeMap<>();
+            java.util.regex.Matcher p = DSML_PARAM.matcher(m.group(2));
+            while (p.find()) {
+                String v = p.group(2).trim();
+                if (p.group(1).equals("timeout_sec") && v.matches("\\d{1,4}")) a.put("timeout_sec", Long.parseLong(v));
+                else a.put(p.group(1), v);
+            }
+            if (!a.isEmpty()) out.add(new Llm.ToolCall("dsml_" + (n++) + "_" + Long.toString(System.nanoTime(), 36), name, Json.stringify(a)));
+        }
+        if (out.isEmpty()) {
+            java.util.regex.Matcher tail = DSML_TAIL.matcher(content);
+            if (tail.find() && !tail.group(1).isBlank()) {
+                Map<String, Object> a = new TreeMap<>();
+                a.put("command", tail.group(1).trim());
+                a.put("description", "（从模型正文里还原的命令）");
+                out.add(new Llm.ToolCall("dsml_tail_" + Long.toString(System.nanoTime(), 36), "run_command", Json.stringify(a)));
+            }
+        }
+        return out;
+    }
+
+    /** 把还原出来的调用做成一轮正常的「助手发起工具调用」（tool_calls 原样带回，后面的 tool 结果能配上对）。 */
+    static Llm.Turn asCalls(String content, List<Llm.ToolCall> calls) {
+        List<Object> tc = new ArrayList<>();
+        for (Llm.ToolCall c : calls) {
+            Map<String, Object> f = new TreeMap<>();
+            f.put("name", c.name);
+            f.put("arguments", c.arguments);
+            Map<String, Object> x = new TreeMap<>();
+            x.put("id", c.id);
+            x.put("type", "function");
+            x.put("function", f);
+            tc.add(x);
+        }
+        Map<String, Object> msg = new TreeMap<>();
+        msg.put("role", "assistant");
+        msg.put("content", "");
+        msg.put("tool_calls", tc);
+        return new Llm.Turn(null, calls, msg);
+    }
+
+    static boolean looksLikeToolText(String s) {
+        return s != null && (DSML_ANY.matcher(s).find() || FAKE_STEP.matcher(s).find() && s.matches("(?s).*(执行命令|run_command|Invoke-|Get-|adb ).*"));
+    }
+
+    static String stripToolText(String s) {
+        String x = s == null ? "" : s;
+        x = x.replaceAll("(?s)<\\s*/?\\s*[｜|]+\\s*DSML\\s*[｜|]+[^>]*>", "");
+        return stripFakeSteps(x).trim();
     }
 
     /** 像 OneSay 步骤记录的行（▶ 执行命令… / ✓ … / ✗ …）：模型自己写的这种行一律不当真。 */

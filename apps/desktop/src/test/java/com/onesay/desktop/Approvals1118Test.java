@@ -527,7 +527,7 @@ public class Approvals1118Test {
         List<String> ran = new ArrayList<>();
         ChatAgent.Outcome o = new ChatAgent().run(new ArrayList<>(List.of(Llm.msg("user", "继续"))), b, (c, args) -> { ran.add(c); return Actions.Result.ok("ok"); }, t -> { });
         assertEquals("打回后真的执行了", 1, ran.size());
-        assertTrue(String.valueOf(seen.get(1).get(seen.get(1).size() - 1).get("content")).contains("没有真正调用工具"));
+        assertTrue(String.valueOf(seen.get(1).get(seen.get(1).size() - 1).get("content")).contains("工具调用"));
         assertEquals("好了", o.text);
     }
 
@@ -641,5 +641,40 @@ public class Approvals1118Test {
         assertTrue(html.contains("x.from!=='本机对话'"));
         // 发送不再被正在跑的任务挡住
         assertFalse(html.contains("if(!t||pending)return"));
+    }
+
+    // ------------------------------------------------------------------ DeepSeek DSML 漏到正文
+
+    @Test public void dsmlToolCallsInContentAreRecoveredNotEndingTheTask() {
+        String full = "好的，下一步。\n<｜｜DSML｜｜function_calls>\n<｜｜DSML｜｜invoke name=\"run_command\">\n<｜｜DSML｜｜parameter name=\"description\" string=\"true\">看设备</｜｜DSML｜｜parameter>\n"
+                + "<｜｜DSML｜｜parameter name=\"command\" string=\"true\">adb devices</｜｜DSML｜｜parameter>\n</｜｜DSML｜｜invoke>\n</｜｜DSML｜｜function_calls>";
+        List<Llm.ToolCall> c = ChatAgent.recoverCalls(full);
+        assertEquals(1, c.size());
+        assertEquals("run_command", c.get(0).name);
+        assertTrue(c.get(0).arguments.contains("adb devices"));
+        // 用户手测里的样子：只有收尾标记
+        String tail = "▶ 执行命令：& 'C:\\x\\adb.exe' -s 127.0.0.1:16384 shell \"input tap 1130 830\"</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>";
+        List<Llm.ToolCall> c2 = ChatAgent.recoverCalls(tail);
+        assertEquals(1, c2.size());
+        assertTrue(c2.get(0).arguments.contains("input tap 1130 830"));
+        assertTrue(ChatAgent.recoverCalls("普通的回答，没有调用").isEmpty());
+        // 循环里：还原成真调用去执行，不是 done(0 步)；tool 结果和调用配对
+        List<List<Map<String, Object>>> seen = new ArrayList<>();
+        AtomicInteger n = new AtomicInteger();
+        ChatAgent.Brain b = (m, t) -> { seen.add(new ArrayList<>(m)); return n.incrementAndGet() == 1 ? say(full) : say("设备连上了。"); };
+        List<String> ran = new ArrayList<>();
+        ChatAgent.Outcome o = new ChatAgent().run(new ArrayList<>(List.of(Llm.msg("user", "继续"))), b, (cmd, a) -> { ran.add(String.valueOf(a.get("command"))); return Actions.Result.ok("ok"); }, t -> { });
+        assertEquals("done", o.status);
+        assertEquals(List.of("adb devices"), ran);
+        List<Map<String, Object>> second = seen.get(1);
+        Map<String, Object> call = second.get(second.size() - 2), res = second.get(second.size() - 1);
+        assertNotNull(call.get("tool_calls"));
+        assertEquals(((Map<?, ?>) ((List<?>) call.get("tool_calls")).get(0)).get("id"), res.get("tool_call_id"));
+        // 还原不出来但像调用：再要一次，不当答复收工
+        AtomicInteger k = new AtomicInteger();
+        ChatAgent.Brain b2 = (m, t) -> k.incrementAndGet() == 1 ? say("</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>") : say("做完了");
+        ChatAgent.Outcome o2 = new ChatAgent().run(new ArrayList<>(List.of(Llm.msg("user", "继续"))), b2, (cmd, a) -> Actions.Result.ok("ok"), t -> { });
+        assertEquals("做完了", o2.text);
+        assertEquals(2, k.get());
     }
 }

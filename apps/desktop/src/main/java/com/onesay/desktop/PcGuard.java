@@ -1324,7 +1324,7 @@ public final class PcGuard {
         // 安全检查看的是模型给的原命令（check() 里），这里只是换个不会被拆坏的传法。
         ProcessBuilder pb = SafeExec.WINDOWS
                 ? new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodePs(
-                        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$ProgressPreference='SilentlyContinue';" + command))
+                        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$OutputEncoding=[Text.Encoding]::UTF8;$PSDefaultParameterValues['*:Encoding']='utf8';$ProgressPreference='SilentlyContinue';" + command))
                 : new ProcessBuilder("sh", "-c", command);
         if (ws.isDirectory()) pb.directory(ws);
         Process p = SafeExec.start(pb.redirectErrorStream(true));
