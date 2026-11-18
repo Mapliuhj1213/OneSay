@@ -167,8 +167,74 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         Collections.sort(candidates);
         MatchCandidate best = candidates.get(0);
 
+        JSONObject args = restoreRawSlots(raw, best.args);   // ★ rel-1118 B01：文本槽位按原句取回（不丢标点 / 空格 / 大小写）
+        if (com.onesay.assistant.v2.executor.ShellCommand.dangerousUrl(args.optString("url", null))) {
+            SafeLog.i(TAG, "L0 放弃：网址不是 http/https（" + best.capability.sign + "）");
+            return null;
+        }
         SafeLog.i(TAG, "L0 命中能力: " + best.capability.sign + " (字面量权重=" + best.literalScore + ", 参数=" + com.onesay.assistant.v2.util.LogText.args(best.args) + ")");
-        return new Invocation(best.capability.sign, best.args, 1.0, Invocation.RouteSource.L0_RULE, query);
+        return new Invocation(best.capability.sign, args, 1.0, Invocation.RouteSource.L0_RULE, query);
+    }
+
+    /** ★ rel-1118 B01：这些文本槽位要原样（网址、笔记正文、搜索词、号码、包名）。 */
+    private static final String[] RAW_SLOTS = { "url", "content", "keyword", "number", "app" };
+    /** 句末语气标点：取回原文时不带进槽位。 */
+    private static final String TAIL_PUNCT = "。！？!?，,、；;：:…~～ \t";
+
+    /**
+     * ★ rel-1118 B01：模板是在归一化后的句子上匹配的（去空白、去标点、小写），槽位也就跟着丢了标点：
+     * 「打开网页www.baidu.com」→ url=wwwbaiducom、「记一下买牛奶、鸡蛋和面包」→ 正文没了顿号。
+     * 这里把槽位值在原句里找回来：原句逐字归一化、记住每个保留字在原句的位置，槽位值在保留串里
+     * 最后一次出现的那一段就是原文（中间的标点 / 空格 / 大小写都还在）；紧挨着、且只由被删字符组成的
+     * 首尾符号（「#话题#」「$(…)」）一并带回，句末的中文语气标点不带。找不到就保持原值。
+     */
+    public static JSONObject restoreRawSlots(String raw, JSONObject matched) {
+        if (raw == null || matched == null || matched.length() == 0) return matched;
+        StringBuilder kept = new StringBuilder(raw.length());
+        int[] pos = new int[raw.length()];
+        int n = 0;
+        for (int i = 0; i < raw.length(); i++) {
+            String one = normalizeUtterance(String.valueOf(raw.charAt(i)));
+            if (one.length() == 1) {
+                kept.append(one);
+                pos[n++] = i;
+            }
+        }
+        String k = kept.toString();
+        JSONObject args;
+        try {
+            args = new JSONObject(matched.toString());
+        } catch (Exception e) {
+            return matched;
+        }
+        for (String key : RAW_SLOTS) {
+            Object v = matched.opt(key);
+            if (!(v instanceof String)) continue;
+            String sv = (String) v;
+            if (sv.length() == 0) continue;
+            int at = k.lastIndexOf(sv);
+            if (at < 0) continue;
+            int from = pos[at], to = pos[at + sv.length() - 1];
+            // 往后：直到下一个保留字之前、不是句末语气标点的被删字符带回（「#话题#」的尾 #、「(reboot)」的右括号）
+            int stop = at + sv.length() < n ? pos[at + sv.length()] : raw.length();
+            int end = to;
+            for (int j = to + 1; j < stop; j++) {
+                if (TAIL_PUNCT.indexOf(raw.charAt(j)) >= 0) break;
+                end = j;
+            }
+            // 往前：同理（「#话题」的头 #），空白和中文标点不带
+            int prev = at > 0 ? pos[at - 1] : -1;
+            int start = from;
+            for (int j = from - 1; j > prev; j--) {
+                char c = raw.charAt(j);
+                if (TAIL_PUNCT.indexOf(c) >= 0 || Character.isWhitespace(c) || "“”‘’\"'《》（）【】".indexOf(c) >= 0) break;
+                start = j;
+            }
+            String orig = raw.substring(start, end + 1).trim();
+            if (orig.length() == 0) continue;
+            try { args.put(key, orig); } catch (Exception ignored) {}
+        }
+        return args;
     }
 
     /** 生成口语剥离变体列表（剥离前缀语气词、中置助词、句末语气词与近音纠错） */
