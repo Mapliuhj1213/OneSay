@@ -140,6 +140,13 @@ public final class Chat {
     /** 上一条助手回复是模型 / 任务的（不是固定指令、不是报错），且在 {@link #CONTINUE_WINDOW_MS} 以内。 */
     boolean continuing() {
         List<Map<String, Object>> all = store.list("chat");
+        // [taskctx-1118] 有没做完的任务（停了 / 到时长 / 出错 / 没人批准…）：「继续」接着它，不受 1 小时窗口限制（一天以内）
+        Map<String, Object> un = latestUnfinished(all);
+        if (un != null) {
+            Object at = un.get("updated_at") instanceof Number ? un.get("updated_at") : un.get("at");
+            long t = at instanceof Number ? ((Number) at).longValue() : 0L;
+            if (t > 0 && System.currentTimeMillis() - t <= 24L * 60 * 60 * 1000) return true;
+        }
         for (int i = all.size() - 1; i >= 0; i--) {
             Map<String, Object> m = all.get(i);
             if (!"assistant".equals(m.get("role"))) continue;
@@ -200,6 +207,7 @@ public final class Chat {
                 patch.put("answer", reply);
                 patch.put("ended_at", System.currentTimeMillis());
                 store.update("chat", card, patch);
+                try { compactOldCards(); } catch (RuntimeException e) { log.accept("压缩旧任务输出失败：" + e.getClass().getSimpleName()); }
                 turnsSinceMemory++;
                 if (brain == null) maybeUpdateMemory(llm);
                 // 任务结束时还没交给模型的话：按顺序当新消息处理（不丢）
@@ -664,8 +672,18 @@ public final class Chat {
 
     /** 开始（或「继续」接着）一个任务：返回任务卡消息 id。 */
     String startTask(boolean cont) {
-        Map<String, Object> old = cont && !taskCard.isEmpty() ? store.find("chat", taskCard) : null;
+        Map<String, Object> old = null;
+        if (cont) {
+            // [taskctx-1118] 「继续」接着最近一个没做完的任务；都做完了就接着最近那个（程序重启过也找得到）
+            List<Map<String, Object>> all = store.list("chat");
+            old = latestUnfinished(all);
+            if (old == null && !taskCard.isEmpty()) old = store.find("chat", taskCard);
+            if (old == null) old = latestTask(all);
+        }
         if (old != null) {
+            taskCard = String.valueOf(old.get("id"));
+            Object tk = old.get("task");
+            if (tk != null && !String.valueOf(tk).isEmpty() && !String.valueOf(tk).equals(taskId)) taskId = String.valueOf(tk);
             store.update("chat", taskCard, Map.of("state", "running", "answer", ""));
             return taskCard;
         }
@@ -836,39 +854,171 @@ public final class Chat {
                 + (mem.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准）：\n" + mem);
     }
 
-    /** 最近的消息，总字数不超过 CONTEXT_CHARS；指令类往返不进上下文。 */
+    // ------------------------------------------------------------------ [taskctx-1118] 按任务分段的上下文
+
+    /** 没做完的任务状态（running 是上次程序没正常收尾留下的）。 */
+    static boolean unfinished(Map<String, Object> m) {
+        String st = String.valueOf(m.getOrDefault("state", ""));
+        return "task".equals(m.get("via")) && !st.equals("done") && !st.isEmpty();
+    }
+
+    static Map<String, Object> latestUnfinished(List<Map<String, Object>> all) {
+        for (int i = all.size() - 1; i >= 0; i--) if ("task".equals(all.get(i).get("via"))) return unfinished(all.get(i)) ? all.get(i) : null;
+        return null;
+    }
+
+    static Map<String, Object> latestTask(List<Map<String, Object>> all) {
+        for (int i = all.size() - 1; i >= 0; i--) if ("task".equals(all.get(i).get("via"))) return all.get(i);
+        return null;
+    }
+
+    /** 当前任务给模型的完整记录：每步一行（说明 —— 做了什么 —— 结果），最近几步的输出原样（截到 3000 字）。 */
+    @SuppressWarnings("unchecked")
+    static String fullRecord(Map<String, Object> m) {
+        List<Map<String, Object>> steps = new ArrayList<>();
+        Object st = m.get("steps");
+        if (st instanceof List) for (Object o : (List<Object>) st) if (o instanceof Map && "step".equals(((Map<String, Object>) o).get("kind"))) steps.add((Map<String, Object>) o);
+        if (steps.isEmpty()) return "";
+        StringBuilder b = new StringBuilder("（OneSay 程序记录，不是用户说的话：当前任务「" + m.getOrDefault("title", "") + "」到目前为止实际执行过的步骤，状态 " + m.getOrDefault("state", "") + "。接着做时从最后一步往下，不要把做过的步骤原样再做一遍）\n");
+        int from = Math.max(0, steps.size() - TASK_STEP_LINES);
+        if (from > 0) b.append("（前面还有 ").append(from).append(" 步，略）\n");
+        for (int i = from; i < steps.size(); i++) {
+            Map<String, Object> x = steps.get(i);
+            String s = String.valueOf(x.getOrDefault("state", ""));
+            b.append(i + 1).append(". ").append(x.get("desc")).append(" —— ").append(x.get("detail")).append(" —— ")
+                    .append(s.equals("ok") ? "成功" : s.equals("fail") ? "失败" : "没做完").append("：").append(x.getOrDefault("summary", "")).append('\n');
+        }
+        List<String> outs = new ArrayList<>();
+        for (int i = steps.size() - 1; i >= 0 && outs.size() < TASK_OUTPUTS; i--) {
+            String o = String.valueOf(steps.get(i).getOrDefault("output", "")).trim();
+            if (!o.isEmpty()) outs.add(0, "[第 " + (i + 1) + " 步的输出]\n" + ChatAgent.clip(o, TASK_OUTPUT_CHARS));
+        }
+        if (!outs.isEmpty()) b.append("最近几步的输出（更早的只留结论，完整的在任务卡「详情」里）：\n").append(String.join("\n", outs)).append('\n');
+        return b.toString();
+    }
+
+    static final int TASK_STEP_LINES = 40, TASK_OUTPUTS = 4, TASK_OUTPUT_CHARS = 3000, RELATED_TASKS = 3;
+
+    /** 旧任务的一句摘要。 */
+    @SuppressWarnings("unchecked")
+    static String shortSummary(Map<String, Object> m) {
+        int n = 0;
+        if (m.get("steps") instanceof List) for (Object o : (List<Object>) m.get("steps")) if (o instanceof Map && "step".equals(((Map<String, Object>) o).get("kind"))) n++;
+        String st = String.valueOf(m.getOrDefault("state", ""));
+        String ans = LinkPolicy.oneLine(String.valueOf(m.getOrDefault("answer", "")));
+        return "「" + m.getOrDefault("title", "") + "」" + (st.equals("done") ? "已完成" : "没做完（" + st + "）") + "，" + n + " 步" + (ans.isBlank() ? "" : "：" + ChatAgent.clip(ans, 200));
+    }
+
+    /** 两段文字的相似度（字的二元组 Jaccard，中文和英文数字都算）。 */
+    static double related(String a, String b) {
+        java.util.Set<String> x = grams(a), y = grams(b);
+        if (x.isEmpty() || y.isEmpty()) return 0;
+        int inter = 0;
+        for (String g : x) if (y.contains(g)) inter++;
+        return (double) inter / (x.size() + y.size() - inter);
+    }
+
+    static java.util.Set<String> grams(String s) {
+        String t = s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^\\p{IsHan}a-z0-9]", "");
+        java.util.Set<String> g = new java.util.HashSet<>();
+        for (int i = 0; i + 1 < t.length(); i++) g.add(t.substring(i, i + 2));
+        return g;
+    }
+
+    /**
+     * 给模型的上下文，按任务分段（[taskctx-1118]）：
+     * <ul>
+     *   <li>当前任务（「继续」接着的那张卡）完整给：所有步骤 + 最近几步的输出，所以续接时不会把做过的命令再发一遍；</li>
+     *   <li>更早的任务只给一句摘要，最多 {@link #RELATED_TASKS} 个（最近的一个 + 和这次话题最像的）；</li>
+     *   <li>普通聊天按时间倒着取，不超过 CONTEXT_CHARS 字，最多回溯到前两个任务为止；指令类往返不进上下文。</li>
+     * </ul>
+     */
     List<Map<String, Object>> context() {
         List<Map<String, Object>> all = store.list("chat");
+        String cur = taskCard == null ? "" : taskCard;
+        Map<String, Object> curCard = cur.isEmpty() ? null : store.find("chat", cur);
+        if (curCard != null && !"running".equals(curCard.get("state"))) curCard = null; // 只有正在接着做的那张算「当前任务」
         List<Map<String, Object>> picked = new ArrayList<>();
-        int used = 0;
+        List<Map<String, Object>> older = new ArrayList<>();
+        int used = 0, boundaries = 0;
         boolean cut = false, skipUser = false;
+        String lastUser = "";
         for (int i = all.size() - 1; i >= 0; i--) {
             Map<String, Object> m = all.get(i);
             boolean user = "user".equals(m.get("role"));
+            if (user && lastUser.isEmpty()) lastUser = String.valueOf(m.get("text"));
             if (user && skipUser) { skipUser = false; continue; } // 指令那句不进上下文
             if (!user && ("cmd".equals(m.get("via")) || "error".equals(m.get("via")))) { skipUser = true; continue; }
             skipUser = false;
             if ("system".equals(m.get("role"))) continue;
-            if ("task".equals(m.get("via")) && "running".equals(m.get("state"))) continue; // 正在跑的这张卡：步骤在循环里，不重复给
             if ("task".equals(m.get("via"))) {
-                // [approvals-1118] 任务卡：真实执行过的步骤作为「程序记录」给模型（不放进助手的嘴里，免得模型学着把步骤当文字写），再给最后的答复
-                String rec = cardRecord(m), ans = String.valueOf(m.getOrDefault("answer", ""));
-                if (used + rec.length() + ans.length() > CONTEXT_CHARS && !picked.isEmpty()) { cut = true; break; }
-                used += rec.length() + ans.length();
-                if (!ans.isBlank()) picked.add(0, Llm.msg("assistant", ans));
-                if (!rec.isEmpty()) picked.add(0, Llm.msg("user", rec));
+                if (curCard != null && cur.equals(String.valueOf(m.get("id")))) {
+                    // 当前任务：完整记录（程序记录放在用户角色里，不放进助手的嘴里，免得模型学着把步骤当文字写）
+                    String rec = fullRecord(m), ans = String.valueOf(m.getOrDefault("answer", ""));
+                    if (!ans.isBlank()) picked.add(0, Llm.msg("assistant", ans));
+                    if (!rec.isEmpty()) picked.add(0, Llm.msg("user", rec));
+                    continue;
+                }
+                if ("running".equals(m.get("state")) && m == latestTask(all) && curCard == null) continue; // 正在跑的这张：步骤在循环里
+                older.add(m);
+                boundaries++;
+                if (boundaries == 1) {
+                    // 紧挨着的上一个任务：步骤记录照旧给（简短版），它的答复也在
+                    String rec = cardRecord(m), ans = String.valueOf(m.getOrDefault("answer", ""));
+                    if (used + rec.length() + ans.length() > CONTEXT_CHARS && !picked.isEmpty()) { cut = true; continue; }
+                    used += rec.length() + ans.length();
+                    if (!ans.isBlank()) picked.add(0, Llm.msg("assistant", ans));
+                    if (!rec.isEmpty()) picked.add(0, Llm.msg("user", rec));
+                }
                 continue;
             }
+            if (boundaries >= 2) { cut = true; continue; } // 再往前的普通聊天不逐字给（旧任务只给摘要）
             String t = String.valueOf(m.get("text"));
-            if (used + t.length() > CONTEXT_CHARS && !picked.isEmpty()) { cut = true; break; }
+            if (used + t.length() > CONTEXT_CHARS && !picked.isEmpty()) { cut = true; boundaries = 2; continue; }
             used += t.length();
             picked.add(0, Llm.msg("assistant".equals(m.get("role")) ? "assistant" : "user", t));
         }
+        // 更早的任务：最近一个已经在上面；再挑和这次话题最像的，最多 RELATED_TASKS 个，一句摘要
+        List<Map<String, Object>> rest = older.size() > 1 ? new ArrayList<>(older.subList(1, older.size())) : new ArrayList<>();
+        String topic = (curCard == null ? "" : String.valueOf(curCard.getOrDefault("title", ""))) + " " + lastUser;
+        rest.sort((x, y) -> Double.compare(related(String.valueOf(y.getOrDefault("title", "")), topic), related(String.valueOf(x.getOrDefault("title", "")), topic)));
+        List<String> sums = new ArrayList<>();
+        for (Map<String, Object> m : rest) {
+            if (sums.size() >= RELATED_TASKS - 1) break;
+            if (related(String.valueOf(m.getOrDefault("title", "")), topic) <= 0.05 && !unfinished(m)) continue;
+            sums.add("- " + shortSummary(m));
+        }
+        if (older.size() > 1) cut = true;
         if (cut) truncatedSinceMemory = true;
         List<Map<String, Object>> out = new ArrayList<>();
         out.add(Llm.msg("system", systemPrompt()));
+        if (!sums.isEmpty()) out.add(Llm.msg("user", "（OneSay 程序记录，不是用户说的话：更早的相关任务，只是摘要，供参考）\n" + String.join("\n", sums)));
         out.addAll(picked);
         return out;
+    }
+
+    /** 做完一个任务后：更早的任务卡（最近两张以外）里的命令输出压到 300 字，记录变小，界面上照样能看结论。 */
+    @SuppressWarnings("unchecked")
+    void compactOldCards() {
+        List<Map<String, Object>> all = store.list("chat");
+        int seen = 0;
+        for (int i = all.size() - 1; i >= 0; i--) {
+            Map<String, Object> m = all.get(i);
+            if (!"task".equals(m.get("via"))) continue;
+            if (++seen <= 2 || Boolean.TRUE.equals(m.get("compacted")) || !(m.get("steps") instanceof List)) continue;
+            List<Object> steps = new ArrayList<>();
+            for (Object o : (List<Object>) m.get("steps")) {
+                if (o instanceof Map && String.valueOf(((Map<String, Object>) o).getOrDefault("output", "")).length() > 300) {
+                    Map<String, Object> y = new TreeMap<>((Map<String, Object>) o);
+                    y.put("output", String.valueOf(y.get("output")).substring(0, 300) + "…（较早任务的输出已压缩）");
+                    steps.add(y);
+                } else steps.add(o);
+            }
+            Map<String, Object> patch = new TreeMap<>();
+            patch.put("steps", steps);
+            patch.put("compacted", true);
+            store.update("chat", String.valueOf(m.get("id")), patch);
+        }
     }
 
     private void maybeUpdateMemory(Llm llm) {

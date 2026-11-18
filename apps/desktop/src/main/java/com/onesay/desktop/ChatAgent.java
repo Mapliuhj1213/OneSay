@@ -330,7 +330,7 @@ public final class ChatAgent {
                 + "安卓界面上的按钮 / 复选框（如 root 授权弹窗）用 android_ui：先 dump 看有哪些，再按文字 tap_text / check_text，不要硬编码 input tap 坐标；"
                 + "要「记住选择」的弹窗先 check_text 勾上再点允许（then_tap）。点完再 dump 或截图确认。"
                 + "不要用截图文件的大小、修改时间去猜屏幕上是什么。截图和你生成的文件会显示在任务卡里；要给用户看某个文件用 show_file，不要用 open_url 打开 file: 地址。\n"
-                + "用户说「继续」「接着做」时，根据上面对话里已经做过的步骤（▶ 开头的记录）接着做。做完后用一两句话汇报结果（做了什么、现在是什么状态）。"
+                + "用户说「继续」「接着做」时，接着最近一个没做完的任务：看「当前任务」的程序记录（做过哪些步骤、最近的输出）从最后一步往下做，不要把做过的步骤原样再做一遍。更早的任务只有摘要。做完后用一两句话汇报结果（做了什么、现在是什么状态）。"
                 + (memory == null || memory.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准）：\n" + memory);
     }
 
@@ -362,6 +362,7 @@ public final class ChatAgent {
             if (cancel.get()) return new Outcome("已停止。" + (done > 0 ? "做了 " + done + " 步，说「继续」可以接着做。" : ""), "stopped", done);
             if (clock.getAsLong() - t0 > timeoutMs)
                 return new Outcome("这个任务已经做了 " + ((clock.getAsLong() - t0) / 60000) + " 分钟，到了设置里的时长上限，先停下。说「继续」我接着做。", "time_limit", done);
+            compactToolResults(msgs, KEEP_FULL_RESULTS, OLD_RESULT_CHARS);
             Llm.Turn t;
             try {
                 t = nextWithRetry(brain, msgs, tools);
@@ -519,6 +520,34 @@ public final class ChatAgent {
         String x = s == null ? "" : s;
         x = x.replaceAll("(?s)<\\s*/?\\s*[｜|]+\\s*DSML\\s*[｜|]+[^>]*>", "");
         return stripFakeSteps(x).trim();
+    }
+
+    /** [taskctx-1118] 一个任务里最近这么多个工具结果原样给模型；更早的输出压到 OLD_RESULT_CHARS 字（完整的在任务卡「详情」里）。 */
+    static final int KEEP_FULL_RESULTS = 6, OLD_RESULT_CHARS = 1200;
+
+    static void compactToolResults(List<Map<String, Object>> msgs, int keep, int clipTo) {
+        int seen = 0;
+        for (int i = msgs.size() - 1; i >= 0; i--) {
+            Map<String, Object> m = msgs.get(i);
+            if (!"tool".equals(m.get("role"))) continue;
+            if (++seen <= keep) continue;
+            String c = String.valueOf(m.get("content"));
+            if (c.length() <= clipTo + 200 || c.contains("较早的输出已压缩")) continue;
+            String nc;
+            try {
+                Map<String, Object> o = new TreeMap<>(Json.obj(c));
+                Object out = o.get("output");
+                if (out == null) continue;
+                String os = String.valueOf(out);
+                o.put("output", os.substring(0, Math.min(os.length(), clipTo)) + "…（较早的输出已压缩，" + os.length() + " 字，完整的在任务卡「详情」里；需要就重新查）");
+                nc = Json.stringify(o);
+            } catch (RuntimeException e) {
+                nc = c.substring(0, clipTo) + "…（较早的输出已压缩）";
+            }
+            Map<String, Object> x = new TreeMap<>(m);
+            x.put("content", nc);
+            msgs.set(i, x);
+        }
     }
 
     /** 像 OneSay 步骤记录的行（▶ 执行命令… / ✓ … / ✗ …）：模型自己写的这种行一律不当真。 */

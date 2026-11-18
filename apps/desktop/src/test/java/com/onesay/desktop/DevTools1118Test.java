@@ -343,4 +343,104 @@ public class DevTools1118Test {
         assertTrue(r.text.contains("不替用户点"));
         assertTrue(taps.isEmpty());
     }
+
+    // ------------------------------------------------------------------ 按任务分段的上下文
+
+    static Map<String, Object> card(Store s, String task, String title, String state, String answer, int steps, String outPrefix) {
+        List<Object> st = new ArrayList<>();
+        for (int i = 1; i <= steps; i++) {
+            Map<String, Object> x = new TreeMap<>();
+            x.put("kind", "step");
+            x.put("n", (long) i);
+            x.put("desc", title + " 第" + i + "步");
+            x.put("detail", "执行命令：cmd" + i);
+            x.put("state", "ok");
+            x.put("summary", "ok" + i);
+            x.put("output", outPrefix + i + " " + "o".repeat(400));
+            st.add(x);
+        }
+        Map<String, Object> m = new TreeMap<>();
+        m.put("role", "assistant");
+        m.put("via", "task");
+        m.put("task", task);
+        m.put("title", title);
+        m.put("state", state);
+        m.put("answer", answer);
+        m.put("steps", st);
+        m.put("text", "");
+        m.put("at", System.currentTimeMillis());
+        return s.add("chat", m, Store.MAX_CHAT);
+    }
+
+    static String joined(List<Map<String, Object>> ctx) {
+        StringBuilder b = new StringBuilder();
+        for (Map<String, Object> m : ctx) b.append(m.get("role")).append(':').append(m.get("content")).append('|');
+        return b.toString();
+    }
+
+    @Test public void continueBindsToLatestUnfinishedTaskWithItsFullRecordAndOutputs() throws Exception {
+        Store s = new Store(Files.createTempDirectory("dt").resolve("state.json"));
+        Chat ch = new Chat(new Config(Files.createTempFile("dt", ".properties")), s, new Main.TestActions(), List::of, x -> { });
+        s.add("chat", Map.of("role", "user", "text", "查一下天气预报", "at", 1L), Store.MAX_CHAT);
+        card(s, "t1", "查一下天气预报", "done", "晴，25 度", 2, "WEATHER");
+        s.add("chat", Map.of("role", "user", "text", "整理桌面上的截图文件夹", "at", 2L), Store.MAX_CHAT);
+        card(s, "t2", "整理桌面上的截图文件夹", "done", "整理好了", 2, "DESK");
+        s.add("chat", Map.of("role", "user", "text", "让 MuMu 模拟器拿到 root，截图证明", "at", 3L), Store.MAX_CHAT);
+        Map<String, Object> root = card(s, "t3", "让 MuMu 模拟器拿到 root，截图证明", "time_limit", "到时长上限，先停下", 6, "ROOTOUT");
+        s.add("chat", Map.of("role", "user", "text", "MuMu root 的事先放一放，看看下载文件夹多大", "at", 4L), Store.MAX_CHAT);
+        card(s, "t4", "看看下载文件夹多大", "done", "3.2 GB", 1, "DL");
+        // 程序重启过：taskCard 是空的；「继续」也要找到没做完的 root 任务
+        assertTrue(ch.continuing());
+        List<Map<String, Object>> latest = s.list("chat");
+        // 最近的任务（t4）做完了 → 最近一个没做完的就是它前面那个吗？按约定：最近一张卡没做完才算；这里 t4 完成 → 退回最近的卡
+        assertNull(Chat.latestUnfinished(latest));
+        s.update("chat", String.valueOf(root.get("id")), Map.of("at", System.currentTimeMillis()));
+        // 让 root 任务成为最后一张卡（再停一次）
+        Map<String, Object> root2 = card(s, "t5", "让 MuMu 模拟器拿到 root，截图证明（接着）", "stopped", "已停止", 5, "ROOT2OUT");
+        assertEquals(root2.get("id"), Chat.latestUnfinished(s.list("chat")).get("id"));
+        s.add("chat", Map.of("role", "user", "text", "继续", "at", System.currentTimeMillis()), Store.MAX_CHAT);
+        String id = ch.startTask(true);
+        assertEquals("「继续」接着最近一个没做完的任务", root2.get("id"), id);
+        assertEquals("t5", ch.taskId);
+        String all = joined(ch.context());
+        assertTrue("当前任务完整步骤", all.contains("当前任务「让 MuMu 模拟器拿到 root，截图证明（接着）」") && all.contains("5. "));
+        assertTrue("最近几步的输出原样给", all.contains("ROOT2OUT5") && all.contains("ROOT2OUT2"));
+        assertFalse("只给最近 4 步的输出", all.contains("ROOT2OUT1 "));
+        assertFalse("更早任务的输出不给", all.contains("WEATHER1") || all.contains("DESK1"));
+        assertTrue("相关的旧任务给一句摘要", all.contains("更早的相关任务") && all.contains("「让 MuMu 模拟器拿到 root，截图证明」没做完"));
+        assertTrue(all.endsWith("user:继续|"));
+        assertTrue(ChatAgent.systemPrompt("n", "w", "h", "", ChatPolicy.Preset.DEFAULT).contains("不要把做过的步骤原样再做一遍"));
+    }
+
+    @Test public void newTaskSeesOnlySummariesOfOldTasksAndOldOutputsGetCompacted() throws Exception {
+        Store s = new Store(Files.createTempDirectory("dt").resolve("state.json"));
+        Chat ch = new Chat(new Config(Files.createTempFile("dt", ".properties")), s, new Main.TestActions(), List::of, x -> { });
+        for (int i = 0; i < 4; i++) {
+            s.add("chat", Map.of("role", "user", "text", "任务" + i), Store.MAX_CHAT);
+            card(s, "t" + i, "任务" + i, "done", "答" + i, 2, "OUT" + i + "_");
+        }
+        ch.compactOldCards();
+        int compacted = 0;
+        for (Map<String, Object> m : s.list("chat")) if (Boolean.TRUE.equals(m.get("compacted"))) {
+            compacted++;
+            for (Object o : (List<?>) m.get("steps")) assertTrue(String.valueOf(((Map<?, ?>) o).get("output")).length() < 340);
+        }
+        assertEquals("最近两张以外的都压缩", 2, compacted);
+        s.add("chat", Map.of("role", "user", "text", "新的事：查 IP"), Store.MAX_CHAT);
+        ch.taskCard = "";
+        String id = ch.startTask(false);
+        String all = joined(ch.context());
+        assertFalse("新任务不带旧任务的命令输出", all.contains("OUT3_1 ooo"));
+        assertTrue("上一个任务给简短步骤记录", all.contains("任务「任务3」实际执行过的步骤"));
+        assertNotNull(id);
+    }
+
+    @Test public void oldToolResultsInsideOneRunAreCompressed() {
+        List<Map<String, Object>> msgs = new ArrayList<>();
+        for (int i = 0; i < 9; i++) msgs.add(ChatAgent.toolMsg("c" + i, Json.stringify(Map.of("ok", true, "output", "R" + i + "x".repeat(5000)))));
+        ChatAgent.compactToolResults(msgs, 6, 1200);
+        for (int i = 0; i < 3; i++) assertTrue(String.valueOf(msgs.get(i).get("content")).contains("较早的输出已压缩"));
+        for (int i = 3; i < 9; i++) assertTrue(String.valueOf(msgs.get(i).get("content")).length() > 5000);
+        assertEquals("c0", msgs.get(0).get("tool_call_id"));
+    }
 }
