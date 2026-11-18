@@ -177,10 +177,11 @@ public class ChatAgent1118Test {
         assertNull(ChatAgent.map(new Llm.ToolCall("1", "run_command", "{\"command\":\"  \"}")));
         List<String> names = new ArrayList<>();
         for (Map<String, Object> t : ChatAgent.tools()) names.add(String.valueOf(((Map<?, ?>) t.get("function")).get("name")));
-        assertEquals(List.of("run_command", "open_url", "open_app", "write_file"), names);
+        assertEquals(List.of("run_command", "open_url", "open_target", "write_file"), names);
         // [approvals-1118] 每个工具都要 description（任务卡上的进度说明）
         for (Map<String, Object> t : ChatAgent.tools()) assertTrue(String.valueOf(((Map<?, ?>) ((Map<?, ?>) t.get("function")).get("parameters")).get("required")).contains("description"));
-        assertEquals("open_app", ChatAgent.map(new Llm.ToolCall("1", "open_app", "{\"description\":\"打开 MuMu\",\"name\":\"MuMu模拟器\"}"))[0]);
+        assertEquals("open_target", ChatAgent.map(new Llm.ToolCall("1", "open_target", "{\"description\":\"打开 MuMu\",\"name\":\"MuMu模拟器\"}"))[0]);
+        assertEquals("完整路径直接当程序", "open_app", ChatAgent.map(new Llm.ToolCall("1", "open_target", "{\"name\":\"C:\\\\Program Files\\\\x\\\\a.exe\"}"))[0]);
     }
 
     @Test public void parseTurnReadsToolCalls() throws Exception {

@@ -46,6 +46,10 @@ public final class Chat {
     /** 任务进行中发来、还没交给模型的消息 id（先进先出，和 agent.inbox 对应）。 */
     private final java.util.concurrent.ConcurrentLinkedQueue<String> queuedIds = new java.util.concurrent.ConcurrentLinkedQueue<>();
     private final Object queueLock = new Object();
+    /** [approvals-1118] 「本地应用 / 网页」选择（任务卡上点，不是审批）。 */
+    public final OpenTarget.Choices choices = new OpenTarget.Choices();
+    /** 名字 → 这台电脑上能打开的本地应用显示名（App 接到 LocalLaunch.displayName）；null = 没有。 */
+    public volatile java.util.function.Function<String, String> appResolver = n -> null;
     /** 「继续」算接着上一件事：上一条助手回复是模型 / 任务的，且不超过这么久。 */
     static final long CONTINUE_WINDOW_MS = 60L * 60 * 1000;
     /** 工作区、用户目录（写进系统提示）。 */
@@ -167,7 +171,9 @@ public final class Chat {
                 PcGuard.TASK.set(taskId);
                 List<String> leftovers = new ArrayList<>();
                 try {
-                    o = agent.run(context(), b, pcExec, new CardSteps(card));
+                    ChatAgent.Exec pe = pcExec;
+                    ChatAgent.Exec ex = (cmd, args) -> "open_target".equals(cmd) ? openTarget(pe, args) : pe.run(cmd, args);
+                    o = agent.run(context(), b, ex, new CardSteps(card));
                 } finally {
                     PcGuard.TASK.set("");
                     synchronized (queueLock) {
@@ -214,6 +220,59 @@ public final class Chat {
         } catch (Exception e) {
             return add("assistant", e.getMessage() == null ? "大模型出错" : e.getMessage(), "error");
         }
+    }
+
+    /**
+     * open_target：本地应用和网页都有、又没有习惯时，在任务卡上问用户选哪个（可记住）；只有一种就直接开；原话说了网页 / 网站就开网页。
+     * 打开本身走 open_app / open_url（同一条安全链，低风险的不弹审批卡）。
+     */
+    Actions.Result openTarget(ChatAgent.Exec pe, Map<String, Object> a) throws Exception {
+        String name = String.valueOf(a.getOrDefault("name", "")).trim();
+        String url = String.valueOf(a.getOrDefault("url", "")).trim();
+        if (url.isEmpty()) url = OpenTarget.knownUrl(name);
+        if (!url.isEmpty() && !url.matches("(?i)https?://\\S+")) url = "";
+        String key = OpenTarget.key(name);
+        String app = OpenTarget.findApp(name, appResolver);
+        Map<String, Map<String, Object>> habits = OpenTarget.parseHabits(cfg.openHabits);
+        String[] d = OpenTarget.decide(key, app, url, lastUserText(), String.valueOf(a.getOrDefault("prefer", "")), habits);
+        String how = habits.containsKey(key) && !"ask".equals(d[0]) ? "，按你的习惯" : "";
+        if ("ask".equals(d[0])) {
+            Object[] r = choices.ask(taskId, name, app, url);
+            String pick = (String) r[0];
+            if (pick.isEmpty()) return Actions.Result.fail("用户没选用本地应用还是网页（2 分钟没点），没打开");
+            if (Boolean.TRUE.equals(r[1])) rememberHabit(key, pick, app);
+            d = pick.equals("app") ? new String[] {"app", app} : new String[] {"web", url};
+            how = Boolean.TRUE.equals(r[1]) ? "，你选的（已记住）" : "，你选的";
+        }
+        if ("none".equals(d[0])) return Actions.Result.fail("这台电脑上没找到「" + name + "」的本地应用，也不知道它的网址；知道网址就用 open_url 打开");
+        Map<String, Object> args = new TreeMap<>();
+        Actions.Result r;
+        if ("app".equals(d[0])) {
+            args.put("name", d[1]);
+            r = pe.run("open_app", args);
+        } else {
+            args.put("url", d[1]);
+            r = pe.run("open_url", args);
+        }
+        if (r != null && r.ok) r = new Actions.Result(true, r.text + "（" + ("app".equals(d[0]) ? "本地应用" : "网页") + how + "）", r.data);
+        return r;
+    }
+
+    synchronized void rememberHabit(String key, String pick, String app) {
+        Map<String, Map<String, Object>> h = OpenTarget.parseHabits(cfg.openHabits);
+        Map<String, Object> m = new TreeMap<>();
+        m.put("choice", pick);
+        m.put("app", "app".equals(pick) && app != null ? app : "");
+        m.put("at", System.currentTimeMillis());
+        h.put(key, m);
+        cfg.openHabits = OpenTarget.formatHabits(h);
+        try { cfg.save(); } catch (Exception e) { log.accept("打开习惯没存上：" + e.getClass().getSimpleName()); }
+    }
+
+    String lastUserText() {
+        List<Map<String, Object>> all = store.list("chat");
+        for (int i = all.size() - 1; i >= 0; i--) if ("user".equals(all.get(i).get("role"))) return String.valueOf(all.get(i).get("text"));
+        return "";
     }
 
     /** 开始（或「继续」接着）一个任务：返回任务卡消息 id。 */
@@ -333,6 +392,7 @@ public final class Chat {
     public boolean stop() {
         if (!running) return false;
         agent.cancel.set(true);
+        choices.cancelAll();
         return true;
     }
 

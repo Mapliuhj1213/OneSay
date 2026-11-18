@@ -1478,7 +1478,7 @@ public final class LinkPolicy {
                     // [fix-1114 B10] 关掉 OneSay 的其它写法：Get-Process onesay | Stop-Process、wmic … onesay … delete、Invoke-CimMethod Terminate
                     + "|(\\b(get-process|gps|ps)\\b[^|;]*onesay[^;]*\\|\\s*(stop-process|spps|kill)\\b)|(\\b(wmic|get-wmiobject|gwmi|get-ciminstance|gcim)\\b[^;]*onesay[^;]*\\b(delete|terminate)\\b)"
                     // [fix-1114 B12] OneSay 的数据目录：%APPDATA% 展开后的真实路径 AppData\Roaming\OneSay（还有 Local / LocalLow 下的 OneSay）
-                    + "|(appdata[\\\\/]onesay)|(appdata[\\\\/](roaming|local|locallow)[\\\\/]onesay\\b)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts|remembered|chat_rules))|(approve_kinds)|(clip_autoclear)|(chat_preset)|(chat_allow_prefixes)|(\\bnet_allow\\b)",
+                    + "|(appdata[\\\\/]onesay)|(appdata[\\\\/](roaming|local|locallow)[\\\\/]onesay\\b)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts|remembered|chat_rules|choice|habits))|(approve_kinds)|(clip_autoclear)|(chat_preset)|(chat_allow_prefixes)|(open_habits)|(\\bnet_allow\\b)",
             Pattern.CASE_INSENSITIVE);
 
     public static String selfAuthorizeReason(String normalized, List<String> selfPaths) {

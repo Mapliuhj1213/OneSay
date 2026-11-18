@@ -144,7 +144,8 @@ public final class App {
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
         chat.onTaskStart = agent.guard::taskStarted; // [approvals-1118] 新任务开始：上一个任务的「允许本次任务」不带过来
-        chat.pcExec = agent::runLocal; // [chat-agent-1118] 「对话」能执行任务：同一条安全链（插件 → 矩阵 → 电脑上确认 → 凭证）
+        chat.pcExec = agent::runLocal;
+        chat.appResolver = n -> LocalLaunch.displayName(n, cfg.appMap(), System.getenv()); // [approvals-1118] 打开前先找本地应用 // [chat-agent-1118] 「对话」能执行任务：同一条安全链（插件 → 矩阵 → 电脑上确认 → 凭证）
         chat.workspace = cfg.workspace().toString();
         asr = new AsrRoute(cfg);
         asr.warmUp(); // 启动时先看云端能不能用（后台，不阻塞）
@@ -595,6 +596,8 @@ public final class App {
             s.put("perm_log", agent.guard.permLogView());
             s.put("grants", agent.guard.grantView());
             s.put("chat_preset", ChatPolicy.Preset.of(cfg.chatPreset).id);
+            s.put("choices", chat.choices.list());
+            s.put("habits", OpenTarget.parseHabits(cfg.openHabits));
             if (whitelist != null) { s.put("whitelist", whitelist.view()); s.put("whitelist_broken", whitelist.broken()); }
             s.put("workspace", cfg.workspace().toString());
             s.put("media", mediaState());
@@ -702,6 +705,32 @@ public final class App {
             m.put("chat_rules", ChatPolicy.view(agent.guard.chatRules()));
             m.put("grants", agent.guard.grantView());
             m.put("perm_log", agent.guard.permLogView());
+            return m;
+        });
+        // [approvals-1118] 任务卡上「本地应用 / 网页」的选择（不是审批）：只收界面上的真实点击
+        ui.on("choice", b -> {
+            Object id = b.get("id");
+            if (!(id instanceof Number)) return fail("没有这个选择");
+            if (!Boolean.TRUE.equals(b.get("trusted"))) return fail("只认界面上的点击");
+            return chat.choices.answer(((Number) id).intValue(), str(b, "pick", ""), !Boolean.FALSE.equals(b.get("remember"))) ? ok("好") : fail("已经过期");
+        });
+        // 打开习惯：看 / 改 / 删
+        ui.on("habits", b -> {
+            String op = str(b, "op", "list"), k = OpenTarget.norm(str(b, "key", ""));
+            Map<String, Map<String, Object>> h = OpenTarget.parseHabits(cfg.openHabits);
+            if (op.equals("remove")) { if (h.remove(k) == null) return fail("没有这条习惯"); }
+            else if (op.equals("set")) {
+                String c = str(b, "choice", "");
+                if (!h.containsKey(k) || !(c.equals("app") || c.equals("web"))) return fail("改不了");
+                h.get(k).put("choice", c);
+            } else if (!op.equals("list")) return fail("不认识的操作");
+            if (!op.equals("list")) {
+                cfg.openHabits = OpenTarget.formatHabits(h);
+                try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+                agent.guard.logPerm("打开习惯「" + k + "」", op.equals("remove") ? "删除" : "改成" + ("web".equals(str(b, "choice", "")) ? "网页" : "本地应用"), "");
+            }
+            Map<String, Object> m = ok("打开习惯");
+            m.put("habits", h);
             return m;
         });
         // 快捷指令批准表：看 / 撤销（批准只能在手机触发时的确认里点「以后直接执行」）

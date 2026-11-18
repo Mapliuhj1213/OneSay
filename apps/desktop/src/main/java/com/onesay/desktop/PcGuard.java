@@ -1238,6 +1238,13 @@ public final class PcGuard {
     Actions.Result openAppLocal(String name, String path) throws Exception {
         Map<String, String> env = System.getenv();
         File f = LocalLaunch.resolve(name, path, cfg.appMap(), LocalLaunch.startMenus(env), LocalLaunch.installRoots(env));
+        if (f == null && path.isEmpty()) {
+            String[] sa = LocalLaunch.findStartApp(name); // 商店 / UWP 应用：explorer shell:AppsFolder\AppID
+            if (sa != null) {
+                SafeExec.start(new ProcessBuilder("explorer.exe", "shell:AppsFolder\\" + sa[1]));
+                return Actions.Result.ok("已打开 " + sa[0]);
+            }
+        }
         if (f == null) return Actions.Result.fail("没找到已安装的程序「" + (name.isEmpty() ? path : name) + "」（只认开始菜单里的程序、设置里配置的程序和安装目录里的 exe；命令行工具请用 run_command）");
         ProcessBuilder pb = f.getName().toLowerCase(Locale.ROOT).endsWith(".lnk") ? new ProcessBuilder("explorer.exe", f.getAbsolutePath())
                 : new ProcessBuilder(f.getAbsolutePath()).directory(f.getParentFile());

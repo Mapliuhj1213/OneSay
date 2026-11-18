@@ -117,6 +117,57 @@ final class LocalLaunch {
         return contains;
     }
 
+    // ------------------------------------------------------------------ 商店 / UWP 应用（Get-StartApps）
+
+    private static volatile List<String[]> startApps;
+
+    /** Get-StartApps 的 {名字, AppID}（Windows 上第一次用时查一次并缓存；别的系统空）。 */
+    static List<String[]> startApps() {
+        List<String[]> c = startApps;
+        if (c != null) return c;
+        List<String[]> out = new ArrayList<>();
+        if (SafeExec.WINDOWS) {
+            try {
+                Process p = SafeExec.start(new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                        "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-StartApps | ForEach-Object { $_.Name + [char]9 + $_.AppID }").redirectErrorStream(true));
+                p.getOutputStream().close();
+                byte[] b = p.getInputStream().readNBytes(512 * 1024);
+                if (!p.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)) p.destroyForcibly();
+                for (String line : new String(b, java.nio.charset.StandardCharsets.UTF_8).split("\\R")) {
+                    int t = line.indexOf('\t');
+                    if (t > 0) out.add(new String[] {line.substring(0, t).trim(), line.substring(t + 1).trim()});
+                }
+            } catch (Exception ignored) { }
+        }
+        startApps = out;
+        return out;
+    }
+
+    /** 测试用：换掉 Get-StartApps 的结果。 */
+    static void setStartApps(List<String[]> l) { startApps = l; }
+
+    /** 按名字找商店应用的 AppID（完全一样优先，其次包含）；AppID 只许常见字符。 */
+    static String[] findStartApp(String name) {
+        String n = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
+        if (n.isEmpty() || notApp(n)) return null;
+        String[] contains = null;
+        for (String[] a : startApps()) {
+            String an = a[0].toLowerCase(Locale.ROOT);
+            if (!a[1].matches("[A-Za-z0-9._!{}\\\\ ()-]{1,200}") || notApp(an) || an.contains("uninstall") || an.contains("卸载")) continue;
+            if (an.equals(n)) return a;
+            if (contains == null && an.contains(n)) contains = a;
+        }
+        return contains;
+    }
+
+    /** 能打开的显示名（开始菜单 / 程序表 / 商店应用）；没有返回 null。 */
+    static String displayName(String name, Map<String, String> appMap, Map<String, String> env) {
+        File f = resolve(name, "", appMap, startMenus(env), installRoots(env));
+        if (f != null) return f.getName().replaceAll("(?i)\\.(lnk|exe)$", "");
+        String[] a = findStartApp(name);
+        return a == null ? null : a[0];
+    }
+
     static void collect(File dir, List<File> out, int depth) {
         File[] l = dir.listFiles();
         if (l == null || depth > 4 || out.size() > 3000) return;

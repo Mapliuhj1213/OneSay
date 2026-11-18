@@ -127,8 +127,10 @@ public final class ChatAgent {
         l.add(fn("open_url", "用默认浏览器打开网址（给用户看页面时用；下载文件请用 run_command）。", ou, List.of("description", "url")));
         Map<String, Object> oa = new TreeMap<>();
         oa.put("description", prop("string", DESC));
-        oa.put("name", prop("string", "程序名（开始菜单里的名字，如「MuMu模拟器」「哔哩哔哩」），或安装目录里 exe 的完整路径"));
-        l.add(fn("open_app", "打开这台电脑上已安装的程序（不带参数）。", oa, List.of("description", "name")));
+        oa.put("name", prop("string", "要打开的东西：程序 / 网站的名字（如「哔哩哔哩」「微信」「MuMu模拟器」），或安装目录里 exe 的完整路径"));
+        oa.put("url", prop("string", "可选：它的网页地址（http/https），没有本地应用或用户要网页时打开"));
+        oa.put("prefer", prop("string", "可选：web = 用户明确说了要网页 / 网站；app = 明确说了要客户端；不确定就不填（OneSay 会按用户习惯或问用户）"));
+        l.add(fn("open_target", "打开一个程序或网站：先找这台电脑上装没装本地应用；本地应用和网页都有时按用户习惯，没有习惯就在任务卡上让用户选。打开本身不用批准。", oa, List.of("description", "name")));
         Map<String, Object> wf = new TreeMap<>();
         wf.put("description", prop("string", DESC));
         wf.put("path", prop("string", "文件路径：相对路径写在 OneSay 工作区里；工作区以外要给完整路径（会先请用户确认）。"));
@@ -162,12 +164,19 @@ public final class ChatAgent {
                 out.put("url", String.valueOf(u));
                 return new Object[] {"open_url", out};
             }
-            case "open_app": {
+            case "open_app":
+            case "open_target": {
                 Object n = a.get("name");
                 if (n == null || String.valueOf(n).isBlank()) return null;
                 String v = String.valueOf(n).trim();
-                if (v.matches("(?i)[a-z]:\\\\.*")) out.put("path", v); else out.put("name", v);
-                return new Object[] {"open_app", out};
+                if (v.matches("(?i)[a-z]:\\\\.*")) {
+                    out.put("path", v);
+                    return new Object[] {"open_app", out};
+                }
+                out.put("name", v);
+                if (a.get("url") != null && !String.valueOf(a.get("url")).isBlank()) out.put("url", String.valueOf(a.get("url")).trim());
+                if (a.get("prefer") != null) out.put("prefer", String.valueOf(a.get("prefer")).trim().toLowerCase(java.util.Locale.ROOT));
+                return new Object[] {"open_target", out};
             }
             case "write_file": {
                 Object p = a.get("path");
@@ -235,7 +244,7 @@ public final class ChatAgent {
                 + "被拒绝或没人确认就停下说明，不要换个写法绕过。不要提权（runas / UAC），不要关闭或绕过杀毒软件、防火墙，不要改 OneSay 自己的设置，不要输出或保存密码和 Key。"
                 + "只从官方或可信来源下载软件。\n"
                 + "只读查询写成简单命令（Get-* / Test-Path，可以 | 接 Select-Object、Where-Object、Sort-Object，不要变量赋值）；写文件、下载用字面的完整路径（不要用变量拼路径），放在桌面 / 下载 / 文档 / 工作区里，这样能直接执行、少打扰用户。"
-                + "打开网页用 open_url，打开已装的程序用 open_app。\n"
+                + "用户要「打开某个程序 / 网站」（如打开 B 站、微信）用 open_target：先用本地应用、没有再用网页，用户说了网页 / 网站就填 prefer=web；打开某个具体网址（搜索结果、下载页）用 open_url。\n"
                 + "环境：Windows PowerShell 5.1，非交互；单条命令默认最长 60 秒（run_command 的 timeout_sec 最多 900）；命令的工作目录是 OneSay 工作区 " + workspace
                 + "；用户目录 " + home + "，桌面通常是 " + home + "\\Desktop。\n"
                 + "用户说「继续」「接着做」时，根据上面对话里已经做过的步骤（▶ 开头的记录）接着做。做完后用一两句话汇报结果（做了什么、现在是什么状态）。"
@@ -407,8 +416,8 @@ public final class ChatAgent {
     /** 参数有问题时回给模型的说明（让它改了再调，不中断任务）。 */
     static String badArgs(Llm.ToolCall c) {
         String raw = clip(c.arguments, 300);
-        boolean known = c.name.equals("run_command") || c.name.equals("open_url") || c.name.equals("write_file") || c.name.equals("open_app");
-        if (!known) return Json.stringify(Map.of("ok", false, "error", "INVALID_TOOL", "text", "不认识的工具：" + c.name + "。可用的工具：run_command、open_url、open_app、write_file"));
+        boolean known = c.name.equals("run_command") || c.name.equals("open_url") || c.name.equals("write_file") || c.name.equals("open_app") || c.name.equals("open_target");
+        if (!known) return Json.stringify(Map.of("ok", false, "error", "INVALID_TOOL", "text", "不认识的工具：" + c.name + "。可用的工具：run_command、open_target、open_url、write_file"));
         Map<String, Object> a;
         try {
             a = Json.obj(c.arguments);
@@ -416,7 +425,7 @@ public final class ChatAgent {
             a = null;
         }
         if (a == null) return Json.stringify(Map.of("ok", false, "error", "INVALID_ARGS", "text", "参数不是合法 JSON，请改正后重试：" + raw));
-        String need = c.name.equals("run_command") ? "command" : c.name.equals("open_url") ? "url" : c.name.equals("open_app") ? "name" : "path";
+        String need = c.name.equals("run_command") ? "command" : c.name.equals("open_url") ? "url" : (c.name.equals("open_app") || c.name.equals("open_target")) ? "name" : "path";
         return Json.stringify(Map.of("ok", false, "error", "INVALID_ARGS", "text", "参数无效：缺少或为空的字段 " + need + "，请改正后重试：" + raw));
     }
 
@@ -434,6 +443,7 @@ public final class ChatAgent {
             case "open_url": return "打开网址：" + clip(String.valueOf(a.get("url")), 200);
             case "file_write": return "写文件：" + clip(String.valueOf(a.get("path")), 200);
             case "open_app": return "打开程序：" + clip(String.valueOf(a.containsKey("path") ? a.get("path") : a.get("name")), 200);
+            case "open_target": return "打开：" + clip(String.valueOf(a.get("name")), 200);
             default: return cmd;
         }
     }

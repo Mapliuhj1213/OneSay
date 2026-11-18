@@ -132,7 +132,7 @@ public class Approvals1118Test {
                 call("9", "run_command", rc("装进模拟器", adb + " -s 127.0.0.1:16384 install -r \"$env:USERPROFILE\\Downloads\\Mindustry.apk\"")),
                 call("10", "run_command", rc("打开游戏", adb + " -s 127.0.0.1:16384 shell monkey -p io.anuke.mindustry -c android.intent.category.LAUNCHER 1")),
                 call("11", "run_command", rc("截个图看看", adb + " -s 127.0.0.1:16384 exec-out screencap -p > \"$env:USERPROFILE\\Downloads\\mumu.png\"")),
-                call("12", "open_app", Json.stringify(Map.of("description", "把模拟器窗口打开", "name", "MuMu模拟器"))),
+                call("12", "open_target", Json.stringify(Map.of("description", "把模拟器窗口打开", "name", "C:\\Program Files\\MuMu\\MuMuPlayer.exe"))),
                 say("装好并打开到主菜单了。")));
         int[] i = {0};
         ChatAgent.Brain b = (m, t) -> turns.get(Math.min(i[0]++, turns.size() - 1));
@@ -565,5 +565,81 @@ public class Approvals1118Test {
         Map<?, ?> rec = (Map<?, ?>) g.permLogView().get(0);
         assertEquals("允许一次", rec.get("result"));
         assertEquals("t1", rec.get("task"));
+    }
+
+    // ------------------------------------------------------------------ 打开：本地应用 / 网页，习惯
+
+    @Test public void openTargetDecidesAppWebAskAndHabits() {
+        Map<String, Map<String, Object>> none = Map.of();
+        assertArrayEquals(new String[] {"ask"}, OpenTarget.decide("bilibili", "哔哩哔哩", "https://www.bilibili.com", "打开 B站", "", none));
+        assertArrayEquals("只有本地应用", new String[] {"app", "哔哩哔哩"}, OpenTarget.decide("bilibili", "哔哩哔哩", "", "打开 B站", "", none));
+        assertArrayEquals("只有网页", new String[] {"web", "https://www.bilibili.com"}, OpenTarget.decide("bilibili", null, "https://www.bilibili.com", "打开 B站", "", none));
+        assertArrayEquals("原话说了网页", new String[] {"web", "https://www.bilibili.com"}, OpenTarget.decide("bilibili", "哔哩哔哩", "https://www.bilibili.com", "用网页打开b站", "", none));
+        assertArrayEquals("模型说用户要网页", new String[] {"web", "https://www.bilibili.com"}, OpenTarget.decide("bilibili", "哔哩哔哩", "https://www.bilibili.com", "打开", "web", none));
+        Map<String, Map<String, Object>> h = OpenTarget.parseHabits("{\"bilibili\":{\"choice\":\"web\",\"app\":\"\"},\"bad\":{\"choice\":\"x\"}}");
+        assertEquals("坏的习惯不收", 1, h.size());
+        assertArrayEquals("按习惯，不再问", new String[] {"web", "https://www.bilibili.com"}, OpenTarget.decide("bilibili", "哔哩哔哩", "https://www.bilibili.com", "打开 B站", "", h));
+        assertArrayEquals(new String[] {"none"}, OpenTarget.decide("x", null, "", "打开 x", "", none));
+        assertEquals("bilibili", OpenTarget.key("B站"));
+        assertEquals("bilibili", OpenTarget.key("哔哩哔哩"));
+        assertEquals("https://www.bilibili.com", OpenTarget.knownUrl("b站"));
+        assertEquals("按已知的应用名找", "哔哩哔哩", OpenTarget.findApp("B站", n -> n.equals("哔哩哔哩") ? "哔哩哔哩" : null));
+        assertNull(OpenTarget.findApp("B站", n -> null));
+        // 商店应用（Get-StartApps）
+        LocalLaunch.setStartApps(List.of(new String[] {"哔哩哔哩", "Bilibili.Bilibili_xyz!App"}, new String[] {"Windows PowerShell", "{x}\\powershell.exe"}));
+        try {
+            assertEquals("Bilibili.Bilibili_xyz!App", LocalLaunch.findStartApp("哔哩哔哩")[1]);
+            assertNull(LocalLaunch.findStartApp("Windows PowerShell"));
+            assertEquals("哔哩哔哩", LocalLaunch.displayName("哔哩哔哩", Map.of(), Map.of()));
+        } finally { LocalLaunch.setStartApps(null); }
+    }
+
+    @Test public void openTargetAsksOnTheCardAndRemembers() throws Exception {
+        Store s = new Store(Files.createTempDirectory("ap").resolve("state.json"));
+        Config c = new Config(Files.createTempFile("ap", ".properties"));
+        Chat ch = new Chat(c, s, new Main.TestActions(), List::of, x -> { });
+        ch.appResolver = n -> n.equals("哔哩哔哩") ? "哔哩哔哩" : null;
+        List<String> opened = new ArrayList<>();
+        ChatAgent.Exec pe = (cmd, a) -> { opened.add(cmd + " " + a); return Actions.Result.ok("已打开"); };
+        Thread clicker = new Thread(() -> {
+            for (int i = 0; i < 200; i++) {
+                List<Object> l = ch.choices.list();
+                if (!l.isEmpty()) { ch.choices.answer(((Number) ((Map<?, ?>) l.get(0)).get("id")).intValue(), "app", true); return; }
+                try { Thread.sleep(10); } catch (InterruptedException e) { return; }
+            }
+        });
+        clicker.start();
+        Actions.Result r = ch.openTarget(pe, new TreeMap<>(Map.of("name", "B站")));
+        clicker.join();
+        assertTrue(r.text, r.ok);
+        assertEquals("open_app {name=哔哩哔哩}", opened.get(0));
+        assertTrue(r.text.contains("本地应用"));
+        assertEquals("app", OpenTarget.parseHabits(c.openHabits).get("bilibili").get("choice"));
+        // 第二次：按习惯直接开，不再问
+        Actions.Result r2 = ch.openTarget(pe, new TreeMap<>(Map.of("name", "哔哩哔哩")));
+        assertTrue(r2.text.contains("习惯"));
+        assertTrue(ch.choices.list().isEmpty());
+        // 原话说网页：直接网页
+        s.add("chat", new TreeMap<>(Map.of("role", "user", "text", "用网页打开b站")), 0);
+        ch.openTarget(pe, new TreeMap<>(Map.of("name", "b站")));
+        assertEquals("open_url {url=https://www.bilibili.com}", opened.get(2));
+        // 没人选：不打开，如实说
+        ch.choices.timeoutMs = 50;
+        c.openHabits = "";
+        s.add("chat", new TreeMap<>(Map.of("role", "user", "text", "打开b站")), 0);
+        assertFalse(ch.openTarget(pe, new TreeMap<>(Map.of("name", "b站"))).ok);
+        assertEquals(3, opened.size());
+    }
+
+    @Test public void uiHasTaskCardInlineApprovalChoiceAndPermLog() throws Exception {
+        String html;
+        try (java.io.InputStream in = App.class.getResourceAsStream("/onesay/ui/index.html")) { html = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8); }
+        for (String must : new String[] {"function taskCard(", "允许本次任务", "这次运行都允许", "允许一次", "详情", "展开全部", "已收到，下一步处理", "记住我的选择",
+                "本地应用（", "权限记录", "以后不用问的命令", "打开习惯", "对话权限预设", "chat_preset", "chat_timeout_min", "停止"})
+            assertTrue(must, html.contains(must));
+        // 本机对话的批准不在右下角浮框里（在任务卡里点）
+        assertTrue(html.contains("x.from!=='本机对话'"));
+        // 发送不再被正在跑的任务挡住
+        assertFalse(html.contains("if(!t||pending)return"));
     }
 }

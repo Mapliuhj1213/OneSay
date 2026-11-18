@@ -66,6 +66,8 @@ public final class Config {
     public String chatAllowPrefixes = "";
     /** [approvals-1118] 本机对话一个任务最长跑多少分钟（兜底；没有步数上限）。 */
     public int chatTimeoutMin = ChatAgent.DEFAULT_TIMEOUT_MIN;
+    /** [approvals-1118] 打开习惯（OpenTarget.parseHabits）：bilibili → 本地应用 / 网页；只在电脑界面上能看 / 改。 */
+    public String openHabits = "";
     public String workspaceDir = "";
     /** 链接下载：默认清晰度 best / 1080 / 720（MediaArgs.quality）。 */
     public String mediaQuality = "best";
@@ -136,6 +138,7 @@ public final class Config {
         c.approveKinds = LinkPolicy.formatKinds(LinkPolicy.parseKinds(p.getProperty("approve_kinds", "")));
         c.chatPreset = ChatPolicy.Preset.of(p.getProperty("chat_preset", "default")).id;
         try { c.chatTimeoutMin = Math.max(5, Math.min(1440, Integer.parseInt(p.getProperty("chat_timeout_min", "" + ChatAgent.DEFAULT_TIMEOUT_MIN).trim()))); } catch (NumberFormatException e) { c.chatTimeoutMin = ChatAgent.DEFAULT_TIMEOUT_MIN; }
+        c.openHabits = OpenTarget.formatHabits(OpenTarget.parseHabits(p.getProperty("open_habits", "")));
         c.chatAllowPrefixes = ChatPolicy.formatRules(ChatPolicy.parseRules(p.getProperty("chat_allow_prefixes", "")));
         c.workspaceDir = p.getProperty("workspace_dir", "").trim();
         c.mediaQuality = MediaArgs.quality(p.getProperty("media_quality", "best"));
@@ -201,6 +204,7 @@ public final class Config {
         p.setProperty("shortcut_approvals", shortcutApprovals);
         p.setProperty("approve_kinds", approveKinds);
         p.setProperty("chat_preset", ChatPolicy.Preset.of(chatPreset).id);
+        p.setProperty("open_habits", openHabits == null ? "" : openHabits);
         p.setProperty("chat_timeout_min", String.valueOf(chatTimeoutMin));
         p.setProperty("chat_allow_prefixes", chatAllowPrefixes == null ? "" : chatAllowPrefixes);
         p.setProperty("workspace_dir", workspaceDir);

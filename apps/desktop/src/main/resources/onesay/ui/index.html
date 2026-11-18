@@ -176,6 +176,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 </style><style>
 /* ---------- 对话（单一对话，类 Codex） ---------- */
 #chat.on{display:flex}
+#chat{position:relative}
 #chat{flex-direction:column;height:calc(100vh - 30px);margin-top:-30px;max-width:none;padding-bottom:0}
 .main.chatmode{padding-bottom:0;overflow:hidden}
 .chatbar{display:flex;align-items:center;gap:10px;padding:18px 0 12px;max-width:820px;width:100%;margin:0 auto}
@@ -193,6 +194,33 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .m.a.error{color:var(--red);font-size:13.5px}
 .m.a.step{color:var(--text2);font-size:13px;line-height:1.6;border-left:2px solid var(--line,#444);padding-left:10px;font-family:ui-monospace,Consolas,monospace}
 .m .via{display:block;font-size:11px;color:var(--text3);margin-top:2px}
+/* [approvals-1118] 任务卡：一件事一张卡，每步一句人话 + 状态，命令和输出收在「详情」里，批准 / 选择在卡里点 */
+.m.a.tc{align-self:stretch;background:var(--card);border-radius:18px;padding:14px 18px 12px;box-shadow:0 1px 2px rgba(0,0,0,.04);white-space:normal;font-size:14px;line-height:1.6}
+.tc .hd{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.tc .hd .ti{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tc .st{font-size:11.5px;padding:2px 9px;border-radius:10px;font-weight:600;flex:none}
+.st.running{background:rgba(3,129,254,.1);color:var(--accent)}.st.done{background:rgba(31,164,99,.12);color:var(--green)}
+.st.fail{background:rgba(229,72,77,.1);color:var(--red)}.st.wait{background:rgba(255,149,0,.14);color:#B86400}.st.stop{background:rgba(0,0,0,.06);color:var(--text2)}
+.tc .sp{display:flex;gap:10px;align-items:flex-start;padding:5px 0}
+.tc .sp .ic{width:18px;height:18px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:11px;margin-top:2px;font-weight:700}
+.ic.run{border:2px solid var(--accent);border-right-color:transparent;animation:spin 1s linear infinite}
+.ic.ok{background:var(--green);color:#fff}.ic.fail{background:var(--red);color:#fff}.ic.wait{background:#FF9500;color:#fff}
+@keyframes spin{to{transform:rotate(360deg)}}
+.tc .sp .bd{flex:1;min-width:0}.tc .sp .ds{color:var(--text)}.tc .sp .er{color:var(--red);font-size:12.5px}
+.tc .sp .ok1{color:var(--text3);font-size:12.5px}
+.tc details{margin-top:2px}.tc summary{cursor:pointer;color:var(--text3);font-size:12px;list-style:none}.tc summary::-webkit-details-marker{display:none}
+.tc summary:before{content:"▸ "}.tc details[open] summary:before{content:"▾ "}
+.tc pre{margin:6px 0 2px;background:var(--bg);border-radius:10px;padding:8px 10px;font:12px/1.55 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;color:var(--text2)}
+.tc .note{color:var(--text3);font-size:12.5px;padding:3px 0 3px 28px}
+.tc .ans{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:15px;line-height:1.75;white-space:pre-wrap}
+.tc .ans.why{color:var(--text2)}
+.tc .ask{margin:8px 0 4px 28px;padding:12px 14px;border-radius:14px;background:rgba(255,149,0,.08);border:1px solid rgba(255,149,0,.25)}
+.tc .ask .q{font-weight:600;margin-bottom:4px}.tc .ask .cmdl{font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--text2);word-break:break-all;margin-bottom:6px;white-space:pre-wrap}
+.tc .ask .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.tc .ask label{font-size:12.5px;color:var(--text2)}
+.tc .choose{background:rgba(3,129,254,.06);border-color:rgba(3,129,254,.2)}
+.m.u .qd{display:block;font-size:11px;color:var(--text3);margin-top:2px}
+.newtask{align-self:stretch;display:flex;align-items:center;gap:10px;color:var(--text3);font-size:11.5px}.newtask:before,.newtask:after{content:"";flex:1;height:1px;background:var(--line)}
 .m.typing{color:var(--text3)}
 .compose{max-width:820px;width:100%;margin:0 auto 22px;background:var(--card);border-radius:20px;padding:12px 12px 10px 18px;box-shadow:0 2px 12px rgba(0,0,0,.06);display:flex;gap:10px;align-items:flex-end}
 .compose textarea{flex:1;border:0;outline:0;resize:none;font:inherit;font-size:15px;line-height:1.6;max-height:180px;background:transparent;color:var(--text);padding:4px 0}
@@ -447,6 +475,23 @@ async function mdCookie(){const site=$('md-site').value.trim(),f=$('md-file').fi
   if(f.size>200*1024){snack('文件太大：请只导出这个网站的 Cookie');return}
   const text=await f.text();const r=await api('media',{op:'cookie_import',site,text});snack(r.text);$('md-file').value='';refresh()}
 async function mdCookieDel(site){if(!await confirm('删除「'+site+'」的 Cookie？\n\n删除后这个网站要登录才能看的视频下载不了，要重新导入。'))return;const r=await api('media',{op:'cookie_delete',site});snack(r.text);refresh()}
+// [approvals-1118] 本机对话：权限预设、时长上限；权限记录（批准 / 拒绝 / 自动放行）、「以后不用问」的规则、打开习惯
+const PRESETS=[['read_only','只读'],['default','默认'],['full','完全访问']];
+async function setPreset(v){if(v==='full'&&!await confirm('对话改成「完全访问」？\n\n在 OneSay 对话里让它做事时不再弹批准：命令、下载、安装、删除都会直接执行。\n\n仍然不会：提权 / 弹 UAC、改杀毒和防火墙、给自己加权限、付款最后一下。'))return;setv('chat_preset',v)}
+function chatPolicy(s){return `<div id="set-permlog">${sec('var(--accent)','权限记录','对话里每次批准 / 拒绝 / 自动放行都记在这里；记住的规则和打开习惯在这里撤销')}</div><div class="card">
+  ${kv('对话权限预设','只读：除了查询每步都问；默认：查询、开网页和程序、在桌面 / 下载 / 文档 / 工作区里新建直接做，其余第一次问（可「允许本次任务」）；完全访问：不再问（硬规则照旧）',`<div class="seg">${PRESETS.map(([v,l])=>`<span class="${v===(s.chat_preset||'default')?'on':''}" onclick="setPreset('${v}')">${l}</span>`).join('')}</div>`)}
+  ${kv('一个任务最长','兜底时长（分钟）；没有步数限制，做完为止',inp('chat_timeout_min',s.chat_timeout_min||120,'120',90))}
+  ${kv('本次任务 / 这次运行的批准',S.grants&&(S.grants.task||S.grants.session)?(S.grants.session?'「这次运行都允许」生效中':'「允许本次任务」生效中'):'没有',S.grants&&(S.grants.task||S.grants.session)?'<button class="tag" onclick="revokeGrants()">撤销</button>':'')}</div>
+  ${sec('var(--green)','以后不用问的命令',(S.chat_rules||[]).length+' 条')}
+  ${(S.chat_rules||[]).length?card((S.chat_rules||[]).map(x=>`<div class="item"><div class="tx"><div class="tt">以「${esc(x.text)}」开头的命令</div></div><button class="tag" onclick="ruleRevoke(${esc(JSON.stringify(x.key))})">撤销</button></div>`)):empty('还没有（在批准卡上勾「以后以 … 开头的命令不用问」）')}
+  ${sec('var(--accent)','打开习惯',Object.keys(S.habits||{}).length+' 个')}
+  ${Object.keys(S.habits||{}).length?card(Object.entries(S.habits||{}).map(([k,h])=>`<div class="item"><div class="tx"><div class="tt">${esc(k)}</div><div class="st">${h.choice==='app'?'用本地应用'+(h.app?'（'+esc(h.app)+'）':''):'用网页'}</div></div><button class="tag" onclick="habitSet(${esc(JSON.stringify(k))},'${h.choice==='app'?'web':'app'}')">改成${h.choice==='app'?'网页':'本地应用'}</button> <button class="tag" onclick="habitDel(${esc(JSON.stringify(k))})">删除</button></div>`)):empty('还没有（打开程序 / 网站时选了「记住我的选择」会记在这里）')}
+  ${sec('var(--text3)','最近的记录',(S.perm_log||[]).length+' 条')}
+  ${(S.perm_log||[]).length?card((S.perm_log||[]).slice(0,60).map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(clipTxt(x.what,120))}</div><div class="st">${esc(x.result)} · ${ago(x.at)}${x.task?' · 任务 '+esc(x.task):''}${x.detail&&x.detail!=='本机对话'?' · '+esc(clipTxt(x.detail,60)):''}</div></div></div>`)):empty('还没有记录')}`}
+async function ruleRevoke(k){if(!await confirm('撤销这条规则？\n\n下次这类命令会再问你。'))return;const r=await api('chat_rules',{op:'revoke',key:k});snack(r.text);refresh()}
+async function revokeGrants(){const r=await api('chat_rules',{op:'revoke_grants'});snack(r.text);refresh()}
+async function habitDel(k){const r=await api('habits',{op:'remove',key:k});snack(r.ok?'已删除，下次会问你':r.text);refresh()}
+async function habitSet(k,c){const r=await api('habits',{op:'set',key:k,choice:c});snack(r.ok?'已改':r.text);refresh()}
 function remPolicy(){const r=S.remembered||[];
   return sec('var(--green)','以后这类不用问',r.length+' 类')+
   (r.length?card(r.map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(x.zh)}</div><div class="st">${esc(x.kind)}</div></div><button class="tag" onclick="remRevoke(${esc(JSON.stringify(x.kind))})">撤销</button></div>`)):empty('还没有记住过'))+
@@ -549,6 +594,7 @@ P.settings=()=>{const s=S.settings;
   ${kv('开机自动启动','启动后只在托盘（手机上对应「系统权限」里的电池白名单：保证在后台活着）',sw('autostart',s.autostart))}</div>
   ${remPolicy()}
   ${wlPolicy()}
+  ${chatPolicy(s)}
 
   ${grp('set-model','模型与密钥','对话和听懂任意说法；Key 只存在这台电脑，不同步到手机')}<div class="card">
   ${kv('服务商','也支持任何 OpenAI 兼容接口',seg('llm_provider',s.llm_provider,[['deepseek','DeepSeek'],['bailian','百炼'],['custom','自定义']]))}
@@ -588,18 +634,66 @@ P.settings=()=>{const s=S.settings;
   </div>`};
 
 // ---------- 对话 ----------
-let lastChatLen=-1;
+// [approvals-1118] 一件事一张任务卡：每步一句人话 + 状态图标，命令 / 输出收在「详情」，批准和「本地应用 / 网页」选择在卡里点，最后的答复放在卡底。
+let lastChatLen=-1,lastChatKey='',inflight=0,cfArmed=false;
+const STATE_ZH={running:['进行中','running'],done:['完成','done'],denied:['你拒绝了','stop'],timeout:['没人批准','wait'],loop:['卡住了','fail'],no_progress:['没有进展','fail'],
+  time_limit:['到时长上限','stop'],stopped:['已停止','stop'],error:['出错','fail']};
+const clipTxt=(t,n)=>{t=String(t||'');return t.length>n?t.slice(0,n):t};
+function stepHtml(x,i){if(x.kind==='note')return `<div class="note">${esc(x.desc)}</div>`;
+  const ic=x.state==='ok'?'<span class="ic ok">✓</span>':x.state==='fail'?'<span class="ic fail">!</span>':x.state==='wait'?'<span class="ic wait">…</span>':'<span class="ic run"></span>';
+  const out=String(x.output||''),long=out.length>600;
+  const det=`<details><summary>详情</summary><pre>${esc(x.detail||'')}</pre>${out?`<pre id="out-${i}">${esc(long?out.slice(0,600)+'…':out)}</pre>${long?`<button class="tag" onclick="this.previousElementSibling.textContent=decodeURIComponent('${encodeURIComponent(out)}');this.remove()">展开全部（${out.length} 字）</button>`:''}`:''}</details>`;
+  return `<div class="sp">${ic}<div class="bd"><div class="ds">${esc(x.desc||x.detail||'')}</div>${x.state==='fail'?`<div class="er">${esc(clipTxt(x.summary,160))}</div>`:x.state==='ok'&&x.summary&&x.summary!=='命令执行完了'?`<div class="ok1">${esc(clipTxt(x.summary,120))}</div>`:''}${det}</div></div>`}
+function askHtml(c){const offerTask=!!c.task_scope,dis=cfArmed&&cfId===c.id?'':'disabled';
+  return `<div class="ask" id="ask-${c.id}"><div class="q">这一步要你批准</div><div class="cmdl">${esc(String(c.detail||'').replace(/^本机对话 请求：/,''))}</div>
+  <div class="row">${offerTask?`<button class="btn sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event,'task')">允许本次任务</button>`:''}<button class="btn ${offerTask?'ghost ':''}sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event)">允许一次</button><button class="btn ghost sm" id="cfdeny" onclick="cfAns(${c.id},false,false,event)">拒绝</button>
+  ${offerTask?`<button class="tag cfallow" ${dis} onclick="cfAns(${c.id},true,false,event,'session')">这次运行都允许</button>`:''}</div>
+  ${c.remember_kind?`<div class="row"><label><input type="checkbox" id="cfrem"> ${esc(c.remember_zh||c.remember_kind)}</label></div>`:''}
+  <div class="row"><span class="note" id="cfhint" style="padding:0">${dis?'稍等一下就能点（防误点）':'只认鼠标 / 键盘点击；60 秒不点或按 Esc 算拒绝'}</span></div></div>`}
+function chooseHtml(c){return `<div class="ask choose"><div class="q">用哪个打开「${esc(c.target)}」？</div>
+  <div class="row"><button class="btn sm" onclick="chooseAns(${c.id},'app',event)">本地应用（${esc(c.app)}）</button><button class="btn ghost sm" onclick="chooseAns(${c.id},'web',event)">网页</button>
+  <label><input type="checkbox" id="chrem-${c.id}" checked> 记住我的选择</label></div></div>`}
+function taskCard(x,last){const st=STATE_ZH[x.state]||[x.state||'',''],running=x.state==='running';
+  const conf=((S.confirms||[]).filter(c=>c.from==='本机对话'&&(c.task===x.task||(!c.task&&running))));
+  const ch=((S.choices||[]).filter(c=>c.task===x.task));
+  const waiting=conf.length||ch.length;
+  const steps=(x.steps||[]).map(stepHtml).join('');
+  const ans=x.answer?`<div class="ans ${x.state==='done'?'':'why'}">${esc(x.answer)}</div>`:'';
+  return `<div class="m a tc" data-task="${esc(x.task||'')}"><div class="hd"><span class="ti">${esc(x.title||'任务')}</span><span class="st ${waiting?'wait':st[1]}">${waiting?'等你点':esc(st[0])}</span>${running?'<button class="tag danger" onclick="chatStop()">停止</button>':''}</div>
+  ${steps||(running?'<div class="note">开始做…</div>':'')}${conf.map(askHtml).join('')}${ch.map(chooseHtml).join('')}${ans}</div>`}
 function renderChat(){const c=S.chat, box=$('msgin');
   const m=S.memory||{}, lines=(m.text||'').split('\n').filter(x=>x.trim()).length;
   $('memchip').textContent='记忆 · '+(lines?lines+' 条':'空')+(m.updated_at?' · '+ago(m.updated_at):'');
-  if(c.length===lastChatLen&&!pending)return; lastChatLen=c.length;
-  box.innerHTML=(c.length?c.map(x=>`<div class="m ${x.role==='user'?'u':'a'} ${x.via==='cmd'?'cmd':''} ${x.via==='step'?'step':''} ${x.via==='error'?'error':''}">${esc(x.text)}${x.via==='voice'&&x.role==='user'?'<span class="via">语音</span>':''}</div>`).join(''):
-   `<div class="welcome"><h2>想让电脑做什么？</h2><div>直接说指令（锁屏、截图、打开B站），或者随便聊。<br>${S.settings.llm_key_set?'':'在「设置 › 模型与密钥」填上 API Key 才能聊天，指令不需要 Key。'}</div></div>`)+(pending||S.chat_running?'<div class="m a typing">'+(S.chat_running?'正在做… <button class="tag" onclick="chatStop()">停止</button>':'思考中…')+'</div>':'');
-  $('msgs').scrollTop=1e9}
-async function chatSend(){const ta=$('ta'),t=ta.value.trim();if(!t||pending)return;ta.value='';fit();
+  const key=c.length+'|'+c.map(x=>x.updated_at||x.at).join(',')+'|'+JSON.stringify(S.confirms||[])+JSON.stringify(S.choices||[])+'|'+inflight+'|'+cfArmed;
+  if(key===lastChatKey)return; lastChatKey=key;
+  const atBottom=$('msgs').scrollHeight-$('msgs').scrollTop-$('msgs').clientHeight<80;
+  let prevTask='';
+  box.innerHTML=(c.length?c.map(x=>{
+    if(x.via==='task'){const sep=prevTask&&prevTask!==x.task?'':'';prevTask=x.task;return sep+taskCard(x)}
+    if(x.via==='compact')return `<div class="newtask">${esc(x.text||'已整理较早的对话')}</div>`;
+    if(x.via==='newtask')return `<div class="newtask">${esc(x.text||'新任务')}</div>`;
+    return `<div class="m ${x.role==='user'?'u':'a'} ${x.via==='cmd'?'cmd':''} ${x.via==='step'?'step':''} ${x.via==='error'?'error':''}">${esc(x.text)}${x.via==='voice'&&x.role==='user'?'<span class="via">语音</span>':''}${x.queued?'<span class="qd">已收到，下一步处理</span>':''}</div>`}).join(''):
+   `<div class="welcome"><h2>想让电脑做什么？</h2><div>直接说指令（锁屏、截图、打开B站），或者随便聊。<br>${S.settings.llm_key_set?'':'在「设置 › 模型与密钥」填上 API Key 才能聊天，指令不需要 Key。'}</div></div>`)+(inflight&&!S.chat_running?'<div class="m a typing">思考中…</div>':'');
+  // [approvals-1118] 只有本来就在底部（或刚自己发了消息）才跟到底；在往上看就不动，给一个「↓ 有新消息」
+  if(atBottom||justSent){$('msgs').scrollTop=1e9;justSent=false;newBelow(false)}else newBelow(true);
+  armInline()}
+let justSent=false;
+function newBelow(on){let b=$('newbelow');if(!b){b=document.createElement('button');b.id='newbelow';b.className='chip';b.textContent='↓ 有新消息';
+  b.style.cssText='position:absolute;left:50%;transform:translateX(-50%);bottom:110px;z-index:4;box-shadow:0 2px 10px rgba(0,0,0,.12);display:none';
+  b.onclick=()=>{$('msgs').scrollTop=1e9;newBelow(false)};$('chat').appendChild(b)}b.style.display=on?'':'none'}
+document.addEventListener('DOMContentLoaded',()=>{const m=$('msgs');if(m)m.addEventListener('scroll',()=>{if(m.scrollHeight-m.scrollTop-m.clientHeight<80)newBelow(false)})});
+// 卡里的批准：和右下角确认框同一套规则（程序回了 seen 之后 0.7 秒才能点，切走窗口就锁住）
+function armInline(){const c=((S&&S.confirms)||[]).find(x=>x.from==='本机对话');if(!c||page!=='chat')return;
+  if(cfShown===String(c.id))return;cfShown=String(c.id);cfId=c.id;cfArmed=false;
+  if(!LIVE){cfArm();return}
+  api('confirm',{op:'seen',id:c.id,focused:document.hasFocus()}).then(r=>{if(r&&r.arm_ms)cfArmMs=r.arm_ms;if(cfId===c.id)cfArm()}).catch(()=>{})}
+async function chooseAns(id,pick,ev){if(!(ev&&ev.isTrusted))return;const rb=$('chrem-'+id);
+  const r=await api('choice',{id,pick,remember:!!(rb&&rb.checked),trusted:true});if(!r.ok)snack(r.text);refresh()}
+async function chatSend(){const ta=$('ta'),t=ta.value.trim();if(!t)return;ta.value='';fit();
   if(!LIVE){S.chat.push({id:Math.random()+'',role:'user',text:t,at:Date.now()},{id:Math.random()+'',role:'assistant',text:'（演示模式，不会真的回答）',at:Date.now()});renderChat();return}
-  S.chat.push({role:'user',text:t,at:Date.now()});pending=true;renderChat();
-  try{await api('chat',{text:t})}catch(e){snack('发送失败')}pending=false;lastChatLen=-1;await refresh()}
+  // [approvals-1118] 任务进行中也能发：程序立刻记下（标「已收到，下一步处理」），下一步之前交给模型
+  inflight++;justSent=true;S.chat.push({role:'user',text:t,at:Date.now(),queued:!!S.chat_running});renderChat();setTimeout(refresh,300);
+  try{await api('chat',{text:t})}catch(e){snack('发送失败')}inflight=Math.max(0,inflight-1);await refresh()}
 async function chatStop(){const r=await api('chat_stop',{});snack(r.text)}
 async function chatClear(){if(!await confirm('清空对话？\n\n记忆会保留。'))return;await api('chat_clear',{});lastChatLen=-1;refresh()}
 function fit(){const ta=$('ta');ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,180)+'px'}
@@ -645,24 +739,26 @@ async function setLevel(k){if(k==='full'&&!await confirm('打开「完全访问�
 // 确认框（思路参考 Haris 审批卡，MIT：0.7 秒后才能点「允许」、Esc / 关窗口 / 超时即拒、说话不算批准；代码自己写的）
 // 规则以电脑端 ConfirmGate 为准：这里只是照着画，「允许」要等程序回了 seen 之后再计 0.7 秒；窗口切走马上锁住，切回来重新计。
 let cfShown='',cfArmT=0,cfArmMs=700,cfId=0;
-function cfLock(){clearTimeout(cfArmT);document.querySelectorAll('#cfbox .cfallow').forEach(b=>b.disabled=true);const h=$('cfhint');if(h)h.textContent='「允许」稍后可点（防误点）'}
+function cfLock(){clearTimeout(cfArmT);cfArmed=false;document.querySelectorAll('.cfallow').forEach(b=>b.disabled=true);const h=$('cfhint');if(h)h.textContent='「允许」稍后可点（防误点）'}
 function cfArm(){clearTimeout(cfArmT);if(!cfId||!document.hasFocus())return;
-  cfArmT=setTimeout(()=>{if(!document.hasFocus())return;document.querySelectorAll('#cfbox .cfallow').forEach(b=>b.disabled=false);const h=$('cfhint');if(h)h.textContent='只认鼠标 / 键盘点击（或手机屏幕上的确认卡）；60 秒不点、关窗口、按 Esc 都算拒绝'},cfArmMs)}
-function confirmBar(){const c=(S&&S.confirms)||[];const box=$('cfbox');if(!box)return;
-  if(!c.length){box.style.display='none';cfShown='';cfId=0;clearTimeout(cfArmT);return}
+  cfArmT=setTimeout(()=>{if(!document.hasFocus())return;cfArmed=true;document.querySelectorAll('.cfallow').forEach(b=>b.disabled=false);const h=$('cfhint');if(h)h.textContent='只认鼠标 / 键盘点击（或手机屏幕上的确认卡）；60 秒不点、关窗口、按 Esc 都算拒绝'},cfArmMs)}
+function confirmBar(){const all=(S&&S.confirms)||[];const box=$('cfbox');if(!box)return;
+  // [approvals-1118] 本机对话的批准在任务卡里点（不弹通知、不盖住窗口）；不在对话页时才用右下角这个框
+  const c=page==='chat'?all.filter(x=>x.from!=='本机对话'):all;
+  if(!c.length){box.style.display='none';if(!all.length){cfShown='';cfId=0;cfArmed=false;clearTimeout(cfArmT)}return}
   const x=c[0],key=String(x.id);if(cfShown===key)return;cfShown=key;cfId=x.id;
   box.style.borderLeft='4px solid var(--ctl-wait)';   // ★ console-align：等确认 = 琥珀
-  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px"><span class="tag wait" style="margin-right:6px">等确认</span>${x.from==='本机对话'?'OneSay 要在这台电脑上执行操作，需要你确认':'手机请求，需要你确认'}</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div>${x.remember_kind?`<label class="note" style="display:block;margin:0 0 8px"><input type="checkbox" id="cfrem"> 以后这类不用问（${esc(x.remember_zh||x.remember_kind)}，可在「设置 › 权限与审批」里撤销）</label>`:''}${x.phone?'<div class="note" style="margin:0 0 6px">已同时发到手机，手机屏幕上点也行</div>':''}<div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
+  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px"><span class="tag wait" style="margin-right:6px">等确认</span>${x.from==='本机对话'?'OneSay 要在这台电脑上执行操作，需要你确认':'手机请求，需要你确认'}</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div>${x.remember_kind?`<label class="note" style="display:block;margin:0 0 8px"><input type="checkbox" id="cfrem"> ${x.remember_kind.indexOf(':')>0?esc(x.remember_zh):'以后这类不用问（'+esc(x.remember_zh||x.remember_kind)+'）'}（可在「设置 › 权限记录」里撤销）</label>`:''}${x.task_scope?`<button class="btn sm cfallow" disabled onclick="cfAns(${x.id},true,false,event,'task')">允许本次任务</button> `:''}${x.phone?'<div class="note" style="margin:0 0 6px">已同时发到手机，手机屏幕上点也行</div>':''}<div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
   box.style.display='';const d=$('cfdeny');if(d)d.focus(); // 焦点默认在「拒绝」：误按回车 / 空格 = 拒绝
   if(!LIVE){cfArm();return}
   api('confirm',{op:'seen',id:x.id,focused:document.hasFocus()}).then(r=>{if(r&&r.arm_ms)cfArmMs=r.arm_ms;if(cfId===x.id)cfArm()}).catch(()=>{})}
-async function cfAns(id,allow,always,ev){
+async function cfAns(id,allow,always,ev,scope){
   const trusted=!!(ev&&ev.isTrusted),input=ev&&ev.detail===0?'keyboard':'mouse';
   if(allow&&!trusted)return; // 不是真实的鼠标 / 键盘输入：不算
   const rb=$('cfrem'),remember=!!(allow&&!always&&rb&&rb.checked);
-  let r;try{r=await api('confirm',{id,allow,always:!!always,remember,input,trusted})}catch(e){r={ok:false,text:'没连上 OneSay'}}
+  let r;try{r=await api('confirm',{id,allow,always:!!always,remember,input,trusted,scope:scope||''})}catch(e){r={ok:false,text:'没连上 OneSay'}}
   if(r&&r.reason==='not_armed'){snack(r.text);cfLock();cfArm();return}
-  cfShown='';cfId=0;clearTimeout(cfArmT);snack(r.text);refresh()}
+  cfShown='';cfId=0;cfArmed=false;clearTimeout(cfArmT);snack(r.text);refresh()}
 function cfWindow(f){if(!cfId)return;if(!f)cfLock();if(LIVE)api('confirm',{op:'window',focused:f}).catch(()=>{});if(f){cfLock();cfArm()}}
 window.addEventListener('blur',()=>cfWindow(false));
 window.addEventListener('focus',()=>cfWindow(true));
