@@ -254,4 +254,16 @@ public final class IslandGeometry {
         if (screenH > 0) bottom = Math.min(screenH, bottom);
         return new int[] {0, top, Math.max(1, screenW), Math.max(top + 1, bottom)};
     }
+
+    /**
+     * ★ meizu-1118：Android 12（API 31）起，InputDispatcher 对「不可信遮挡」一律丢点按：触摸点落在别的 UID 的
+     * TYPE_APPLICATION_OVERLAY 窗口的 frame 里、却在它的 touchable region 之外（透传），且这个窗口不透明度 &gt; 0.8
+     * → 「Untrusted touch due to occlusion … obscuring opacity = 1.00」，事件直接丢掉，下面的 App 收不到。
+     * R11 的固定全宽岛窗（不透明、高到展开卡下沿）因此把屏幕上部约 40% 整片变成死区：用户自己的手指点不动，
+     * 无障碍兜底的 dispatchGesture 点按也点不动（真机 Meizu 21 Pro / SDK 36：设置首页「我的手机」连点 3 次无反应）。
+     * API 31+ 退回「窗口包住岛」：窗口只比岛形状大一圈，岛以外的地方不再被这个窗口遮住。
+     */
+    public static boolean fixedWindowAllowed(int sdkInt) {
+        return sdkInt < 31;
+    }
 }

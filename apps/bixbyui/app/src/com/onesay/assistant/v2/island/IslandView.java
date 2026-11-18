@@ -235,7 +235,9 @@ public class IslandView extends View {
         mStroke.setStrokeCap(Paint.Cap.ROUND);
         mStroke.setStrokeJoin(Paint.Join.ROUND);
         setContentDescription("OneSay 灵动岛");
-        mTouch = TouchRegion.create(this);
+        // ★ meizu-1118：API 31+ 全宽透传窗口会被系统当「不可信遮挡」丢掉下面 App 的点按 → 不用固定窗，退回包住岛
+        //   （不挂 touchable region：包住岛的窗口整窗可触摸，region 空会让岛自己也点不动）
+        mTouch = IslandGeometry.fixedWindowAllowed(android.os.Build.VERSION.SDK_INT) ? TouchRegion.create(this) : null;
         mFixedWin = mTouch != null;
     }
 
