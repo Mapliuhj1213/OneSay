@@ -880,7 +880,13 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         // 本服务的执行路径已全部迁移到 ExecutionGate 令牌 → 打开严格模式，
         //   旧布尔 isConfirmed=true 不再能绕过确认卡（E4）。
         com.onesay.assistant.v2.executor.ExecutionGate.setStrictConfirm(true);
-        mRouter = UnifiedRouter.getInstance(this);
+        // ★ a8fix-1118：路由层初始化失败（老 Android 正则不兼容等）不能连面板服务一起崩 —— 面板照常起来，指令到达时再试一次 / 给友好提示
+        try {
+            mRouter = UnifiedRouter.getInstance(this);
+        } catch (RuntimeException | LinkageError e) {
+            mRouter = null;
+            SafeLog.e(TAG, com.onesay.assistant.v2.util.CommandGuard.logLine("路由层初始化", e), e);
+        }
         mExecutor = UnifiedExecutor.getInstance(this);
 
         initView();
@@ -1488,9 +1494,11 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         //   判据保守（L0 未命中 + 复合信号），L0/L1 快路径不受任何影响。
         // 分诊（TriageDecider，可能含一次 ≤1.5s 的 LLM 兜底分类）挪到后台线程，
         //   主线程只做 UI。ASK 永不进 AgentLoop（走 AskEngine → L1 → 流式问答）。
-        com.onesay.assistant.v2.util.Threads.start("RouteStream", com.onesay.assistant.v2.net.StopScope.wrap(cancel.scope(), new Runnable() {   // ★ feat/api-first：停止键真中断
+        // ★ a8fix-1118：顶层兜底 —— 任何解析器里的 PatternSyntaxException / 类初始化失败 / 运行时异常都不让进程崩，记日志 + 面板友好提示
+        com.onesay.assistant.v2.util.Threads.start("RouteStream", com.onesay.assistant.v2.net.StopScope.wrap(cancel.scope(), com.onesay.assistant.v2.util.CommandGuard.wrap("RouteStream", new Runnable() {   // ★ feat/api-first：停止键真中断
             @Override
             public void run() {
+                if (mRouter == null) mRouter = UnifiedRouter.getInstance(FloatingSheetService.this);   // onCreate 时没起来 → 再试一次（再失败由兜底接住）
                 if (mRouter.shouldUseAgentLoop(command)) {
                     SafeLog.i(TAG, "[AGENT-LOOP] 分诊判定交给 AgentLoop: " + com.onesay.assistant.v2.util.LogText.u(command));
                     // ★ arch/island-progress：分诊决定要不要一开始就上岛（单步请求不包成岛上的任务；triage 5 s 内复用，不重算）
@@ -1566,7 +1574,22 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     }
                 }, cancel);
             }
-        }));
+        }, new com.onesay.assistant.v2.util.CommandGuard.Failure() {
+            @Override public void onFailure(Throwable t, final String userMessage) {
+                mMainHandler.post(new Runnable() {
+                    @Override public void run() { showCommandFailed(cancel, userMessage); }
+                });
+            }
+        })));
+    }
+
+    /** ★ a8fix-1118：顶层指令处理异常 → 面板终态 + 友好提示（不崩溃、不带异常细节）。 */
+    private void showCommandFailed(UnifiedRouter.Cancel cancel, String userMessage) {
+        if (mActiveStream == cancel) mActiveStream = null;
+        if (cancel.isCancelled() || mSheetView == null) return;
+        mSheetView.updateState("没办成", Color.parseColor("#F2B33D"), userMessage);
+        mSheetView.markTerminalState(Color.parseColor("#F2B33D"), "出错了", "已记录日志");
+        applyErrorPolicy(com.onesay.assistant.v2.ui.ErrorStatePolicy.Source.INJECTED_QUERY_FAILED);
     }
 
     /**
@@ -2423,7 +2446,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 }
                 // 执行结果回报路由层 —— 技能缓存只在"执行成功之后"写入，
                 //   缓存回放失败计数/隔离也在这里结算（只用 ExecutionResult 的 ok/code/verified）。
-                if (query != null) mRouter.reportExecution(query, cap.sign, result);
+                if (query != null && mRouter != null) mRouter.reportExecution(query, cap.sign, result);
                 com.onesay.assistant.v2.kernel.FeatureKernel.get().afterExec(FloatingSheetService.this, query, cap, args, result);   // [kernel] [s2] 习惯默认值：记下实际用的 App
                 // ★ P1-1：先把回执写进会话历史，再回主线程刷 UI。
                 //   刻意放在 post 之前 —— 若这次是"打开应用"随后会收起面板，

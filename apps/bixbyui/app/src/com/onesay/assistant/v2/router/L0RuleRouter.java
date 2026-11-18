@@ -55,7 +55,12 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
     private static Pattern cachedPattern(String regex) {
         Pattern p = REGEX_CACHE.get(regex);
         if (p != null) return p;
-        p = Pattern.compile(regex);
+        try {
+            p = Pattern.compile(regex);
+        } catch (IllegalArgumentException e) {   // ★ a8fix-1118：一条模板在本机编不过 = 这条模板不匹配，不能炸掉整条路由
+            SafeLog.w(TAG, "[L0-TEMPLATE] 模板正则在本机编不过，按不匹配处理: " + e);
+            p = com.onesay.assistant.v2.util.RegexCompat.NEVER;
+        }
         if (REGEX_CACHE.size() >= CACHE_MAX) REGEX_CACHE.clear();
         REGEX_CACHE.put(regex, p);
         return p;
@@ -192,9 +197,12 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
     }
 
     /** ★ rel-1118 B18：http(s)://… 或「主机.后缀」（可带端口 / 路径）才算网址；「浏览器嘛」「百度」不算。 */
-    private static final java.util.regex.Pattern URL_LIKE = java.util.regex.Pattern.compile(
-            "^(?:https?://\\S+|(?:[\\p{L}\\p{N}](?:[\\p{L}\\p{N}-]*[\\p{L}\\p{N}])?\\.)+[A-Za-z\\p{IsHan}]{2,}(?::\\d{1,5})?(?:[/?#]\\S*)?)$",
-            java.util.regex.Pattern.CASE_INSENSITIVE);
+    //   ★ a8fix-1118：顶级域里的汉字用 RegexCompat.HAN 显式区间（以前的 \\p{IsHan} 在 Android 7–8 的 ICU 正则里
+    //     类初始化就抛 PatternSyntaxException，整个路由层连同面板一发指令就崩）；万一本机仍编不过 → 保底只认 http(s)://
+    private static final java.util.regex.Pattern URL_LIKE = com.onesay.assistant.v2.util.RegexCompat.compile(
+            "^(?:https?://\\S+|(?:[\\p{L}\\p{N}](?:[\\p{L}\\p{N}-]*[\\p{L}\\p{N}])?\\.)+[A-Za-z" + com.onesay.assistant.v2.util.RegexCompat.HAN + "]{2,}(?::\\d{1,5})?(?:[/?#]\\S*)?)$",
+            java.util.regex.Pattern.CASE_INSENSITIVE,
+            "^https?://\\S+$");
 
     static boolean plausibleUrl(String url) {
         if (url == null) return false;
@@ -363,7 +371,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         int slotLen = 0;
         // 提取槽位内容
         if (tNorm.contains("{app}")) {
-            String app = matcher.group("app");
+            String app = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "app");
             if (app == null || app.trim().length() == 0) return null;
 
             // ★ BUG-003 防贪婪抢占：必须能解析出本地真实应用或品类别名才算命中！
@@ -398,7 +406,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         }
 
         if (tNorm.contains("{n}")) {
-            String nStr = matcher.group("n");
+            String nStr = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "n");
             // **文本型** {n} 槽位必须先于数字解析。
             //
             //   实测踩过：「新建笔记记录明天下午三点开会」→ notes.new.text，但 content 为空。
@@ -464,7 +472,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         }
 
         if (tNorm.contains("{m}")) {
-            String mStr = matcher.group("m");
+            String mStr = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "m");
             Long mVal = NumberParser.parseLoose(stripSlotQuantifier(mStr));
             try { args.put("minute", mVal != null ? mVal : 0L); } catch (Exception ignored) {}
         } else if (cap.paramsSchema.getRules().containsKey("minute") && !args.has("minute")) {
@@ -472,12 +480,12 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         }
 
         if (tNorm.contains("{url}")) {
-            String url = matcher.group("url");
+            String url = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "url");
             try { args.put("url", url); } catch (Exception ignored) {}
         }
 
         if (tNorm.contains("{content}")) {
-            String content = matcher.group("content");
+            String content = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "content");
             try { args.put("content", content); } catch (Exception ignored) {}
         }
 

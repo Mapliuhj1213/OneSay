@@ -740,3 +740,5 @@ com/onesay/assistant/v2/a11y/A11yState.java
 com/onesay/assistant/v2/a11y/A11yEntry.java
 com/onesay/assistant/v2/vision/CapturePlan.java
 com/onesay/assistant/v2/fastscreen/FastScreen.java
+com/onesay/assistant/v2/util/RegexCompat.java
+com/onesay/assistant/v2/util/CommandGuard.java

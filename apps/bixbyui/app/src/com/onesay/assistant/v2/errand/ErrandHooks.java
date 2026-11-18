@@ -497,6 +497,8 @@ public final class ErrandHooks {
             L2LLMCompiler l2 = UnifiedRouter.getInstance(ctx).getL2();
             return l2 == null ? null : l2.client();
         } catch (Throwable t) {
+            // ★ a8fix-1118：路由层起不来（不是没配 Key）要在日志里分得清
+            Log.w(TAG, com.onesay.assistant.v2.util.CommandGuard.logLine("ErrandHooks.llm 取路由层", t));
             return null;
         }
     }
