@@ -543,6 +543,12 @@ public final class TriageDecider {
             return build(Label.DO_READ, 0.85, "5m-deep-research", core, false, true, "rule", s);
         }
 
+        // 3x. ★ rel-1118 B11：L0 接住了「点名的搜索引擎」（用必应 / google / 搜狗搜索 X —— 没点名浏览器的「搜索 X」已被 SearchRouting 丢掉）
+        //     或「识屏 + 问题」（识别屏幕这是什么）：用户要的就是这个本地动作，问句 / 时效词（天气、是什么）只是它的参数，不再判成问答。
+        if (s.l0Sign != null && isExplicitTargetSign(s.l0Sign) && !containsAny(q, SEQUENCE) && !isAndJoinedActs(core)) {   // 多步（「看看屏幕写的什么然后打开微信」）照旧进 AgentLoop
+            Label l = isReadOnlySign(s.l0Sign) ? Label.DO_READ : Label.DO_ACT;
+            return build(l, 0.85, "3x-l0-explicit", core, false, false, "rule", s);
+        }
         // 3a. D-3b：两地距离问句 → ASK（外部世界信息）；有动作动词（导航/打车）的不在这里
         if (actCount == 0 && DISTANCE_Q.matcher(q).find()) {
             return build(Label.ASK, 0.85, "3-distance", core, false, false, "rule", s);
@@ -827,6 +833,11 @@ public final class TriageDecider {
             }
         }
         return stripTrailingThanks(q);
+    }
+
+    /** ★ rel-1118 B11：句子本身点名了动作载体的 L0 能力（问句 / 时效词只是参数）。 */
+    static boolean isExplicitTargetSign(String sign) {
+        return sign != null && (sign.startsWith("browser.search.") || sign.equals("vision.screen.understand"));
     }
 
     /** ★ rel-1118 B09：句尾道谢（「关闭网络，谢谢」「打开漫游流量 谢谢」）不改变指令本身；剥掉后剩下的至少 2 个字才剥（单说「谢谢」仍是闲聊）。 */
