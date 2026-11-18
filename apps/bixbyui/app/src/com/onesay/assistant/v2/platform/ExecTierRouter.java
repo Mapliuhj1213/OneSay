@@ -57,6 +57,13 @@ public final class ExecTierRouter {
         return DAEMON;
     }
 
+    /** ★ a11y-1118：与 {@link #route} 同一套判定 —— 没有可用的 su / root 守护、Shizuku 开着且可用 → true。 */
+    public static boolean isShizukuTier(ExecBackend selectedReady, ShizukuExecBackend shizuku, boolean shizukuEnabled) {
+        if (selectedReady != null && !ShizukuExecBackend.ID.equals(selectedReady.id())) return false;
+        boolean on = shizukuEnabled || (selectedReady != null && ShizukuExecBackend.ID.equals(selectedReady.id()));
+        return on && shizuku != null && shizuku.available() == ExecBackend.Tri.YES;
+    }
+
     /** 控制台用：此刻的特权档位（root 优先，其次 Shizuku）。 */
     public static RootOps.Level tier(Boolean rootOk, Boolean shizukuReady) {
         if (Boolean.TRUE.equals(rootOk)) return RootOps.Level.ROOT;

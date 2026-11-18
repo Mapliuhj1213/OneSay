@@ -2146,6 +2146,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         TtsSpeaker.clearReplyOverride();
                         com.onesay.assistant.v2.roles.RoleHooks.onAgentAnswer(FloatingSheetService.this, command, fr.appChoice);   // [r2/bike-chooser] 终稿带 app_choice → 应用网格
                         com.onesay.assistant.v2.shortcut.ShortcutHooks.onAgentResultShown(FloatingSheetService.this, command);   // ★ feat/shortcuts：「存为快捷指令」/「不对」芯片
+                        com.onesay.assistant.v2.a11y.A11yEntry.onAgentResultShown(FloatingSheetService.this);   // ★ a11y-1118：点界面没做成且读屏不可用 →「打开无障碍」芯片
                         // 闹钟卡片必须**在 showAskReply 之后**渲染。
                         //   实测踩坑：先前把渲染放在 execute() 回调里（执行后立刻渲染），
                         //   卡片确实画出来了，但循环收工时 showAskReply 内部会

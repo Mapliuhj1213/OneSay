@@ -27,6 +27,36 @@ public final class FastScreen {
     public static final String PREF = "fast_screen";
     public static final String KEY_ENABLED = "enabled";
     static final long BACKOFF_MS = 60_000L;
+    /** ★ a11y-1118：拉起被明确拒绝 / 助手一起来就退出（结果不会变）→ 退避 10 分钟，别每次读屏都白等。 */
+    static final long BACKOFF_DENIED_MS = 10 * 60_000L;
+    /** Shizuku 起进程后等多久看它是不是马上退出。 */
+    static final long SPAWN_SETTLE_MS = 600L;
+    /** HelperMain 的退出码：3 = 同名 socket 已在（已有助手在跑），可以直接连。 */
+    static final int HELPER_RC_ALREADY_RUNNING = 3;
+
+    /** ★ a11y-1118：经 Shizuku 起助手的结果判定（纯函数，JVM 可测）。 */
+    static final class StartVerdict {
+        final boolean tryConnect;
+        final long backoffMs;
+        final String error;
+
+        StartVerdict(boolean tryConnect, long backoffMs, String error) {
+            this.tryConnect = tryConnect;
+            this.backoffMs = backoffMs;
+            this.error = error;
+        }
+    }
+
+    static StartVerdict startVerdict(int rc, String out, boolean down, boolean timedOut) {
+        String o = out == null ? "" : out.trim();
+        if (down) return new StartVerdict(false, BACKOFF_MS, "start failed: " + (o.length() > 0 ? o : "Shizuku 不可用"));
+        if (rc == 0 && !timedOut) return new StartVerdict(true, 0, null);
+        if (rc == com.onesay.plugin.exec.shizuku.ShizukuExecBackend.RC_DENIED && o.startsWith("DENY ")) {
+            return new StartVerdict(false, BACKOFF_DENIED_MS, "start failed: " + o);
+        }
+        if (o.startsWith("helper exited rc=" + HELPER_RC_ALREADY_RUNNING)) return new StartVerdict(true, 0, null);
+        return new StartVerdict(false, BACKOFF_DENIED_MS, "start failed: " + (o.length() > 0 ? o : "rc=" + rc));
+    }
     static final int CONNECT_WAIT_MS = 6000;
     static final int SO_TIMEOUT_MS = 8000;
 
@@ -118,11 +148,48 @@ public final class FastScreen {
             return false;
         }
         long t0 = now;
+        // ★ a11y-1118：只有 Shizuku 时不发守护模板名（Shizuku 白名单不认它），改发精确 argv（白名单逐项核对）
+        com.onesay.plugin.api.exec.ExecResult sz = null;
+        try {
+            sz = com.onesay.assistant.v2.platform.ExecBackendHost.spawnFastScreenHelper(mApp, SPAWN_SETTLE_MS);
+        } catch (Throwable t) {
+            sz = null;
+        }
+        if (sz != null) {
+            starts++;
+            Log.i(TAG, "[FS] 经 Shizuku 拉起助手 rc=" + sz.rc + " out=" + sz.output.trim());
+            StartVerdict v = startVerdict(sz.rc, sz.output, sz.backendDown, sz.timedOut);
+            if (!v.tryConnect) {
+                mBackoffUntil = SystemClock.elapsedRealtime() + v.backoffMs;
+                mLastError = v.error;
+                Log.w(TAG, "[FS] 助手拉起失败（Shizuku），" + (v.backoffMs / 1000) + " 秒内走回退路径：" + mLastError);
+                return false;
+            }
+            long end = SystemClock.elapsedRealtime() + CONNECT_WAIT_MS;
+            while (SystemClock.elapsedRealtime() < end) {
+                if (connectOnce()) {
+                    lastStartMs = SystemClock.elapsedRealtime() - t0;
+                    Log.i(TAG, "[FS] 助手已连上（Shizuku），拉起耗时 " + lastStartMs + "ms");
+                    return true;
+                }
+                SystemClock.sleep(100);
+            }
+            mBackoffUntil = SystemClock.elapsedRealtime() + BACKOFF_DENIED_MS;
+            mLastError = "start failed: SHIZUKU_HELPER_UNREACHABLE（助手进程起来了但连不上本地通道）";
+            Log.w(TAG, "[FS] " + mLastError);
+            return false;
+        }
         com.onesay.assistant.v2.executor.ShellExecutor.ShellResponse r =
                 new com.onesay.assistant.v2.executor.ShellExecutor(mApp).execute(FsProtocol.START_TEMPLATE);
         starts++;
         String out = r == null ? "null" : r.output;
         Log.i(TAG, "[FS] 拉起助手 rc=" + (r == null ? -1 : r.rc) + " out=" + (out == null ? "" : out.trim()));
+        if (r != null && r.denyReason != null && r.denyReason.length() > 0) {   // ★ a11y-1118：明确被拒 → 不白等 6 s，退避更久
+            mBackoffUntil = SystemClock.elapsedRealtime() + BACKOFF_DENIED_MS;
+            mLastError = "start failed: DENY " + r.denyReason;
+            Log.w(TAG, "[FS] 助手拉起被拒，" + (BACKOFF_DENIED_MS / 1000) + " 秒内走回退路径：" + mLastError);
+            return false;
+        }
         long end = SystemClock.elapsedRealtime() + CONNECT_WAIT_MS;
         while (SystemClock.elapsedRealtime() < end) {
             if (connectOnce()) {

@@ -138,7 +138,7 @@ public final class ButtonNumbersHooks {
         FastScreenDriver drv = new FastScreenDriver(app);
         com.onesay.assistant.v2.phone.MikaExec m = com.onesay.assistant.v2.mikaplug.MikaPlugs.phoneExec(app);
         if (m != null) drv.setMika(m);
-        return drv.observeOk() || drv.b2Ready() ? drv : null;
+        return drv.chooseBackend().backend != com.onesay.assistant.v2.a11y.A11yState.Backend.NONE ? drv : null;   // ★ a11y-1118
     }
 
     static void hideOverlay() {

@@ -50,6 +50,9 @@ public final class PhoneFailure {
             return new PhoneFailure(ErrorCode.NOT_CONFIGURED, Outcome.BLOCKED, Outcome.Reason.NO_KEY,
                     "没有配置大模型 Key，点界面做不了；如实告诉用户");
         }
+        if (r.contains("读屏助手不可用") && r.contains(com.onesay.assistant.v2.a11y.A11yState.NEED_A11Y)) {   // ★ a11y-1118
+            return new PhoneFailure(ErrorCode.PERMISSION_DENIED, Outcome.BLOCKED, Outcome.Reason.DEVICE_UNAVAILABLE, A11Y_HINT);
+        }
         if (r.contains("读屏助手不可用") || r.contains("已有一个操作任务在进行")) {
             return new PhoneFailure(ErrorCode.PERMISSION_DENIED, Outcome.BLOCKED, Outcome.Reason.DEVICE_UNAVAILABLE,
                     "这台手机现在没法替你点界面（读屏助手不可用或正忙），换别的做法或如实说明");
@@ -90,6 +93,10 @@ public final class PhoneFailure {
     public String tag() {
         return "outcome=" + outcome.wire() + " reason=" + reason;
     }
+
+    /** ★ a11y-1118：读屏助手和无障碍读屏服务都用不了时给模型的提示（结果卡上会有「打开无障碍」按钮）。 */
+    public static final String A11Y_HINT = "这台手机还没打开 OneSay 的无障碍读屏服务，没法替用户点界面：别再调 phone.operate，也别只把操作步骤列给用户；"
+            + "收工时用一两句话告诉用户点结果卡上的「打开无障碍」，在列表里打开 OneSay 的「读屏与按键唤醒」，然后再说一遍";
 
     static final String[] LOGIN = {"登录", "登陆", "未登录", "请先登录", "sign in", "log in"};
     static final String[] CAPTCHA = {"验证码", "人机验证", "滑块", "安全验证", "captcha"};

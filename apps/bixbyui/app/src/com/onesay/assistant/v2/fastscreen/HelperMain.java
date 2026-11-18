@@ -69,6 +69,9 @@ public final class HelperMain {
     static volatile String sLastWinPkg = "", sLastWinCls = "";
     static volatile long sLastEventAt = 0L;
 
+    /** 本次认可的证书指纹（编译期固定值，或 Shizuku 启动时记下的）。 */
+    static volatile String sPin;
+
     // 认证缓存
     static int sAuthUid = -1;
     static long sAuthAt = 0L;
@@ -85,10 +88,18 @@ public final class HelperMain {
         try {
             sPkg = args.length > 0 ? args[0] : "";
             sUid = args.length > 1 ? Integer.parseInt(args[1]) : -1;
-            if (!FsProtocol.isPkg(sPkg) || sUid < 10000 || FsProtocol.pinnedSig(sPkg) == null) {
+            if (!FsProtocol.isPkg(sPkg) || sUid < 10000) {
                 System.err.println("bad args");
                 System.exit(2);
             }
+            // ★ a11y-1118：编译期固定证书优先；没有固定值、且是经 Shizuku 以 shell 身份起的（进程名 onesay_fs:）→ 启动时记下该包当前的唯一签名证书
+            String pin = FsProtocol.pinnedSig(sPkg);
+            if (pin == null && FsProtocol.launchPinAllowed(selfCmdline(), android.os.Process.myUid(), sPkg)) pin = launchPin(sPkg, sUid);
+            if (pin == null) {
+                System.err.println("bad args: NOT_PINNED(" + sPkg + ")");
+                System.exit(2);
+            }
+            sPin = pin;
             if (Looper.getMainLooper() == null) Looper.prepareMainLooper();
             final LocalServerSocket ss;
             try {
@@ -229,7 +240,7 @@ public final class HelperMain {
         } catch (Throwable t) {
             return "PM(" + t + ")";
         }
-        String r = FsProtocol.authorizePeer(peer, sUid, sPkg, pkgs, shas);
+        String r = FsProtocol.authorizePeer(peer, sUid, sPkg, pkgs, shas, sPin);
         if (r == null) {
             sAuthUid = peer;
             sAuthAt = now;
@@ -238,6 +249,40 @@ public final class HelperMain {
     }
 
     static Object sIpm;
+
+    /** /proc/self/cmdline 的第一段（--nice-name 设的进程名）。 */
+    static String selfCmdline() {
+        java.io.FileInputStream in = null;
+        try {
+            in = new java.io.FileInputStream("/proc/self/cmdline");
+            byte[] b = new byte[256];
+            int n = in.read(b);
+            if (n <= 0) return "";
+            int e = 0;
+            while (e < n && b[e] != 0) e++;
+            return new String(b, 0, e, "UTF-8");
+        } catch (Throwable t) {
+            return "";
+        } finally {
+            if (in != null) try { in.close(); } catch (Throwable ignored) { }
+        }
+    }
+
+    /** ★ a11y-1118：启动时取 pkg 的唯一签名证书指纹；该 uid 下必须恰好是这个包，否则 null。 */
+    static String launchPin(String pkg, int uid) {
+        try {
+            Object pm = ipm();
+            String[] pkgs = (String[]) pm.getClass().getMethod("getPackagesForUid", int.class).invoke(pm, uid);
+            if (pkgs == null || pkgs.length != 1 || !pkg.equals(pkgs[0])) return null;
+            Object pi = pm.getClass().getMethod("getPackageInfo", String.class, int.class, int.class).invoke(pm, pkg, 64 /* GET_SIGNATURES */, 0);
+            android.content.pm.Signature[] sigs = pi == null ? null : ((android.content.pm.PackageInfo) pi).signatures;
+            if (sigs == null || sigs.length != 1) return null;
+            String h = FsProtocol.sha256Hex(sigs[0].toByteArray());
+            return h.length() == 64 ? h : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
 
     static Object ipm() throws Exception {
         if (sIpm != null) return sIpm;

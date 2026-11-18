@@ -54,7 +54,29 @@ public final class ExecBackendHost {
             ExecBackends.register(RootExecBackend.su(null));
             ShizukuExecBackend shz;
             try {
-                shz = new ShizukuExecBackend(new ShizukuBridge(), new ShizukuWhitelist(app.getPackageName()));
+                ShizukuWhitelist wl = new ShizukuWhitelist(app.getPackageName());
+                wl.setSelfInfo(new ShizukuWhitelist.SelfInfo() {   // ★ a11y-1118：读屏助手 argv 的期望值从 PackageManager 现取
+                    @Override public String baseApk() {
+                        try {
+                            return app.getPackageManager().getApplicationInfo(app.getPackageName(), 0).sourceDir;
+                        } catch (Throwable t) {
+                            return null;
+                        }
+                    }
+
+                    @Override public int uid() {
+                        try {
+                            return app.getPackageManager().getApplicationInfo(app.getPackageName(), 0).uid;
+                        } catch (Throwable t) {
+                            return -1;
+                        }
+                    }
+
+                    @Override public String helperMain() {
+                        return com.onesay.assistant.v2.fastscreen.FsProtocol.MAIN_CLASS;
+                    }
+                });
+                shz = new ShizukuExecBackend(new ShizukuBridge(), wl);
             } catch (Throwable t) {
                 shz = new ShizukuExecBackend();   // 库缺失 / 包名异常：不可用，但照样登记（设置页能看到原因）
             }
@@ -123,6 +145,34 @@ public final class ExecBackendHost {
         if (!sInit) return null;
         ExecBackend b = ExecBackends.ready();
         return b != null && !"root".equals(b.id()) ? b : null;
+    }
+
+    /**
+     * ★ a11y-1118：这条命令此刻是不是落在 Shizuku 档（没有可用的 root / su，Shizuku 开着且可用）。
+     * 读屏助手据此改发精确 argv（{@link #spawnFastScreenHelper}），识屏截图据此先试外部缓存目录。
+     */
+    public static boolean shizukuTier(Context ctx) {
+        ensureInit(ctx);
+        if (!sInit) return false;
+        return ExecTierRouter.isShizukuTier(ExecBackends.ready(), sShizuku, sShizukuOn);
+    }
+
+    /** ★ a11y-1118：经 Shizuku 起读屏助手（精确 argv，白名单逐项核对）。返回 null = 此刻不走 Shizuku 档。 */
+    public static ExecResult spawnFastScreenHelper(Context ctx, long settleMs) {
+        if (!shizukuTier(ctx)) return null;
+        ShizukuExecBackend s = sShizuku;
+        if (s == null) return null;
+        Context app = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
+        String apk;
+        int uid;
+        try {
+            android.content.pm.ApplicationInfo ai = app.getPackageManager().getApplicationInfo(app.getPackageName(), 0);
+            apk = ai.sourceDir;
+            uid = ai.uid;
+        } catch (Throwable t) {
+            return ExecResult.down("读不到本包安装路径");
+        }
+        return s.spawnHelper(ShizukuWhitelist.helperArgv(app.getPackageName(), apk, uid, com.onesay.assistant.v2.fastscreen.FsProtocol.MAIN_CLASS), settleMs);
     }
 
     private static SharedPreferences sp(Context ctx) {

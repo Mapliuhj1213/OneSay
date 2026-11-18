@@ -31,6 +31,14 @@ public final class ShizukuExecBackend implements ExecBackend {
         ExecResult exec(List<String> argv, long timeoutMs);
     }
 
+    /**
+     * 可选：桥支持起常驻进程（a11y-1118 读屏助手）。起进程后最多等 {@code settleMs} 看它是不是马上退出：
+     * 还活着 → rc 0；已退出 → 它的退出码 + 输出（stderr 优先）。进程的输出由桥在后台读掉（防管道写满）。
+     */
+    public interface Spawner {
+        ExecResult spawn(List<String> argv, long settleMs);
+    }
+
     public static final String ID = "shizuku";
     public static final String REASON_NO_BRIDGE = "本版没有接入 Shizuku（缺少桥接）";
     public static final String REASON_NOT_RUNNING = "Shizuku 没在运行（在 Shizuku App 里用无线调试 / adb / root 启动它）";
@@ -87,6 +95,26 @@ public final class ShizukuExecBackend implements ExecBackend {
     /** 这条命令能不能走本插件（不看 Shizuku 是否在线）。 */
     public boolean permits(String command) {
         return mWhitelist != null && mWhitelist.check(command).allowed;
+    }
+
+    public ShizukuWhitelist whitelist() {
+        return mWhitelist;
+    }
+
+    /** 读屏助手（a11y-1118）：argv 必须与 {@link ShizukuWhitelist#checkHelperArgv} 的精确条目逐项相等。 */
+    public ExecResult spawnHelper(List<String> argv, long settleMs) {
+        if (available() != Tri.YES) {
+            String r = reason();
+            return ExecResult.down(r == null ? REASON_NO_BRIDGE : r);
+        }
+        ShizukuWhitelist.Verdict v = mWhitelist.checkHelperArgv(argv);
+        if (!v.allowed) return new ExecResult(RC_DENIED, "DENY SHIZUKU_" + v.reason, false, false);
+        if (!(mBridge instanceof Spawner)) return ExecResult.down("本版 Shizuku 桥不支持常驻进程");
+        try {
+            return ((Spawner) mBridge).spawn(v.argv, settleMs);
+        } catch (Throwable t) {
+            return ExecResult.down("Shizuku 执行失败（" + t.getClass().getSimpleName() + "）");
+        }
     }
 
     public ShizukuWhitelist.Verdict check(String command) {

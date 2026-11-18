@@ -50,6 +50,22 @@ public final class FsProtocol {
         return "bixbyui_fs:" + pkg;
     }
 
+    /** ★ a11y-1118：经 Shizuku 起的助手的进程名（与 root 守护起的 {@link #niceName} 区分开）。 */
+    public static String shizukuNiceName(String pkg) {
+        return "onesay_fs:" + pkg;
+    }
+
+    /** shell uid（Shizuku 经 adb / 无线调试启动时的身份）。 */
+    public static final int SHELL_UID = 2000;
+
+    /**
+     * ★ a11y-1118：没有编译期固定证书时，可不可以用「启动时该包的证书」做指纹：只限经 Shizuku 以 shell 身份起的助手
+     * （进程名正好是 {@link #shizukuNiceName}，uid 2000）。root 守护起的助手（bixbyui_fs:）照旧要编译期固定值。纯函数。
+     */
+    public static boolean launchPinAllowed(String procName, int myUid, String pkg) {
+        return myUid == SHELL_UID && isPkg(pkg) && shizukuNiceName(pkg).equals(procName);
+    }
+
     /** 主类（守护模板里写死）。 */
     public static final String MAIN_CLASS = "com.onesay.assistant.v2.fastscreen.HelperMain";
 
@@ -310,9 +326,13 @@ public final class FsProtocol {
      * @return null = 放行；否则是拒绝原因
      */
     public static String authorizePeer(int peerUid, int allowedUid, String allowedPkg, String[] pkgsForUid, String[] certShasOfPkg) {
+        return authorizePeer(peerUid, allowedUid, allowedPkg, pkgsForUid, certShasOfPkg, pinnedSig(allowedPkg));
+    }
+
+    /** ★ a11y-1118：同上，证书期望值由调用方给（编译期固定值，或 Shizuku 启动时记下的 {@link #launchPinAllowed}）。 */
+    public static String authorizePeer(int peerUid, int allowedUid, String allowedPkg, String[] pkgsForUid, String[] certShasOfPkg, String want) {
         if (peerUid != allowedUid) return "UID(" + peerUid + "!=" + allowedUid + ")";
         if (pkgsForUid == null || pkgsForUid.length != 1 || !allowedPkg.equals(pkgsForUid[0])) return "PKG";
-        String want = pinnedSig(allowedPkg);
         if (want == null) return "NOT_PINNED(" + allowedPkg + ")";
         if (certShasOfPkg == null || certShasOfPkg.length != 1) return "CERT_COUNT";
         return want.equalsIgnoreCase(certShasOfPkg[0]) ? null : "CERT_MISMATCH";

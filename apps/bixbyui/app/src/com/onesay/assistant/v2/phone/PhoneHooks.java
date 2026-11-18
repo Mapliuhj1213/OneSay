@@ -156,10 +156,13 @@ public final class PhoneHooks {
             }
             MikaExec mika0 = com.onesay.assistant.v2.mikaplug.MikaPlugs.phoneExec(app);   // ★ mika-plug：B2 可用时助手不可用也能跑
             if (mika0 != null) drv.setMika(mika0);
-            if (!drv.observeOk() && !drv.b2Ready()) {
+            // ★ a11y-1118：助手不可用（只有 Shizuku / 没有 root）但无障碍服务连着 → 整个任务走无障碍；都不行 → 原因带「打开无障碍」入口
+            com.onesay.assistant.v2.a11y.A11yState.Choice be = drv.chooseBackend();
+            com.onesay.assistant.v2.a11y.A11yEntry.note(be.offerA11ySettings);
+            if (be.backend == com.onesay.assistant.v2.a11y.A11yState.Backend.NONE) {
                 res = new PhoneAgent.Result();
                 res.status = PhoneAgent.Status.FAILED;
-                res.reason = "读屏助手不可用：" + com.onesay.assistant.v2.fastscreen.FastScreen.get(app).lastError();
+                res.reason = be.reason;
                 return res;
             }
             PhoneAgent.Host host = exec != null ? exec : headlessHost();

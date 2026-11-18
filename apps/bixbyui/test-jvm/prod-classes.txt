@@ -735,3 +735,8 @@ com/onesay/assistant/v2/whitelist/ActionPolicy.java
 com/onesay/assistant/v2/whitelist/WhitelistState.java
 com/onesay/assistant/v2/whitelist/PhoneWhitelistGate.java
 com/onesay/assistant/v2/wake/MicListenPolicy.java
+# ★ a11y-1118
+com/onesay/assistant/v2/a11y/A11yState.java
+com/onesay/assistant/v2/a11y/A11yEntry.java
+com/onesay/assistant/v2/vision/CapturePlan.java
+com/onesay/assistant/v2/fastscreen/FastScreen.java

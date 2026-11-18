@@ -22,6 +22,10 @@ import java.util.List;
  *       写 {@code cmd bluetooth_manager enable|disable}、{@code svc wifi enable}、{@code settings put system screen_brightness <0-255>}。
  *       关 Wi-Fi（{@code svc wifi disable}）不放：无线调试 / 电脑联动会跟着断。</li>
  * </ol>
+ * <p><b>读屏助手（a11y-1118，只走 {@link #checkHelperArgv}，不经 {@link #check} 的字符串入口）</b>：只放<b>一条</b>精确 argv
+ * {@code /system/bin/app_process -Djava.class.path=<本包 base.apk> /system/bin --nice-name=onesay_fs:<本包> <助手主类> <本包> <本包 uid>}，
+ * base.apk 路径与 uid 由宿主从 PackageManager 注入、助手主类由宿主固定给出（{@link SelfInfo}），与请求的 argv 逐项比较，多一项 / 少一项 / 任何一项不同都拒。
+ * 字符串入口照旧不认 {@code bixby-fastscreen-start} 这类守护模板名。
  * 键码：电源 / 睡眠键，以及接打电话（CALL 5 / ENDCALL 6 / HEADSETHOOK 79）、相机（CAMERA 27）、语音助手（VOICE_ASSIST 231）一律不放
  * （sec-audit-1118 M4：这些键全局生效，能挂断 / 接起电话、拉起相机或别家助手）。
  */
@@ -47,7 +51,25 @@ public final class ShizukuWhitelist {
     }
 
     public static final String CAT_CLIPBOARD = "clipboard", CAT_NOTIFICATION = "notification", CAT_KEYEVENT = "keyevent",
-            CAT_SCREENCAP = "screencap", CAT_READ = "read", CAT_TOGGLE = "toggle";
+            CAT_SCREENCAP = "screencap", CAT_READ = "read", CAT_TOGGLE = "toggle", CAT_FASTSCREEN = "fastscreen";
+
+    /** 读屏助手：启动器、主类、进程名前缀（a11y-1118）。 */
+    public static final String APP_PROCESS = "/system/bin/app_process";
+    public static final String HELPER_NICE_PREFIX = "onesay_fs:";
+
+    /** 宿主注入的本包信息（Android 侧从 PackageManager 取；单测注入假值）。 */
+    public interface SelfInfo {
+        /** 本包 base.apk 的真实路径（ApplicationInfo.sourceDir）。 */
+        String baseApk();
+
+        /** 本包 uid（ApplicationInfo.uid）。 */
+        int uid();
+
+        /** 读屏助手主类（宿主里的固定常量；插件核心不写死宿主的类名）。 */
+        String helperMain();
+    }
+
+    private volatile SelfInfo mSelf;
 
     private static final String META = ";|&`$()<>\\\"'\n\r*?{}[]!~#";
     private static final String TMP_DIR = "/data/local/tmp/";
@@ -64,6 +86,63 @@ public final class ShizukuWhitelist {
 
     public String ownPackage() {
         return mPkg;
+    }
+
+    public void setSelfInfo(SelfInfo self) {
+        mSelf = self;
+    }
+
+    /** 读屏助手的精确 argv（宿主拼请求、白名单拼期望，都用这一个函数）。 */
+    public static List<String> helperArgv(String pkg, String baseApk, int uid, String helperMain) {
+        List<String> a = new ArrayList<String>();
+        a.add(APP_PROCESS);
+        a.add("-Djava.class.path=" + baseApk);
+        a.add("/system/bin");
+        a.add("--nice-name=" + HELPER_NICE_PREFIX + pkg);
+        a.add(helperMain);
+        a.add(pkg);
+        a.add(String.valueOf(uid));
+        return a;
+    }
+
+    /**
+     * base.apk 路径是否像 PackageManager 给本包的安装路径：{@code /data/app/[~~<随机>/]<本包>-<随机>/base.apk}，
+     * 只许字母数字和 {@code . _ - = ~ +}，不许 {@code ..}、空段、空白。
+     */
+    static boolean apkPathOk(String apk, String pkg) {
+        if (apk == null || apk.length() > 300 || !apk.startsWith("/data/app/") || !apk.endsWith("/base.apk")) return false;
+        if (!apk.matches("[A-Za-z0-9._=~+/\\-]+") || apk.contains("//") || apk.contains("/../") || apk.contains("/./")) return false;
+        String[] seg = apk.substring("/data/app/".length()).split("/");
+        if (seg.length < 2 || seg.length > 3) return false;
+        String dir = seg[seg.length - 2];
+        return dir.startsWith(pkg + "-") && dir.length() > pkg.length() + 1;
+    }
+
+    /**
+     * 读屏助手 argv 判定：与 {@link #helperArgv}(本包, 注入的 base.apk, 注入的 uid, 注入的主类) 逐项相等才放行。
+     */
+    public Verdict checkHelperArgv(List<String> argv) {
+        SelfInfo s = mSelf;
+        if (s == null) return deny("HELPER_NO_SELFINFO");
+        String apk, main;
+        int uid;
+        try {
+            apk = s.baseApk();
+            uid = s.uid();
+            main = s.helperMain();
+        } catch (Throwable t) {
+            return deny("HELPER_NO_SELFINFO");
+        }
+        if (main == null || !main.matches("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+")) return deny("HELPER_MAIN");
+        if (!apkPathOk(apk, mPkg)) return deny("HELPER_APK_PATH");
+        if (uid < 10000 || uid % 100000 < 10000 || uid % 100000 > 19999) return deny("HELPER_UID");   // 普通应用 uid（多用户：userId*100000 + appId，appId 10000–19999）
+        List<String> want = helperArgv(mPkg, apk, uid, main);
+        if (argv == null || argv.size() != want.size()) return deny("HELPER_ARGV_LEN");
+        for (int i = 0; i < want.size(); i++) {
+            String got = argv.get(i);
+            if (got == null || !want.get(i).equals(got)) return deny("HELPER_ARGV(" + i + ")");
+        }
+        return allow(CAT_FASTSCREEN, want);
     }
 
     public Verdict check(String command) {
