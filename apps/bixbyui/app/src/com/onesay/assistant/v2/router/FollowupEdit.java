@@ -168,6 +168,7 @@ public final class FollowupEdit {
         boolean explicit = period != null;
         if (explicit) {
             if ((period.equals("下午") || period.equals("傍晚") || period.equals("晚上") || period.equals("夜里")) && hour < 12) hour += 12;
+            else if ((period.equals("晚上") || period.equals("夜里")) && hour == 12) hour = 0;   // ★ rel-1118 B03
             if (period.equals("中午") && hour < 11) hour += 12;
         }
         return editAlarmTo(utterance, last, hour, min, explicit);

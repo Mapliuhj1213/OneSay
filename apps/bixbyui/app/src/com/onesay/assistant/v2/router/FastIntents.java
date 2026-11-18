@@ -546,6 +546,7 @@ public final class FastIntents {
         long hour = h, alt = -1;
         if (period != null) {
             if ((period.equals("下午") || period.equals("傍晚") || period.equals("晚上") || period.equals("夜里")) && hour < 12) hour += 12;
+            else if ((period.equals("晚上") || period.equals("夜里")) && hour == 12) hour = 0;   // ★ rel-1118 B03：晚上 12 点 = 0 点
             else if (period.equals("中午") && hour < 6) hour += 12;
             else if ((period.equals("凌晨") || period.equals("早上") || period.equals("上午") || period.equals("早晨") || period.equals("清晨")) && hour == 12) hour = 0;
         } else if (hour >= 1 && hour <= 11) {
@@ -669,6 +670,7 @@ public final class FastIntents {
         long hour = h;
         if (period != null) {
             if ((period.equals("下午") || period.equals("傍晚") || period.equals("晚上") || period.equals("夜里")) && hour < 12) hour += 12;
+            else if ((period.equals("晚上") || period.equals("夜里")) && hour == 12) hour = 0;   // ★ rel-1118 B03：晚上 12 点 = 0 点（以前没加 12 也没归零 → 中午 12 点）
             else if (period.equals("中午") && hour < 6) hour += 12;
             else if (period.equals("凌晨") && hour == 12) hour = 0;
         }
