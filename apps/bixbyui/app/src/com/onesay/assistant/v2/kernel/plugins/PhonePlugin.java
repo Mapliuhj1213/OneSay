@@ -127,7 +127,7 @@ public final class PhonePlugin extends FeaturePlugin {
         String goal = args == null ? "" : args.optString("goal", "");
         String app = PhoneHooks.normalizePkg(args == null ? "" : args.optString("app", ""));   // ★ 11-04 B：「三星浏览器（com.sec…）」→ 包名，开局直接拉起目标 App
         PhoneAgent.Result r = PhoneHooks.runBlocking(ctx, goal, app, false, true);
-        String text = r.status == PhoneAgent.Status.DONE ? r.answer : (r.status == PhoneAgent.Status.STOPPED ? "已停止：" : "没完成：") + r.reason;
+        String text = r.status == PhoneAgent.Status.DONE ? r.answer : com.onesay.assistant.v2.agent.PhoneFailure.resultPrefix(r.status == PhoneAgent.Status.STOPPED, r.reason) + r.reason;   // ★ plan-1118：卡住停下不说「已停止」
         String detail = "模型 " + r.modelCalls + " 次、动作 " + r.actions + " 个、" + (r.ms / 1000) + " 秒";
         if (r.status == PhoneAgent.Status.DONE) return ExecutionResult.success(c, args, text, ExecutionResult.Verification.VERIFIED, detail);
         // ★ arch/integrate：失败细分（登录 / 验证 / 付款 → needs_user；没 Key / 读屏不可用 / 模型无响应 → blocked；预算 / 卡住 / 没找到 → not_done）

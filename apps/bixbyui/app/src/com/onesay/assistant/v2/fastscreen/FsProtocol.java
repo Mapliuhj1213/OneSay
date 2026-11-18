@@ -66,6 +66,30 @@ public final class FsProtocol {
         return myUid == SHELL_UID && isPkg(pkg) && shizukuNiceName(pkg).equals(procName);
     }
 
+    /** ★ plan-1118：NOT_PINNED 时说明原因（进程名 / uid 不符，还是取证书失败）。纯函数。 */
+    public static String notPinnedWhy(String procName, int myUid, String pkg, boolean tofuTried, String pinWhy) {
+        if (tofuTried) return "launch_pin_failed:" + (pinWhy == null || pinWhy.length() == 0 ? "?" : pinWhy);
+        if (myUid != SHELL_UID) return "uid=" + myUid;
+        if (!shizukuNiceName(pkg).equals(procName)) return "proc=" + (procName == null ? "" : procName.length() > 64 ? procName.substring(0, 64) : procName);
+        return "?";
+    }
+
+    /**
+     * ★ plan-1118：IPackageManager.getPackageInfo 的反射入口：API 33+ 是 {@code (String, long, int)}，之前是 {@code (String, int, int)}。
+     * 两个都没有返回 null。纯 Java（只看方法签名），JVM 可测。
+     */
+    public static java.lang.reflect.Method findPackageInfoMethod(Class<?> c) {
+        try {
+            return c.getMethod("getPackageInfo", String.class, long.class, int.class);
+        } catch (NoSuchMethodException e) {
+            try {
+                return c.getMethod("getPackageInfo", String.class, int.class, int.class);
+            } catch (NoSuchMethodException e2) {
+                return null;
+            }
+        }
+    }
+
     /** 主类（守护模板里写死）。 */
     public static final String MAIN_CLASS = "com.onesay.assistant.v2.fastscreen.HelperMain";
 

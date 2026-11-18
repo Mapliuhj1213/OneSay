@@ -77,9 +77,14 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         mA11yFallback = on;
     }
 
-    /** 兜底时拿无障碍后端（连着才非 null）。 */
+    /** 兜底时拿无障碍后端（连着才非 null）。★ plan-1118：正在重新绑定 → 最多等 {@link com.onesay.assistant.v2.a11y.RebindWait#MAX_WAIT_MS}。 */
     private com.onesay.assistant.v2.a11y.A11yBackend fb() {
-        return mA11yFallback ? com.onesay.assistant.v2.a11y.A11yBackend.instance() : null;
+        return mA11yFallback ? com.onesay.assistant.v2.a11y.A11yBackend.awaitInstance(com.onesay.assistant.v2.a11y.RebindWait.MAX_WAIT_MS) : null;
+    }
+
+    /** ★ plan-1118：无障碍后端（兜底模式下跨重绑间隙等待；B2 插件模式不等）。 */
+    private com.onesay.assistant.v2.a11y.A11yBackend a11y() {
+        return com.onesay.assistant.v2.a11y.A11yBackend.awaitInstance(mA11yFallback ? com.onesay.assistant.v2.a11y.RebindWait.MAX_WAIT_MS : 0);
     }
 
     /**
@@ -128,9 +133,13 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         MikaExec mx = mMika;
         FsTree t = null;
         mLastB2 = false;
-        if (b2Ready()) {   // ★ mika-plug：B2 后端（可选，默认关）；读不到退回助手
-            com.onesay.assistant.v2.a11y.A11yBackend b2 = com.onesay.assistant.v2.a11y.A11yBackend.instance();
-            t = b2 == null ? null : b2.readTree(1500);
+        if (mA11yFallback || b2Ready()) {   // ★ mika-plug：B2 后端（可选，默认关）；读不到退回助手
+            // ★ plan-1118：兜底模式下重新绑定的间隙（约 1 s）等新实例；读到一半旧实例被解绑 → 在新实例上再读一次
+            t = mA11yFallback ? com.onesay.assistant.v2.a11y.A11yBackend.call(new com.onesay.assistant.v2.a11y.RebindWait.Op<com.onesay.assistant.v2.a11y.A11yBackend, FsTree>() {
+                @Override public FsTree run(com.onesay.assistant.v2.a11y.A11yBackend b) {
+                    return b.readTree(1500);
+                }
+            }, com.onesay.assistant.v2.a11y.RebindWait.MAX_WAIT_MS) : readB2();
             mLastB2 = t != null;
         }
         if (t == null && mA11yFallback) {   // ★ a11y-1118：兜底模式下不再去拉助手（每次都白等）
@@ -153,9 +162,64 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         return u;
     }
 
-    @Override public boolean tap(UiTree.El e) {
+    private FsTree readB2() {
+        com.onesay.assistant.v2.a11y.A11yBackend b2 = com.onesay.assistant.v2.a11y.A11yBackend.instance();
+        return b2 == null ? null : b2.readTree(1500);
+    }
+
+    /** ★ plan-1118：护罩孔已由外层开着（点按核对期间），内层手势不再开 / 关。 */
+    private volatile boolean mHoleHeld;
+
+    /**
+     * ★ plan-1118（真机 Flyme 计算器）：无障碍后端的点按 —— 整个过程在元素范围开护罩孔（坐标手势、以及 ROM 把节点点击转成的触摸
+     * 都不再被自家护罩吞掉，以前日志里的「护罩吞掉误触」就是这么来的）；节点点击报成功但界面指纹没变 → 中心补一次坐标手势点按。
+     */
+    private boolean tapA11yVerified(final UiTree.El e) {
+        ShieldOverlay sh = mShield;
+        int[] h = TapVerify.holeFor(e.l, e.t, e.r, e.b, mW, mH, 8);
+        if (sh != null) sh.openHole(new Rect(h[0], h[1], h[2], h[3]));
+        mHoleHeld = sh != null;
+        try {
+            long before = TapVerify.sig(readNoKeep());
+            String how = com.onesay.assistant.plug.action.core.ActionChain.tap(port(), e.src, new int[]{e.l, e.t, e.r, e.b}, e.cls);
+            if (com.onesay.assistant.plug.action.core.ActionChain.A11Y.equals(how) && before != 0L) {
+                waitIdle(150, TapVerify.SETTLE_MAX_MS);
+                long after = TapVerify.sig(readNoKeep());
+                if (TapVerify.needGestureRetry(how, before, after)) {
+                    SystemClock.sleep(TapVerify.RECHECK_MS);
+                    after = TapVerify.sig(readNoKeep());
+                }
+                if (TapVerify.needGestureRetry(how, before, after)) {
+                    boolean g = com.onesay.assistant.v2.a11y.A11yBackend.act(new com.onesay.assistant.v2.a11y.RebindWait.Op<com.onesay.assistant.v2.a11y.A11yBackend, Boolean>() {
+                        @Override public Boolean run(com.onesay.assistant.v2.a11y.A11yBackend b) {
+                            return b.gestureTap(e.cx(), e.cy());
+                        }
+                    }, com.onesay.assistant.v2.a11y.RebindWait.MAX_WAIT_MS);
+                    SafeLog.i(TAG, "[PHONE] 节点点击报成功但界面没变 → 坐标手势点按 @" + e.cx() + "," + e.cy() + (g ? " ok" : " 失败"));
+                    if (g) {
+                        injectedTaps++;
+                        how = com.onesay.assistant.plug.action.core.ActionChain.A11Y + "+" + com.onesay.assistant.plug.action.core.ActionChain.GESTURE;
+                    }
+                }
+            }
+            SafeLog.i(TAG, "[PHONE] 点按 " + how);
+            return !com.onesay.assistant.plug.action.core.ActionChain.NONE.equals(how);
+        } finally {
+            mHoleHeld = false;
+            if (sh != null) sh.closeHole();
+        }
+    }
+
+    /** ★ plan-1118：读一次树只为比对（不换节点句柄）；读不到返回 null。 */
+    private FsTree readNoKeep() {
+        com.onesay.assistant.v2.a11y.A11yBackend b = a11y();
+        return b == null ? null : b.readTree(1500, false);
+    }
+
+    @Override public boolean tap(final UiTree.El e) {
         if (e == null) return false;
         com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();   // approve-not-block：机器人在点，这一会儿确认卡上的触摸不算真人
+        if (mA11yFallback || (mk(1) && mLastB2)) return tapA11yVerified(e);   // ★ plan-1118
         if (mk(1)) {   // ★ mika-plug（mika.actchain）：节点或 ≤8 层可点祖先 ACTION_CLICK → （B1 无手势）→ 注入
             String how = com.onesay.assistant.plug.action.core.ActionChain.tap(port(), e.src, new int[]{e.l, e.t, e.r, e.b}, e.cls);
             SafeLog.i(TAG, "[PHONE] 点按 " + how);
@@ -177,14 +241,18 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     /** 注入点按（护罩开孔 → 注入 → 补孔）。测试也直接调。 */
     public boolean injectTap(int x, int y) {
         com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();
-        ShieldOverlay sh = mShield;
+        ShieldOverlay sh = mHoleHeld ? null : mShield;   // ★ plan-1118：外层点按核对已开着孔就不再开 / 关
         Rect hole = new Rect(x - 32, y - 32, x + 32, y + 32);
         if (sh != null) sh.openHole(hole);
         try {
             injectedTaps++;
-            if (mA11yFallback) {   // ★ a11y-1118：没有助手就用无障碍手势
-                com.onesay.assistant.v2.a11y.A11yBackend b = com.onesay.assistant.v2.a11y.A11yBackend.instance();
-                return b != null && b.gestureTap(x, y);
+            if (mA11yFallback) {   // ★ a11y-1118：没有助手就用无障碍手势（★ plan-1118：跨重绑间隙）
+                final int fx = x, fy = y;
+                return com.onesay.assistant.v2.a11y.A11yBackend.act(new com.onesay.assistant.v2.a11y.RebindWait.Op<com.onesay.assistant.v2.a11y.A11yBackend, Boolean>() {
+                    @Override public Boolean run(com.onesay.assistant.v2.a11y.A11yBackend b) {
+                        return b.gestureTap(fx, fy);
+                    }
+                }, com.onesay.assistant.v2.a11y.RebindWait.MAX_WAIT_MS);
             }
             return mFs.tap(x, y);
         } finally {
@@ -197,9 +265,13 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         ShieldOverlay sh = mShield;
         if (sh != null) sh.openHole(new Rect(e.cx() - 32, e.cy() - 32, e.cx() + 32, e.cy() + 32));
         try {
-            if (mA11yFallback) {   // ★ a11y-1118
-                com.onesay.assistant.v2.a11y.A11yBackend b = com.onesay.assistant.v2.a11y.A11yBackend.instance();
-                return b != null && b.longPressAt(e.cx(), e.cy(), ms);
+            if (mA11yFallback) {   // ★ a11y-1118（★ plan-1118：跨重绑间隙）
+                final int fx = e.cx(), fy = e.cy(), fms = ms;
+                return com.onesay.assistant.v2.a11y.A11yBackend.act(new com.onesay.assistant.v2.a11y.RebindWait.Op<com.onesay.assistant.v2.a11y.A11yBackend, Boolean>() {
+                    @Override public Boolean run(com.onesay.assistant.v2.a11y.A11yBackend b) {
+                        return b.longPressAt(fx, fy, fms);
+                    }
+                }, com.onesay.assistant.v2.a11y.RebindWait.MAX_WAIT_MS);
             }
             return mFs.longPress(e.cx(), e.cy(), ms);
         } finally {
@@ -339,7 +411,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
 
     private FsTree treeAny() {
         if (mA11yFallback) {
-            com.onesay.assistant.v2.a11y.A11yBackend b = com.onesay.assistant.v2.a11y.A11yBackend.instance();
+            com.onesay.assistant.v2.a11y.A11yBackend b = fb();   // ★ plan-1118：跨重绑间隙
             return b == null ? null : b.readTree(1500);
         }
         return mFs.tree();
@@ -422,9 +494,13 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         ShieldOverlay sh = mShield;
         if (sh != null) sh.openHole(new Rect(Math.min(x1, x2) - 48, Math.min(y1, y2) - 48, Math.max(x1, x2) + 48, Math.max(y1, y2) + 48));
         try {
-            if (mA11yFallback) {   // ★ a11y-1118
-                com.onesay.assistant.v2.a11y.A11yBackend b = com.onesay.assistant.v2.a11y.A11yBackend.instance();
-                return b != null && b.gestureSwipe(x1, y1, x2, y2, ms);
+            if (mA11yFallback) {   // ★ a11y-1118（★ plan-1118：跨重绑间隙）
+                final int a1 = x1, b1 = y1, a2 = x2, b2y = y2, fms = ms;
+                return com.onesay.assistant.v2.a11y.A11yBackend.act(new com.onesay.assistant.v2.a11y.RebindWait.Op<com.onesay.assistant.v2.a11y.A11yBackend, Boolean>() {
+                    @Override public Boolean run(com.onesay.assistant.v2.a11y.A11yBackend b) {
+                        return b.gestureSwipe(a1, b1, a2, b2y, fms);
+                    }
+                }, com.onesay.assistant.v2.a11y.RebindWait.MAX_WAIT_MS);
             }
             return mFs.swipe(x1, y1, x2, y2, ms);
         } finally {
@@ -439,7 +515,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
             if ("home".equals(key) && b2 != null && b2.globalHome()) return true;
         }
         if (mA11yFallback) {   // ★ a11y-1118：没有助手时回车 / 搜索走输入框的 IME 动作（API 30+），其余键做不了
-            com.onesay.assistant.v2.a11y.A11yBackend b = com.onesay.assistant.v2.a11y.A11yBackend.instance();
+            com.onesay.assistant.v2.a11y.A11yBackend b = fb();   // ★ plan-1118：跨重绑间隙
             if (b == null) return false;
             if ("back".equals(key)) return b.globalBack();
             if ("home".equals(key)) return b.globalHome();
@@ -492,7 +568,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
                     return true;
                 }
                 if (mA11yFallback) {   // ★ a11y-1118：没有编号句柄 / 句柄过期 → 按范围中心找节点（找不到返回 false，链条接着走手势）
-                    com.onesay.assistant.v2.a11y.A11yBackend f = com.onesay.assistant.v2.a11y.A11yBackend.instance();
+                    com.onesay.assistant.v2.a11y.A11yBackend f = fb();   // ★ plan-1118：跨重绑间隙
                     if (f != null && f.clickNodeAt((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)) {
                         a11yClicks++;
                         return true;
@@ -514,8 +590,16 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
             }
 
             @Override public boolean gestureTap(int x, int y) {
-                com.onesay.assistant.v2.a11y.A11yBackend b2 = b2Ready() ? com.onesay.assistant.v2.a11y.A11yBackend.instance() : null;
-                return b2 != null && b2.gestureTap(x, y);   // B1 没有 dispatchGesture，只有 B2 有
+                com.onesay.assistant.v2.a11y.A11yBackend b2 = mA11yFallback ? fb() : b2Ready() ? com.onesay.assistant.v2.a11y.A11yBackend.instance() : null;
+                if (b2 == null) return false;   // B1 没有 dispatchGesture，只有 B2 有
+                // ★ plan-1118：dispatchGesture 走触摸管线，会被自家护罩吞掉（真机「护罩吞掉误触 @416,1663」）→ 落点开孔
+                ShieldOverlay sh = mHoleHeld ? null : mShield;
+                if (sh != null) sh.openHole(new Rect(x - 32, y - 32, x + 32, y + 32));
+                try {
+                    return b2.gestureTap(x, y);
+                } finally {
+                    if (sh != null) sh.closeHole();
+                }
             }
 
             @Override public boolean injectTap(int x, int y) {
@@ -530,7 +614,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
                 }
                 if (b == null) return null;
                 if (mA11yFallback) {   // ★ a11y-1118
-                    com.onesay.assistant.v2.a11y.A11yBackend f = com.onesay.assistant.v2.a11y.A11yBackend.instance();
+                    com.onesay.assistant.v2.a11y.A11yBackend f = fb();   // ★ plan-1118：跨重绑间隙
                     return f == null ? null : f.scrollAt((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, dir);
                 }
                 String r = mFs.scroll((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, dir);

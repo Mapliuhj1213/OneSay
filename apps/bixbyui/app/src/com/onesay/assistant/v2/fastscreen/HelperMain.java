@@ -94,9 +94,13 @@ public final class HelperMain {
             }
             // ★ a11y-1118：编译期固定证书优先；没有固定值、且是经 Shizuku 以 shell 身份起的（进程名 onesay_fs:）→ 启动时记下该包当前的唯一签名证书
             String pin = FsProtocol.pinnedSig(sPkg);
-            if (pin == null && FsProtocol.launchPinAllowed(selfCmdline(), android.os.Process.myUid(), sPkg)) pin = launchPin(sPkg, sUid);
+            String proc = selfCmdline();
+            int me = android.os.Process.myUid();
+            boolean tofu = pin == null && FsProtocol.launchPinAllowed(proc, me, sPkg);
+            if (tofu) pin = launchPin(sPkg, sUid);
             if (pin == null) {
-                System.err.println("bad args: NOT_PINNED(" + sPkg + ")");
+                // ★ plan-1118：带上为什么（真机 Shizuku 拉起只看到 NOT_PINNED，分不清是进程名 / uid 不对还是取证书失败）
+                System.err.println("bad args: NOT_PINNED(" + sPkg + ") " + FsProtocol.notPinnedWhy(proc, me, sPkg, tofu, sLaunchPinWhy));
                 System.exit(2);
             }
             sPin = pin;
@@ -229,8 +233,7 @@ public final class HelperMain {
             Object pm = ipm();
             pkgs = (String[]) pm.getClass().getMethod("getPackagesForUid", int.class).invoke(pm, peer);
             if (pkgs != null && pkgs.length == 1) {
-                Object pi = pm.getClass().getMethod("getPackageInfo", String.class, int.class, int.class)
-                        .invoke(pm, pkgs[0], 64 /* GET_SIGNATURES */, 0);
+                Object pi = packageInfo(pm, pkgs[0], 64 /* GET_SIGNATURES */);
                 android.content.pm.Signature[] sigs = pi == null ? null : ((android.content.pm.PackageInfo) pi).signatures;
                 if (sigs != null) {
                     shas = new String[sigs.length];
@@ -268,20 +271,44 @@ public final class HelperMain {
         }
     }
 
+    /** ★ plan-1118：launchPin 失败的原因（进 NOT_PINNED 报错）。 */
+    static String sLaunchPinWhy = "";
+
     /** ★ a11y-1118：启动时取 pkg 的唯一签名证书指纹；该 uid 下必须恰好是这个包，否则 null。 */
     static String launchPin(String pkg, int uid) {
         try {
             Object pm = ipm();
             String[] pkgs = (String[]) pm.getClass().getMethod("getPackagesForUid", int.class).invoke(pm, uid);
-            if (pkgs == null || pkgs.length != 1 || !pkg.equals(pkgs[0])) return null;
-            Object pi = pm.getClass().getMethod("getPackageInfo", String.class, int.class, int.class).invoke(pm, pkg, 64 /* GET_SIGNATURES */, 0);
+            if (pkgs == null || pkgs.length != 1 || !pkg.equals(pkgs[0])) {
+                sLaunchPinWhy = "uid_pkgs=" + (pkgs == null ? "null" : pkgs.length);
+                return null;
+            }
+            Object pi = packageInfo(pm, pkg, 64 /* GET_SIGNATURES */);
             android.content.pm.Signature[] sigs = pi == null ? null : ((android.content.pm.PackageInfo) pi).signatures;
-            if (sigs == null || sigs.length != 1) return null;
+            if (sigs == null || sigs.length != 1) {
+                sLaunchPinWhy = "sigs=" + (sigs == null ? "null" : sigs.length);
+                return null;
+            }
             String h = FsProtocol.sha256Hex(sigs[0].toByteArray());
+            if (h.length() != 64) sLaunchPinWhy = "sha";
             return h.length() == 64 ? h : null;
         } catch (Throwable t) {
+            Throwable x = t.getCause() != null ? t.getCause() : t;
+            sLaunchPinWhy = x.getClass().getSimpleName();
             return null;
         }
+    }
+
+    /**
+     * ★ plan-1118（真机 SDK 36 Shizuku 拉起 NOT_PINNED 的根因）：IPackageManager.getPackageInfo 在 API 33 改成
+     * {@code (String, long flags, int userId)}，以前按 {@code (String, int, int)} 反射 → NoSuchMethodException → 取不到证书。
+     * 先试 long 版，再试 int 版。
+     */
+    static Object packageInfo(Object pm, String pkg, int flags) throws Exception {
+        java.lang.reflect.Method m = FsProtocol.findPackageInfoMethod(pm.getClass());
+        if (m == null) throw new NoSuchMethodException("getPackageInfo");
+        Class<?> f = m.getParameterTypes()[1];
+        return f == long.class ? m.invoke(pm, pkg, (long) flags, 0) : m.invoke(pm, pkg, flags, 0);
     }
 
     static Object ipm() throws Exception {

@@ -148,6 +148,53 @@ public class A11yBackend extends AccessibilityService {
         return sInstance != null;
     }
 
+    // ------------------------------------------------------------------ ★ plan-1118：跨重绑间隙
+
+    static final RebindWait.Source<A11yBackend> SOURCE = new RebindWait.Source<A11yBackend>() {
+        @Override public A11yBackend current() {
+            return sInstance;
+        }
+    };
+
+    static final RebindWait.Clock CLOCK = new RebindWait.Clock() {
+        @Override public long now() {
+            return SystemClock.uptimeMillis();
+        }
+
+        @Override public void sleep(long ms) {
+            SystemClock.sleep(ms);
+        }
+    };
+
+    /**
+     * 当前实例；正在重新绑定（本进程连上过、此刻是 null）→ 最多等 maxMs。从没连上过就不等。
+     */
+    public static A11yBackend awaitInstance(long maxMs) {
+        A11yBackend b = sInstance;
+        if (b != null || sConnects == 0) return b;
+        long t0 = SystemClock.uptimeMillis();
+        b = RebindWait.await(SOURCE, maxMs, CLOCK);
+        android.util.Log.i("A11yBackend", "[A11Y] 重绑间隙等了 " + (SystemClock.uptimeMillis() - t0) + "ms → " + (b != null ? "连上" : "仍没连上"));
+        return b;
+    }
+
+    /** 在当前实例上做 op；跨重绑间隙等待并在新实例上重做一次（见 {@link RebindWait#call}）。 */
+    public static <R> R call(RebindWait.Op<A11yBackend, R> op, long maxMs) {
+        if (sInstance == null && sConnects == 0) return null;
+        return RebindWait.call(SOURCE, op, maxMs, CLOCK);
+    }
+
+    /** 布尔动作的跨重绑版本（false = 失败）。 */
+    public static boolean act(final RebindWait.Op<A11yBackend, Boolean> op, long maxMs) {
+        Boolean r = call(new RebindWait.Op<A11yBackend, Boolean>() {
+            @Override public Boolean run(A11yBackend b) {
+                Boolean x = op.run(b);
+                return x != null && x ? Boolean.TRUE : null;
+            }
+        }, maxMs);
+        return r != null && r;
+    }
+
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {
         if (e == null) return;
         int t = e.getEventType();
@@ -161,6 +208,12 @@ public class A11yBackend extends AccessibilityService {
     // ------------------------------------------------------------------ 读树
 
     public FsTree readTree(int maxNodes) {
+        return readTree(maxNodes, true);
+    }
+
+    /** ★ plan-1118：keep=false 只读不换节点句柄（点按后比对用，免得模型手里的编号对不上）。 */
+    public FsTree readTree(int maxNodes, boolean keep) {
+        if (sInstance != this) return null;   // 已被解绑的旧实例：getWindows 只会拿到空 / 抛异常
         long t0 = SystemClock.uptimeMillis();
         List<AccessibilityWindowInfo> ws;
         try {
@@ -194,8 +247,10 @@ public class A11yBackend extends AccessibilityService {
             if (t.pkg.length() == 0 && ty == AccessibilityWindowInfo.TYPE_APPLICATION && pkg.length() > 0) t.pkg = pkg;
             if (r != null) walk(r, -1, 0, 0, t, handles, maxNodes, t0, t.windows.size() - 1);
         }
-        synchronized (mLock) {
-            mNodes = handles;
+        if (keep) {
+            synchronized (mLock) {
+                mNodes = handles;
+            }
         }
         t.ms = SystemClock.uptimeMillis() - t0;
         return t.windows.isEmpty() ? null : t;
@@ -352,6 +407,12 @@ public class A11yBackend extends AccessibilityService {
         List<AccessibilityNodeInfo> l;
         synchronized (mLock) {
             l = mNodes;
+        }
+        if (l.isEmpty()) {   // ★ plan-1118：刚重新绑定的新实例还没读过树 → 先读一次拿句柄
+            readTree(1500, true);
+            synchronized (mLock) {
+                l = mNodes;
+            }
         }
         AccessibilityNodeInfo best = null;
         long bestArea = Long.MAX_VALUE;

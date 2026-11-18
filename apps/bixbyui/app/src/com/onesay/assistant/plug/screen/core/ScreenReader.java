@@ -129,7 +129,11 @@ public final class ScreenReader {
                     addElement(n, rc, own != null ? own : "[画布]", null, inList, false);
                     return own != null;
                 }
-                if (usable && (own != null || interactive || prot)) {
+                // ★ plan-1118（真机 Flyme 计算器）：按键是没名字、也不报可点的自绘小控件 → 以前整片丢掉，模型只看到 23 个元素点不到「1」。
+                //   有可读 resource-id（digit_1 / op_mul / eq…）或按钮类的小叶子节点也收进来（名字空，resourceId 给模型认）
+                if (usable && own == null && !interactive && !prot && keyLike(n, rc, w, h)) {
+                    if (seen.add(n.role() + "||" + rc[0] + "," + rc[1] + "," + rc[2] + "," + rc[3])) addElement(n, rc, "", null, inList, false);
+                } else if (usable && (own != null || interactive || prot)) {
                     String label = prot && own == null ? ScreenPrivacy.PROTECTED_NAME : labelOf(n, own);
                     if (prot && n.editable && !n.password) protectedFields++;
                     if (seen.add(n.role() + "|" + label + "|" + rc[0] + "," + rc[1] + "," + rc[2] + "," + rc[3])) {
@@ -287,13 +291,34 @@ public final class ScreenReader {
         return n;
     }
 
-    /** com.x:id/cart_icon → cart_icon；混淆过的短名认不出用途，不给。 */
+    /** com.x:id/cart_icon → cart_icon；混淆过的短名认不出用途，不给（★ plan-1118：计算器 / 键盘常见短名 eq / del / dot… 照给）。 */
     public static String readableResourceId(String id) {
         if (id == null) return null;
         int k = id.lastIndexOf('/');
         String s = k >= 0 ? id.substring(k + 1) : id;
+        if (SHORT_RID_OK.contains(s.toLowerCase(java.util.Locale.ROOT))) return s;
         return RID_OK.matcher(s).matches() && RID_LETTERS.matcher(s).find() ? s : null;
     }
+
+    /** ★ plan-1118：认得出用途的短 resource-id（计算器 / 数字键盘 / 常见按钮）。 */
+    static final java.util.Set<String> SHORT_RID_OK = new java.util.HashSet<String>(java.util.Arrays.asList(
+            "eq", "del", "dot", "add", "sub", "mul", "div", "clr", "ac", "pct", "neg", "ok", "go", "c", "ce", "pi", "inv", "fun"));
+
+    /** ★ plan-1118：像按键 / 小按钮的叶子节点（没名字、不报可点、没有可点祖先）：可读且不是装饰的 resource-id，或按钮类；占屏 ≤ 1/6。 */
+    static boolean keyLike(UiNode n, int[] rc, int w, int h) {
+        if (!n.children.isEmpty()) return false;
+        long area = (long) Math.max(0, rc[2] - rc[0]) * Math.max(0, rc[3] - rc[1]);
+        if (area * 6 > (long) Math.max(1, w) * Math.max(1, h)) return false;
+        if (rc[2] - rc[0] < 24 || rc[3] - rc[1] < 24) return false;
+        for (UiNode p = n.parent; p != null; p = p.parent) if (p.clickable) return false;   // 可点的祖先已经是元素了
+        String rid = readableResourceId(n.rid);
+        if (rid != null) return !DECOR_RID.matcher(rid).find();
+        String c = nz(n.cls);
+        return c.endsWith("Button") || c.endsWith("KeyView");
+    }
+
+    /** 装饰性的 resource-id（图标 / 背景 / 分隔线 / 头像…）不收。 */
+    private static final Pattern DECOR_RID = Pattern.compile("(?i)(icon|image|img|bg|background|divider|line|shadow|logo|avatar|arrow|badge|dot_indicator|mask|cover|banner|placeholder)");
 
     static String states(UiNode n) {
         return "" + n.checked + n.selected + n.enabled + n.focused + n.textSelStart + ":" + n.textSelEnd;

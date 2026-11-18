@@ -938,6 +938,7 @@ public class AgentLoop {
             boolean nudged = false;   // 是否已因"没走探针链就说做不到"提醒过一次
             boolean diagNudged = false;   // ★ device-1102：诊断类收工前没搜过 → 提醒一次
             boolean planChecked = false, planNudged = false;   // ★ trip-decompose：空洞拒绝收工校验（打回一次）
+            boolean openOpNudged = false;   // ★ plan-1118：只打开没操作 → 打回过一次
             boolean marketChecked = false, marketNudged = false;   // ★ 11-04：地区定性与行情数据一致性核对（打回一次）
             boolean shopEvNudged = false, shopPriceNudged = false, shopExNudged = false;   // ★ fix/shop-research：购物证据不够 / 有来源没价格 → 各提醒一次
             if (marketSnap != null && marketSnap.any()) shopPriceNudged = true;   // ★ 11-03：指数数字来自结构化源（槽位），不再催模型补数字
@@ -1108,6 +1109,23 @@ public class AgentLoop {
                         SafeLog.i(TAG, "[AGENT-LOOP] [PLAN-CHECK] 第 " + round + " 轮空洞拒绝 → 打回拆子目标一次");
                         continue;
                     }
+                    // ★ plan-1118（真机 g01「打开设置，往下滑到显示与亮度」只 route.open 就收工）：原话还有 App 内动作、
+                    //   只有「打开」成功、屏幕操作一步没试 → 确定性打回一次，接着调 phone.operate；打回后仍不做 → 如实补一句、结局 not_done
+                    String openPending = OpenThenOperate.pendingGoal(query, stepViews(steps));
+                    if (openPending != null && !openOpNudged && tb.calls < tb.maxCalls && hasPhoneOperate(tools)) {
+                        openOpNudged = true;
+                        JSONObject a = new JSONObject();
+                        a.put("role", "assistant");
+                        a.put("content", lastContent == null ? "" : lastContent);
+                        com.onesay.assistant.v2.net.ThinkingMode.carryReasoning(msg, a);
+                        messages.put(a);
+                        JSONObject u = new JSONObject();
+                        u.put("role", "user");
+                        u.put("content", OpenThenOperate.finishNudge(openPending, query));
+                        messages.put(u);
+                        SafeLog.i(TAG, "[AGENT-LOOP] [OPEN-THEN-OP] 第 " + round + " 轮想收工，但只打开了页面、「" + openPending + "」没做 → 打回接着 phone.operate");
+                        continue;
+                    }
                     // ★ 没有工具调用 = 模型自己判断"做完了" → 收工
                     if (!steps.isEmpty()) emitNote(cb, com.onesay.assistant.v2.island.IslandStepText.CONCLUDE);   // ★ 11-04 ①
                     SafeLog.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮收工，答复="
@@ -1159,6 +1177,13 @@ public class AgentLoop {
                             SafeLog.w(TAG, "[AGENT-LOOP] [UI-CLAIM] 答复与执行不符（没点到 / 识屏失败）→ 如实说明");
                             fin = honest;
                         }
+                    }
+                    if (openPending != null) {   // ★ plan-1118：打回过（或没有 phone.operate 可用）仍只打开了 → 如实说明、不记 done
+                        SafeLog.w(TAG, "[AGENT-LOOP] [OPEN-THEN-OP] 收工时「" + openPending + "」仍没做 → 结局 not_done");
+                        fin = OpenThenOperate.honestTail(fin, openPending);
+                        if (!(cb instanceof Unattended)) TaskContinuation.record(query, fin, TaskContinuation.Origin.AGENT, System.currentTimeMillis());
+                        return new Result(fin, steps, false, "只打开了页面，「" + openPending + "」没做")
+                                .outcome(com.onesay.assistant.v2.agent.Outcome.NOT_DONE, com.onesay.assistant.v2.agent.Outcome.Reason.PARTIAL);
                     }
                     if (!(cb instanceof Unattended)) TaskContinuation.record(query, fin, TaskContinuation.Origin.AGENT, System.currentTimeMillis());
                     if (gateKind != ResearchGate.Kind.NONE && marketSnap == null) {   // ★ 11-04 ④：调研 / 购物结论配图（代表款缩略图 + 价格条形图）
@@ -1394,6 +1419,7 @@ public class AgentLoop {
                         }
                     }
 
+                    if (!gated) observation = OpenThenOperate.withRemaining(observation, name, args, ok, query);   // ★ plan-1118：打开了但还有 App 内动作 → 观测值写明剩下的子目标
                     if (rs.plugs != null) observation = rs.plugs.afterTool(name, args, observation, ok);   // ★ mika-plug：证据进账 + 守卫阶梯
                     appendToolMsg(messages, callId, observation);
                     steps.add(new Step(name, args, observation, ok, gated, verified));
@@ -1524,6 +1550,31 @@ public class AgentLoop {
             }
         }
         return added;
+    }
+
+    /** ★ plan-1118：步骤 → OpenThenOperate 的最小视图。 */
+    static List<OpenThenOperate.StepView> stepViews(List<Step> steps) {
+        List<OpenThenOperate.StepView> out = new java.util.ArrayList<OpenThenOperate.StepView>();
+        if (steps == null) return out;
+        for (final Step st : steps) {
+            out.add(new OpenThenOperate.StepView() {
+                @Override public String tool() { return st.tool; }
+                @Override public JSONObject args() { return st.args; }
+                @Override public boolean ok() { return st.ok && !st.gated; }
+            });
+        }
+        return out;
+    }
+
+    /** ★ plan-1118：JVM 测试里没有 PhonePlugin 导出工具，用它假装 phone.operate / gui.unfold 在表里。 */
+    static volatile boolean sAssumeGuiToolForTest;
+
+    /** ★ plan-1118：本轮工具表里有没有屏幕操作工具（phone.operate，或折叠时的入口 gui.unfold）。 */
+    static boolean hasPhoneOperate(JSONArray tools) {
+        if (sAssumeGuiToolForTest) return true;
+        java.util.Set<String> signs = toolSigns(tools);
+        return signs.contains(com.onesay.assistant.v2.agenttools.ToolTiers.SIGN_GUI_OPERATE)
+                || signs.contains(com.onesay.assistant.v2.agenttools.ToolTiers.SIGN_GUI_ENTRY);
     }
 
     /** 观察值里告诉模型：哪些新工具已经可以直接调用（给 wire 名）。 */

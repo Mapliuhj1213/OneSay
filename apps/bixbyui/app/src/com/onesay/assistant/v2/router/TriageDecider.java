@@ -570,7 +570,9 @@ public final class TriageDecider {
         if (containsAny(q, ASK_VERBS) && !isMessageWriting(q) && !isMessageSend(q)) {
             return build(Label.ASK, 0.9, "3-ask-verb", core, false, false, "rule", s);
         }
-        if (ARITH.matcher(q).find()) {
+        // ★ plan-1118（真机 g02）：「打开计算器，替我在计算器上点按算一下 12 乘 34」被算术规则判成问答，答「我没法点按」→
+        //   以「打开」开头且点名界面动作（点按 / 一个个点…）的不走算术问答，交给后面的办事规则
+        if (ARITH.matcher(q).find() && !(startsWithLaunch(core) && com.onesay.assistant.v2.agenttools.GuiFold.explicitUi(q))) {
             return build(Label.ASK, 0.9, "3-arith", core, false, false, "rule", s);
         }
         if (containsAny(q, WORLD_INFO) && !startsWithLaunch(core)) {
