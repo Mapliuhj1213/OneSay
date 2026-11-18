@@ -65,6 +65,8 @@ shared_prefs/
 *dump*.json
 uiauto*.xml
 screenshots/
+# README 用的界面截图（已裁状态栏、无个人信息）
+!docs/screenshots/
 /tmp/
 
 # ---- 编辑器 / 系统 ----
