@@ -307,6 +307,15 @@ public final class PcGuard {
     }
 
     private final Config cfg;
+    /**
+     * [chat-agent-1118] 这条线程正在执行电脑端「对话」里模型发起的动作（{@link ChatAgent}）。和手机远程指令走同一套判定，差别只有两处：
+     * 明显只读的命令（{@link LocalReadOnly}）按查询直接执行；沙箱默认断网拦下的下载类命令改成「每次确认、不能记住」（用户就在电脑前，
+     * 确认框上写清楚要联网），审批「从不询问」下照旧拒绝。提权 / 自授权 / 编码命令 / 需要管理员这些硬规则不变。
+     */
+    public static final ThreadLocal<Boolean> LOCAL = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    static boolean local() { return Boolean.TRUE.equals(LOCAL.get()); }
+
     public volatile Confirmer confirmer;
     /** [app-whitelist-1116] 应用白名单（null = 不启用：判定和改前完全一样）。 */
     public volatile WhitelistStore whitelist;
@@ -355,6 +364,7 @@ public final class PcGuard {
             Runnable fault = pluginFault;
             if (fault != null) fault.run();
             LinkPolicy.Rules r = rules(); // 插件关掉时 encoded=false；提权 / 自授权两条硬规则照样查
+            if (local() && "sys_exec".equals(cmd)) r.net = false; // [chat-agent-1118] 本机对话的断网改由 check() 升级成确认
             String text = switch (cmd) {
                 case "sys_exec" -> str(a, "command");
                 case "script_run", "shortcut_run" -> str(a, "name");
@@ -390,6 +400,7 @@ public final class PcGuard {
         o.args = a;
         File ws = workspace();
         LinkPolicy.Cat cat = category(cmd, a, ws);
+        if (local() && "sys_exec".equals(cmd) && cat == LinkPolicy.Cat.SHELL_EXEC && LocalReadOnly.ok(str(a, "command"))) cat = LinkPolicy.Cat.QUERY; // [chat-agent-1118] 本机对话里的只读查询
         o.cat = cat;
         LinkPolicy.Facts f = new LinkPolicy.Facts();
         if ("open_url".equals(cmd)) f.url = LinkPolicy.checkUrl(str(a, "url"), LinkPolicy.parseDomains(cfg.trusted));
@@ -421,6 +432,10 @@ public final class PcGuard {
         if (hit != null) {
             f.pluginBlocked = hit.text;
             f.pluginReason = hit.code;
+        } else if (local() && "sys_exec".equals(cmd) && cfg.mode().sandbox != LinkPolicy.Sandbox.FULL_ACCESS) {
+            // [chat-agent-1118] 本机对话：沙箱断网拦的下载命令 → 每次确认（不能记住），卡上写清楚要联网
+            String nr = LinkPolicy.netReason(LinkPolicy.normalizeCommand(str(a, "command")), rules().netAllow);
+            if (!nr.isEmpty()) f.suspect = (f.suspect == null || f.suspect.isEmpty() ? "" : f.suspect + "；") + "这条命令要联网（" + nr + "），这一次要你确认";
         }
         LinkPolicy.Decision d = LinkPolicy.remembered(LinkPolicy.decide(LinkPolicy.Target.PC, cfg.mode(), cat, f), rememberedKinds());
         if (d.remembered) o.rememberedKind = d.kind;
@@ -891,6 +906,10 @@ public final class PcGuard {
                     return Actions.Result.ok("已开始运行 " + n);
                 }
                 case "sys_exec":
+                    if (local()) {
+                        Object t = a.get("timeout_sec");
+                        return execLocal(str(a, "command"), ws, t instanceof Number ? ((Number) t).intValue() : 60);
+                    }
                     return exec(str(a, "command"), ws);
                 default:
                     return null;
@@ -937,6 +956,46 @@ public final class PcGuard {
         d.put("exit", (long) p.exitValue());
         d.put("output", new String(out, java.nio.charset.Charset.defaultCharset()).trim());
         return p.exitValue() == 0 ? Actions.Result.ok("命令执行完了", d) : new Actions.Result(false, "命令失败（" + p.exitValue() + "）", d);
+    }
+
+    /** 本机对话的输出上限（字符）。 */
+    static final int LOCAL_OUT_MAX = 16000;
+
+    /**
+     * [chat-agent-1118] 本机对话执行命令（判定已经放行）：输出另起线程读（不会因为输出多把管道塞满卡住），按 UTF-8 输出、最多 {@link #LOCAL_OUT_MAX} 字；
+     * 超时（5–900 秒，默认 60）就结束进程并如实说「超时，已停止」；退出码非 0 回失败并带上输出。
+     */
+    Actions.Result execLocal(String command, File ws, int timeoutSec) throws Exception {
+        if (command.isBlank()) return Actions.Result.fail("没有命令");
+        int to = Math.max(5, Math.min(900, timeoutSec));
+        ProcessBuilder pb = SafeExec.WINDOWS
+                ? new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$ProgressPreference='SilentlyContinue';" + command)
+                : new ProcessBuilder("sh", "-c", command);
+        if (ws.isDirectory()) pb.directory(ws);
+        Process p = SafeExec.start(pb.redirectErrorStream(true));
+        p.getOutputStream().close();
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        Thread rd = new Thread(() -> {
+            byte[] b = new byte[8192];
+            try (java.io.InputStream in = p.getInputStream()) {
+                int n;
+                while ((n = in.read(b)) > 0) synchronized (buf) { if (buf.size() < LOCAL_OUT_MAX * 4) buf.write(b, 0, n); }
+            } catch (java.io.IOException ignored) { }
+        }, "onesay-chat-exec-out");
+        rd.setDaemon(true);
+        rd.start();
+        boolean fin = p.waitFor(to, TimeUnit.SECONDS);
+        if (!fin) p.destroyForcibly();
+        rd.join(2000);
+        String out;
+        synchronized (buf) { out = new String(buf.toByteArray(), SafeExec.WINDOWS ? StandardCharsets.UTF_8 : java.nio.charset.Charset.defaultCharset()).trim(); }
+        if (out.length() > LOCAL_OUT_MAX) out = out.substring(0, LOCAL_OUT_MAX) + "…（输出太长，已截断）";
+        Map<String, Object> d = new TreeMap<>();
+        d.put("output", out);
+        if (!fin) return new Actions.Result(false, "命令超过 " + to + " 秒没结束，已停止", d);
+        d.put("exit", (long) p.exitValue());
+        return p.exitValue() == 0 ? Actions.Result.ok("命令执行完了", d) : new Actions.Result(false, "命令失败（退出码 " + p.exitValue() + "）", d);
     }
 
     Actions.Result result(boolean ok, String text, String reason, Map<String, Object> extra) {

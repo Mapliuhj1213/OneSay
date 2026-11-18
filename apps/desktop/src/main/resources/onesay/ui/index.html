@@ -191,6 +191,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .m.a.cmd{color:var(--text2);font-size:13.5px;display:flex;gap:8px;align-items:center}
 .m.a.cmd:before{content:"⚡";color:var(--auto)}
 .m.a.error{color:var(--red);font-size:13.5px}
+.m.a.step{color:var(--text2);font-size:13px;line-height:1.6;border-left:2px solid var(--line,#444);padding-left:10px;font-family:ui-monospace,Consolas,monospace}
 .m .via{display:block;font-size:11px;color:var(--text3);margin-top:2px}
 .m.typing{color:var(--text3)}
 .compose{max-width:820px;width:100%;margin:0 auto 22px;background:var(--card);border-radius:20px;padding:12px 12px 10px 18px;box-shadow:0 2px 12px rgba(0,0,0,.06);display:flex;gap:10px;align-items:flex-end}
@@ -592,13 +593,14 @@ function renderChat(){const c=S.chat, box=$('msgin');
   const m=S.memory||{}, lines=(m.text||'').split('\n').filter(x=>x.trim()).length;
   $('memchip').textContent='记忆 · '+(lines?lines+' 条':'空')+(m.updated_at?' · '+ago(m.updated_at):'');
   if(c.length===lastChatLen&&!pending)return; lastChatLen=c.length;
-  box.innerHTML=(c.length?c.map(x=>`<div class="m ${x.role==='user'?'u':'a'} ${x.via==='cmd'?'cmd':''} ${x.via==='error'?'error':''}">${esc(x.text)}${x.via==='voice'&&x.role==='user'?'<span class="via">语音</span>':''}</div>`).join(''):
-   `<div class="welcome"><h2>想让电脑做什么？</h2><div>直接说指令（锁屏、截图、打开B站），或者随便聊。<br>${S.settings.llm_key_set?'':'在「设置 › 模型与密钥」填上 API Key 才能聊天，指令不需要 Key。'}</div></div>`)+(pending?'<div class="m a typing">思考中…</div>':'');
+  box.innerHTML=(c.length?c.map(x=>`<div class="m ${x.role==='user'?'u':'a'} ${x.via==='cmd'?'cmd':''} ${x.via==='step'?'step':''} ${x.via==='error'?'error':''}">${esc(x.text)}${x.via==='voice'&&x.role==='user'?'<span class="via">语音</span>':''}</div>`).join(''):
+   `<div class="welcome"><h2>想让电脑做什么？</h2><div>直接说指令（锁屏、截图、打开B站），或者随便聊。<br>${S.settings.llm_key_set?'':'在「设置 › 模型与密钥」填上 API Key 才能聊天，指令不需要 Key。'}</div></div>`)+(pending||S.chat_running?'<div class="m a typing">'+(S.chat_running?'正在做… <button class="tag" onclick="chatStop()">停止</button>':'思考中…')+'</div>':'');
   $('msgs').scrollTop=1e9}
 async function chatSend(){const ta=$('ta'),t=ta.value.trim();if(!t||pending)return;ta.value='';fit();
   if(!LIVE){S.chat.push({id:Math.random()+'',role:'user',text:t,at:Date.now()},{id:Math.random()+'',role:'assistant',text:'（演示模式，不会真的回答）',at:Date.now()});renderChat();return}
   S.chat.push({role:'user',text:t,at:Date.now()});pending=true;renderChat();
   try{await api('chat',{text:t})}catch(e){snack('发送失败')}pending=false;lastChatLen=-1;await refresh()}
+async function chatStop(){const r=await api('chat_stop',{});snack(r.text)}
 async function chatClear(){if(!await confirm('清空对话？\n\n记忆会保留。'))return;await api('chat_clear',{});lastChatLen=-1;refresh()}
 function fit(){const ta=$('ta');ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,180)+'px'}
 $('ta').addEventListener('input',fit);
@@ -650,7 +652,7 @@ function confirmBar(){const c=(S&&S.confirms)||[];const box=$('cfbox');if(!box)r
   if(!c.length){box.style.display='none';cfShown='';cfId=0;clearTimeout(cfArmT);return}
   const x=c[0],key=String(x.id);if(cfShown===key)return;cfShown=key;cfId=x.id;
   box.style.borderLeft='4px solid var(--ctl-wait)';   // ★ console-align：等确认 = 琥珀
-  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px"><span class="tag wait" style="margin-right:6px">等确认</span>手机请求，需要你确认</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div>${x.remember_kind?`<label class="note" style="display:block;margin:0 0 8px"><input type="checkbox" id="cfrem"> 以后这类不用问（${esc(x.remember_zh||x.remember_kind)}，可在「设置 › 权限与审批」里撤销）</label>`:''}${x.phone?'<div class="note" style="margin:0 0 6px">已同时发到手机，手机屏幕上点也行</div>':''}<div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
+  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px"><span class="tag wait" style="margin-right:6px">等确认</span>${x.from==='本机对话'?'OneSay 要在这台电脑上执行操作，需要你确认':'手机请求，需要你确认'}</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div>${x.remember_kind?`<label class="note" style="display:block;margin:0 0 8px"><input type="checkbox" id="cfrem"> 以后这类不用问（${esc(x.remember_zh||x.remember_kind)}，可在「设置 › 权限与审批」里撤销）</label>`:''}${x.phone?'<div class="note" style="margin:0 0 6px">已同时发到手机，手机屏幕上点也行</div>':''}<div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
   box.style.display='';const d=$('cfdeny');if(d)d.focus(); // 焦点默认在「拒绝」：误按回车 / 空格 = 拒绝
   if(!LIVE){cfArm();return}
   api('confirm',{op:'seen',id:x.id,focused:document.hasFocus()}).then(r=>{if(r&&r.arm_ms)cfArmMs=r.arm_ms;if(cfId===x.id)cfArm()}).catch(()=>{})}

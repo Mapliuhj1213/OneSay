@@ -138,10 +138,12 @@ public final class App {
         });
         setupMedia();
         setupWhitelist();
-        agent.confirms.onNew = d -> notify.post("pc", "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点，或在已配对手机屏幕上的确认卡上点；60 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
+        agent.confirms.onNew = d -> notify.post("pc", d != null && d.startsWith(ChatAgent.FROM) ? "OneSay 要在这台电脑上执行操作，需要你确认" : "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点，或在已配对手机屏幕上的确认卡上点；60 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
         agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
+        chat.pcExec = agent::runLocal; // [chat-agent-1118] 「对话」能执行任务：同一条安全链（插件 → 矩阵 → 电脑上确认 → 凭证）
+        chat.workspace = cfg.workspace().toString();
         asr = new AsrRoute(cfg);
         asr.warmUp(); // 启动时先看云端能不能用（后台，不阻塞）
         voice = new Voice(cfg, actions, log, asr);
@@ -581,6 +583,7 @@ public final class App {
             s.put("pc_approval", cfg.mode().approval.id);
             s.put("plugin_enabled", cfg.pluginEnabled);
             s.put("confirms", agent.confirms.list());
+            s.put("chat_running", chat.running());
             s.put("shortcut_policy", agent.guard.shortcutView());
             s.put("shortcut_approvals", agent.guard.approvalView());
             s.put("remembered", agent.guard.rememberedView());
@@ -591,7 +594,8 @@ public final class App {
             return s;
         });
         ui.on("chat", b -> chat.send(str(b, "text", ""), "text"));
-        ui.on("chat_clear", b -> { store.clear("chat"); return ok("已清空对话，记忆保留"); });
+        ui.on("chat_clear", b -> { if (chat.running()) return fail("任务还在做，先点「停止」"); store.clear("chat"); return ok("已清空对话，记忆保留"); });
+        ui.on("chat_stop", b -> chat.stop() ? ok("做完当前这一步就停") : ok("没有在做的任务"));
         ui.on("memory", b -> { store.setMemory(str(b, "text", ""), System.currentTimeMillis()); return ok("记忆已保存"); });
         ui.on("todo", b -> {
             String op = str(b, "op", "");

@@ -162,6 +162,41 @@ public final class Agent {
     }
 
     /**
+     * [chat-agent-1118] 电脑端「对话」里模型发起的一个动作：和手机远程指令同一条链 —— 安全插件 → 两轴矩阵 / 白名单 → 电脑上的确认框
+     * （只认本机鼠标 / 键盘）→ 一次性凭证 → 执行。子进程按远程处理（{@link SafeExec#REMOTE}：永不提权，OneSay 是管理员时降不了权就拒），
+     * 因为命令是模型写的，不是用户亲手敲的。只读查询直接执行、断网改确认见 {@link PcGuard#LOCAL}。
+     */
+    public Actions.Result runLocal(String cmd, Map<String, Object> args) {
+        Actions.Result r;
+        PcGuard.LOCAL.set(Boolean.TRUE);
+        SafeExec.REMOTE.set(Boolean.TRUE);
+        try {
+            PcGuard.Outcome o = guard.check(ChatAgent.FROM, cmd, args);
+            if (o.reply != null) {
+                r = o.reply;
+                log.accept("对话没执行 " + cmd + "：" + (r.data == null ? "" : r.data.get("reason")));
+            } else if (o.pass == null || !o.pass.consume(cmd, o.args)) {
+                r = Actions.Result.fail("没有通过审批，不执行");
+            } else {
+                log.accept("对话执行 " + cmd);
+                Actions.Result b = guard.builtin(cmd, o.args);
+                r = b != null ? b : actions.run(cmd, o.args);
+            }
+        } catch (SafeExec.Refused t) {
+            Map<String, Object> d = new TreeMap<>();
+            d.put("reason", LinkPolicy.R_PLUGIN_BLOCKED);
+            d.put("reason_zh", LinkPolicy.reasonZh(LinkPolicy.R_PLUGIN_BLOCKED));
+            r = new Actions.Result(false, t.getMessage(), d);
+        } catch (Throwable t) {
+            r = Actions.Result.fail(cmd + " 出错：" + t.getClass().getSimpleName());
+        } finally {
+            SafeExec.REMOTE.set(Boolean.FALSE);
+            PcGuard.LOCAL.set(Boolean.FALSE);
+        }
+        return r;
+    }
+
+    /**
      * [app-whitelist-1116] 这条指令把电脑上的内容交给了手机（读剪贴板、读文件、截图）：认出隐私就记进这台手机本次会话
      * （截图电脑认不出内容，按「认不出的图片」算隐私，宁可多问）。只记类别，不记内容。
      */
@@ -199,7 +234,7 @@ public final class Agent {
      * 手机不在线就不发（照样只在电脑上等）。
      */
     boolean offerToPhone(PcGuard.PhoneOffer o) {
-        if (o == null || o.from == null || o.from.isEmpty() || !cfg.peerAllowed(o.from)) return false;
+        if (o == null || o.from == null || o.from.isEmpty() || ChatAgent.FROM.equals(o.from) || !cfg.peerAllowed(o.from)) return false; // 本机对话的确认只在电脑上点
         Link via = route(o.from);
         if (via == null) return false;
         Map<String, Object> b = new TreeMap<>();

@@ -30,6 +30,19 @@ public final class Chat {
     /** 协议 v2：给手机下令（App 里接到 Agent.callPeer）；null = 没接。 */
     public volatile java.util.function.BiFunction<String, Map<String, Object>, Actions.Result> phone;
     private boolean truncatedSinceMemory = false;
+    /**
+     * [chat-agent-1118] 「对话」执行任务用的电脑能力（App 接到 {@link Agent#runLocal}：同一条安全链）。null = 没接（只能聊天）。
+     */
+    public volatile ChatAgent.Exec pcExec;
+    /** 测试用：换掉大模型（null = 按设置连 {@link Llm}）。 */
+    volatile ChatAgent.Brain brain;
+    /** 正在跑的任务（界面「停止」用）。 */
+    private final ChatAgent agent = new ChatAgent();
+    private volatile boolean running;
+    /** 「继续」算接着上一件事：上一条助手回复是模型 / 任务的，且不超过这么久。 */
+    static final long CONTINUE_WINDOW_MS = 60L * 60 * 1000;
+    /** 工作区、用户目录（写进系统提示）。 */
+    volatile String workspace = "", home = System.getProperty("user.home", "");
 
     public Chat(Config cfg, Store store, Actions actions, Supplier<List<String>> shortcuts, Consumer<String> log) {
         this.cfg = cfg;
@@ -55,7 +68,13 @@ public final class Chat {
         if (text.length() > 4000) text = text.substring(0, 4000);
         add("user", text, via);
 
-        Intent it = Intent.parse(text, cfg.appMap(), shortcuts.get());
+        Llm llm0 = Llm.from(cfg);
+        boolean modelOk = brain != null || llm0.ready();
+        boolean tasks = modelOk && pcExec != null;
+        // [chat-agent-1118] 「继续」接着上一件事（上一条助手回复是模型 / 任务的）：交给模型，不再被当成「播放 / 暂停」媒体键
+        boolean cont = modelOk && Intent.isContinuation(text) && continuing();
+        Intent it = cont ? null : Intent.parse(text, cfg.appMap(), shortcuts.get(), tasks);
+        if (it == null) return answer(llm0, tasks, true);
         if (it.phoneCmd != null) return add("assistant", runPhone(it), "cmd");
         if (it.cmd != null) {
             String reply;
@@ -71,19 +90,72 @@ public final class Chat {
             return add("assistant", reply, "cmd");
         }
         boolean understood = !(it.say.startsWith("没听懂") || it.say.startsWith("没听清"));
-        Llm llm = Llm.from(cfg);
-        if (!llm.ready()) return add("assistant", understood ? it.say : "没认出这是哪条指令。在设置里填上大模型 Key 后，什么都可以聊。", null);
+        if (!modelOk) return add("assistant", understood ? it.say : "没认出这是哪条指令。在设置里填上大模型 Key 后，什么都可以聊。", null);
+        return answer(llm0, tasks, false);
+    }
 
+    /** 上一条助手回复是模型 / 任务的（不是固定指令、不是报错），且在 {@link #CONTINUE_WINDOW_MS} 以内。 */
+    boolean continuing() {
+        List<Map<String, Object>> all = store.list("chat");
+        for (int i = all.size() - 1; i >= 0; i--) {
+            Map<String, Object> m = all.get(i);
+            if (!"assistant".equals(m.get("role"))) continue;
+            Object via = m.get("via");
+            if ("cmd".equals(via)) return false;
+            Object at = m.get("at");
+            long t = at instanceof Number ? ((Number) at).longValue() : 0L;
+            return t > 0 && System.currentTimeMillis() - t <= CONTINUE_WINDOW_MS;
+        }
+        return false;
+    }
+
+    /** 交给模型：能执行任务时走 {@link ChatAgent} 循环，否则纯聊天。 */
+    private Map<String, Object> answer(Llm llm, boolean tasks, boolean cont) {
         try {
-            String reply = llm.chat(context(), 0.7, 60);
+            String reply;
+            if (tasks) {
+                ChatAgent.Brain b = brain != null ? brain : (msgs, tl) -> {
+                    try {
+                        return llm.turn(msgs, tl, 0.3, 120);
+                    } catch (Llm.ToolsUnsupported e) {
+                        // 模型服务不支持工具调用：退回纯聊天，如实说明
+                        log.accept("大模型不支持工具调用，退回纯聊天");
+                        List<Map<String, Object>> m2 = new ArrayList<>(msgs.size());
+                        for (Map<String, Object> x : msgs) if ("system".equals(x.get("role")) || ("user".equals(x.get("role"))) || ("assistant".equals(x.get("role")) && x.get("tool_calls") == null)) m2.add(x);
+                        if (!m2.isEmpty() && "system".equals(m2.get(0).get("role"))) m2.set(0, Llm.msg("system", chatOnlyPrompt()));
+                        return new Llm.Turn(llm.chat(m2, 0.7, 60) + "\n\n（当前模型服务不支持工具调用，这次没法替你在电脑上执行。换成 DeepSeek / 百炼等支持工具调用的模型后可以直接做。）", List.of(), Llm.msg("assistant", ""));
+                    }
+                };
+                running = true;
+                ChatAgent.Outcome o;
+                try {
+                    o = agent.run(context(), b, pcExec, t -> add("assistant", t, "step"));
+                } finally {
+                    running = false;
+                }
+                log.accept("对话任务结束：" + o.status + "（" + o.steps + " 步）");
+                reply = o.text;
+                if ("error".equals(o.status) && o.steps == 0) return add("assistant", reply, "error");
+            } else {
+                reply = llm.chat(context(), 0.7, 60);
+            }
             Map<String, Object> m = add("assistant", reply, null);
             turnsSinceMemory++;
-            maybeUpdateMemory(llm);
+            if (brain == null) maybeUpdateMemory(llm);
             return m;
         } catch (Exception e) {
             return add("assistant", e.getMessage() == null ? "大模型出错" : e.getMessage(), "error");
         }
     }
+
+    /** 界面「停止」：正在跑的任务做完当前这一步就停。 */
+    public boolean stop() {
+        if (!running) return false;
+        agent.cancel.set(true);
+        return true;
+    }
+
+    public boolean running() { return running; }
 
     /** 发给手机：剪贴板指令没带文字时取电脑剪贴板；status 把电量等拼成一句。 */
     String runPhone(Intent it) {
@@ -118,10 +190,21 @@ public final class Chat {
     }
 
     String systemPrompt() {
+        if (pcExec != null) {
+            String mem = String.valueOf(store.memory().getOrDefault("text", ""));
+            String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm EEEE", java.util.Locale.CHINA));
+            String ws = workspace == null || workspace.isEmpty() ? String.valueOf(cfg.workspace()) : workspace;
+            return ChatAgent.systemPrompt(now, ws, home, mem);
+        }
+        return chatOnlyPrompt();
+    }
+
+    /** 没接电脑能力（或模型不支持工具调用）时的纯聊天提示。 */
+    String chatOnlyPrompt() {
         String mem = String.valueOf(store.memory().getOrDefault("text", ""));
         return "你是 OneSay，运行在用户 Windows 电脑上的助手，和用户手机上的 OneSay 是同一个助手、共用记忆。"
                 + "用简体中文回答，先给结论，简短直接。现在是 " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm EEEE", java.util.Locale.CHINA)) + "。"
-                + "你不能直接操作电脑；像锁屏、截图、音量、打开某个程序这类固定指令由程序自己识别执行，用户说了却没执行时，提示他换成更直接的说法。"
+                + "这次对话里你没有执行工具，不能替用户在电脑上执行命令；像锁屏、截图、音量、打开某个程序这类固定指令由程序自己识别执行，用户说了却没执行时，提示他换成更直接的说法。"
                 + (mem.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准）：\n" + mem);
     }
 
@@ -165,7 +248,7 @@ public final class Chat {
         StringBuilder convo = new StringBuilder();
         int start = Math.max(0, chat.size() - 30);
         for (Map<String, Object> m : chat.subList(start, chat.size())) {
-            if ("cmd".equals(m.get("via")) || "error".equals(m.get("via"))) continue;
+            if ("cmd".equals(m.get("via")) || "error".equals(m.get("via")) || "step".equals(m.get("via"))) continue; // 任务步骤（命令和输出）不进记忆
             convo.append("assistant".equals(m.get("role")) ? "助手：" : "用户：").append(m.get("text")).append('\n');
         }
         String old = String.valueOf(store.memory().getOrDefault("text", ""));
