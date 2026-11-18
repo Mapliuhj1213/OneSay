@@ -565,6 +565,7 @@ public class ChatAgent1118Test {
         for (Map<String, Object> t : ChatAgent.tools()) assertTrue(p.contains(String.valueOf(((Map<?, ?>) t.get("function")).get("name"))));
         assertTrue(p.contains("工作区可写"));
         assertTrue(p.contains("不是不做的理由"));
+        assertTrue("提示只读查询写成单条简单命令", p.contains("单条简单命令"));
         assertTrue(p.contains("确认框"));
         String never = ChatAgent.policyLine(new LinkPolicy.Mode(LinkPolicy.Sandbox.WORKSPACE_WRITE, LinkPolicy.Approval.NEVER));
         assertTrue(never.contains("直接拒绝"));
