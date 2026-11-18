@@ -68,11 +68,10 @@ public final class IslandPlugin extends FeaturePlugin {
                     }
                 });
         for (ConsoleHost.Row r : subs) r.setEnabled(main.isOn() && !killed);
-        android.widget.LinearLayout p = host.group(root, "权限");
+        // ★ design-1118（合并同类项 M5）：悬浮窗状态统一在「权限配置」；这里只在没授权时提示一行
         boolean overlayOk = android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(act);
-        if (overlayOk) {
-            host.valueRow(p, "悬浮窗权限", "岛靠它显示，不用无障碍", "已授权", ConsoleHost.TONE_OK);
-        } else {
+        if (!overlayOk) {
+            android.widget.LinearLayout p = host.group(root, "权限");
             host.actionRow(p, "悬浮窗权限", "没授权时岛显示不了，长任务只留在面板上", "去授权", new Runnable() {
                 @Override public void run() {
                     try {

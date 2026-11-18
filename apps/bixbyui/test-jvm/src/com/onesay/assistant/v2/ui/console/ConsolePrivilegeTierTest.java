@@ -33,8 +33,10 @@ public class ConsolePrivilegeTierTest {
         assertEquals(ConsoleStatus.Level.OFF, p.level);
         assertTrue("不出 Root 提醒条", ConsoleStatus.allProblems(s).isEmpty());
         ConsoleStatus.Hero h = ConsoleStatus.hero(s);
-        assertEquals(ConsoleStatus.Level.OK, h.level);
+        // ★ design-1118：执行通道是「权限配置」的必须项；开源版没 root 也没 Shizuku = 黄色「待配置」（不变红、不进「需要处理」）
+        assertEquals(ConsoleStatus.Level.WARN, h.level);
         assertEquals("运行中", h.word);
+        assertEquals("有权限待确认", h.headline);
         assertTrue(ConsoleStatus.privilegeText(s).contains("可选"));
     }
 

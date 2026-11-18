@@ -158,7 +158,7 @@ public class Lc5NewRequestTest {
         String s = src("com/onesay/assistant/v2/ui/FloatingSheetService.java");
         int sub = s.indexOf("public void onSubmitCommand(final String command)");
         int begin = s.indexOf("beginForegroundRequest();", sub);
-        int parse = s.indexOf("mSheetView.updateState(\"正在解析\", Color.parseColor(\"#0A84FF\"), \"“\" + command + \"”\");", sub);
+        int parse = s.indexOf("mSheetView.updateState(\"正在解析\", Color.parseColor(\"#A9A7A2\"), \"“\" + command + \"”\");", sub);
         assertTrue(sub > 0 && begin > sub && parse > begin);
         assertTrue(s.contains("if (!com.onesay.assistant.v2.ui.wake.WakeStage.newRequestLeavesIsland(st)) return;"));
         assertTrue(s.contains("mSheetView.v2BeginRequest();"));

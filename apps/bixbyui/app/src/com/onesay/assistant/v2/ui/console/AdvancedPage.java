@@ -14,15 +14,26 @@ import com.onesay.assistant.v2.kernel.FeaturePlugin;
  */
 final class AdvancedPage extends Console.BuiltPage {
 
+    /** ★ design-1118：0 = 全部（旧入口 / 深链）；1 = 基础设置里的「模型」（主模型 + 语音识别 Key）；2 = 高级里的「模型细项」。 */
+    static final int MODE_ALL = 0, MODE_BASIC = 1, MODE_EXPERT = 2;
+    final int mode;
+
     AdvancedPage(Console c) {
-        super(c, "模型与密钥");
+        this(c, MODE_ALL);
+    }
+
+    AdvancedPage(Console c, int mode) {
+        super(c, mode == MODE_BASIC ? "模型" : (mode == MODE_EXPERT ? "模型细项" : "模型与密钥"));
+        this.mode = mode;
     }
 
     @Override void build(LinearLayout col) {
         final ConsoleKit k = c.kit;
         // ★ console-align 2026-11-12：分组与电脑端「模型与密钥」同名同序：主模型（接口地址 · 模型名 · API Key）→ 备用模型 → 其他模型与密钥 → 发送与回答 → 思考模式 → 账户。
         //   「外观」搬到「关于」页；开关和 prefs 键都不变。所有 Key 仍统一在「API 密钥」面板（KeysActivity）里填。
-        LinearLayout g = k.group(col, "主模型");
+        final boolean basic = mode != MODE_EXPERT, expert = mode != MODE_BASIC;
+        LinearLayout g = basic ? k.group(col, "主模型") : null;
+        if (basic) {
         k.linkRow(g, "接口地址", "OpenAI 兼容；留空 = 默认 DeepSeek · " + com.onesay.assistant.v2.net.MainModelEndpoint.summary(), 0, new Runnable() {
             @Override public void run() {
                 editMainUrl();
@@ -34,6 +45,7 @@ final class AdvancedPage extends Console.BuiltPage {
                 editMainModel();
             }
         });
+        }
         boolean llm, ds, voice;
         try {
             llm = c.compiler.hasApiKey();
@@ -48,14 +60,16 @@ final class AdvancedPage extends Console.BuiltPage {
             }
         };
         // OneSay：所有 API Key 统一在「API 密钥」面板（与 OneSay Clock 同款：状态 / 测试 / 去申请 / FLAG_SECURE）；这里两行都进那一页
-        k.linkRow(g, "API Key", (llm ? "已配置" : "未配置") + " · 在「API 密钥」面板里填 / 测试", 0, keys);
+        if (basic) k.linkRow(g, "API Key", (llm ? "已配置" : "未配置") + " · 在「API 密钥」面板里填 / 测试", 0, keys);
         // ★ borrow-1112：备用模型（主模型超时 / 服务出错 / 限流时自动换；没配置 = 照旧报错）
+        if (expert) {
         LinearLayout gb = k.group(col, "备用模型");
         k.linkRow(gb, "备用模型", new com.onesay.assistant.v2.net.BackupModelConfig(c.act).summary(), 0, new Runnable() {
             @Override public void run() {
                 editBackup();
             }
         });
+        }
         String prov;   // ★ priv-llm：自带 Key 服务商（主对话可改走 OpenAI 兼容 / Anthropic / Gemini）
         try {
             com.onesay.assistant.v2.llm.ProviderRoute r = com.onesay.assistant.v2.llm.ProviderRouting.active();
@@ -63,22 +77,22 @@ final class AdvancedPage extends Console.BuiltPage {
         } catch (Throwable t) {
             prov = "未知";
         }
-        k.linkRow(g, "大模型服务商（自带 Key）", prov, 0, new Runnable() {
+        if (basic) k.linkRow(g, "大模型服务商（自带 Key）", prov, 0, new Runnable() {
             @Override public void run() {
                 c.act.startActivity(new Intent(c.act, com.onesay.assistant.v2.ui.LlmProvidersActivity.class));
             }
         });
 
-        LinearLayout go = k.group(col, "其他模型与密钥");
+        LinearLayout go = k.group(col, basic && !expert ? "语音识别" : "其他模型与密钥");
         String vm;
         try {
             vm = com.onesay.assistant.v2.vision.ScreenVisionEngine.effectiveModel(c.act);
         } catch (Throwable t) {
             vm = "未知";
         }
-        k.valueRow(go, "视觉模型", "识屏 / 看图总结用（百炼 Key）", vm, ConsoleHost.TONE_NORMAL);
-        k.linkRow(go, "语音识别 Key", (ds ? "百炼 已配置" : "百炼 未配置") + " · " + (ds && voice ? "朗读 可用" : "朗读 未配置") + " · 在「API 密钥」面板里填", 0, keys);
-        k.linkRow(go, "阿里云 NLS 语音识别（高级 · 可选）", "用 AccessKey / AppKey 代替百炼识别", 0, new Runnable() {
+        if (expert) k.valueRow(go, "视觉模型", "识屏 / 看图总结用（百炼 Key）", vm, ConsoleHost.TONE_NORMAL);
+        if (basic) k.linkRow(go, "语音识别 Key", (ds ? "百炼 已配置" : "百炼 未配置") + " · " + (ds && voice ? "朗读 可用" : "朗读 未配置") + " · 在「API 密钥」面板里填", 0, keys);
+        if (expert) k.linkRow(go, "阿里云 NLS 语音识别（高级 · 可选）", "用 AccessKey / AppKey 代替百炼识别", 0, new Runnable() {
             @Override public void run() {
                 c.editAsrKey(new Runnable() {
                     @Override public void run() {
@@ -88,6 +102,7 @@ final class AdvancedPage extends Console.BuiltPage {
             }
         });
 
+        if (expert) {
         LinearLayout gs = k.group(col, "发送与回答");
         // ★ borrow-1112：发给云端模型前本地隐藏个人信息（默认开）
         k.switchRow(gs, "发给云端前隐藏个人信息", "手机号、身份证号、银行卡号、邮箱、验证码换成代号再发，要输入时在本机换回",
@@ -124,7 +139,7 @@ final class AdvancedPage extends Console.BuiltPage {
             }
         });
 
-        LinearLayout acc = k.group(col, "账户");
+        LinearLayout acc = k.group(col, "账户");   // （expert 段到这里为止）
         boolean mail;
         try {
             mail = com.onesay.assistant.v2.executor.MailBridge.hasPassword(c.act);
@@ -137,6 +152,7 @@ final class AdvancedPage extends Console.BuiltPage {
             }
         });
 
+        }
         // 控制台整理第二步：「插件 › 功能插件」搬到首页「插件」（console-align），「开发者」入口在首页最下面（默认折叠）
         k.footer(col, "密钥只以加密形式存在本机；这里只显示末 4 位。接口地址只接受 https://（调试包也接受 http://，方便测试切换备用模型）；日志里只记主机名。");
     }

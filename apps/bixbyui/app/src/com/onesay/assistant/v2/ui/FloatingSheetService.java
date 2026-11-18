@@ -554,7 +554,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         // 「识别中…（已说 N 秒）」「云端识别中…」：话已经说完了 → 新界面是「正在想…」（光吸进卡片），不是还在听
                         mSheetView.v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.THINK);
                     } else {
-                        mSheetView.updateState("正在聆听", Color.parseColor("#30D158"), prompt != null ? prompt : "我在听，请讲...");
+                        mSheetView.updateState("正在聆听", Color.parseColor("#84AE64"), prompt != null ? prompt : "我在听，请讲...");
                     }
                 }
             }
@@ -567,7 +567,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             public void run() {
                 cancelAutoHide();
                 if (mSheetView != null) {
-                    mSheetView.updateState("正在聆听", Color.parseColor("#30D158"), "你说：“" + text + "”");
+                    mSheetView.updateState("正在聆听", Color.parseColor("#84AE64"), "你说：“" + text + "”");
                 }
             }
         });
@@ -608,10 +608,10 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 // 会让人以为麦克风还开着。橙色 + 不脉冲才是诚实的终态。
                 // 注意别用带"执行"字样的 badge —— FloatingSheetView.updateState 是
                 // 按 contains 分派的，会被吞进 setExecuting 分支（本轮体检的另一个缺陷）。
-                mSheetView.updateState("没听清", Color.parseColor("#FF9F0A"),
+                mSheetView.updateState("没听清", Color.parseColor("#F2B33D"),
                         prompt != null ? prompt : "没听清指令，请重新唤醒...");
                 // ★ M-2：updateState 的「没听清」落进 else 分支不改副标题 → 会残留「正在听你说…」，这里显式写终态
-                mSheetView.markTerminalState(Color.parseColor("#FF9F0A"), "没听清", "本次唤醒已结束");
+                mSheetView.markTerminalState(Color.parseColor("#F2B33D"), "没听清", "本次唤醒已结束");
                 // 用户修订曾改为"常驻、手动关闭"（嫌 1.8 s 太快看不清）；
                 //   常驻错误态遮挡被测界面 → 折中为显示 2.5 s 后回中性态并自动收起。
                 mSheetView.setDismissLabel("✕ 关闭");
@@ -643,8 +643,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 if (open) mLastOfflineSettingsAt = now;
                 String line = open ? com.onesay.assistant.v2.ui.wake.WakeCopy.OFFLINE_OPEN_SETTINGS
                         : "没有网络：语音识别要联网，可以点「⌨ 文字」输入本地指令";
-                if (!quiet || open) mSheetView.updateState(badge, Color.parseColor("#FF9F0A"), line);
-                mSheetView.markTerminalState(Color.parseColor("#FF9F0A"), badge,
+                if (!quiet || open) mSheetView.updateState(badge, Color.parseColor("#F2B33D"), line);
+                mSheetView.markTerminalState(Color.parseColor("#F2B33D"), badge,
                         open ? "正在打开网络设置" : "本次唤醒已结束（没有网络）");
                 if (!quiet) playVoiceCue(com.onesay.assistant.v2.tts.VoiceTemplate.OFFLINE);   // ★ r2/voice-templates
                 mSheetView.setDismissLabel("✕ 关闭");
@@ -709,7 +709,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 cancelAutoHide();
                 if (mSheetView == null) return;
                 if (!mIsAttached && mSheetView.getParent() == null) return;
-                mSheetView.markTerminalState(Color.parseColor("#64D2FF"), "正在识别", "云端识别中…");
+                mSheetView.markTerminalState(Color.parseColor("#A9A7A2"), "正在识别", "云端识别中…");
             }
         });
     }
@@ -721,7 +721,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             public void run() {
                 if (mSheetView == null) return;
                 if (!mIsAttached && mSheetView.getParent() == null) return;
-                mSheetView.markListeningState(Color.parseColor("#30D158"), title, sub);
+                mSheetView.markListeningState(Color.parseColor("#84AE64"), title, sub);
             }
         });
     }
@@ -740,7 +740,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 cancelAutoHide();
                 if (mSheetView == null) return;
                 if (!mIsAttached && mSheetView.getParent() == null) return;
-                mSheetView.markTerminalState(Color.parseColor("#FF9F0A"), "没听清",
+                mSheetView.markTerminalState(Color.parseColor("#F2B33D"), "没听清",
                         sub != null ? sub : "可再说一次，或点「⌨ 文字」输入");
                 cancelAutoHide();
                 applyErrorPolicy(com.onesay.assistant.v2.ui.ErrorStatePolicy.Source.NO_SPEECH_CONTINUE);   // ★ M-2
@@ -770,7 +770,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 if (!mIsAttached && mSheetView.getParent() == null) return;
                 String badge = com.onesay.assistant.v2.asr.AsrFailure.badge(kind);
                 String line = com.onesay.assistant.v2.asr.AsrFailure.line(kind, canRetry);
-                int col = Color.parseColor("#FF9F0A");
+                int col = Color.parseColor("#F2B33D");
                 if (!quiet) mSheetView.updateState(badge, col, line);
                 mSheetView.markTerminalState(col, badge, quiet ? line : "本次唤醒已结束");
                 mSheetView.setDismissLabel("✕ 关闭");
@@ -940,8 +940,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             SafeLog.w(TAG, "[COLD] 排队指令等待 " + it.waitedMs(now) + "ms 超时，丢弃: " + it.value);
         }
         if (!d.expired.isEmpty() && d.ready.isEmpty() && mSheetView != null) {
-            mSheetView.updateState("没听清", Color.parseColor("#FF9F0A"), "启动较慢，刚才的指令没来得及执行，请再说一次");
-            mSheetView.markTerminalState(Color.parseColor("#FF9F0A"), "启动超时", "刚才的指令已丢弃");
+            mSheetView.updateState("没听清", Color.parseColor("#F2B33D"), "启动较慢，刚才的指令没来得及执行，请再说一次");
+            mSheetView.markTerminalState(Color.parseColor("#F2B33D"), "启动超时", "刚才的指令已丢弃");
             applyErrorPolicy(com.onesay.assistant.v2.ui.ErrorStatePolicy.Source.INJECTED_QUERY_FAILED);
         }
         long delay = 0;
@@ -1183,8 +1183,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 } else if (intent.hasExtra(EXTRA_QUERY) && mSheetView != null) {
                     // ★ M-2：panel_query 注入了 query 但内容为空（引号被 shell 吃掉等）→ 短暂报错后收起，别常驻
                     cancelAutoHide();
-                    mSheetView.updateState("没听清", Color.parseColor("#FF9F0A"), "没有收到有效指令");
-                    mSheetView.markTerminalState(Color.parseColor("#FF9F0A"), "没听清", "注入的指令为空");
+                    mSheetView.updateState("没听清", Color.parseColor("#F2B33D"), "没有收到有效指令");
+                    mSheetView.markTerminalState(Color.parseColor("#F2B33D"), "没听清", "注入的指令为空");
                     applyErrorPolicy(com.onesay.assistant.v2.ui.ErrorStatePolicy.Source.INJECTED_QUERY_FAILED);
                 }
             }
@@ -1417,7 +1417,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 SafeLog.i(TAG, "[COLD] 面板服务未就绪（创建后 " + (now - mCreatedAt) + "ms），指令排队（第 "
                         + mColdQueue.size() + " 条）: " + command
                         + (dropped != null ? "；队列满，丢弃最早一条: " + dropped.value : ""));
-                if (mSheetView != null) mSheetView.updateState("正在解析", Color.parseColor("#0A84FF"), "“" + command + "” · 正在启动…");
+                if (mSheetView != null) mSheetView.updateState("正在解析", Color.parseColor("#A9A7A2"), "“" + command + "” · 正在启动…");
                 mMainHandler.removeCallbacks(mColdTimeoutRunnable);
                 long oldest = mColdQueue.oldestAt();
                 mMainHandler.postDelayed(mColdTimeoutRunnable,
@@ -1433,7 +1433,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             if (ans != null && com.onesay.assistant.v2.s1.S1Hooks.answerAskUser(ans[0], ans[1])) {
                 WakeService.claimVoiceTurn(command);
                 SafeLog.i(TAG, "[ASK-USER] 用户回答已回填 " + ans[0]);
-                if (mSheetView != null) mSheetView.updateState("正在处理", Color.parseColor("#5E5CE6"), "收到：" + ans[1]);
+                if (mSheetView != null) mSheetView.updateState("正在处理", Color.parseColor("#A9A7A2"), "收到：" + ans[1]);
                 return;
             }
         }
@@ -1448,7 +1448,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             running.cancel();
             timelineStopped();   // ★ feat/api-first：时间轴记「已停止」、通知复原
             SafeLog.i(TAG, "[VOICE-SYNC] 任务在跑时说「" + com.onesay.assistant.v2.util.LogText.u(command) + "」→ 停掉复合任务");
-            if (mSheetView != null) mSheetView.updateState("已停止", Color.parseColor("#8E8E93"), com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED.text);
+            if (mSheetView != null) mSheetView.updateState("已停止", Color.parseColor("#7E7C78"), com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED.text);
             TtsSpeaker.get(this).speakReplyTemplate(com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED);
             return;
         }
@@ -1456,14 +1456,14 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (mActiveAgent != null && com.onesay.assistant.v2.mikaplug.LoopPlugs.steering()
                 && com.onesay.assistant.v2.mikaplug.LoopPlugs.steer("u" + System.currentTimeMillis(), command) != null) {
             SafeLog.i(TAG, "[MIKA-PLUG] 任务在跑，插话追加给当前任务：" + com.onesay.assistant.v2.util.LogText.u(command));
-            if (mSheetView != null) mSheetView.updateState("正在执行", Color.parseColor("#5E5CE6"), "收到补充：" + command);
+            if (mSheetView != null) mSheetView.updateState("正在执行", Color.parseColor("#A9A7A2"), "收到补充：" + command);
             return;
         }
         cancelActiveStream(true);   // 新一轮指令到达 → 上一轮在途流式作废；r2/fixes 14：复合任务只在新请求也进 AgentLoop 时取消
         beginForegroundRequest();   // ★ LC-5：卡片在岛上时新建卡片接住这条请求（岛上任务不动）
         SafeLog.i(TAG, "收到前端输入指令: " + com.onesay.assistant.v2.util.LogText.u(command));
         mSheetView.setSuggestionsVisible(true);   // ★ M-2：离开错误态，恢复推荐芯片
-        mSheetView.updateState("正在解析", Color.parseColor("#0A84FF"), "“" + command + "”");
+        mSheetView.updateState("正在解析", Color.parseColor("#A9A7A2"), "“" + command + "”");
         // [kernel] 插件输入拦截：[s1] 「圈一下 / 框选（这是什么）」→ 圈选即问；
         //   [imgsave] 多图编号待选时的「第N张 / 全部 / 取消」→ 存图流程（触发句本身走路由层 L0 规则 → image.save）
         if (com.onesay.assistant.v2.kernel.FeatureKernel.get().interceptCommand(this, command)) return;
@@ -1590,7 +1590,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
         if (inv == null) {
             // [r2/uxcompare] 复述 + 换个说法的例子（原来只有「未能理解指令: …」，用户不知道下一步怎么说）
-            mSheetView.updateState("未能识别", Color.parseColor("#FF453A"),
+            mSheetView.updateState("未能识别", Color.parseColor("#F0575C"),
                     com.onesay.assistant.v2.ui.wake.WakeCopy.unrecognizedLine(command));
             // 唤醒后面板**不自动收起**（只有"打开xx软件/跳转界面"才让位）。
             //   原先 2.5s 自动滑走 —— 用户还没看清"未能理解指令"写的是什么，面板就没了。
@@ -1666,7 +1666,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (capFound == null) capFound = com.onesay.assistant.v2.kernel.FeatureKernel.get().describe(inv.sign);
         final Capability cap = capFound;
         if (cap == null) {
-            mSheetView.updateState("异常", Color.parseColor("#FF453A"), "未知能力签名: " + inv.sign);
+            mSheetView.updateState("异常", Color.parseColor("#F0575C"), "未知能力签名: " + inv.sign);
             mSheetView.setDismissLabel("✕ 关闭");
             cancelAutoHide();
             return;
@@ -1680,7 +1680,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         final com.onesay.assistant.v2.executor.ExecutionGate.Decision gate =
                 com.onesay.assistant.v2.executor.ExecutionGate.evaluate(cap, inv.args, inv.tainted);
         if (gate.decision == com.onesay.assistant.v2.executor.ToolGate.Decision.DENY) {
-            mSheetView.updateState("已被拦截", Color.parseColor("#FF453A"), gate.reason);
+            mSheetView.updateState("已被拦截", Color.parseColor("#F0575C"), gate.reason);
             // 拦截原因必须让用户看清（原 3.5s 自动收起），改为常驻。
             mSheetView.setDismissLabel("✕ 关闭");
             cancelAutoHide();
@@ -1738,7 +1738,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             mMainHandler.post(new Runnable() {
                 @Override public void run() {
                     if (mSheetView == null || cancel.isCancelled() || !agentOwnsCard(agentSeq)) return;
-                    mSheetView.updateState("想问你一下", Color.parseColor("#FF9F0A"),
+                    mSheetView.updateState("想问你一下", Color.parseColor("#F2B33D"),
                             question + (options.isEmpty() ? "（直接说出或输入你的回答）" : "（点选，或直接说）"));
                     if (!options.isEmpty()) {
                         ActionChipsView v;
@@ -1783,7 +1783,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     ((ActionChipsView) existing).hideChips();
                 }
                 if (!cancel.isCancelled() && agentOwnsCard(agentSeq)) {
-                    mSheetView.updateState("正在处理", Color.parseColor("#5E5CE6"), "这是一条复合任务，正在逐步执行…");
+                    mSheetView.updateState("正在处理", Color.parseColor("#A9A7A2"), "这是一条复合任务，正在逐步执行…");
                 }
             }
         });
@@ -1815,7 +1815,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (mSheetView != null) mSheetView.chatNoteRoute("AgentLoop");   // ★ ui-K1
         mActiveAgent = cancel;
         mActiveAgentSeq = agentSeq;
-        mSheetView.updateState("正在处理", Color.parseColor("#5E5CE6"), "这是一条复合任务，正在逐步执行…");
+        mSheetView.updateState("正在处理", Color.parseColor("#A9A7A2"), "这是一条复合任务，正在逐步执行…");
         mSheetView.setDismissLabel("✕ 取消");
         com.onesay.assistant.v2.s1.S1Hooks.onTaskStart(this, command, islandNow);   // [s1] 长任务开始：稍后可收成胶囊（★ arch/island-progress：单步不上岛）
         {   // ★ fix/triage-fast：一句多意图先按子句给岛子目标（模型 task.todo 后全量替换），岛显示子目标而不是抽象步数
@@ -1865,7 +1865,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                             mMainHandler.post(new Runnable() {
                                 @Override public void run() {
                                     if (mSheetView != null && !cancel.isCancelled() && agentOwnsCard(agentSeq)) {
-                                        mSheetView.updateState("正在处理", Color.parseColor("#5E5CE6"), text);
+                                        mSheetView.updateState("正在处理", Color.parseColor("#A9A7A2"), text);
                                     }
                                 }
                             });
@@ -2037,7 +2037,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                             if (mSheetView != null && agentOwnsCard(agentSeq)) {
                                                 mSheetView.hideConfirmCard();
                                                 mSheetView.updateState("确认超时",
-                                                        Color.parseColor("#FF9F0A"), "该操作未执行");
+                                                        Color.parseColor("#F2B33D"), "该操作未执行");
                                             }
                                         }
                                     });
@@ -2099,7 +2099,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                             com.onesay.assistant.v2.tts.VoiceTemplate vx = com.onesay.assistant.v2.s1.S1Hooks.agentOutcomeVoice(FloatingSheetService.this, true, null, null, 0);
                             TtsSpeaker.get(FloatingSheetService.this).speakReplyTemplate(vx);
                             TtsSpeaker.clearReplyOverride();
-                            mSheetView.updateState("未能完成", Color.parseColor("#FF453A"),
+                            mSheetView.updateState("未能完成", Color.parseColor("#F0575C"),
                                     com.onesay.assistant.v2.tts.VoiceSyncPolicy.statusSub(vx, "任务处理失败，请换种说法再试一次。"));
                             mSheetView.setDismissLabel("✕ 关闭");
                             cancelAutoHide();
@@ -2157,7 +2157,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         }
                         boolean navDone = navExecuted[0];
                         if (fr.finished) {
-                            mSheetView.updateState("执行完毕", Color.parseColor("#30D158"),
+                            mSheetView.updateState("执行完毕", Color.parseColor("#84AE64"),
                                     com.onesay.assistant.v2.tts.VoiceSyncPolicy.statusSub(spoken, navDone ? "已跳转界面 · 面板即将让位"
                                             : ("共 " + fr.steps.size() + " 步")));   // ★ arch/voice-sync：与所播同一句开头
                         } else {
@@ -2198,7 +2198,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         SafeLog.i(TAG, "收到混合任务计划，共 " + steps.size() + " 步");
         // ★ fix/triage-fast：显示子目标（「调低亮度 · 开勿扰 · 10分钟后提醒我」），不再是「共 N 步」
         String headline = com.onesay.assistant.v2.router.CompoundSplitter.planHeadline(plan);
-        mSheetView.updateState("正在执行", Color.parseColor("#5E5CE6"),
+        mSheetView.updateState("正在执行", Color.parseColor("#A9A7A2"),
                 headline.length() > 0 ? headline : "这是一条多步任务，共 " + steps.size() + " 步");
 
         com.onesay.assistant.v2.util.Threads.start("PlanExecutor", new Runnable() {
@@ -2296,11 +2296,11 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         mSheetView.showAskReply("多步任务", summary.toString());
                         TtsSpeaker.clearReplyOverride();
                         if (didAbort) {
-                            mSheetView.updateState("已中止", Color.parseColor("#FF9F0A"),
+                            mSheetView.updateState("已中止", Color.parseColor("#F2B33D"),
                                     com.onesay.assistant.v2.tts.VoiceSyncPolicy.statusSub(spoken, "计划中包含敏感操作"));
                         } else {
                             mSheetView.updateState(ok ? "执行完毕" : "部分完成",
-                                    ok ? Color.parseColor("#30D158") : Color.parseColor("#FF9F0A"),
+                                    ok ? Color.parseColor("#84AE64") : Color.parseColor("#F2B33D"),
                                     com.onesay.assistant.v2.tts.VoiceSyncPolicy.statusSub(spoken, "多步任务已处理"));
                         }
                         // 分三档 ——
@@ -2393,7 +2393,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                    final com.onesay.assistant.v2.executor.ExecutionGate.ConfirmToken token,
                                    final boolean isTainted, final boolean silentAck, final String query) {
         cancelAutoHide();
-        mSheetView.updateState("正在执行", Color.parseColor("#5E5CE6"), "正在调度特权通道...");
+        mSheetView.updateState("正在执行", Color.parseColor("#A9A7A2"), "正在调度特权通道...");
         mSheetView.progressStep(com.onesay.assistant.v2.island.IslandStepText.forTool(cap.sign, args, cap.summary));   // ★ 11-04 午：快路径单步「执行中：设闹钟 3:53」
         if (com.onesay.assistant.v2.executor.AlarmBridge.isAlarmSign(cap.sign)) mAlarmReqSeq = mRequestSeq;
 
@@ -2444,7 +2444,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 // 结果文案只在结果卡呈现 —— 第三参（转录位）传 null，
                                 //   不再把"结果"覆盖到转录卡上（否则同一句话双处显示，
                                 //   且会盖掉"你说：xxx"的原话回显）。下同。
-                                mSheetView.updateState("已启动应用", Color.parseColor("#30D158"), null);
+                                mSheetView.updateState("已启动应用", Color.parseColor("#84AE64"), null);
                                 mMainHandler.postDelayed(new Runnable() {
                                     @Override
                                     public void run() {
@@ -2456,7 +2456,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 // 其余一切（改设置、调音量、状态查询…）**常驻**。
                                 // 用户原话："语音唤醒后不需要自动收起，只有收到打开xx软件打开后再收起。"
                                 // 原实现是 1.6s 自动收起 —— 用户看不到结果也被迫重问一次。
-                                mSheetView.updateState("执行成功", Color.parseColor("#30D158"), null);
+                                mSheetView.updateState("执行成功", Color.parseColor("#84AE64"), null);
                                 mSheetView.setDismissLabel("✕ 关闭");
                                 cancelAutoHide();
 
@@ -2485,7 +2485,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                             // 失败更要让用户看清原因，常驻不收起（原为 2.8s 自动收起）。
                             // 静默路径下用户没听到任何声音，补一次更长震动，手感上能区分成败。
                             if (silentAck) vibrateFeedback(TOGGLE_FAIL_VIBRATE_MS);
-                            mSheetView.updateState("执行未达成", Color.parseColor("#FF9F0A"), null);
+                            mSheetView.updateState("执行未达成", Color.parseColor("#F2B33D"), null);
                             mSheetView.showResult(result);
                             // 联动失败（如开关键冲突）同样要看到卡片现状，
                             //   用户才能明白"为什么没生效"（dump 在 detail 里，照常可渲染）。
@@ -2638,7 +2638,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
      */
     public void voiceCaption(String text) {
         if (mSheetView == null || text == null || mActiveAgent == null || !agentOwnsCard(mActiveAgentSeq)) return;
-        mSheetView.updateState("正在处理", Color.parseColor("#5E5CE6"), text);
+        mSheetView.updateState("正在处理", Color.parseColor("#A9A7A2"), text);
     }
 
     /**
@@ -2691,7 +2691,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             public void run() {
                 if (mSheetView == null) return;
                 mSheetView.showAskReply(question, answer, StatusLinePolicy.Source.LOCAL);
-                if (title != null) mSheetView.updateState(title, Color.parseColor("#5E5CE6"), null);
+                if (title != null) mSheetView.updateState(title, Color.parseColor("#A9A7A2"), null);
                 mSheetView.setDismissLabel("✕ 关闭");
                 cancelAutoHide();
             }
@@ -2701,7 +2701,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     public void debugShowAskReplyNow(String question, String answer, String title, String sub) {
         if (!com.onesay.assistant.v2.BuildVariant.IS_DEBUG || mSheetView == null) return;
         mSheetView.showAskReply(question, answer, StatusLinePolicy.Source.LOCAL);
-        mSheetView.updateState(title, Color.parseColor("#5E5CE6"), sub);
+        mSheetView.updateState(title, Color.parseColor("#A9A7A2"), sub);
         mSheetView.setDismissLabel("✕ 关闭");
         cancelAutoHide();
     }
@@ -2798,7 +2798,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 applyRejectPolicy(com.onesay.assistant.v2.ui.ConfirmRejectPolicy.Path.AGENT_LOOP);
             } else {
                 pending.resolve(PendingLoopConfirm.VERDICT_ALLOW);
-                mSheetView.updateState("已允许", Color.parseColor("#30D158"), "正在执行并继续后续步骤…");
+                mSheetView.updateState("已允许", Color.parseColor("#84AE64"), "正在执行并继续后续步骤…");
             }
             return;
         }
@@ -2820,7 +2820,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (!ap.ok()) {
             SafeLog.w(TAG, "[CONFIRM] 确认令牌已失效（超时 >"
                     + (com.onesay.assistant.v2.executor.ExecutionGate.TOKEN_TTL_MS / 1000) + "s 或无挂起卡），不执行");
-            mSheetView.updateState("确认已过期", Color.parseColor("#FF9F0A"), "请再说一次指令");
+            mSheetView.updateState("确认已过期", Color.parseColor("#F2B33D"), "请再说一次指令");
             return;
         }
         executeCapability(cap, args, ap.token, isTainted, true, ap.query);
@@ -2900,7 +2900,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     public void run() {
                         if (mSheetView == null) return;
                         if (dump == null) {
-                            mSheetView.updateState("开关未生效", Color.parseColor("#FF9F0A"),
+                            mSheetView.updateState("开关未生效", Color.parseColor("#F2B33D"),
                                     "OneSay 时钟没有响应");
                             return;
                         }
@@ -2909,11 +2909,11 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         boolean nowOn = after != null && after.optBoolean("on", false);
                         mSheetView.showAlarmCards(buildAlarmCardItems(dump), dump.optInt("lastId", -1), alarmSummary(dump));
                         if (on && !nowOn) {
-                            mSheetView.updateState("未开启", Color.parseColor("#FF9F0A"),
+                            mSheetView.updateState("未开启", Color.parseColor("#F2B33D"),
                                     "OneSay 时钟没有开启这个闹钟");
                         } else {
                             mSheetView.updateState(nowOn ? "闹钟已开启" : "闹钟已关闭",
-                                    Color.parseColor("#30D158"), null);
+                                    Color.parseColor("#84AE64"), null);
                         }
                     }
                 });
@@ -3288,7 +3288,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         }
 
         mSheetView.beginAskStream(promptDisplay, "正在截取当前屏幕画面…");
-        mSheetView.updateState("正在识屏", Color.parseColor("#5E5CE6"), promptDisplay);
+        mSheetView.updateState("正在识屏", Color.parseColor("#A9A7A2"), promptDisplay);
         mSheetView.setDismissLabel("✕ 取消");
 
         ScreenVisionEngine.getInstance(this).recognizeScreen(userQuestion, new ScreenVisionEngine.Callback() {
@@ -3299,7 +3299,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                     public void run() {
                         if (mSheetView != null && mIsAttached) {
                             mSheetView.setAskStreamStage(stage);
-                            mSheetView.updateState("正在识屏", Color.parseColor("#5E5CE6"), stage);
+                            mSheetView.updateState("正在识屏", Color.parseColor("#A9A7A2"), stage);
                         }
                     }
                 });
@@ -3313,7 +3313,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         if (mSheetView == null || !mIsAttached) return;
                         playAckDone();
                         mSheetView.showAskReply(userQuestion != null ? userQuestion : "屏幕内容识别", answer);
-                        mSheetView.updateState("识屏完成", Color.parseColor("#30D158"), "已完成屏幕视觉解析");
+                        mSheetView.updateState("识屏完成", Color.parseColor("#84AE64"), "已完成屏幕视觉解析");
                         mSheetView.setDismissLabel("✕ 关闭");
                         cancelAutoHide();
 
@@ -3336,7 +3336,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                         // ★ LOGIC-8：普通识屏也开了全黑拦截 —— 固定码换成人话
                         final String shown = ScreenVisionEngine.ERR_SECURE_BLACK.equals(errorMsg)
                                 ? "这个页面不允许截屏（画面全黑），没有上传，也就没法识别。" : errorMsg;
-                        mSheetView.updateState("识屏失败", Color.parseColor("#FF453A"), shown);
+                        mSheetView.updateState("识屏失败", Color.parseColor("#F0575C"), shown);
                         mSheetView.showAskReply("识屏失败", shown);
                         mSheetView.setDismissLabel("✕ 关闭");
                         cancelAutoHide();
@@ -3528,7 +3528,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         WakeService.cancelCaptureFromUi("看图");
         beginForegroundRequest();
         showSheet();
-        mSheetView.updateState("正在解析", Color.parseColor("#0A84FF"), "“" + question + "”");   // = 一轮的边界 + 回显问句
+        mSheetView.updateState("正在解析", Color.parseColor("#A9A7A2"), "“" + question + "”");   // = 一轮的边界 + 回显问句
         mSheetView.clearPreviousRound();   // 同 audit-J 5：清上一轮结果卡 / 回执 / 安装卡
         com.onesay.assistant.v2.ui.InstallPromptView.hideIn(mSheetView);
         mSheetView.chatNoteRoute((screen ? "识屏问答 · " : "看图问答 · ") + ScreenVisionEngine.effectiveModel(this));
@@ -3626,7 +3626,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         final com.onesay.assistant.v2.executor.ExecutionGate.Decision gate =
                 com.onesay.assistant.v2.executor.ExecutionGate.evaluate(cap, args, false);
         if (gate.decision == com.onesay.assistant.v2.executor.ToolGate.Decision.DENY) {
-            mSheetView.updateState("已被拦截", Color.parseColor("#FF453A"), gate.reason);
+            mSheetView.updateState("已被拦截", Color.parseColor("#F0575C"), gate.reason);
             mSheetView.setDismissLabel("✕ 关闭");
             return;
         }
@@ -3635,7 +3635,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             if (local) {
                 // 防御：本地能力不经 UnifiedExecutor，确认卡的令牌无处消费 —— 不应出现，出现即拒绝
                 com.onesay.assistant.v2.executor.ExecutionGate.reject(gate.token);
-                mSheetView.updateState("已被拦截", Color.parseColor("#FF453A"), "该屏幕操作需要确认，但当前入口不支持确认卡");
+                mSheetView.updateState("已被拦截", Color.parseColor("#F0575C"), "该屏幕操作需要确认，但当前入口不支持确认卡");
                 mSheetView.setDismissLabel("✕ 关闭");
                 return;
             }
@@ -3779,7 +3779,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         timelineStopped();
         if (mSheetView != null) {
             mSheetView.setTaskRunning(false);
-            mSheetView.updateState("已停止", Color.parseColor("#8E8E93"), com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED.text);
+            mSheetView.updateState("已停止", Color.parseColor("#7E7C78"), com.onesay.assistant.v2.tts.VoiceTemplate.CANCELLED.text);
             mSheetView.setDismissLabel("✕ 关闭");
         }
         cancelAutoHide();
@@ -4129,7 +4129,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 WakeService.cancelCaptureFromUi();
                 cancelActiveStream();
                 cancelAutoHide();
-                mSheetView.markTerminalState(Color.parseColor("#FF9F0A"), com.onesay.assistant.v2.ui.wake.WakeCopy.BADGE_TIMEOUT, "本次唤醒已结束");
+                mSheetView.markTerminalState(Color.parseColor("#F2B33D"), com.onesay.assistant.v2.ui.wake.WakeCopy.BADGE_TIMEOUT, "本次唤醒已结束");
                 applyErrorPolicy(com.onesay.assistant.v2.ui.ErrorStatePolicy.Source.NO_SPEECH_NEW_WAKE);
             } else {
                 detachFromWindowImmediate();

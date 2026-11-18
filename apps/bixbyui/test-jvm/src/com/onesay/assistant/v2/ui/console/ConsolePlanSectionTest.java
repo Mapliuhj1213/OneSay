@@ -33,8 +33,9 @@ public class ConsolePlanSectionTest {
         assertTrue("计划区一行「打开计划」", h.indexOf("\"打开计划\"", plan) > plan && h.indexOf("\"打开计划\"", plan) < set);
         assertTrue("计划区一排直达页签", h.indexOf("PlanSection.TABS", plan) > plan && h.indexOf("PlanSection.TABS", plan) < set);
         assertFalse("模型并进设置区，不再单独一区", h.contains("k.group(col, \"模型\")"));
-        assertFalse("首页不再有「高级」入口", h.contains("\"高级\""));
-        assertTrue("模型行进模型与密钥页", h.indexOf("new AdvancedPage(c)", set) > set);
+        // ★ design-1118：「高级」回到首页设置区最后一行（专家项 / 运行状态 / 开发者 / 关于）；模型在「基础设置」里
+        assertTrue("首页「高级」入口在设置区", h.indexOf("k.linkRow(g1, \"高级\"", set) > set);
+        assertTrue("基础设置进模型", src(CON + "DesignPages.java").contains("new AdvancedPage(c, AdvancedPage.MODE_BASIC)"));
     }
 
     @Test public void homeKeepsHeroAndTwoTiles() {
@@ -48,11 +49,11 @@ public class ConsolePlanSectionTest {
 
     @Test public void advancedRenamedModelAndKeys() {
         String a = src(CON + "AdvancedPage.java");
-        assertTrue(a.contains("super(c, \"模型与密钥\");"));
+        assertTrue(a.contains("\"模型与密钥\""));
         assertFalse(a.contains("super(c, \"高级\");"));
         assertTrue("密钥 / 邮箱都还在", a.contains("KeysActivity.class") && a.contains("c.editAsrKey(") && a.contains("MailSettingsActivity.class"));
-        String h = src(CON + "HomePage.java");
-        assertTrue("插件列表 / 开发者入口搬到首页「开发者」", h.contains("new AdvancedPage.PluginsPage(c)") && h.contains("new DeveloperPage(c)"));
+        String h = src(CON + "DesignPages.java");
+        assertTrue("插件列表 / 开发者入口在「高级」", h.contains("new AdvancedPage.PluginsPage(c)") && h.contains("new DeveloperPage(c)"));
         assertTrue("唤醒卡片深链仍进这一页", src(CON + "Console.java").contains("nav.push(new AdvancedPage(this));"));
         // [console-align] 路径跟着改名：原为「设置 › 模型与密钥 › API 密钥 › DeepSeek」
         assertTrue("没配 Key 的提示跟着改名", src("app/src/com/onesay/assistant/v2/router/UnifiedRouter.java").contains("设置 › 模型与密钥 › 主模型 › API Key"));

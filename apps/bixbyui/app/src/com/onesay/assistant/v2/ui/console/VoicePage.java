@@ -20,7 +20,9 @@ final class VoicePage extends Console.BuiltPage {
     private ConsoleKit.RowImpl mVpRow;
     private ConsoleKit.RowImpl mVpCancel;
 
-    static final int MODE_WAKE = 0, MODE_READ = 1, MODE_ALL = 2;   // ★ console-align：MODE_ALL =「设置 › 语音」一页（唤醒 + 朗读）
+    static final int MODE_WAKE = 0, MODE_READ = 1, MODE_ALL = 2;
+    /** ★ design-1118：基础设置 › 语音（声纹 · 提示音 · 朗读，不含唤醒手感）；高级 › 唤醒手感（只有唤醒手感）。 */
+    static final int MODE_BASIC = 3, MODE_FEEL = 4;   // ★ console-align：MODE_ALL =「设置 › 语音」一页（唤醒 + 朗读）
     final int mode;
 
     /** 语音唤醒（声纹入口、提醒条「去录制」、状态页声纹行都进这一页）。 */
@@ -29,7 +31,7 @@ final class VoicePage extends Console.BuiltPage {
     }
 
     VoicePage(Console c, int mode) {
-        super(c, mode == MODE_READ ? "朗读" : mode == MODE_ALL ? "语音" : "语音唤醒");
+        super(c, mode == MODE_READ ? "朗读" : (mode == MODE_ALL || mode == MODE_BASIC) ? "语音" : mode == MODE_FEEL ? "唤醒手感" : "语音唤醒");
         this.mode = mode;
     }
 
@@ -50,7 +52,7 @@ final class VoicePage extends Console.BuiltPage {
             return;
         }
         final VoiceprintEnrollController vp = c.voiceprint();
-
+        if (mode != MODE_FEEL) {
         LinearLayout gVp = k.group(col, "声纹");
         mVpRow = k.actionRow(gVp, "声纹", "正在读取…", "录制", new Runnable() {
             @Override public void run() {
@@ -85,8 +87,10 @@ final class VoicePage extends Console.BuiltPage {
             }
         });
         if (!vp.isActive()) refreshVp();
+        }
 
         final WakeTuning tuning = WakeTuning.get(c.act);
+        if (mode != MODE_BASIC) {
         LinearLayout gFeel = k.group(col, "唤醒手感");
         k.switchRow(gFeel, "按下即听", "短提示音 + 边缘光，唤醒那一刻就开始收音；关掉 = 原版「我在」后再说", tuning.shortChime(), new ConsoleHost.Toggle() {
             @Override public void onToggle(boolean on) {
@@ -110,6 +114,11 @@ final class VoicePage extends Console.BuiltPage {
                 tuning.setFlag(WakeTuning.K_ADAPTIVE_EP, on);
             }
         });
+        }
+        if (mode == MODE_FEEL) {
+            k.footer(col, "一般不用改：默认就是推荐值。");
+            return;
+        }
         // 唤醒提示音三选一（系统提示音 / 方案 A / 旧版）；选完试听一次。系统提示音从手机自带通知音里挑，运行时解码，不可用自动退回方案 A
         LinearLayout gCue = k.group(col, "唤醒提示音");
         final ConsoleKit.RowImpl cueRow = k.actionRow(gCue, "唤醒提示音", cueSub(com.onesay.assistant.v2.wake.WakeCue.pref(), com.onesay.assistant.v2.wake.WakeCue.effective()),
@@ -141,7 +150,7 @@ final class VoicePage extends Console.BuiltPage {
             }
         });
         k.footer(col, "声纹只存在本机，永不上传。录制时跟着念 4 句话，约 1 分钟；录制期间唤醒会暂停。");
-        if (mode == MODE_ALL) buildRead(col);   // ★ console-align：首页「语音」= 唤醒 + 朗读一页（电脑端「语音」同名）
+        if (mode == MODE_ALL || mode == MODE_BASIC) buildRead(col);   // ★ console-align：首页「语音」= 唤醒 + 朗读一页（电脑端「语音」同名）
     }
 
     /** 朗读页：原「语音 › 回应」五个开关原样搬来。 */
@@ -305,12 +314,12 @@ final class VoicePage extends Console.BuiltPage {
     }
 
     @Override public void onShown() {
-        if (mode == MODE_WAKE && c.voiceprint().isActive()) return;   // 录制中不重画（别把引导文案踩掉）
+        if ((mode == MODE_WAKE || mode == MODE_BASIC || mode == MODE_ALL) && c.voiceprint().isActive()) return;   // 录制中不重画（别把引导文案踩掉）
         super.onShown();
     }
 
     @Override public void onRemoved() {
-        if (mode != MODE_WAKE) return;
+        if (mode == MODE_READ || mode == MODE_FEEL) return;
         VoiceprintEnrollController vp = c.voiceprint();
         if (vp.isActive()) {
             vp.abort();

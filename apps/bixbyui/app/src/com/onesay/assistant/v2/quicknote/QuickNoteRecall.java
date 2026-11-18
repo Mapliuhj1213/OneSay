@@ -66,11 +66,11 @@ public final class QuickNoteRecall {
 
     public static String missReply(String query) {
         if (query != null && QuickNoteIntent.PARCEL_ASK.matcher(QuickNoteIntent.norm(query)).matches()) {
-            return "记一记里还没有快递单号或取件码。把单号告诉我（比如「查快递 SF1234567890」），或在物流页面长按 Bixby 键记下来，我再帮你查；也可以打开菜鸟或淘宝的「我的物流」看。";
+            return "记一记里还没有快递单号或取件码。把单号告诉我（比如「查快递 SF1234567890」），或在物流页面长按唤醒键记下来，我再帮你查；也可以打开菜鸟或淘宝的「我的物流」看。";
         }
         String cat = QuickNoteSearch.categoryWord(query);
-        if (query != null && PARK.matcher(query).find()) return "记一记里没有停车位置。停好车可以说「随口记 车停在 B2-17」，或者长按 Bixby 键记下停车场的牌子。";
-        if (cat != null) return "记一记里没有" + cat + "。在有" + cat + "的页面长按 Bixby 键就能记下来。";
+        if (query != null && PARK.matcher(query).find()) return "记一记里没有停车位置。停好车可以说「随口记 车停在 B2-17」，或者长按唤醒键记下停车场的牌子。";
+        if (cat != null) return "记一记里没有" + cat + "。在有" + cat + "的页面长按唤醒键或说「记一记」就能记下来。";
         return "记一记里没找到相关的。可以说「记一记列表」看看都记了什么。";
     }
 

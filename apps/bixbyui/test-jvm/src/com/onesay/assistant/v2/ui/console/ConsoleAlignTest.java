@@ -30,17 +30,14 @@ public class ConsoleAlignTest {
 
     @Test public void sharedOrderMatchesDocAndHome() throws Exception {
         String d = doc();
-        String h = src(CON + "HomePage.java");
-        int set = h.indexOf("k.group(col, \"设置\")");
-        int prevDoc = -1, prevHome = set;
+        int prevDoc = -1;
         for (String[] g : ConsoleGroups.GROUPS) {
             int i = d.indexOf("| " + g[1] + " |", prevDoc + 1);
             assertTrue("清单里有「" + g[1] + "」且顺序对", i > prevDoc);
             prevDoc = i;
-            int j = h.indexOf("k.linkRow(g1, \"" + g[1] + "\"", prevHome);
-            assertTrue("首页有「" + g[1] + "」且顺序对", j > prevHome);
-            prevHome = j;
         }
+        // ★ design-1118：手机首页「设置」改成 4 行（旧分组页仍在，从这 4 页进得去）；清单第七节写明
+        assertTrue("清单写了新首页 4 行", d.contains("权限配置 · 基础设置 · 插件 · 高级"));
         assertTrue("关于在最后", d.indexOf("| 关于 |", prevDoc) > prevDoc);
         for (String w : new String[]{"Bixby", "三星"}) assertFalse(w, d.contains(w));
     }
@@ -98,7 +95,7 @@ public class ConsoleAlignTest {
         assertTrue("撤销先确认", gp.contains("k.confirm(\"撤销「\"") && gp.contains("ConsentPolicy.revoke(sign)"));
         assertFalse("隐私页并进权限与审批", gp.contains("class PrivacyPage"));
         String v = src(CON + "VoicePage.java");
-        assertTrue("语音一页 = 唤醒 + 朗读", v.contains("if (mode == MODE_ALL) buildRead(col);"));
+        assertTrue("语音一页 = 唤醒 + 朗读", v.contains("if (mode == MODE_ALL || mode == MODE_BASIC) buildRead(col);"));
         String f = src(CON + "FeaturesPage.java");
         assertTrue("灵动岛 / 主动建议两行在功能页最上面", f.indexOf("\"灵动岛\"") < f.indexOf("k.group(col, \"功能\")")
                 && f.indexOf("new GroupPages.SuggestPage(c)") < f.indexOf("k.group(col, \"功能\")"));
@@ -114,7 +111,8 @@ public class ConsoleAlignTest {
     }
 
     @Test public void noVendorWordsInConsoleUi() throws Exception {
-        for (String f : new String[]{"HomePage.java", "GroupPages.java", "AdvancedPage.java", "FeaturesPage.java", "AboutPage.java", "ConsoleGroups.java", "ConsoleStyle.java"}) {
+        for (String f : new String[]{"HomePage.java", "GroupPages.java", "AdvancedPage.java", "FeaturesPage.java", "AboutPage.java", "ConsoleGroups.java", "ConsoleStyle.java",
+                "DesignPages.java", "PermSetup.java", "PermSetupPage.java"}) {
             for (String line : src(CON + f).split("\n")) {
                 String t = line.trim();
                 if (t.startsWith("package ") || t.startsWith("import ") || t.startsWith("*") || t.startsWith("//") || t.startsWith("/*")) continue;

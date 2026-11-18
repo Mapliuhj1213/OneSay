@@ -38,42 +38,55 @@ public class ConsoleGroupsTest {
         assertEquals("开发者", ConsoleGroups.title(ConsoleGroups.DEV));
     }
 
+    /** ★ design-1118：首页「设置」只剩 4 行，顺序 = 权限配置 · 基础设置 · 插件 · 高级；关于 / 开发者都在「高级」里。 */
     @Test public void homeRendersGroupsInOrderThenAboutThenDeveloperLast() {
         String h = src(CON + "HomePage.java");
         int set = h.indexOf("k.group(col, \"设置\")");
         assertTrue(set > h.indexOf("k.group(col, \"计划\")"));
         int prev = set;
-        for (String[] g : ConsoleGroups.GROUPS) {
-            int i = h.indexOf("k.linkRow(g1, \"" + g[1] + "\"", set);
-            assertTrue("首页设置区有「" + g[1] + "」且顺序对", i > prev);
+        for (String t : new String[]{"权限配置", "基础设置", "插件", "高级"}) {
+            int i = h.indexOf("k.linkRow(g1, \"" + t + "\"", set);
+            assertTrue("首页设置区有「" + t + "」且顺序对", i > prev);
             prev = i;
         }
-        int about = h.indexOf("\"关于\"", prev), dev = h.indexOf("ConsoleGroups.DEV_TITLE", prev);
-        assertTrue("关于在分组之后", about > prev);
-        assertTrue("开发者在关于之后", dev > about);
-        String tail = h.substring(dev, h.indexOf("ConsoleStatus.Snapshot last = StatusProbe.last();"));
-        assertFalse("开发者之后不再有分组（放最下）", tail.contains("k.group(col"));
+        String tail = h.substring(prev, h.indexOf("ConsoleStatus.Snapshot last = StatusProbe.last();"));
+        assertFalse("高级之后不再有分组", tail.contains("k.group(col"));
+        assertFalse("首页不再有开发者折叠组", h.contains("ConsoleGroups.DEV_TITLE"));
+        String hub = src(CON + "DesignPages.java");
+        int adv = hub.indexOf("class AdvancedHubPage");
+        assertTrue("关于在高级页最下", hub.indexOf("\"关于\"", adv) > hub.indexOf("\"开发者\"", adv));
     }
 
     @Test public void developerCollapsedByDefaultAndHoldsDebugItems() {
         assertFalse(ConsoleGroups.DEV_EXPANDED_BY_DEFAULT);
-        String h = src(CON + "HomePage.java");
-        assertTrue("首帧按默认折叠", h.contains("setDevExpanded(ConsoleGroups.DEV_EXPANDED_BY_DEFAULT);"));
-        assertTrue("折叠 = 子行 GONE", h.contains("mDevBody.setVisibility(on ? View.VISIBLE : View.GONE);"));
-        assertTrue("点标题行切换", h.contains("setDevExpanded(!mDevExpanded);"));
-        int fill = h.indexOf("private void fillDev()");
-        String body = h.substring(fill, h.indexOf("private void setDevExpanded", fill));
-        // [console-align]「功能插件」搬到设置区「插件」：开发者里不再有它（原断言要求开发者里有 "功能插件" 与 new AdvancedPage.PluginsPage(c)）
-        for (String s : new String[]{"\"诊断与摘要\"", "\"调试工具\"", "new GroupPages.DevFeaturesPage(c)", "new DeveloperPage(c)"}) {
-            assertTrue("开发者里有 " + s, body.contains(s));
+        String hub = src(CON + "DesignPages.java");
+        String body = hub.substring(hub.indexOf("class AdvancedHubPage"));
+        for (String x : new String[]{"\"诊断与摘要\"", "\"调试工具\"", "new GroupPages.DevFeaturesPage(c)", "new DeveloperPage(c)",
+                "new AdvancedPage.PluginsPage(c)", "new StatusPage(c)", "new AboutPage(c)", "new DeviceCapsPage(c)"}) {
+            assertTrue("高级里有 " + x, body.contains(x));
         }
-        assertFalse("[console-align] 插件列表不在开发者里重复", body.contains("new AdvancedPage.PluginsPage(c)"));
-        int set = h.indexOf("k.group(col, \"设置\")");
-        assertTrue("[console-align] 插件列表在设置区「插件」", h.indexOf("k.linkRow(g1, \"插件\"", set) > set
-                && h.indexOf("new AdvancedPage.PluginsPage(c)", set) > h.indexOf("k.linkRow(g1, \"插件\"", set));
-        assertTrue("开发者模式变了会重画", h.contains("if (mDevBuiltFor != c.devMode()) fillDev();"));
+        assertTrue("调试工具只在开发者模式", body.indexOf("new DeveloperPage(c)") > body.indexOf("if (c.devMode())"));
         assertTrue("开发者模式提示指向新位置", DevMode.hint(0).contains("开发者"));
         assertFalse(DevMode.hint(0).contains("模型与密钥"));
+    }
+
+    /** ★ design-1118：插件页 —— 每个插件一个开关；开关关着点左边不进设置（ConsoleKit.switchLinkRow）；基础设置自成一页。 */
+    @Test public void pluginsPageGatesSettingsBehindSwitch() {
+        String kit = src(CON + "ConsoleKit.java");
+        int sl = kit.indexOf("public RowImpl switchLinkRow(");
+        String body = kit.substring(sl, kit.indexOf("public RowImpl linkRow(", sl));
+        assertTrue("关着不进细项页", body.contains("if (r.toggle != null && !r.toggle.isOn())") && body.indexOf("return;") < body.indexOf("open.run();"));
+        String dp = src(CON + "DesignPages.java");
+        for (String x : new String[]{"\"常用\"", "\"让手机替你做\"", "\"连接\"", "\"更多插件\"", "ConsoleHost.PAGE_ISLAND", "ConsoleHost.PAGE_QUICKNOTE",
+                "ConsoleHost.PAGE_MEMORY", "ConsoleHost.PAGE_SCREEN"}) {
+            assertTrue("插件页有 " + x, dp.contains(x));
+        }
+        int basics = dp.indexOf("class BasicsPage"), plugins = dp.indexOf("class PluginsPage");
+        String b = dp.substring(basics, plugins);
+        for (String x : new String[]{"AdvancedPage.MODE_BASIC", "VoicePage.MODE_BASIC", "\"浅色外观\"", "PrivacySettings.REDACT", "new GroupPages.PermPage(c, true)"}) {
+            assertTrue("基础设置有 " + x, b.contains(x));
+        }
+        assertFalse("基础设置里没有插件开关", b.contains("addConsolePage("));
     }
 
     // ------------------------------------------------------------------ 插件行分到哪一页（不丢、不重复）

@@ -93,7 +93,7 @@ public final class QuickNoteBook {
 
     public String recallReply(long now) {
         QuickNoteEntry e = latest(now);
-        if (e == null) return "你还没用过记一记。长按 Bixby 键（或说「记一记」）就会把当前屏幕记下来。";
+        if (e == null) return "你还没用过记一记。长按唤醒键（或说「记一记」）就会把当前屏幕记下来。";
         return when(e.createdAt, now) + "记一记的：" + e.summary;
     }
 

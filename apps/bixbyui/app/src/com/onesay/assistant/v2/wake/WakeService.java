@@ -4328,7 +4328,7 @@ public class WakeService extends Service {
                     "OneSay 语音唤醒与按键服务",
                     NotificationManager.IMPORTANCE_LOW
             );
-            chan.setDescription("维持麦克风监听与 Bixby 实体键响应");
+            chan.setDescription("维持麦克风监听与按键响应");
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.createNotificationChannel(chan);
         }

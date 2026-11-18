@@ -255,10 +255,9 @@ public final class S3Hooks {
                         }
                     }));
         } else {
-            LinearLayout g = host.group(root, "准点");
-            if (batteryWhitelisted(act)) {
-                host.valueRow(g, "电池优化白名单", "熄屏时也能准点", "已加入", com.onesay.assistant.v2.kernel.ConsoleHost.TONE_OK);
-            } else {
+            // ★ design-1118（合并同类项 M6）：电池白名单统一在「权限配置」；这里只在没加入时提示一行
+            if (!batteryWhitelisted(act)) {
+                LinearLayout g = host.group(root, "准点");
                 final com.onesay.assistant.v2.kernel.ConsoleHost.Row[] wl = new com.onesay.assistant.v2.kernel.ConsoleHost.Row[1];
                 wl[0] = host.actionRow(g, "电池优化白名单", "不在白名单，熄屏久了定时任务会晚", "加入", new Runnable() {
                     @Override public void run() {

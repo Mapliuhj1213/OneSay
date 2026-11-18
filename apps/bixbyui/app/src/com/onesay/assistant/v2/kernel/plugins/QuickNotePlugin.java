@@ -28,7 +28,7 @@ public final class QuickNotePlugin extends FeaturePlugin {
     public static final FeatureSwitch SWITCH = new FeatureSwitch("bixby_quicknote", "enabled", true, "quicknote.off");
 
     @Override public String id() { return "quicknote"; }
-    @Override public String title() { return "记一记（长按 Bixby 键）"; }
+    @Override public String title() { return "记一记（长按按键）"; }
     @Override public String logTag() { return "[QUICKNOTE]"; }
     @Override public String acceptanceModule() { return "quicknote"; }
     @Override public String prefsName() { return SWITCH.prefs; }
@@ -79,7 +79,7 @@ public final class QuickNotePlugin extends FeaturePlugin {
         final android.app.Activity act = host.activity();
         final boolean killed = SWITCH.killed(act);
         final java.util.List<com.onesay.assistant.v2.kernel.ConsoleHost.Row> subs = new java.util.ArrayList<com.onesay.assistant.v2.kernel.ConsoleHost.Row>();
-        com.onesay.assistant.v2.kernel.ConsoleHost.Row main = host.mainSwitch(root, "长按 Bixby 键 = 记一记",
+        com.onesay.assistant.v2.kernel.ConsoleHost.Row main = host.mainSwitch(root, "按键记一记",
                 act.getSharedPreferences(SWITCH.prefs, Context.MODE_PRIVATE).getBoolean(SWITCH.key, SWITCH.def),
                 new com.onesay.assistant.v2.kernel.ConsoleHost.Toggle() {
                     @Override public void onToggle(boolean on) {
@@ -98,7 +98,7 @@ public final class QuickNotePlugin extends FeaturePlugin {
             main.setEnabled(false);
             host.footer(root, com.onesay.assistant.v2.kernel.ConsoleHost.KILLED);
         }
-        host.footer(root, "长按 Bixby 键（≥0.8 秒，无声，岛上出「记录中」）或说「记一记」：读当前屏幕 → 本机分类 → 存进记一记。"
+        host.footer(root, "长按唤醒键（≥0.8 秒，无声，岛上出「记录中」）或说「记一记」：读当前屏幕 → 本机分类 → 存进记一记。"
                 + "按住多久都只记屏幕、不会唤醒助手；锁屏时按住 ≥2 秒 = 随口记。邮件里有待办 / 截止 / 会议会给「提醒」「加日程」。"
                 + "验证码 / 密码 / 卡号页不记、不截图。");
     }

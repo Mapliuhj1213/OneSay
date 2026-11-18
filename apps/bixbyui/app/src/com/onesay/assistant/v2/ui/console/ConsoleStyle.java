@@ -51,5 +51,5 @@ public final class ConsoleStyle {
     }
 
     /** 卡片圆角（dp，电脑端 22px）。 */
-    public static final int R_CARD = 22;
+    public static final int R_CARD = 20;   // ★ design-1118：20（电脑端 20px）
 }

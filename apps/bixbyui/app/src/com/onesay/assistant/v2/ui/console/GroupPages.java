@@ -22,12 +22,25 @@ final class GroupPages {
      * + 屏幕与剪贴板（原「隐私」页整页）+ 以后这类不用问（确认卡上点过「始终允许」的动作，可逐条撤销；对应电脑端同名一组）。
      */
     static final class PermPage extends Console.BuiltPage {
+        /** ★ design-1118：true = 基础设置 › 隐私与审批（只有「以后这类不用问」+ 应用白名单；系统权限并进「权限配置」，屏幕与剪贴板并进「插件」）。 */
+        final boolean privacyOnly;
+
         PermPage(Console c) {
-            super(c, "权限与审批");
+            this(c, false);
+        }
+
+        PermPage(Console c, boolean privacyOnly) {
+            super(c, privacyOnly ? "隐私与审批" : "权限与审批");
+            this.privacyOnly = privacyOnly;
         }
 
         @Override void build(LinearLayout col) {
             final ConsoleKit k = c.kit;
+            if (privacyOnly) {
+                buildRemembered(col);
+                buildWhitelist(col);
+                return;
+            }
             LinearLayout perm = k.group(col, "系统权限");
             if (StatusProbe.overlayOk(c.act)) {
                 k.valueRow(perm, "悬浮窗", "灵动岛靠它显示", "已授权", ConsoleHost.TONE_OK);

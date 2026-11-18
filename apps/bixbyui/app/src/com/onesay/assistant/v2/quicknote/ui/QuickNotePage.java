@@ -211,7 +211,7 @@ public final class QuickNotePage {
         mStat.setText(stat);
         mListBox.removeAllViews();
         if (rows.isEmpty()) {
-            mListBox.addView(small("这里还没有记一记。长按 Bixby 键记下当前屏幕，或说「随口记 …」。", SUB), lpW(dp(16)));
+            mListBox.addView(small("这里还没有记一记。长按唤醒键记下当前屏幕，或说「随口记 …」。", SUB), lpW(dp(16)));
             return;
         }
         String lastGroup = null;

@@ -92,6 +92,6 @@ public class ErrorStatePolicyTest {
         int c = s.indexOf("private void cancelAutoHide()");
         String body = s.substring(c, s.indexOf("}", c));
         assertTrue(body.contains("mErrorNeutralRunnable") && body.contains("mErrorHideRunnable"));
-        assertTrue("错误态下不能残留「正在听你说」副标题", s.contains("markTerminalState(Color.parseColor(\"#FF9F0A\"), \"没听清\", \"本次唤醒已结束\")"));
+        assertTrue("错误态下不能残留「正在听你说」副标题", s.contains("markTerminalState(Color.parseColor(\"#F2B33D\"), \"没听清\", \"本次唤醒已结束\")"));
     }
 }

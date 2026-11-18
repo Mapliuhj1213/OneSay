@@ -153,14 +153,18 @@ public class AsrFailureTest {
         assertEquals("需要处理", ConsoleStatus.hero(s).word);
         assertEquals("语音识别未配置", ConsoleStatus.hero(s).headline);
         assertEquals(ConsoleStatus.Level.BAD, ConsoleStatus.hero(s).level);
+        // ★ design-1118（mz21-perm）：首页只有一条「权限未就绪」提醒条，点进「权限配置」
         List<ConsoleStatus.Banner> b = ConsoleStatus.banners(s);
-        assertEquals(ConsoleStatus.Banner.ACT_ASR_KEY, b.get(0).actionId);
+        assertEquals(1, b.size());
+        assertEquals(ConsoleStatus.Banner.ACT_PERM, b.get(0).actionId);
         assertEquals("去配置", b.get(0).action);
+        assertTrue(b.get(0).text.contains("语音识别未配置"));
 
         s.micPermission = false;
         assertEquals("没有录音权限 · 语音识别未配置", ConsoleStatus.hero(s).headline);
-        assertEquals(ConsoleStatus.Banner.ACT_MIC, ConsoleStatus.banners(s).get(0).actionId);
-        assertEquals(ConsoleStatus.Banner.ACT_ASR_KEY, ConsoleStatus.banners(s).get(1).actionId);
+        assertEquals(1, ConsoleStatus.banners(s).size());
+        assertTrue(ConsoleStatus.banners(s).get(0).text.contains("没有录音权限"));
+        assertTrue(ConsoleStatus.banners(s).get(0).text.contains("语音识别未配置"));
 
         s = healthy();
         s.asrKeyInvalid = true;

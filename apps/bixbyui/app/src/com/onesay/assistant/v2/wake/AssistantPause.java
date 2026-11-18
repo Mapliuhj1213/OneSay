@@ -39,7 +39,7 @@ public final class AssistantPause {
 
     /** 前台通知文案（暂停时提醒用户为什么按键没反应）。 */
     public static String notificationText(boolean paused, boolean running) {
-        if (paused) return "已暂停：唤醒与 Bixby 键不响应（在控制台恢复）";
-        return running ? "语音与 Bixby 按键监听中" : "正在加载模型...";
+        if (paused) return "已暂停：唤醒与按键不响应（在控制台恢复）";
+        return running ? "语音与按键监听中" : "正在加载模型...";
     }
 }

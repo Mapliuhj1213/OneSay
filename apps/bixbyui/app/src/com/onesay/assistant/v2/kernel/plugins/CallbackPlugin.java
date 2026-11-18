@@ -288,7 +288,7 @@ public final class CallbackPlugin extends FeaturePlugin {
         host.actionRow(rel, "一键还原", "按记录的原状态撤销，并关闭自动加入", "还原", new Runnable() {
             @Override public void run() { runPower(host, false); }
         });
-        host.footer(root, "三星「设备维护 › 电池 › 应用程序电源监控」里的休眠名单读不到，请手动把 OneSay 设为「不休眠」。");
+        host.footer(root, "部分手机（系统「设备维护 › 电池」一类页面）另有休眠名单，这里读不到，请手动把 OneSay 设为「不休眠」。");
         com.onesay.assistant.v2.util.Threads.start("cb-reliability", new Runnable() {
             @Override public void run() {
                 final List<ReliabilityCheck.Item> items = probe(act.getApplicationContext());

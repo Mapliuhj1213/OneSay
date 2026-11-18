@@ -81,13 +81,16 @@ public final class ConsoleGroups {
      * JVM 测试逐条检查「标识」确实在新文件里，保证所有原入口都找得到。★ console-align 起「新位置」写的是 2026-11-12 的位置。
      */
     public static final String[][] MOVES = {
+            // ---- ★ design-1118：首页设置区 4 行（权限配置 · 基础设置 · 插件 · 高级）
+            {"首页 · 状态胶囊 + 多条提醒条", "首页 · Hero + 至多一条「权限未就绪 / 待确认」→ 权限配置", "ui/console/HomePage.java", "new PermSetupPage(c)"},
+            {"设置 · 连接 / 替你操作 / 功能 / 下载（插件行）", "插件（每行一个开关，开着才进设置）", "ui/console/DesignPages.java", "FeatureKernel.get().addConsolePage(c, ConsoleHost.PAGE_FEATURES, g2, ACT, null)"},
             // ---- 首页
             {"首页 · 状态卡 / 提醒条", "首页 · 状态卡 / 提醒条（不变）", "ui/console/HomePage.java", "col.addView(hero());"},
             {"首页 · 记一记 / 记忆两张卡", "首页 · 两张卡（不变）", "ui/console/HomePage.java", "\"记一记\""},
             {"首页 · 计划区", "首页 · 计划区（不变）", "ui/console/HomePage.java", "\"打开计划\""},
-            {"首页 · 模型 · 模型与密钥", "设置 · 模型与密钥", "ui/console/HomePage.java", "new AdvancedPage(c)"},
+            {"首页 · 模型 · 模型与密钥", "基础设置 · 模型（+ 高级 · 模型细项）", "ui/console/DesignPages.java", "new AdvancedPage(c, AdvancedPage.MODE_BASIC)"},
             {"首页 · 设置 · 灵动岛", "设置 · 功能 · 灵动岛（最上面一行）", "ui/console/FeaturesPage.java", "ConsoleHost.PAGE_ISLAND, \"灵动岛\""},
-            {"首页 · 设置 · 关于", "设置区下方 · 关于", "ui/console/HomePage.java", "new AboutPage(c)"},
+            {"首页 · 设置 · 关于", "高级 · 关于", "ui/console/DesignPages.java", "new AboutPage(c)"},
             // ---- 功能与权限 › 功能（PAGE_FEATURES 插件行）
             {"功能与权限 · 功能 · 计划 App", "设置 · 功能 · 计划 App", "ui/console/FeaturesPage.java", "ConsoleGroups.FEATURES_EXCLUDE"},
             {"功能与权限 · 功能 · 日程", "设置 · 功能 · 日程", "ui/console/FeaturesPage.java", "ConsoleHost.PAGE_FEATURES"},
@@ -124,11 +127,11 @@ public final class ConsoleGroups {
             {"模型与密钥 · 备用模型", "设置 · 模型与密钥 · 备用模型", "ui/console/AdvancedPage.java", "editBackup();"},
             {"模型与密钥 · 账户 · 邮箱（IMAP）", "设置 · 模型与密钥 · 账户（不变）", "ui/console/AdvancedPage.java", "MailSettingsActivity.class"},
             {"模型与密钥 · 外观 · 浅色外观", "设置 · 关于 · 外观", "ui/console/AboutPage.java", "\"浅色外观\""},
-            {"模型与密钥 · 插件 · 功能插件（2026-11-05 起在开发者）", "设置 · 插件", "ui/console/HomePage.java", "new AdvancedPage.PluginsPage(c)"},
-            {"模型与密钥 · 开发者（开发者模式）", "开发者 · 调试工具（开发者模式）", "ui/console/HomePage.java", "new DeveloperPage(c)"},
+            {"模型与密钥 · 插件 · 功能插件（2026-11-05 起在开发者）", "高级 · 开发者 · 插件状态（只读）", "ui/console/DesignPages.java", "new AdvancedPage.PluginsPage(c)"},
+            {"模型与密钥 · 开发者（开发者模式）", "高级 · 开发者 · 调试工具（开发者模式）", "ui/console/DesignPages.java", "new DeveloperPage(c)"},
             // ---- ★ console-align 2026-11-12
-            {"设置 · 语音唤醒 / 朗读（两行）", "设置 · 语音（一页：唤醒 + 朗读）", "ui/console/HomePage.java", "VoicePage.all(c)"},
-            {"设置 · 权限保活 / 隐私（两行）", "设置 · 权限与审批（一页）", "ui/console/HomePage.java", "new GroupPages.PermPage(c)"},
+            {"设置 · 语音唤醒 / 朗读（两行）", "基础设置 · 声音与朗读（+ 高级 · 唤醒手感）", "ui/console/DesignPages.java", "new VoicePage(c, VoicePage.MODE_BASIC)"},
+            {"设置 · 权限保活 / 隐私（两行）", "权限配置（系统权限）+ 基础设置 · 隐私与审批 + 插件（屏幕与剪贴板）", "ui/console/DesignPages.java", "new GroupPages.PermPage(c, true)"},
             {"功能 · 电脑联动", "设置 · 连接 · 电脑联动", "ui/console/GroupPages.java", "ConsoleGroups.CONNECT_PLUGINS, null"},
             {"功能 · 替你操作 App / 接口优先", "设置 · 替你操作", "ui/console/GroupPages.java", "ConsoleGroups.ACT_PLUGINS, null"},
             {"电脑联动 · 让电脑做事 · 把链接下到电脑", "设置 · 下载", "pclink/PcLinkUi.java", "public static void addDownloadRows("},
