@@ -42,6 +42,8 @@ import static org.junit.Assert.*;
  * 电脑端 jar 同 {@link PcDesktopInteropTest}（缺省 /tmp/osd-build/onesay-desktop.jar，缺 jar 整类跳过）。
  */
 public class PcLinkV2InteropTest {
+    /** ★ fix-1118 SEC L2：测试预设的界面入口钥匙（电脑端只在 ONESAY_TEST_ACTIONS=1 时认）。 */
+    static final String LAUNCH_KEY = "itest_launch_key_0123456789";
 
     static File jar;
     static URLClassLoader cl;
@@ -66,6 +68,7 @@ public class PcLinkV2InteropTest {
         String java = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
         ProcessBuilder pb = new ProcessBuilder(java, "-Djava.awt.headless=true", "-jar", jar.getAbsolutePath(), "--config", cfg.toString(), "app", "--tray");
         pb.environment().put("ONESAY_TEST_ACTIONS", "1");
+        pb.environment().put("ONESAY_TEST_LAUNCH_KEY", LAUNCH_KEY);   // ★ fix-1118 SEC L2：页面要入口钥匙
         pb.environment().put("ONESAY_UI_PORT", "0");
         pb.environment().remove("APPDATA");
         pb.redirectErrorStream(true).redirectOutput(dir.resolve("desktop.out").toFile());
@@ -79,7 +82,7 @@ public class PcLinkV2InteropTest {
             else Thread.sleep(150);
         }
         assertTrue("电脑端界面没起来：" + out(), uiPort > 0);
-        Matcher t = Pattern.compile("const TOKEN='([A-Za-z0-9_-]+)'").matcher(http("GET", "/", null, null));
+        Matcher t = Pattern.compile("const TOKEN='([A-Za-z0-9_-]+)'").matcher(http("GET", "/?k=" + LAUNCH_KEY, null, null));
         assertTrue(t.find());
         token = t.group(1);
     }
@@ -212,9 +215,11 @@ public class PcLinkV2InteropTest {
         assertEquals("pin", d.fail);
         assertTrue(d.text, d.text.contains("加密"));
 
-        // 没见过的旧版手机（v1 明文）照样能用
+        // ★ fix-1118 SEC M6：没见过的旧版手机（v1 明文）默认也不收（电脑端 lan_plain 默认关，要明确打开）
         PcLanClient.Peer legacy = new PcLanClient.Peer("phone-legacy", p.peer, p.key, p.lanHosts, p.lanPort, "");
-        assertTrue(PcLanClient.once(legacy, "ping", null, 1500, 5000, null, null).ok);
+        PcLanClient.Result lg = PcLanClient.once(legacy, "ping", null, 1500, 5000, null, null);
+        assertFalse(lg.ok);
+        assertEquals("pin", lg.fail);
     }
 
     // ------------------------------------------------------------------ 电脑 → 手机

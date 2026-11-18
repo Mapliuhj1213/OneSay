@@ -36,6 +36,8 @@ import static org.junit.Assert.*;
  * 电脑端 jar 同 {@link PcDesktopInteropTest}（缺 jar 或 jar 里没有链接下载整类跳过）。
  */
 public class PcMediaInteropTest {
+    /** ★ fix-1118 SEC L2：测试预设的界面入口钥匙（电脑端只在 ONESAY_TEST_ACTIONS=1 时认）。 */
+    static final String LAUNCH_KEY = "itest_launch_key_0123456789";
 
     static final String URL_OK = "https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_Trailer_1080p.ogv";
     static Process proc;
@@ -90,6 +92,7 @@ public class PcMediaInteropTest {
         String java = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
         ProcessBuilder pb = new ProcessBuilder(java, "-Djava.awt.headless=true", "-Donesay.tools.dir=" + tools, "-jar", jar.getAbsolutePath(), "--config", cfg.toString(), "app", "--tray");
         pb.environment().put("ONESAY_TEST_ACTIONS", "1");
+        pb.environment().put("ONESAY_TEST_LAUNCH_KEY", LAUNCH_KEY);   // ★ fix-1118 SEC L2：页面要入口钥匙
         pb.environment().put("ONESAY_UI_PORT", "0");
         pb.environment().remove("APPDATA");
         pb.environment().remove("USERPROFILE");
@@ -104,7 +107,7 @@ public class PcMediaInteropTest {
             else Thread.sleep(150);
         }
         assertTrue("电脑端界面没起来：" + out(), uiPort > 0);
-        Matcher t = Pattern.compile("const TOKEN='([A-Za-z0-9_-]+)'").matcher(http("GET", "/", null, null));
+        Matcher t = Pattern.compile("const TOKEN='([A-Za-z0-9_-]+)'").matcher(http("GET", "/?k=" + LAUNCH_KEY, null, null));
         assertTrue(t.find());
         token = t.group(1);
     }

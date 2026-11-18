@@ -114,6 +114,11 @@ public final class PcLinkUi {
                 });
             }
         });
+        // ★ fix-1118 SEC M6：旧版明文配对默认不收，要连 0.4.x 电脑端得在这里明确打开
+        host.switchRow(g, "允许旧版明文配对", "只为连电脑端 0.4.x：连接有签名但不加密。电脑端 0.5.0 起用不到，默认关", PcLink.allowPlainV1(act),
+                new ConsoleHost.Toggle() {
+                    @Override public void onToggle(boolean on) { PcLink.setAllowPlainV1(act, on); }
+                });
         host.footer(root, "手机和电脑要连同一个 Wi-Fi（局域网直连，不经过任何服务器）。配对码等于钥匙，只在自己的设备之间传。"
                 + "没配对时这个功能什么都不做、不联网。本机名：" + PcLink.me(act));
     }

@@ -75,7 +75,7 @@ public class PcDesktopInteropTest {
         port = freePort();
         dir = Files.createTempDirectory("pclink-interop");
         Path cfg = dir.resolve("desktop.properties").toAbsolutePath();
-        String props = "lan_port=" + port + "\n" + "device_id=" + PC + "\n" + "kind=pc\n" + "ptt=off\n"
+        String props = "lan_port=" + port + "\n" + "device_id=" + PC + "\n" + "kind=pc\n" + "ptt=off\n" + "lan_plain=on\nlan_plain_v=2\n" /* ★ fix-1118 SEC M6：本测试走 v1 明文兼容路径，要明确打开 */
                 + "pair_key=" + PcB64.encodeUrl(KEY) + "\n";
         Files.write(cfg, props.getBytes(StandardCharsets.UTF_8));
         // 回归：机器上已经有一个 OneSay 在 127.0.0.1:47830 答 /ping 时也要能起来（以前整类因此报「进程提前退出」）。

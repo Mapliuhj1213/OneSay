@@ -47,6 +47,15 @@ public final class PcPairing {
         this.version = version;
     }
 
+    /** ★ fix-1118 SEC M6：拒绝旧版明文配对时给人看的话。 */
+    public static final String PLAIN_REFUSED = "这是旧版电脑端（0.4.x）的配对码，连接不加密，默认不接受。请把电脑端更新到 0.5.0 以上再复制配对码；"
+            + "确实要连旧版电脑，在本页打开「允许旧版明文配对」后再粘贴";
+
+    /** ★ fix-1118 SEC M6：没带证书指纹（v1 明文）且用户没明确允许 → 抛 IllegalArgumentException。 */
+    public static void requireSecure(PcPairing p, boolean allowPlainV1) {
+        if (p != null && p.fp.length() == 0 && !allowPlainV1) throw new IllegalArgumentException(PLAIN_REFUSED);
+    }
+
     /** 不合法抛 IllegalArgumentException（消息给人看，不含串内容）。 */
     public static PcPairing parse(String raw) {
         String s = normalize(raw);

@@ -48,7 +48,7 @@ public final class Config {
     public String tlsCert = "";       // 本机自签证书（DER，base64url）
     public String peerFp = "";        // 下令端：配对串里对方电脑的证书指纹（空 = 旧版配对串，走明文 v1）
     public String pins = "";          // 记住的对方设备证书指纹：设备id=指纹,...（首次 TLS 连上时记，换钥匙清空）
-    public boolean lanPlain = true;   // 还接受旧版（v1，明文）手机；已经用 TLS 连过的设备不再接受明文
+    public boolean lanPlain = false;   // ★ fix-1118 SEC M6：默认不再接受旧版（v1，明文）手机；lan_plain=on 明确打开才收，已经用 TLS 连过的设备照旧不接受明文
     public String phoneLast = "";     // 最近一台常连（hold）的手机 id，电脑→手机下令时找它
     public String pcLevel = "auto";   // 旧版的三档（read_only / auto / full）：只为兼容旧配置和旧手机；现在以下面两轴为准
     public String pcSandbox = "workspace_write"; // 沙箱档：read_only / workspace_write（默认）/ full_access（LinkPolicy.Sandbox）
@@ -111,7 +111,9 @@ public final class Config {
         c.tlsCert = p.getProperty("tls_cert", "").trim();
         c.peerFp = p.getProperty("peer_fp", "").trim();
         c.pins = p.getProperty("lan_pins", "").trim();
-        c.lanPlain = !"off".equalsIgnoreCase(p.getProperty("lan_plain", "on").trim());
+        // ★ fix-1118 SEC M6：默认关。迁移：0.5.1 以前每次保存都把默认值 lan_plain=on 写进文件，分不出是不是用户自己开的 ——
+        // 没有 lan_plain_v=2 标记的旧配置一律按关处理（下次保存写上标记）；要连 0.4.x 手机得重新明确打开（设置 / 配置文件写 lan_plain=on）。
+        c.lanPlain = "2".equals(p.getProperty("lan_plain_v", "").trim()) && "on".equalsIgnoreCase(p.getProperty("lan_plain", "off").trim());
         c.phoneLast = p.getProperty("phone_last", "").trim();
         c.pcLevel = LinkPolicy.Level.of(p.getProperty("pc_level", "auto")).id;
         // 两轴：新配置直接读；旧配置只有 pc_level，按 LinkPolicy.Mode.ofLegacy 映射（只读 / 自动 / 完全访问 → 两轴）
@@ -201,6 +203,7 @@ public final class Config {
         p.setProperty("peer_fp", peerFp);
         p.setProperty("lan_pins", pins);
         p.setProperty("lan_plain", lanPlain ? "on" : "off");
+        p.setProperty("lan_plain_v", "2");   // ★ fix-1118 SEC M6：迁移标记（见 load）
         p.setProperty("phone_last", phoneLast);
         try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) { p.store(w, "OneSay desktop - contains secrets, do not share"); }
         try { Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------")); } catch (UnsupportedOperationException | IOException ignored) { }

@@ -87,7 +87,7 @@ public final class App {
         // 已经开着一个：只把窗口叫出来
         int up = uiPort();
         if (up > 0 && ping(up)) {
-            if (showWindow) openWindow("http://127.0.0.1:" + up + "/");
+            if (showWindow && !askShow(up)) openWindow("http://127.0.0.1:" + up + "/");   // ★ fix-1118 SEC L2：页面要入口钥匙，交给正在运行的那个开窗口
             return;
         }
         autoSetup(cfg);
@@ -96,6 +96,18 @@ public final class App {
         app.start();
         if (showWindow) openWindow(app.ui.url());
         Thread.currentThread().join();
+    }
+
+    /** ★ fix-1118 SEC L2：叫正在运行的 OneSay 自己开窗口。 */
+    static boolean askShow(int port) {
+        try {
+            HttpResponse<String> r = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(600)).build()
+                    .send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/show")).timeout(Duration.ofSeconds(2))
+                            .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+            return r.statusCode() == 200;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     static boolean ping(int port) {
@@ -134,10 +146,11 @@ public final class App {
         voice.fallback = text -> String.valueOf(chat.send(text, "voice").get("text"));
         voice.approvalPending = () -> !agent.confirms.list().isEmpty();
         voice.start();
-        ui = new UiServer();
+        ui = new UiServer("1".equals(System.getenv("ONESAY_TEST_ACTIONS")) ? System.getenv("ONESAY_TEST_LAUNCH_KEY") : null);   // ★ fix-1118 SEC L2：测试才可预设入口钥匙
         routes();
         if (!ui.start(uiPort()) && !ui.start(0)) throw new IOException("界面端口打不开");
-        log.accept("界面 " + ui.url());
+        ui.onShow = () -> openWindow(ui.url());
+        log.accept("界面 " + ui.baseUrl());   // ★ fix-1118 SEC L2：入口钥匙不进日志
         Host.ready(ui.url()); // OneSay.exe 托管时：记下地址，再次双击 OneSay.exe 就叫出窗口
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();

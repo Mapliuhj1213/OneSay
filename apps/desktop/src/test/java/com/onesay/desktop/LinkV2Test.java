@@ -196,7 +196,9 @@ public class LinkV2Test {
             assertFalse("证书和记住的不一致必须拒", m.up && m.request(other, "ping", new TreeMap<>()) != null);
             assertTrue(m.why.get(), m.why.get().contains("旧证书"));
 
-            // 没见过的旧版手机仍可明文（兼容 v1）
+            // ★ fix-1118 SEC M6：默认不收明文；明确打开 lan_plain 后，没见过的旧版手机才可明文（兼容 v1）
+            assertFalse("默认关", new Config(java.nio.file.Paths.get("unused.properties")).lanPlain);
+            s.cfg.lanPlain = true;
             Config legacy = phoneCfg(s.cfg, "phone-legacy");
             legacy.peerFp = "";
             Conn lg = new Conn(legacy, false, null);

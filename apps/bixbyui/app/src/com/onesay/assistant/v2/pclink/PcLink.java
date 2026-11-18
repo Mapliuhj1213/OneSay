@@ -102,6 +102,7 @@ public final class PcLink {
     /** 保存配对（不合法抛 IllegalArgumentException，消息可直接给人看）。 */
     public static PcPairing pair(Context c, String raw) {
         PcPairing p = PcPairing.parse(raw);
+        PcPairing.requireSecure(p, allowPlainV1(c));   // ★ fix-1118 SEC M6：旧版（v1 明文）配对码默认拒，用户在电脑联动页明确打开才收
         me(c);
         SharedPreferences.Editor e = sp(c).edit();
         SecretPrefs.put(e, K_KEY, PcB64.encodeUrl(p.key));
@@ -117,6 +118,17 @@ public final class PcLink {
         sp(c).edit().remove(K_KEY).remove(K_PEER).remove(K_HOSTS).remove(K_PORT).remove(K_LAST).remove(K_NAME).remove(K_PAIRED_AT).remove(K_FP).commit();
         PcRxAndroid.ensure(c); // 让常连循环看到「没配对」后自己停
         Log.i(TAG, "[PCLINK] 已解除配对");
+    }
+
+    /** ★ fix-1118 SEC M6：允许旧版（电脑端 0.4.x，v1 明文）配对码 —— 默认关，用户在「电脑联动 › 配对」里明确打开。 */
+    static final String K_ALLOW_PLAIN = "allow_plain_v1";
+
+    public static boolean allowPlainV1(Context c) {
+        return sp(c).getBoolean(K_ALLOW_PLAIN, false);
+    }
+
+    public static void setAllowPlainV1(Context c, boolean on) {
+        sp(c).edit().putBoolean(K_ALLOW_PLAIN, on).apply();
     }
 
     /** 电脑证书指纹（v1 配对为空串）。 */
