@@ -45,6 +45,8 @@ public final class Chat {
     volatile String taskId = "", taskCard = "";
     /** 新任务开始（App 接到 PcGuard.taskStarted：上一个任务的批准不带过来）。 */
     public volatile Consumer<String> onTaskStart = t -> { };
+    /** [overnight-1119] 任务结束（至少执行过一步）：(状态, 标题 + 答复)，App 发「任务完成」通知。 */
+    public volatile java.util.function.BiConsumer<String, String> onTaskEnd = (st, t) -> { };
     /** 任务进行中发来、还没交给模型的消息 id（先进先出，和 agent.inbox 对应）。 */
     private final java.util.concurrent.ConcurrentLinkedQueue<String> queuedIds = new java.util.concurrent.ConcurrentLinkedQueue<>();
     private final Object queueLock = new Object();
@@ -86,8 +88,99 @@ public final class Chat {
      * 处理一句话（打字或语音转来的），返回助手回复那一条。
      * [approvals-1118] 任务进行中发来的不再卡住：立刻记进对话（标「已收到，下一步处理」）并排进任务，下一步之前交给模型；「停」直接停。
      */
-    public Map<String, Object> send(String text, String via) {
+    public Map<String, Object> send(String text, String via) { return send(text, via, List.of()); }
+
+    Store store() { return store; }
+
+    // ------------------------------------------------------------------ [overnight-1119] 附件：粘贴截图 / 拖进来 / 附件按钮
+
+    /** 单个附件最大（字节）。 */
+    public static final int ATTACH_MAX = 10 * 1024 * 1024;
+    /** 这次运行里收进来的附件（界面能按路径取回来显示）。 */
+    final java.util.Set<String> attached = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+
+    /** 收一个附件：存进工作区 inbox/，返回 {ok, path, kind(image|text|file), name}。 */
+    public Map<String, Object> attach(String name, String b64) {
+        Map<String, Object> out = new TreeMap<>();
+        out.put("ok", false);
+        byte[] data;
+        try {
+            data = java.util.Base64.getDecoder().decode(b64 == null ? "" : b64.replaceAll("^data:[^,]*,", ""));
+        } catch (IllegalArgumentException e) {
+            out.put("text", "附件读不出来");
+            return out;
+        }
+        if (data.length == 0) { out.put("text", "附件是空的"); return out; }
+        if (data.length > ATTACH_MAX) { out.put("text", "附件太大（超过 10 MB）"); return out; }
+        String safe = (name == null || name.isBlank() ? "附件" : name).replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_");
+        if (safe.length() > 80) safe = safe.substring(safe.length() - 80);
+        if (!safe.contains(".") && isPng(data)) safe += ".png";
+        try {
+            Path dir = workspacePath().resolve("inbox");
+            Files.createDirectories(dir);
+            Path f = dir.resolve(java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")) + "-" + safe);
+            Files.write(f, data);
+            attached.add(f.toString());
+            out.put("ok", true);
+            out.put("path", f.toString());
+            out.put("name", safe);
+            out.put("kind", isImage(f) ? "image" : isText(f) ? "text" : "file");
+            out.put("size", (long) data.length);
+        } catch (Exception e) {
+            out.put("text", "附件存不进工作区：" + e.getClass().getSimpleName());
+        }
+        return out;
+    }
+
+    static boolean isPng(byte[] b) { return b.length > 8 && (b[0] & 0xff) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G'; }
+
+    /** 附件交给模型的说明：图片交看图模型描述（没配就 OCR 读文字），文本读内容（≤8000 字），其他只给路径。 */
+    String attachNote(List<String> paths) {
+        StringBuilder b = new StringBuilder();
+        int i = 0;
+        for (String p : paths) {
+            if (p == null || !attached.contains(p)) continue;
+            Path f = java.nio.file.Paths.get(p);
+            if (!Files.isRegularFile(f)) continue;
+            i++;
+            b.append("\n（用户附件 ").append(i).append("：").append(f.getFileName()).append("，已存到 ").append(f).append("）");
+            try {
+                if (isImage(f)) {
+                    byte[] png = Files.readAllBytes(f);
+                    Looker lk = null;
+                    try { lk = looker.get(); } catch (RuntimeException ignored) { }
+                    String seen = null, how;
+                    if (lk != null) {
+                        try { seen = lk.look(png, "用户把这张图发给你，可能是截图。"); how = "看图模型（" + lk + "）的描述"; }
+                        catch (Exception e) { how = "看图模型没成功，改用 OCR"; }
+                    } else how = "没配看图模型，下面是 OCR 读出的文字（只有文字，没有图标 / 颜色 / 布局）";
+                    if (seen == null) {
+                        try { String o = ocr.read(f); seen = o.isBlank() ? "（OCR 没读到文字）" : o; if (lk != null) how = "OCR 读出的文字"; }
+                        catch (Exception e) { seen = "（看不了图：没配看图模型，系统 OCR 也不可用。可以请用户用文字说一下图里是什么）"; }
+                    }
+                    b.append("\n【").append(how).append("】\n").append(ChatAgent.clip(seen, 4000));
+                } else if (isText(f) && Files.size(f) <= 512 * 1024) {
+                    b.append("\n【文件内容】\n").append(ChatAgent.clip(new String(Files.readAllBytes(f), java.nio.charset.StandardCharsets.UTF_8), 8000));
+                } else {
+                    b.append("（").append(Files.size(f)).append(" 字节，需要时用命令打开）");
+                }
+            } catch (Exception e) {
+                b.append("（读不出来：").append(e.getClass().getSimpleName()).append("）");
+            }
+        }
+        return b.toString();
+    }
+
+    public Map<String, Object> send(String text, String via, List<String> attachments) {
         text = text == null ? "" : text.trim();
+        List<String> att = new ArrayList<>();
+        if (attachments != null) for (String p : attachments) if (p != null && attached.contains(p) && att.size() < 6) att.add(p);
+        if (text.isEmpty() && !att.isEmpty()) text = "（发来 " + att.size() + " 个附件）";
+        if (!att.isEmpty()) {
+            String note = attachNote(att);
+            pendingAttach = new Object[] {att, note};
+        }
         if (text.isEmpty()) return add("assistant", "没收到内容", null);
         if (text.length() > 4000) text = text.substring(0, 4000);
         synchronized (queueLock) {
@@ -98,9 +191,12 @@ public final class Chat {
                 u.put("at", System.currentTimeMillis());
                 u.put("queued", true);
                 if (via != null) u.put("via", via);
+                String note = "";
+                Object[] pa = pendingAttach;
+                if (pa != null) { pendingAttach = null; putAttach(u, pa); note = String.valueOf(pa[1]); }
                 Map<String, Object> m = store.add("chat", u, Store.MAX_CHAT);
                 queuedIds.add(String.valueOf(m.get("id")));
-                agent.inbox.add(text);
+                agent.inbox.add(text + note);
                 if (ChatAgent.stopWord(text)) agent.cancel.set(true);
                 return m;
             }
@@ -108,15 +204,37 @@ public final class Chat {
         return handle(text, via, true);
     }
 
+    /** 下一条用户消息带的附件（路径列表、给模型的说明）。 */
+    volatile Object[] pendingAttach;
+
+    @SuppressWarnings("unchecked")
+    static void putAttach(Map<String, Object> u, Object[] pa) {
+        List<String> img = new ArrayList<>(), oth = new ArrayList<>();
+        for (String p : (List<String>) pa[0]) (isImage(java.nio.file.Paths.get(p)) ? img : oth).add(p);
+        if (!img.isEmpty()) u.put("images", img);
+        if (!oth.isEmpty()) u.put("files", oth);
+        u.put("attach_note", pa[1]);
+    }
+
     private synchronized Map<String, Object> handle(String text, String via, boolean addUser) {
-        if (addUser) add("user", text, via);
+        Object[] pa = pendingAttach;
+        pendingAttach = null;
+        if (addUser) {
+            Map<String, Object> u = new TreeMap<>();
+            u.put("role", "user");
+            u.put("text", text);
+            u.put("at", System.currentTimeMillis());
+            if (via != null) u.put("via", via);
+            if (pa != null) putAttach(u, pa);
+            store.add("chat", u, Store.MAX_CHAT);
+        }
 
         Llm llm0 = Llm.from(cfg);
         boolean modelOk = brain != null || llm0.ready();
         boolean tasks = modelOk && pcExec != null;
         // [chat-agent-1118] 「继续」接着上一件事（上一条助手回复是模型 / 任务的）：交给模型，不再被当成「播放 / 暂停」媒体键
         boolean cont = modelOk && Intent.isContinuation(text) && continuing();
-        Intent it = cont ? null : Intent.parse(text, cfg.appMap(), shortcuts.get(), tasks);
+        Intent it = cont || (pa != null && modelOk) ? null : Intent.parse(text, cfg.appMap(), shortcuts.get(), tasks); // 带附件的交给模型
         if (it == null) return answer(llm0, tasks, true);
         if (it.phoneCmd != null) return add("assistant", runPhone(it), "cmd");
         if (it.cmd != null) {
@@ -202,11 +320,16 @@ public final class Chat {
                     taskCard = "";
                     return add("assistant", reply, "error");
                 }
+                // [overnight-1119] 按目标判定：被挡 / 没做成不再标绿「完成」
+                @SuppressWarnings("unchecked") List<Object> stepsNow = stl instanceof List ? (List<Object>) stl : List.of();
+                Outcomes.TaskEnd te = Outcomes.judgeTask(o.status, reply, stepsNow);
+                reply = Humanize.text(te.text.isEmpty() ? reply : te.text); // [overnight-1119] 不露内部能力名、修病句
                 Map<String, Object> patch = new TreeMap<>();
-                patch.put("state", o.status);
+                patch.put("state", te.state);
                 patch.put("answer", reply);
                 patch.put("ended_at", System.currentTimeMillis());
                 store.update("chat", card, patch);
+                if (o.steps > 0) try { onTaskEnd.accept(te.state, String.valueOf(cardNow == null ? "" : cardNow.getOrDefault("title", "")) + "\n" + reply); } catch (RuntimeException ignored) { } // [overnight-1119] 任务完成进通知
                 try { compactOldCards(); } catch (RuntimeException e) { log.accept("压缩旧任务输出失败：" + e.getClass().getSimpleName()); }
                 turnsSinceMemory++;
                 if (brain == null) maybeUpdateMemory(llm);
@@ -277,6 +400,7 @@ public final class Chat {
         if (cmd.startsWith("phone_")) return phoneTool(cmd, args);
         if ("screen_look".equals(cmd)) return screenLook(args);
         if ("show_file".equals(cmd)) return showFile(String.valueOf(args.get("path")));
+        if ("ask_choice".equals(cmd)) return askChoice(args);
         if ("android_ui".equals(cmd)) return androidUi(args);
         Actions.Result r = pe.run(cmd, args);
         if ("file_write".equals(cmd) && r != null && r.ok) {
@@ -290,6 +414,23 @@ public final class Chat {
             }
         }
         return r;
+    }
+
+    /** [overnight-1119] 选择卡：在任务卡上列候选 +「都不是，我来补充」，等用户点。 */
+    @SuppressWarnings("unchecked")
+    Actions.Result askChoice(Map<String, Object> a) {
+        List<Map<String, Object>> opts = new ArrayList<>();
+        if (a.get("options") instanceof List) for (Object o : (List<Object>) a.get("options")) if (o instanceof Map) opts.add((Map<String, Object>) o);
+        if (opts.isEmpty()) return Actions.Result.fail("没有候选");
+        String pick = choices.askOptions(taskId, String.valueOf(a.getOrDefault("question", "")), opts);
+        Map<String, Object> d = new TreeMap<>();
+        if (pick.matches("o\\d")) {
+            Map<String, Object> o = opts.get(Integer.parseInt(pick.substring(1)));
+            d.put("picked", o.get("title"));
+            return Actions.Result.ok("用户选了：" + o.get("title") + (String.valueOf(o.getOrDefault("detail", "")).isBlank() ? "" : "（" + o.get("detail") + "）") + "。就按这个做。", d);
+        }
+        d.put("reason", pick.equals("other") ? "choice_other" : "choice_timeout");
+        return new Actions.Result(false, pick.equals("other") ? "用户说候选里都不是，要自己补充" : "选择卡没人选", d);
     }
 
     // ------------------------------------------------------------------ [devtools-1118] 截屏 / 看图 / 显示文件
@@ -339,6 +480,7 @@ public final class Chat {
     Actions.Result screenLook(Map<String, Object> a) {
         String target = String.valueOf(a.getOrDefault("target", "pc"));
         String q = a.get("question") == null ? "" : String.valueOf(a.get("question"));
+        String goal = !q.isBlank() ? q : a.get("goal") == null ? "" : String.valueOf(a.get("goal")); // [overnight-1119] 核对用的目标
         byte[] png;
         String who;
         try {
@@ -364,7 +506,7 @@ public final class Chat {
         try { lk = looker.get(); } catch (RuntimeException ignored) { }
         if (lk != null) {
             try {
-                seen = lk.look(png, q);
+                seen = lk.look(png, q + ShotCheck.visionAsk(goal));
                 how = "看图模型（" + lk + "）的描述";
             } catch (Exception e) {
                 note = "看图模型没成功（" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + "），改用 OCR。";
@@ -386,11 +528,23 @@ public final class Chat {
                 seen = "没配看图模型，系统 OCR 也不可用（" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + "）。图已存好显示在任务卡里，可以请用户看一眼。";
             }
         }
+        // [overnight-1119] 核对画面是不是目标：不符合就明说，步骤标黄，不许当证据
+        ShotCheck.Result chk = goal.isBlank() ? null : lk != null ? ShotCheck.fromVision(seen) : "没看图".equals(how) ? new ShotCheck.Result(ShotCheck.Verdict.UNKNOWN, "没有看图模型，OCR 也不可用") : ShotCheck.fromOcr(goal, seen);
         Map<String, Object> d = new TreeMap<>();
         d.put("image", f.toString());
         d.put("how", how);
-        d.put("output", "【" + how + "】" + note + "\n" + seen);
-        return Actions.Result.ok("截好了（" + ("pc".equals(who) ? "这台电脑" : who) + (size.isEmpty() ? "" : "，" + size) + "），" + how.replaceAll("（.*", ""), d);
+        d.put("output", "【" + how + "】" + note + "\n" + seen + (chk == null ? "" : "\n【" + ShotCheck.line(chk) + "】"));
+        String head = "截好了（" + ("pc".equals(who) ? "这台电脑" : who) + (size.isEmpty() ? "" : "，" + size) + "），" + how.replaceAll("（.*", "");
+        if (chk != null) {
+            d.put("verified", chk.id());
+            if (chk.verdict == ShotCheck.Verdict.MISMATCH) {
+                d.put("warn", "截到的不是目标画面" + (chk.why.isEmpty() ? "" : "：" + chk.why));
+                return Actions.Result.ok(head + "。但截到的不是目标画面" + (chk.why.isEmpty() ? "" : "（" + chk.why + "）") + "，不能当证据", d);
+            }
+            if (chk.verdict == ShotCheck.Verdict.UNKNOWN) d.put("note", "没核对上画面是不是目标" + (chk.why.isEmpty() ? "" : "：" + chk.why));
+            else head += "，核对一致";
+        }
+        return Actions.Result.ok(head, d);
     }
 
     // ------------------------------------------------------------------ [devtools-1118] 安卓界面（uiautomator）
@@ -539,6 +693,11 @@ public final class Chat {
             if (listed) break;
         }
         out.put("ok", false);
+        if (!listed && path != null) for (Map<String, Object> m : store.list("chat")) {
+            for (String k : new String[] {"images", "files"}) if (m.get(k) instanceof List && ((List<Object>) m.get(k)).contains(path)) { listed = true; break; }
+            if (listed) break;
+        }
+        if (!listed && path != null && attached.contains(path)) listed = true;
         if (!listed) { out.put("text", "这个文件不在对话记录里"); return out; }
         Path f = java.nio.file.Paths.get(path);
         try {
@@ -598,10 +757,15 @@ public final class Chat {
                     Map<String, Object> d = new TreeMap<>();
                     if (r.data != null) d.putAll(r.data);
                     if (caps.ok && caps.data != null && caps.data.get("caps") instanceof List) {
+                        // [overnight-1119] 只给中文名（不露 ping / caps / find_phone 这类内部名）；区分「开关没开」和「手机版本太旧」
                         List<?> l = (List<?>) caps.data.get("caps");
-                        b.append("。手机上开着的：").append(String.join("、", l.stream().map(String::valueOf).toList()));
-                        if (!l.contains("operate")) b.append("（「按目标操作手机」没开，phone_operate 会被手机拒绝）");
-                        d.put("caps", l);
+                        List<?> known = caps.data.get("known") instanceof List ? (List<?>) caps.data.get("known") : List.of();
+                        List<String> zh = Humanize.phoneCaps(l);
+                        b.append("。手机上开着的：").append(zh.isEmpty() ? "（一项都没开）" : String.join("、", zh));
+                        String os = Humanize.operateState(l, known);
+                        if (!os.equals("on")) b.append("。").append(Humanize.operateHint(os));
+                        d.put("caps_zh", zh);
+                        d.put("operate", os);
                     }
                     d.put("phones", new TreeMap<>(on));
                     return Actions.Result.ok(b.toString(), d);
@@ -610,7 +774,7 @@ public final class Chat {
                     Map<String, Object> x = new TreeMap<>(a);
                     if (PhoneCmds.check("open_app", x) != null) return Actions.Result.fail(PhoneCmds.check("open_app", x));
                     r = p.apply("open_app", x);
-                    return r.ok ? r : offline(r);
+                    return r.ok ? r : offline(r, "open_app");
                 }
                 case "phone_operate": {
                     Map<String, Object> x = new TreeMap<>();
@@ -618,7 +782,7 @@ public final class Chat {
                     String bad = PhoneCmds.check("operate", x);
                     if (bad != null) return Actions.Result.fail(bad);
                     r = p.apply("operate", x);
-                    return r.ok ? r : offline(r);
+                    return r.ok ? r : offline(r, "operate");
                 }
                 default:
                     return Actions.Result.fail("不认识的手机工具：" + cmd);
@@ -628,8 +792,11 @@ public final class Chat {
         }
     }
 
-    static Actions.Result offline(Actions.Result r) {
-        String t = PhoneCmds.withReason(r);
+    static Actions.Result offline(Actions.Result r) { return offline(r, ""); }
+
+    /** [overnight-1119] 手机回的失败 → 人话 + 下一步（开关没开 / 手机版本太旧 / 不在线）。 */
+    static Actions.Result offline(Actions.Result r, String cmd) {
+        String t = Humanize.phoneFailure(PhoneCmds.withReason(r), cmd);
         if (t.contains("没有回应") || t.contains("还没有手机常连") || t.contains("离线")) t = t + "。" + PHONE_HOWTO;
         return new Actions.Result(false, t, r.data);
     }
@@ -737,7 +904,7 @@ public final class Chat {
                     if ("step".equals(x.get("kind")) && String.valueOf(ev.get("n")).equals(String.valueOf(x.get("n")))) {
                         Map<String, Object> y = new TreeMap<>(x);
                         y.putAll(ev);
-                        y.put("state", Boolean.TRUE.equals(ev.get("ok")) ? "ok" : "fail");
+                        y.put("state", stepState(ev));
                         steps.set(i, y);
                         st = null;
                         break;
@@ -746,13 +913,20 @@ public final class Chat {
                 if (st != null) {
                     st.put("kind", "step");
                     st.putAll(ev);
-                    st.put("state", Boolean.TRUE.equals(ev.get("ok")) ? "ok" : "fail");
+                    st.put("state", stepState(ev));
                     steps.add(st);
                 }
             }
             while (steps.size() > 200) steps.remove(0);
             store.update("chat", card, Map.of("steps", steps));
         }
+    }
+
+    /** [overnight-1119] 一步的状态：失败 fail（红）、成功但有警告 warn（黄）、成功 ok（绿）。 */
+    static String stepState(Map<String, Object> ev) {
+        if (!Boolean.TRUE.equals(ev.get("ok"))) return "fail";
+        Object w = ev.get("warn");
+        return w != null && !String.valueOf(w).isBlank() ? "warn" : "ok";
     }
 
     /** 任务卡里真实执行过的步骤，作为程序记录（用户角色、明确标注）。没有步骤返回空串。 */
@@ -768,7 +942,7 @@ public final class Chat {
             n++;
             String s = String.valueOf(x.getOrDefault("state", ""));
             b.append(n).append(". ").append(x.get("desc")).append(" —— ").append(x.get("detail")).append(" —— ")
-                    .append(s.equals("ok") ? "成功" : s.equals("fail") ? "失败" : "没做完").append("：").append(x.getOrDefault("summary", "")).append('\n');
+                    .append(s.equals("ok") ? "成功" : s.equals("warn") ? "成功（有警告）" : s.equals("fail") ? "失败" : "没做完").append("：").append(x.getOrDefault("summary", "")).append('\n');
         }
         if (n == 0) return "";
         return "（OneSay 程序记录，不是用户说的话：任务「" + m.getOrDefault("title", "") + "」实际执行过的步骤，状态 " + m.getOrDefault("state", "") + "）\n" + b;
@@ -785,7 +959,7 @@ public final class Chat {
             if (!"step".equals(x.get("kind"))) continue;
             b.append("▶ ").append(x.get("desc")).append("（").append(x.get("detail")).append("）");
             String s = String.valueOf(x.getOrDefault("state", ""));
-            b.append(s.equals("ok") ? " ✓ " : s.equals("fail") ? " ✗ " : " … ").append(x.getOrDefault("summary", "")).append('\n');
+            b.append(s.equals("ok") ? " ✓ " : s.equals("warn") ? " ⚠ " : s.equals("fail") ? " ✗ " : " … ").append(x.getOrDefault("summary", "")).append('\n');
         }
         Object a = m.get("answer");
         if (a != null && !String.valueOf(a).isBlank()) b.append(a);
@@ -859,7 +1033,7 @@ public final class Chat {
     /** 没做完的任务状态（running 是上次程序没正常收尾留下的）。 */
     static boolean unfinished(Map<String, Object> m) {
         String st = String.valueOf(m.getOrDefault("state", ""));
-        return "task".equals(m.get("via")) && !st.equals("done") && !st.isEmpty();
+        return "task".equals(m.get("via")) && !Outcomes.finished(st) && !st.isEmpty();
     }
 
     static Map<String, Object> latestUnfinished(List<Map<String, Object>> all) {
@@ -886,7 +1060,7 @@ public final class Chat {
             Map<String, Object> x = steps.get(i);
             String s = String.valueOf(x.getOrDefault("state", ""));
             b.append(i + 1).append(". ").append(x.get("desc")).append(" —— ").append(x.get("detail")).append(" —— ")
-                    .append(s.equals("ok") ? "成功" : s.equals("fail") ? "失败" : "没做完").append("：").append(x.getOrDefault("summary", "")).append('\n');
+                    .append(s.equals("ok") ? "成功" : s.equals("warn") ? "成功（有警告）" : s.equals("fail") ? "失败" : "没做完").append("：").append(x.getOrDefault("summary", "")).append('\n');
         }
         List<String> outs = new ArrayList<>();
         for (int i = steps.size() - 1; i >= 0 && outs.size() < TASK_OUTPUTS; i--) {
@@ -906,7 +1080,7 @@ public final class Chat {
         if (m.get("steps") instanceof List) for (Object o : (List<Object>) m.get("steps")) if (o instanceof Map && "step".equals(((Map<String, Object>) o).get("kind"))) n++;
         String st = String.valueOf(m.getOrDefault("state", ""));
         String ans = LinkPolicy.oneLine(String.valueOf(m.getOrDefault("answer", "")));
-        return "「" + m.getOrDefault("title", "") + "」" + (st.equals("done") ? "已完成" : "没做完（" + st + "）") + "，" + n + " 步" + (ans.isBlank() ? "" : "：" + ChatAgent.clip(ans, 200));
+        return "「" + m.getOrDefault("title", "") + "」" + (Outcomes.finished(st) ? "已完成" : "没做完（" + Outcomes.zh(st) + "）") + "，" + n + " 步" + (ans.isBlank() ? "" : "：" + ChatAgent.clip(ans, 200));
     }
 
     /** 两段文字的相似度（字的二元组 Jaccard，中文和英文数字都算）。 */
@@ -974,6 +1148,7 @@ public final class Chat {
             }
             if (boundaries >= 2) { cut = true; continue; } // 再往前的普通聊天不逐字给（旧任务只给摘要）
             String t = String.valueOf(m.get("text"));
+            if (user && m.get("attach_note") != null) t = t + m.get("attach_note"); // [overnight-1119] 附件（图片描述 / OCR / 文件内容）
             if (used + t.length() > CONTEXT_CHARS && !picked.isEmpty()) { cut = true; boundaries = 2; continue; }
             used += t.length();
             picked.add(0, Llm.msg("assistant".equals(m.get("role")) ? "assistant" : "user", t));

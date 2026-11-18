@@ -122,6 +122,16 @@ public final class App {
         }
     }
 
+    /** [overnight-1119] 托盘图标（有确认卡等着时只改它的提示文字，不弹通知）。 */
+    volatile TrayIcon trayIcon;
+
+    void trayHint(String text) {
+        TrayIcon t = trayIcon;
+        if (t == null) return;
+        String want = text == null ? "OneSay " + cfg.deviceId : text;
+        try { if (!want.equals(t.getToolTip())) t.setToolTip(want); } catch (Exception ignored) { }
+    }
+
     void start() throws Exception {
         actions = "1".equals(System.getenv("ONESAY_TEST_ACTIONS")) ? new Main.TestActions() : new DesktopActions(cfg);
         notify = new Notify(store, log);
@@ -138,13 +148,18 @@ public final class App {
         });
         setupMedia();
         setupWhitelist();
-        // [approvals-1118] 确认卡不进通知列表（通知只留提醒）：只弹托盘气泡把人叫回窗口，卡片在对话 / 窗口里点；记录进「设置 › 权限记录」
-        agent.confirms.onNew = d -> notify.flash(d != null && d.startsWith(ChatAgent.FROM) ? "OneSay 等你批准这一步" : "手机请求，需要你确认", "回到 OneSay 窗口里点（60 秒不点算拒绝）");
+        // [overnight-1119] 审批不进通知（列表和 Windows 通知中心都不进，也不弹托盘气泡）：卡片在对话的任务卡 / 窗口里点；
+        // 有卡等着时只改托盘图标的提示文字，点击次数记进「设置 › 权限审批记录」
+        agent.confirms.onNew = d -> trayHint(d != null && d.startsWith(ChatAgent.FROM) ? "OneSay · 有一步等你批准（回到窗口里点）" : "OneSay · 手机请求等你确认（回到窗口里点）");
+        agent.guard.stats = (type, field) -> store.bumpPerm(type, field);
+        int purged = store.purgeApprovalNotes();
+        if (purged > 0) log.accept("通知列表里清掉了 " + purged + " 条旧版本留下的审批记录（审批不进通知）");
         agent.guard.notify = t -> { log.accept("权限：" + t); agent.guard.logPerm(t, "提醒", ""); };
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
         chat.phones = agent::peers;             // [phone-tools-1118] 对话的运行环境里写连着哪些手机
         chat.lastPhone = () -> cfg.phoneLast;
+        chat.onTaskEnd = (st, t) -> { String[] p2 = t.split("\n", 2); notify.post("task", "任务" + Outcomes.zh(st) + "：" + p2[0], p2.length > 1 ? p2[1] : "", ""); }; // [overnight-1119]
         chat.onTaskStart = agent.guard::taskStarted; // [approvals-1118] 新任务开始：上一个任务的「允许本次任务」不带过来
         chat.pcExec = agent::runLocal;
         chat.appResolver = n -> LocalLaunch.displayName(n, cfg.appMap(), System.getenv()); // [approvals-1118] 打开前先找本地应用 // [chat-agent-1118] 「对话」能执行任务：同一条安全链（插件 → 矩阵 → 电脑上确认 → 凭证）
@@ -177,7 +192,7 @@ public final class App {
         whitelist = new WhitelistStore(dir);
         whitelist.device = cfg.deviceId;
         agent.guard.whitelist = whitelist;
-        agent.local.put("whitelist_sync", a -> whitelistSyncIn(whitelist, a, notify == null ? null : t -> notify.post("pc", "应用白名单", t, ""), log));
+        agent.local.put("whitelist_sync", a -> whitelistSyncIn(whitelist, a, null, log)); // [overnight-1119] 「要你确认」类不进通知
         whitelist.onChange = () -> new Thread(this::whitelistPush, "onesay-wl-push").start();
         Thread t = new Thread(() -> {
             while (true) {
@@ -234,7 +249,6 @@ public final class App {
                 if (!added.isEmpty()) {
                     String t = "手机上有 " + added.size() + " 个白名单应用同步过来了，要在电脑上确认一次才生效（设置 › 应用白名单 › 确认生效，也能删）";
                     log.accept(t);
-                    if (notify != null) notify.post("pc", "应用白名单", t, "");
                 }
                 log.accept("白名单已和手机 " + device + " 同步");
             } else if (!r.ok) {
@@ -300,8 +314,8 @@ public final class App {
         Path dir = cfg.file.getParent() == null ? Config.defaultDir() : cfg.file.getParent();
         media = new Media(MediaTools.forThisPc(), new MediaCookies(dir.resolve("cookies")), Media.defaultOutDir(cfg.mediaDir), log);
         media.onFinish = t -> {
-            if (t.state == Media.State.DONE) notify.post("pc", "下载完成", (t.title.isEmpty() ? t.url : t.title) + " → " + t.file, t.from);
-            else if (t.state == Media.State.FAILED) notify.post("pc", "下载失败", (t.title.isEmpty() ? t.url : t.title) + "：" + t.error, t.from);
+            if (t.state == Media.State.DONE) notify.post("task", "下载完成", (t.title.isEmpty() ? t.url : t.title) + " → " + t.file, t.from);
+            else if (t.state == Media.State.FAILED) notify.post("task", "下载失败", (t.title.isEmpty() ? t.url : t.title) + "：" + t.error, t.from);
         };
         agent.guard.mediaToolsMissing = media.tools::missing;
         agent.local.put("media_get", media::remoteGet);
@@ -602,6 +616,7 @@ public final class App {
             s.put("remembered", agent.guard.rememberedView());
             s.put("chat_rules", ChatPolicy.view(agent.guard.chatRules()));
             s.put("perm_log", agent.guard.permLogView());
+            s.put("perm_stats", PermStats.view(store.permStats())); // [overnight-1119] 权限审批记录：按类型 允许 x 次 / 拒绝 x 次
             s.put("grants", agent.guard.grantView());
             s.put("chat_preset", ChatPolicy.Preset.of(cfg.chatPreset).id);
             s.put("choices", chat.choices.list());
@@ -612,7 +627,12 @@ public final class App {
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
         });
-        ui.on("chat", b -> chat.send(str(b, "text", ""), "text"));
+        ui.on("chat", b -> {
+            List<String> att = new ArrayList<>();
+            if (b.get("attachments") instanceof List) for (Object o : (List<?>) b.get("attachments")) att.add(String.valueOf(o));
+            return chat.send(str(b, "text", ""), "text", att);
+        });
+        ui.on("attach", b -> chat.attach(str(b, "name", ""), str(b, "b64", ""))); // [overnight-1119] 粘贴截图 / 拖进来 / 附件按钮
         ui.on("chat_clear", b -> { if (chat.running()) return fail("任务还在做，先点「停止」"); store.clear("chat"); return ok("已清空对话，记忆保留"); });
         ui.on("chat_stop", b -> chat.stop() ? ok("做完当前这一步就停") : ok("没有在做的任务"));
         ui.on("artifact", b -> chat.artifact(str(b, "path", ""))); // [devtools-1118] 任务卡里的截图 / 文件（只给对话里登记过的路径）
@@ -709,8 +729,12 @@ public final class App {
             } else if (op.equals("revoke_grants")) {
                 agent.guard.revokeGrants();
                 agent.guard.logPerm("「允许本次任务 / 这次运行都允许」", "撤销", "");
+            } else if (op.equals("clear_stats")) {
+                store.clearPermStats();
+                agent.guard.logPerm("权限审批记录的次数", "清零", "");
             } else if (!op.equals("list")) return fail("不认识的操作");
-            Map<String, Object> m = ok(op.equals("list") ? "对话规则" : "已撤销，下次会再问你");
+            Map<String, Object> m = ok(op.equals("list") ? "对话规则" : op.equals("clear_stats") ? "已清零" : "已撤销，下次会再问你");
+            m.put("perm_stats", PermStats.view(store.permStats()));
             m.put("chat_rules", ChatPolicy.view(agent.guard.chatRules()));
             m.put("grants", agent.guard.grantView());
             m.put("perm_log", agent.guard.permLogView());
@@ -1033,9 +1057,11 @@ public final class App {
         icon.addActionListener(e -> openWindow(ui.url()));
         SystemTray.getSystemTray().add(icon);
         notify.attach(icon);
+        trayIcon = icon;
         new Thread(() -> {
             boolean last = true;
             while (true) {
+                if (agent.confirms.list().isEmpty()) trayHint(null); // [overnight-1119] 没卡等着了：提示文字复原
                 boolean on = !agent.peers().isEmpty();
                 st.setLabel(on ? "手机在线" : "手机离线");
                 if (on != last) { icon.setImage(trayImage(on)); last = on; }

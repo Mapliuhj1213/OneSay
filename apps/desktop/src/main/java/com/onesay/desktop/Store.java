@@ -26,6 +26,7 @@ public final class Store {
         try { if (Files.exists(file)) r = Json.obj(Files.readString(file, StandardCharsets.UTF_8)); } catch (Exception ignored) { }
         root = r == null ? new TreeMap<>() : r;
         for (String k : List.of("todos", "events", "tickets", "pickups", "autos", "notes", "chat")) if (!(root.get(k) instanceof List)) root.put(k, new ArrayList<>());
+        if (!(root.get("perm_stats") instanceof Map)) root.put("perm_stats", new TreeMap<String, Object>()); // [overnight-1119] 权限审批记录
         if (!(root.get("memory") instanceof Map)) { Map<String, Object> m = new TreeMap<>(); m.put("text", ""); m.put("updated_at", 0L); root.put("memory", m); }
     }
 
@@ -78,6 +79,28 @@ public final class Store {
     }
 
     public synchronized void clear(String k) { list(k).clear(); save(); }
+
+    /** [overnight-1119] 权限审批记录：某类事件某个字段 +1（单次点击算一次）。 */
+    @SuppressWarnings("unchecked")
+    public synchronized void bumpPerm(String type, String field) {
+        PermStats.bump((Map<String, Object>) root.get("perm_stats"), type, field, System.currentTimeMillis());
+        save();
+    }
+
+    @SuppressWarnings("unchecked")
+    public synchronized Map<String, Object> permStats() { return Json.obj(Json.stringify(root.get("perm_stats"))); }
+
+    @SuppressWarnings("unchecked")
+    public synchronized void clearPermStats() { ((Map<String, Object>) root.get("perm_stats")).clear(); save(); }
+
+    /** [overnight-1119] 删掉通知列表里旧版本写进去的审批类条目；返回删了几条。 */
+    public synchronized int purgeApprovalNotes() {
+        int before = list("notes").size();
+        list("notes").removeIf(m -> PermStats.looksLikeApproval(String.valueOf(m.getOrDefault("title", "")), String.valueOf(m.getOrDefault("text", ""))));
+        int n = before - list("notes").size();
+        if (n > 0) save();
+        return n;
+    }
 
     @SuppressWarnings("unchecked")
     public synchronized Map<String, Object> memory() { return new TreeMap<>((Map<String, Object>) root.get("memory")); }

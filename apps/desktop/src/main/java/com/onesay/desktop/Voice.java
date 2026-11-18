@@ -72,8 +72,8 @@ public final class Voice {
      */
     static String cannotStart(AsrRoute.Pref pref, boolean keySet, boolean localOk) {
         if (pref == AsrRoute.Pref.CLOUD && !keySet) return "识别设成「仅云端」但没填识别 Key（设置里填），不抢空格";
-        if (pref == AsrRoute.Pref.LOCAL && !localOk) return "识别设成「仅本机」但这台电脑没有中文离线识别，不抢空格（装好后重开 OneSay，或改用云端）";
-        if (pref == AsrRoute.Pref.AUTO && !keySet && !localOk) return "没有可用的识别（没填识别 Key，也没有中文离线识别），不抢空格";
+        if (pref == AsrRoute.Pref.LOCAL && !localOk) return "识别设成「仅本机」但这台电脑没有中文识别（离线识别和 Windows 语音识别都没有），不抢空格：去「设置 › 模型与密钥」填识别 Key";
+        if (pref == AsrRoute.Pref.AUTO && !keySet && !localOk) return "没有可用的识别（没填识别 Key，也没有中文离线识别和 Windows 语音识别），不抢空格：去「设置 › 模型与密钥」填识别 Key";
         return null;
     }
 
@@ -85,7 +85,7 @@ public final class Voice {
     public void start() {
         if (!cfg.pttEnabled) { status = "已关闭"; return; }
         if (!System.getProperty("os.name", "").toLowerCase().contains("win")) { status = "仅 Windows 支持"; return; }
-        String no = cannotStart(asr.pref(), !cfg.asrKey.isEmpty());
+        String no = asr.pref() == AsrRoute.Pref.CLOUD ? cannotStart(asr.pref(), !cfg.asrKey.isEmpty()) : null;
         if (no != null) { status = no; log.accept("按住说话：" + status); return; }
         if (needsLocalCheck(asr.pref(), !cfg.asrKey.isEmpty())) {
             // 没 Key 的「自动」/「仅本机」：先在后台看中文离线识别在不在，没有就不开钩子（长按空格照常是空格）
@@ -93,6 +93,10 @@ public final class Voice {
             Thread t = new Thread(() -> {
                 boolean ok;
                 try { ok = asr.localAvailable.getAsBoolean(); } catch (Throwable e) { ok = false; }
+                if (!ok) { // [overnight-1119] System.Speech 没有中文：再看 Windows 自带语音识别
+                    try { ok = asr.winrtOk(); } catch (Throwable e) { ok = false; }
+                    if (ok) { WinAsr.warm(); log.accept("按住说话：没有识别 Key 和离线中文识别，改用 Windows 语音识别（" + WinAsr.language() + "）"); }
+                }
                 String why = cannotStart(asr.pref(), !cfg.asrKey.isEmpty(), ok);
                 if (why != null) { status = why; log.accept("按住说话：" + status); return; }
                 startHook();
@@ -158,7 +162,16 @@ public final class Voice {
         log.accept("按住说话：钩子进程退出");
     }
 
+    /** 这次按住用的是 Windows 语音识别（它自己听麦克风）。 */
+    private volatile boolean winLive;
+
     private void onStart() {
+        if (asr.choose() == AsrRoute.Engine.WINRT) { // [overnight-1119]
+            winLive = WinAsr.begin();
+            recording = winLive;
+            show(winLive ? "● 正在听…（Windows 语音识别）" : "Windows 语音识别没起来：去「设置 › 模型与密钥」填识别 Key", winLive);
+            return;
+        }
         try {
             rec.start();
             recording = true;
@@ -171,6 +184,18 @@ public final class Voice {
     private void onEnd(boolean cancel) {
         if (!recording) return;
         recording = false;
+        if (winLive) {
+            winLive = false;
+            if (cancel) { try { WinAsr.end(true); } catch (Exception ignored) { } show("已取消", false); return; }
+            show("识别中…（Windows 语音识别）", true);
+            new Thread(() -> {
+                String text;
+                try { text = WinAsr.end(false); } catch (Exception e) { show(e.getMessage() == null ? "识别失败" : e.getMessage(), false); return; }
+                if (text.isBlank()) { show("没听清", false); return; }
+                handleText(text);
+            }, "onesay-voice").start();
+            return;
+        }
         byte[] pcm = rec.stop();
         if (cancel) { show("已取消", false); return; }
         if (Recorder.seconds(pcm) < 0.3 || Recorder.rms(pcm) < 120) { show("没听到声音", false); return; }
@@ -190,6 +215,10 @@ public final class Voice {
             show(e.getMessage() == null ? "识别失败" : e.getMessage(), false);
             return;
         }
+        handleText(text);
+    }
+
+    private void handleText(String text) {
         log.accept("听到（" + asr.current.zh + "）：" + text);
         String blocked = spokenApprovalBlocked(text, approvalPending);
         if (blocked != null) {

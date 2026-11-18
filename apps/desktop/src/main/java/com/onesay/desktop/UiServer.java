@@ -119,7 +119,7 @@ public final class UiServer {
             if (h == null) { send(ex, 404, "text/plain", "no api".getBytes()); return; }
             Map<String, Object> body = new TreeMap<>();
             if (ex.getRequestMethod().equals("POST")) {
-                byte[] in = readAll(ex.getRequestBody(), 256 * 1024);
+                byte[] in = readAll(ex.getRequestBody(), path.equals("/api/attach") ? 15 * 1024 * 1024 : 256 * 1024); // [overnight-1119] 附件（≤10 MB，base64 后约 13.4 MB）
                 if (in.length > 0) body = Json.obj(new String(in, StandardCharsets.UTF_8));
             }
             Object out;

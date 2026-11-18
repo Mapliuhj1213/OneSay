@@ -142,9 +142,46 @@ public final class OpenTarget {
             return new Object[] {p.pick, p.remember};
         }
 
+        /**
+         * [overnight-1119] 目标有歧义时的选择卡：问题 + 2–3 个候选（标题、说明）+「都不是，我来补充」。
+         * 返回 "o0".."o2" = 选了第几个；"other" = 都不是；"" = 超时 / 取消。
+         */
+        public String askOptions(String task, String question, List<Map<String, Object>> options) {
+            int id = seq.getAndIncrement();
+            Map<String, Object> info = new TreeMap<>();
+            info.put("id", (long) id);
+            info.put("kind", "pick");
+            info.put("task", task == null ? "" : task);
+            info.put("question", question == null ? "" : question);
+            List<Object> opts = new ArrayList<>();
+            if (options != null) for (Map<String, Object> o : options) opts.add(new TreeMap<>(o));
+            info.put("options", opts);
+            info.put("deadline", System.currentTimeMillis() + pickTimeoutMs);
+            P p = new P(info);
+            pending.put(id, p);
+            try {
+                p.latch.await(pickTimeoutMs, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                pending.remove(id);
+            }
+            return p.pick;
+        }
+
+        /** 选择卡等多久（候选要看一会儿，比「本地应用 / 网页」长）。 */
+        public volatile long pickTimeoutMs = 10 * 60_000;
+
         /** 界面点了（只收本机界面上的点击：App 的 choice 接口按 trusted 输入过滤）。 */
         public boolean answer(int id, String pick, boolean remember) {
             P p = pending.get(id);
+            if (p != null && "pick".equals(p.info.get("kind"))) {
+                Object os = p.info.get("options");
+                int n = os instanceof List ? ((List<?>) os).size() : 0;
+                if (pick.equals("other") || pick.equals("cancel")) { p.pick = pick.equals("other") ? "other" : ""; p.latch.countDown(); return true; }
+                if (pick.matches("o\\d") && Integer.parseInt(pick.substring(1)) < n) { p.pick = pick; p.latch.countDown(); return true; }
+                return false;
+            }
             if (p == null || !(pick.equals("app") || pick.equals("web") || pick.equals("cancel"))) return false;
             p.pick = pick.equals("cancel") ? "" : pick;
             p.remember = remember;

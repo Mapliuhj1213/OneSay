@@ -200,11 +200,11 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .tc .hd .ti{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tc .st{font-size:11.5px;padding:2px 9px;border-radius:10px;font-weight:600;flex:none}
 .st.running{background:rgba(3,129,254,.1);color:var(--accent)}.st.done{background:rgba(31,164,99,.12);color:var(--green)}
-.st.fail{background:rgba(229,72,77,.1);color:var(--red)}.st.wait{background:rgba(255,149,0,.14);color:#B86400}.st.stop{background:rgba(0,0,0,.06);color:var(--text2)}
+.st.fail{background:rgba(229,72,77,.1);color:var(--red)}.st.warnc{background:rgba(255,204,0,.18);color:#8A6A00}.st.wait{background:rgba(255,149,0,.14);color:#B86400}.st.stop{background:rgba(0,0,0,.06);color:var(--text2)}
 .tc .sp{display:flex;gap:10px;align-items:flex-start;padding:5px 0}
 .tc .sp .ic{width:18px;height:18px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:11px;margin-top:2px;font-weight:700}
 .ic.run{border:2px solid var(--accent);border-right-color:transparent;animation:spin 1s linear infinite}
-.ic.ok{background:var(--green);color:#fff}.ic.fail{background:var(--red);color:#fff}.ic.wait{background:#FF9500;color:#fff}
+.ic.ok{background:var(--green);color:#fff}.ic.warn{background:#F5B400;color:#fff}.tc .sp .wn{color:#8A6A00;font-size:12.5px}.tc .md b{font-weight:600}.tc .md code,.m .md code{font:12px ui-monospace,Consolas,monospace;background:var(--bg);padding:0 4px;border-radius:4px}.ic.fail{background:var(--red);color:#fff}.ic.wait{background:#FF9500;color:#fff}
 @keyframes spin{to{transform:rotate(360deg)}}
 .tc .sp .bd{flex:1;min-width:0}.tc .sp .ds{color:var(--text)}.tc .sp .er{color:var(--red);font-size:12.5px}
 .tc .sp .ok1{color:var(--text3);font-size:12.5px}
@@ -232,6 +232,12 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .compose textarea{flex:1;border:0;outline:0;resize:none;font:inherit;font-size:15px;line-height:1.6;max-height:180px;background:transparent;color:var(--text);padding:4px 0}
 .compose .send{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;font-size:16px;flex:none}
 .compose .send:disabled{background:#C9CCD1}
+.compose .attbtn{width:32px;height:32px;border-radius:50%;background:var(--bg);color:var(--text2);font-size:18px;flex:none;align-self:flex-end}
+.compose.drag{outline:2px dashed var(--accent);outline-offset:4px}
+.attrow{max-width:820px;width:100%;margin:0 auto 8px;display:flex;gap:8px;flex-wrap:wrap}
+.attrow .att{position:relative;background:var(--card);border-radius:10px;padding:4px;font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;max-width:220px}
+.attrow .att img{width:48px;height:48px;object-fit:cover;border-radius:6px}.attrow .att .x{cursor:pointer;color:var(--text3);padding:0 4px}
+.m .uimg{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.m .uimg img{max-width:220px;max-height:160px;border-radius:8px;cursor:zoom-in;background:#f4f4f4;min-height:30px}
 .hintline{max-width:820px;margin:-14px auto 14px;font-size:11.5px;color:var(--text3);text-align:center}
 .welcome{margin:12vh auto 0;text-align:center;color:var(--text2)}
 .welcome h2{font-size:26px;font-weight:600;color:var(--text);margin-bottom:10px}
@@ -287,8 +293,9 @@ input.field::placeholder{color:var(--text3)}
     <section class="page" id="chat">
       <div class="chatbar"><h1>对话</h1><div class="sp" style="flex:1"></div><span class="chip" id="memchip" onclick="memOpen()">记忆</span><span class="chip danger" onclick="chatClear()">清空对话</span></div>
       <div class="msgs" id="msgs"><div class="in" id="msgin"></div></div>
-      <div class="compose"><textarea id="ta" rows="1" placeholder="说点什么，或者直接下指令：锁屏、截图、打开B站…"></textarea><button class="send" id="sendbtn" onclick="chatSend()">↑</button></div>
-      <div class="hintline" id="chathint">Enter 发送，Shift+Enter 换行 · 只有一个对话，旧内容自动截断，记忆自动更新、和手机共用</div>
+      <div id="attrow" class="attrow" style="display:none"></div>
+      <div class="compose" id="compose"><button class="attbtn" title="添加图片或文件（也可以直接粘贴截图、拖进来）" onclick="$('attfile').click()">＋</button><input type="file" id="attfile" multiple style="display:none" onchange="attFiles(this.files);this.value=''"><textarea id="ta" rows="1" placeholder="说点什么，或者直接下指令；截图可以直接粘贴（Ctrl+V）或拖进来"></textarea><button class="send" id="sendbtn" onclick="chatSend()">↑</button></div>
+       <div class="hintline" id="chathint">Enter 发送，Shift+Enter 换行 · 截图可粘贴 / 拖进来 · 只有一个对话，旧内容自动截断，记忆自动更新、和手机共用</div>
     </section>
     <section class="page on" id="today"></section>
     <section class="page" id="notes"></section>
@@ -372,7 +379,7 @@ function dayName(ms){const k=dayKey(ms),t=dayKey(Date.now());const d=new Date(ms
   if(k===t)return '今天 · 周'+WK[d.getDay()]; if(k===t+D)return '明天 · 周'+WK[d.getDay()];
   return (d.getMonth()+1)+'月'+d.getDate()+'日 · 周'+WK[d.getDay()]}
 function ago(ms){const s=(Date.now()-ms)/1000;if(s<60)return '刚刚';if(s<3600)return Math.floor(s/60)+' 分钟前';if(s<86400&&dayKey(ms)===dayKey(Date.now()))return hm(ms);return (new Date(ms).getMonth()+1)+'月'+new Date(ms).getDate()+'日 '+hm(ms)}
-const KIND={reminder:'提醒',auto:'自动任务',rain:'降水',app:'手机通知',pc:'本机'};
+const KIND={reminder:'提醒',auto:'自动任务',rain:'降水',app:'手机通知',task:'任务完成',pc:'本机'};
 const sec=(c,t,n)=>`<div class="sec"><i style="background:${c}"></i>${t}${n!=null?` <span>${n}</span>`:''}</div>`;
 const empty=t=>`<div class="card"><div class="empty">${t}</div></div>`;
 const head=(t,p,btn)=>`<div class="head"><div><h1>${t}</h1><p>${p}</p></div><div class="sp"></div>${btn||''}</div>`;
@@ -403,7 +410,7 @@ P.today=()=>{
   ${!nt.length&&!pk.length&&!tk.length&&!au.length?sec('var(--text3)','手机')+empty(SYNC):''}</div></div>`};
 const addRow=()=>`<div class="addrow"><input class="field newtodo" placeholder="记一条待办，回车保存" onkeydown="if(event.key==='Enter')todoAdd(this)"></div>`;
 P.notes=()=>{const n=S.notes.slice().reverse();
-  return head('通知',`提醒、自动任务、降水和手机 App 通知都弹在电脑右下角，这里留底`,`<button class="btn ghost" onclick="notes('test')">发一条测试</button> <button class="btn ghost" onclick="notes('read')">全部已读</button> <button class="btn ghost" onclick="notes('clear')">清空</button>`)+
+  return head('通知',`只留提示类：任务完成、触发器回调结果、自动任务结果（审批不进通知，次数在「设置 › 权限审批记录」）`,`<button class="btn ghost" onclick="notes('test')">发一条测试</button> <button class="btn ghost" onclick="notes('read')">全部已读</button> <button class="btn ghost" onclick="notes('clear')">清空</button>`)+
   (n.length?card(n.map(noteItem)):empty('还没有通知。手机装上「电脑联动」插件后，手机的提醒会转到这里'))};
 P.events=()=>{const e=S.events.slice().sort((a,b)=>a.start-b.start).filter(x=>(x.end||x.start)>dayKey(Date.now()));
   if(!e.length)return head('日程','接下来没有日程')+empty(SYNC);
@@ -484,7 +491,7 @@ async function mdCookieDel(site){if(!await confirm('删除「'+site+'」的 Cook
 // [approvals-1118] 本机对话：权限预设、时长上限；权限记录（批准 / 拒绝 / 自动放行）、「以后不用问」的规则、打开习惯
 const PRESETS=[['read_only','只读'],['default','默认'],['full','完全访问']];
 async function setPreset(v){if(v==='full'&&!await confirm('对话改成「完全访问」？\n\n在 OneSay 对话里让它做事时不再弹批准：命令、下载、安装、删除都会直接执行。\n\n仍然不会：提权 / 弹 UAC、改杀毒和防火墙、给自己加权限、付款最后一下。'))return;setv('chat_preset',v)}
-function chatPolicy(s){return `<div id="set-permlog">${sec('var(--accent)','权限记录','对话里每次批准 / 拒绝 / 自动放行都记在这里；记住的规则和打开习惯在这里撤销')}</div><div class="card">
+function chatPolicy(s){return `<div id="set-chatperm">${sec('var(--accent)','对话权限','记住的规则和打开习惯在这里撤销；每次批准 / 拒绝的次数在「权限审批记录」')}</div><div class="card">
   ${kv('对话权限预设','只读：除了查询每步都问；默认：查询、开网页和程序、在桌面 / 下载 / 文档 / 工作区里新建直接做，其余第一次问（可「允许本次任务」）；完全访问：不再问（硬规则照旧）',`<div class="seg">${PRESETS.map(([v,l])=>`<span class="${v===(s.chat_preset||'default')?'on':''}" onclick="setPreset('${v}')">${l}</span>`).join('')}</div>`)}
   ${kv('一个任务最长','兜底时长（分钟）；没有步数限制，做完为止',inp('chat_timeout_min',s.chat_timeout_min||120,'120',90))}
   ${kv('本次任务 / 这次运行的批准',S.grants&&(S.grants.task||S.grants.session)?(S.grants.session?'「这次运行都允许」生效中':'「允许本次任务」生效中'):'没有',S.grants&&(S.grants.task||S.grants.session)?'<button class="tag" onclick="revokeGrants()">撤销</button>':'')}</div>
@@ -492,8 +499,16 @@ function chatPolicy(s){return `<div id="set-permlog">${sec('var(--accent)','权�
   ${(S.chat_rules||[]).length?card((S.chat_rules||[]).map(x=>`<div class="item"><div class="tx"><div class="tt">以「${esc(x.text)}」开头的命令</div></div><button class="tag" onclick="ruleRevoke(${esc(JSON.stringify(x.key))})">撤销</button></div>`)):empty('还没有（在批准卡上勾「以后以 … 开头的命令不用问」）')}
   ${sec('var(--accent)','打开习惯',Object.keys(S.habits||{}).length+' 个')}
   ${Object.keys(S.habits||{}).length?card(Object.entries(S.habits||{}).map(([k,h])=>`<div class="item"><div class="tx"><div class="tt">${esc(k)}</div><div class="st">${h.choice==='app'?'用本地应用'+(h.app?'（'+esc(h.app)+'）':''):'用网页'}</div></div><button class="tag" onclick="habitSet(${esc(JSON.stringify(k))},'${h.choice==='app'?'web':'app'}')">改成${h.choice==='app'?'网页':'本地应用'}</button> <button class="tag" onclick="habitDel(${esc(JSON.stringify(k))})">删除</button></div>`)):empty('还没有（打开程序 / 网站时选了「记住我的选择」会记在这里）')}
-  ${sec('var(--text3)','最近的记录',(S.perm_log||[]).length+' 条')}
-  ${(S.perm_log||[]).length?card((S.perm_log||[]).slice(0,60).map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(clipTxt(x.what,120))}</div><div class="st">${esc(x.result)} · ${ago(x.at)}${x.task?' · 任务 '+esc(x.task):''}${x.detail&&x.detail!=='本机对话'?' · '+esc(clipTxt(x.detail,60)):''}</div></div></div>`)):empty('还没有记录')}`}
+`}
+// [overnight-1119] 权限审批记录：单独一组。按事件类型统计「允许 x 次 / 拒绝 x 次」，点一次算一次（不是一组算一次）；审批不进通知
+function permStatsRow(x){return `<div class="item"><div class="tx"><div class="tt">${esc(x.type)}</div><div class="st">${x.last_at?'最近 '+ago(x.last_at):''}${x.timeout?' · 没人点 '+x.timeout+' 次':''}${x.auto?' · 自动放行 '+x.auto+' 次':''}</div></div><span class="tag green">允许 ${x.allow} 次</span> <span class="tag ${x.deny?'red':''}">拒绝 ${x.deny} 次</span></div>`}
+function permLogPage(){const st=S.perm_stats||[],lg=S.perm_log||[];
+  const ta=st.reduce((n,x)=>n+(x.allow||0),0),td=st.reduce((n,x)=>n+(x.deny||0),0);
+  return `${grp('set-permlog','权限审批记录','每点一次「允许」或「拒绝」记一次（「允许本次任务」点一次也是一次）；审批不进通知')}
+  ${st.length?card([kv('合计','按你点过的次数算',`<span class="tag green">允许 ${ta} 次</span> <span class="tag">拒绝 ${td} 次</span>`),...st.map(permStatsRow)])+'<p class="note"><button class="tag" onclick="permStatsClear()">次数清零</button></p>':empty('还没有审批记录（在确认卡上点「允许」或「拒绝」后会按类型记在这里）')}
+  ${sec('var(--text3)','最近的明细',lg.length+' 条（本次运行）')}
+  ${lg.length?card(lg.slice(0,60).map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(clipTxt(x.what,120))}</div><div class="st">${esc(x.result)} · ${ago(x.at)}${x.detail&&x.detail!=='本机对话'?' · '+esc(clipTxt(x.detail,60)):''}</div></div></div>`)):empty('还没有明细')}`}
+async function permStatsClear(){if(!await confirm('把权限审批记录的次数清零？\n\n记住的规则不受影响。'))return;const r=await api('chat_rules',{op:'clear_stats'});snack(r.text);refresh()}
 async function ruleRevoke(k){if(!await confirm('撤销这条规则？\n\n下次这类命令会再问你。'))return;const r=await api('chat_rules',{op:'revoke',key:k});snack(r.text);refresh()}
 async function revokeGrants(){const r=await api('chat_rules',{op:'revoke_grants'});snack(r.text);refresh()}
 async function habitDel(k){const r=await api('habits',{op:'remove',key:k});snack(r.ok?'已删除，下次会问你':r.text);refresh()}
@@ -501,7 +516,7 @@ async function habitSet(k,c){const r=await api('habits',{op:'set',key:k,choice:c
 function remPolicy(){const r=S.remembered||[];
   return sec('var(--green)','以后这类不用问',r.length+' 类')+
   (r.length?card(r.map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(x.zh)}</div><div class="st">${esc(x.kind)}</div></div><button class="tag" onclick="remRevoke(${esc(JSON.stringify(x.kind))})">撤销</button></div>`)):empty('还没有记住过'))+
-  `<p class="note">确认框上勾「以后这类不用问」并允许后，同一类动作直接执行（会弹通知提醒）。付款最后一下、改 OneSay 自己、提权 / 要管理员这三类不会弹确认，也记不住。只能在这台电脑上撤销。</p>`}
+  `<p class="note">确认框上勾「以后这类不用问」并允许后，同一类动作直接执行（记在「权限审批记录」里，不弹通知）。付款最后一下、改 OneSay 自己、提权 / 要管理员这三类不会弹确认，也记不住。只能在这台电脑上撤销。</p>`}
 function wlPolicy(){const w=S.whitelist||[],pd=w.filter(x=>x.pending).length;
   return sec('var(--todo)','应用白名单',w.length+' 个'+(pd?' · '+pd+' 个待确认':''))+
   (S.whitelist_broken?`<p class="note" style="color:var(--red)">白名单文件读坏了，现在当空用（不放行任何应用）。<button class="tag" onclick="wlReset()">清空重建</button></p>`:'')+
@@ -574,7 +589,7 @@ const secret=(key,set)=>`<input class="field" type="password" placeholder="${set
 let pairShown=false,lastPair='';
 // ★ console-align 2026-11-12：设置页按「控制台条目清单」（docs/CONSOLE.md）分组，与手机设置区同名同序：
 //   连接 · 权限与审批 · 模型与密钥 · 语音 · 替你操作 · 下载 · 插件 · 关于（「功能」「开发者」只手机有）
-const GROUPS=[['set-connect','连接'],['set-perm','权限与审批'],['set-model','模型与密钥'],['set-voice','语音'],['set-act','替你操作'],['set-download','下载'],['set-plugins','插件'],['set-about','关于']];
+const GROUPS=[['set-connect','连接'],['set-perm','权限与审批'],['set-permlog','权限审批记录'],['set-model','模型与密钥'],['set-voice','语音'],['set-act','替你操作'],['set-download','下载'],['set-plugins','插件'],['set-about','关于']];
 const CTL=[['run','操作中','助手正在替你点按'],['wait','等确认','弹确认卡等你点'],['user','你接手','你点了接管 / 按了返回或主页键'],['stop','已停止','点了停止，覆盖层马上撤掉']];
 const DANGER=['清空','清除','删除','撤销','解除','解除配对','卸载','关机','睡眠','换一把钥匙','忘掉','重置','停止'];
 const isDanger=l=>{l=String(l||'').trim();return DANGER.some(v=>l===v||l.startsWith(v))};
@@ -601,6 +616,7 @@ P.settings=()=>{const s=S.settings;
   ${remPolicy()}
   ${wlPolicy()}
   ${chatPolicy(s)}
+  ${permLogPage()}
 
   ${grp('set-model','模型与密钥','对话和听懂任意说法；Key 只存在这台电脑，不同步到手机')}<div class="card">
   ${kv('服务商','也支持任何 OpenAI 兼容接口',seg('llm_provider',s.llm_provider,[['deepseek','DeepSeek'],['bailian','百炼'],['custom','自定义']]))}
@@ -645,22 +661,33 @@ P.settings=()=>{const s=S.settings;
 // ---------- 对话 ----------
 // [approvals-1118] 一件事一张任务卡：每步一句人话 + 状态图标，命令 / 输出收在「详情」，批准和「本地应用 / 网页」选择在卡里点，最后的答复放在卡底。
 let lastChatLen=-1,lastChatKey='',inflight=0,cfArmed=false;
-const STATE_ZH={running:['进行中','running'],done:['完成','done'],denied:['你拒绝了','stop'],timeout:['没人批准','wait'],loop:['卡住了','fail'],no_progress:['没有进展','fail'],
+const STATE_ZH={running:['进行中','running'],done:['完成','done'],warn:['有警告','warnc'],failed:['没做成','fail'],needs_user:['需要你操作','wait'],denied:['你拒绝了','stop'],timeout:['没人批准','wait'],loop:['卡住了','fail'],no_progress:['没有进展','fail'],
   time_limit:['到时长上限','stop'],stopped:['已停止','stop'],error:['出错','fail']};
 const clipTxt=(t,n)=>{t=String(t||'');return t.length>n?t.slice(0,n):t};
-function stepHtml(x,i){if(x.kind==='note')return `<div class="note">${esc(x.desc)}</div>`;
-  const ic=x.state==='ok'?'<span class="ic ok">✓</span>':x.state==='fail'?'<span class="ic fail">!</span>':x.state==='wait'?'<span class="ic wait">…</span>':'<span class="ic run"></span>';
+// [overnight-1119] 旁白 / 答复里的 markdown：**粗体**、`代码`、# 标题、- 列表 渲染成样式（先转义再替换，不放任何 HTML 进来）
+function md(t){let h=esc(String(t||''));
+  h=h.replace(/`([^`\n]{1,200})`/g,'<code>$1</code>');
+  h=h.replace(/\*\*([^*\n]{1,300}?)\*\*/g,'<b>$1</b>');
+  h=h.replace(/(^|[^*\w])\*([^*\n]{1,200}?)\*(?!\*)/g,'$1$2');
+  h=h.replace(/^#{1,6}\s+(.+)$/gm,'<b>$1</b>').replace(/^\s*[-*]\s+/gm,'• ');
+  return h}
+function stepHtml(x,i){if(x.kind==='note')return `<div class="note md">${md(x.desc)}</div>`;
+  const ic=x.state==='ok'?'<span class="ic ok">✓</span>':x.state==='warn'?'<span class="ic warn">!</span>':x.state==='fail'?'<span class="ic fail">!</span>':x.state==='wait'?'<span class="ic wait">…</span>':'<span class="ic run"></span>';
   const out=String(x.output||''),long=out.length>600;
   const det=`<details><summary>详情</summary><pre>${esc(x.detail||'')}</pre>${out?`<pre id="out-${i}">${esc(long?out.slice(0,600)+'…':out)}</pre>${long?`<button class="tag" onclick="this.previousElementSibling.textContent=decodeURIComponent('${encodeURIComponent(out)}');this.remove()">展开全部（${out.length} 字）</button>`:''}`:''}</details>`;
   const art=(x.image?`<div class="shot"><img data-art="${esc(x.image)}" alt="截图" onclick="viewArt(this.dataset.art)"></div>`:'')+(x.file?`<div class="shot"><button class="tag" data-art="${esc(x.file)}" onclick="viewArt(this.dataset.art)">查看 ${esc(String(x.file).split(/[\\/]/).pop())}</button></div>`:'');
-  return `<div class="sp">${ic}<div class="bd"><div class="ds">${esc(x.desc||x.detail||'')}</div>${art}${x.state==='fail'?`<div class="er">${esc(clipTxt(x.summary,160))}</div>`:x.state==='ok'&&x.summary&&x.summary!=='命令执行完了'?`<div class="ok1">${esc(clipTxt(x.summary,120))}</div>`:''}${det}</div></div>`}
+  return `<div class="sp">${ic}<div class="bd"><div class="ds">${esc(x.desc||x.detail||'')}</div>${art}${x.state==='fail'?`<div class="er">${esc(clipTxt(x.summary,160))}</div>`:x.state==='warn'?`<div class="wn">⚠ ${esc(clipTxt(x.warn||x.summary,160))}</div>`:x.state==='ok'&&x.summary&&x.summary!=='命令执行完了'?`<div class="ok1">${esc(clipTxt(x.summary,120))}</div>`:''}${det}</div></div>`}
 function askHtml(c){const offerTask=!!c.task_scope,dis=cfArmed&&cfId===c.id?'':'disabled';
   return `<div class="ask" id="ask-${c.id}"><div class="q">这一步要你批准</div><div class="cmdl">${esc(String(c.detail||'').replace(/^本机对话 请求：/,''))}</div>
   <div class="row">${offerTask?`<button class="btn sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event,'task')">允许本次任务</button>`:''}<button class="btn ${offerTask?'ghost ':''}sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event)">允许一次</button><button class="btn ghost sm" id="cfdeny" onclick="cfAns(${c.id},false,false,event)">拒绝</button>
   ${offerTask?`<button class="tag cfallow" ${dis} onclick="cfAns(${c.id},true,false,event,'session')">这次运行都允许</button>`:''}</div>
   ${c.remember_kind?`<div class="row"><label><input type="checkbox" id="cfrem"> ${esc(c.remember_zh||c.remember_kind)}</label></div>`:''}
   <div class="row"><span class="note" id="cfhint" style="padding:0">${dis?'稍等一下就能点（防误点）':'只认鼠标 / 键盘点击；60 秒不点或按 Esc 算拒绝'}</span></div></div>`}
-function chooseHtml(c){return `<div class="ask choose"><div class="q">用哪个打开「${esc(c.target)}」？</div>
+// [overnight-1119] 目标有歧义时的选择卡：候选（名字 / 星数 / 简介 / 最新版本）+「都不是，我来补充」，选了才下载 / 安装
+function pickHtml(c){return `<div class="ask choose"><div class="q">${esc(c.question||'选一个')}</div>
+  ${(c.options||[]).map((o,i)=>`<div class="row"><button class="btn sm" onclick="chooseAns(${c.id},'o${i}',event)">${esc(o.title)}</button><span class="note" style="padding:0">${esc(o.detail||'')}</span></div>`).join('')}
+  <div class="row"><button class="btn ghost sm" onclick="chooseAns(${c.id},'other',event)">都不是，我来补充</button><span class="note" style="padding:0">选好之前不会下载 / 安装</span></div></div>`}
+function chooseHtml(c){if(c.kind==='pick')return pickHtml(c);return `<div class="ask choose"><div class="q">用哪个打开「${esc(c.target)}」？</div>
   <div class="row"><button class="btn sm" onclick="chooseAns(${c.id},'app',event)">本地应用（${esc(c.app)}）</button><button class="btn ghost sm" onclick="chooseAns(${c.id},'web',event)">网页</button>
   <label><input type="checkbox" id="chrem-${c.id}" checked> 记住我的选择</label></div></div>`}
 function taskCard(x,last){const st=STATE_ZH[x.state]||[x.state||'',''],running=x.state==='running';
@@ -668,7 +695,7 @@ function taskCard(x,last){const st=STATE_ZH[x.state]||[x.state||'',''],running=x
   const ch=((S.choices||[]).filter(c=>c.task===x.task));
   const waiting=conf.length||ch.length;
   const steps=(x.steps||[]).map(stepHtml).join('');
-  const ans=x.answer?`<div class="ans ${x.state==='done'?'':'why'}">${esc(x.answer)}</div>`:'';
+  const ans=x.answer?`<div class="ans md ${x.state==='done'||x.state==='warn'?'':'why'}">${md(x.answer)}</div>`:'';
   return `<div class="m a tc" data-task="${esc(x.task||'')}"><div class="hd"><span class="ti">${esc(x.title||'任务')}</span><span class="st ${waiting?'wait':st[1]}">${waiting?'等你点':esc(st[0])}</span>${running?'<button class="tag danger" onclick="chatStop()">停止</button>':''}</div>
   ${steps||(running?'<div class="note">开始做…</div>':'')}${conf.map(askHtml).join('')}${ch.map(chooseHtml).join('')}${ans}</div>`}
 function renderChat(){const c=S.chat, box=$('msgin');
@@ -682,7 +709,7 @@ function renderChat(){const c=S.chat, box=$('msgin');
     if(x.via==='task'){const sep=prevTask&&prevTask!==x.task?'':'';prevTask=x.task;return sep+taskCard(x)}
     if(x.via==='compact')return `<div class="newtask">${esc(x.text||'已整理较早的对话')}</div>`;
     if(x.via==='newtask')return `<div class="newtask">${esc(x.text||'新任务')}</div>`;
-    return `<div class="m ${x.role==='user'?'u':'a'} ${x.via==='cmd'?'cmd':''} ${x.via==='step'?'step':''} ${x.via==='error'?'error':''}">${esc(x.text)}${x.via==='voice'&&x.role==='user'?'<span class="via">语音</span>':''}${x.queued?'<span class="qd">已收到，下一步处理</span>':''}</div>`}).join(''):
+    return `<div class="m ${x.role==='user'?'u':'a'} ${x.via==='cmd'?'cmd':''} ${x.via==='step'?'step':''} ${x.via==='error'?'error':''}">${x.role==='user'?esc(x.text):'<span class="md">'+md(x.text)+'</span>'}${(x.images||[]).length?`<div class="uimg">${x.images.map(p=>`<img data-art="${esc(p)}" alt="图片" onclick="viewArt(this.dataset.art)">`).join('')}</div>`:''}${(x.files||[]).length?`<div class="uimg">${x.files.map(p=>`<button class="tag" data-art="${esc(p)}" onclick="viewArt(this.dataset.art)">${esc(String(p).split(/[\\/]/).pop())}</button>`).join('')}</div>`:''}${x.via==='voice'&&x.role==='user'?'<span class="via">语音</span>':''}${x.queued?'<span class="qd">已收到，下一步处理</span>':''}</div>`}).join(''):
    `<div class="welcome"><h2>想让电脑做什么？</h2><div>直接说指令（锁屏、截图、打开B站），或者随便聊。<br>${S.settings.llm_key_set?'':'在「设置 › 模型与密钥」填上 API Key 才能聊天，指令不需要 Key。'}</div></div>`)+(inflight&&!S.chat_running?'<div class="m a typing">思考中…</div>':'');
   // [approvals-1118] 只有本来就在底部（或刚自己发了消息）才跟到底；在往上看就不动，给一个「↓ 有新消息」
   if(atBottom||justSent){$('msgs').scrollTop=1e9;justSent=false;newBelow(false)}else newBelow(true);
@@ -708,12 +735,35 @@ function armInline(){const c=((S&&S.confirms)||[]).find(x=>x.from==='本机对�
   if(!LIVE){cfArm();return}
   api('confirm',{op:'seen',id:c.id,focused:document.hasFocus()}).then(r=>{if(r&&r.arm_ms)cfArmMs=r.arm_ms;if(cfId===c.id)cfArm()}).catch(()=>{})}
 async function chooseAns(id,pick,ev){if(!(ev&&ev.isTrusted))return;const rb=$('chrem-'+id);
-  const r=await api('choice',{id,pick,remember:!!(rb&&rb.checked),trusted:true});if(!r.ok)snack(r.text);refresh()}
-async function chatSend(){const ta=$('ta'),t=ta.value.trim();if(!t)return;ta.value='';fit();
+  const r=await api('choice',{id,pick,remember:!!(rb&&rb.checked),trusted:true});if(!r.ok)snack(r.text);else if(pick==='other'){snack('在下面输入框里说具体是哪个');const ta=$('ta');if(ta)ta.focus()}refresh()}
+// [overnight-1119] 按住空格说话：没有任何识别来源（没 Key、没离线中文、没 Windows 语音识别）时不假装能用，明确叫人去设置填 Key
+function pttOff(){const v=String(S.voice||'');return /不抢空格|已关闭|仅 Windows|钩子启动失败|钩子已退出/.test(v)}
+function pttView(){const b=$('pttbox');if(!b)return;
+  if(pttOff()){b.innerHTML=`<b>按住空格说话现在用不了</b><br><span id="vstat">${esc(S.voice||'')}</span>${/Key/.test(S.voice||'')?`<br><a href="#" onclick="go('settings');setTimeout(()=>{const e=document.getElementById('set-model');if(e)e.scrollIntoView()},200);return false">去设置填识别 Key</a>`:''}`;return}
+  b.innerHTML=`按住 <span class="key">空格</span> 说话<br><span id="vstat">${esc((S.voice||'松手执行，Esc 取消')+(S.asr_engine&&S.asr_engine!=='none'?' · 识别：'+S.asr_engine_zh:''))}</span>`}
+// [overnight-1119] 附件：粘贴截图（Ctrl+V）、拖进输入框、＋按钮；图片交给看图模型（没配就 OCR），文本文件读内容
+let ATT=[];
+function attRender(){const r=$('attrow');if(!r)return;r.style.display=ATT.length?'':'none';
+  r.innerHTML=ATT.map((a,i)=>`<div class="att">${a.kind==='image'&&a.url?`<img src="${a.url}">`:'📄'}<span>${esc(a.name)}${a.busy?' · 上传中…':''}</span><span class="x" onclick="attDel(${i})">✕</span></div>`).join('')}
+function attDel(i){ATT.splice(i,1);attRender()}
+async function attFiles(files){for(const f of Array.from(files||[])){if(ATT.length>=6){snack('一次最多 6 个附件');break}
+  if(f.size>10*1024*1024){snack(f.name+' 超过 10 MB，没加上');continue}
+  const url=await new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=()=>res('');fr.readAsDataURL(f)});
+  if(!url){snack('读不出 '+f.name);continue}
+  const a={name:f.name||('截图-'+Date.now()+'.png'),url:/^data:image\//.test(url)?url:'',kind:/^data:image\//.test(url)?'image':'file',busy:true};ATT.push(a);attRender();
+  if(!LIVE){a.busy=false;a.path='demo';attRender();continue}
+  try{const r=await api('attach',{name:a.name,b64:url.replace(/^data:[^,]*,/,'')});if(r.ok){a.path=r.path;a.kind=r.kind;a.busy=false}else{snack(r.text||'附件没加上');ATT.splice(ATT.indexOf(a),1)}}
+  catch(e){snack('附件没加上');ATT.splice(ATT.indexOf(a),1)}attRender()}}
+['dragover','drop'].forEach(ev=>window.addEventListener(ev,e=>{if(e.dataTransfer&&Array.from(e.dataTransfer.types||[]).includes('Files'))e.preventDefault()})); // 拖到别处不让窗口跳去打开文件
+document.addEventListener('DOMContentLoaded',()=>{const ta=$('ta'),cp=$('compose');if(!ta||!cp)return;
+  ta.addEventListener('paste',e=>{const fs=[];for(const it of (e.clipboardData||{}).items||[]){if(it.kind==='file'){const f=it.getAsFile();if(f)fs.push(f)}}if(fs.length){e.preventDefault();attFiles(fs)}});
+  cp.addEventListener('dragover',e=>{e.preventDefault();cp.classList.add('drag')});cp.addEventListener('dragleave',()=>cp.classList.remove('drag'));
+  cp.addEventListener('drop',e=>{e.preventDefault();cp.classList.remove('drag');attFiles(e.dataTransfer&&e.dataTransfer.files)})});
+async function chatSend(){const ta=$('ta');let t=ta.value.trim();if(ATT.some(a=>a.busy)){snack('附件还在上传，稍等');return}const att=ATT.filter(a=>a.path).map(a=>a.path);if(!t&&!att.length)return;ta.value='';fit();ATT=[];attRender();
   if(!LIVE){S.chat.push({id:Math.random()+'',role:'user',text:t,at:Date.now()},{id:Math.random()+'',role:'assistant',text:'（演示模式，不会真的回答）',at:Date.now()});renderChat();return}
   // [approvals-1118] 任务进行中也能发：程序立刻记下（标「已收到，下一步处理」），下一步之前交给模型
-  inflight++;justSent=true;S.chat.push({role:'user',text:t,at:Date.now(),queued:!!S.chat_running});renderChat();setTimeout(refresh,300);
-  try{await api('chat',{text:t})}catch(e){snack('发送失败')}inflight=Math.max(0,inflight-1);await refresh()}
+  inflight++;justSent=true;S.chat.push({role:'user',text:t||('（发来 '+att.length+' 个附件）'),at:Date.now(),queued:!!S.chat_running});renderChat();setTimeout(refresh,300);
+  try{await api('chat',{text:t,attachments:att})}catch(e){snack('发送失败')}inflight=Math.max(0,inflight-1);await refresh()}
 async function chatStop(){const r=await api('chat_stop',{});snack(r.text)}
 async function chatClear(){if(!await confirm('清空对话？\n\n记忆会保留。'))return;await api('chat_clear',{});lastChatLen=-1;refresh()}
 function fit(){const ta=$('ta');ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,180)+'px'}
@@ -805,7 +855,7 @@ function render(){if(!S)return;
   confirmBar();
   const ids=Object.keys(S.peers),on=ids.length>0;
   $('pdot').classList.toggle('off',!on);$('pline').textContent=on?'手机在线':'手机离线';$('pline2').textContent=on?S.peers[ids[0]]+' · '+ids[0]:'等待手机连接';
-  $('vstat').textContent=(S.voice||'松手执行，Esc 取消')+(S.asr_engine&&S.asr_engine!=='none'?' · 识别：'+S.asr_engine_zh:'');
+  pttView();
   for(const k of ['events','todos','tickets','pickups']){const n=k==='todos'?S.todos.filter(t=>!t.done).length:k==='pickups'?S.pickups.filter(p=>!p.done).length:S[k].length;$('c-'+k).textContent=n||''}
   const un=S.notes.filter(n=>!n.read).length;$('nbadge').style.display=un?'':'none';$('nbadge').textContent=un;
   if(page==='chat'){renderChat();return}

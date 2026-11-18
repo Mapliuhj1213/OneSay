@@ -8,11 +8,15 @@ import java.util.function.Consumer;
 
 /**
  * Windows 通知：所有提醒走这一条通道，右下角弹出并记进「通知」页。
- * 类别：reminder 提醒（计划/触发器）、auto 自动任务回调、rain 降水、app 手机 App 通知、pc 本机。
+ * 类别：reminder 提醒（计划/触发器回调）、auto 自动任务回调、rain 降水、app 手机转来的提醒、task 任务完成、pc 本机（测试通知等）。
  * 降水电脑不自己查，只弹手机或计划转来的提醒。
+ *
+ * <p>[overnight-1119] 用户两次要求：<b>审批不进通知</b>。通知只留提示类（任务完成、触发器回调结果、自动任务结果）。
+ * 确认卡不弹 Windows 通知（不进通知中心），只在 OneSay 窗口 / 任务卡里点，次数记在「设置 › 权限审批记录」；
+ * 这里再加一道兜底：标题或正文像审批 / 确认的，{@link #post} 一律不收（不存、不弹）。
  */
 public final class Notify {
-    public static final Set<String> KINDS = Set.of("reminder", "auto", "rain", "app", "pc");
+    public static final Set<String> KINDS = Set.of("reminder", "auto", "rain", "app", "task", "pc");
     private final Store store;
     private final Consumer<String> log;
     private volatile TrayIcon tray;
@@ -27,11 +31,13 @@ public final class Notify {
             case "auto": return "自动任务";
             case "rain": return "降水";
             case "app": return "手机通知";
+            case "task": return "任务完成";
             default: return "OneSay";
         }
     }
 
     public Map<String, Object> post(String kind, String title, String text, String from) {
+        if (!"task".equals(kind) && PermStats.looksLikeApproval(title, text)) { log.accept("通知：审批类不进通知（" + clip(title == null ? "" : title, 30) + "）"); return null; }
         if (!KINDS.contains(kind)) kind = "app";
         title = clip(title == null || title.isBlank() ? label(kind) : title, 80);
         text = clip(text == null ? "" : text, 500);
@@ -50,12 +56,6 @@ public final class Notify {
         }
         log.accept("通知［" + label(kind) + "］" + title);
         return saved;
-    }
-
-    /** [approvals-1118] 只弹一下托盘气泡、不进通知列表（确认卡这类：通知列表只留提醒）。 */
-    public void flash(String title, String text) {
-        TrayIcon t = tray;
-        if (t != null) try { t.displayMessage(clip(title == null ? "OneSay" : title, 80), clip(text == null ? "" : text, 200), TrayIcon.MessageType.INFO); } catch (Exception ignored) { }
     }
 
     static String clip(String s, int n) { return s.length() > n ? s.substring(0, n) + "…" : s; }

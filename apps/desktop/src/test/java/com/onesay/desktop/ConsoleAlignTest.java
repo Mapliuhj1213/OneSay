@@ -39,7 +39,7 @@ public class ConsoleAlignTest {
     @Test public void settingsGroupsFollowDoc() throws Exception {
         String h = html(), d = doc();
         List<String> want = docGroups(d);
-        assertEquals(List.of("连接", "权限与审批", "模型与密钥", "语音", "替你操作", "功能", "下载", "插件", "关于"), want);
+        assertEquals(List.of("连接", "权限与审批", "权限审批记录", "模型与密钥", "语音", "替你操作", "功能", "下载", "插件", "关于"), want); // [overnight-1119] 权限审批记录（只电脑有）
         want.remove("功能");   // 只手机有
         String g = h.substring(h.indexOf("const GROUPS=["), h.indexOf("];", h.indexOf("const GROUPS=[")));
         List<String> got = new ArrayList<>();
@@ -49,8 +49,8 @@ public class ConsoleAlignTest {
         // 页面里每节确实按这个顺序出现
         String p = h.substring(h.indexOf("P.settings=()=>"));
         int prev = -1;
-        for (String id : new String[]{"set-connect", "set-perm", "set-model", "set-voice", "set-act", "set-download", "set-plugins", "set-about"}) {
-            int i = id.equals("set-download") ? p.indexOf("${mdPanel()}") : p.indexOf(id);
+        for (String id : new String[]{"set-connect", "set-perm", "set-permlog", "set-model", "set-voice", "set-act", "set-download", "set-plugins", "set-about"}) {
+            int i = id.equals("set-download") ? p.indexOf("${mdPanel()}") : id.equals("set-permlog") ? p.indexOf("${permLogPage()}") : p.indexOf(id);
             assertTrue(id + " 顺序对", i > prev);
             prev = i;
         }

@@ -352,6 +352,13 @@ public final class PcGuard {
     public volatile java.util.function.BooleanSupplier mediaToolsMissing = () -> false;
     /** 告诉电脑前的人（生成脚本、完全访问下的提醒）。 */
     public volatile Consumer<String> notify = s -> { };
+    /** [overnight-1119] 权限审批记录：(事件类型, allow / deny / timeout / auto) 加一次；App 接到 state.json。 */
+    public volatile java.util.function.BiConsumer<String, String> stats = (t, f) -> { };
+
+    void countPerm(String from, String cmd, Map<String, Object> a, String field) {
+        if (field == null) return;
+        try { stats.accept(PermStats.eventType(from, cmd, a), field); } catch (RuntimeException ignored) { }
+    }
 
     public PcGuard(Config cfg, Confirmer confirmer) {
         this.cfg = cfg;
@@ -536,10 +543,11 @@ public final class PcGuard {
                 } catch (Throwable t) {
                     r = DENY; // 确认框出错 = 拒绝，绝不放行
                 }
+                countPerm(from, cmd, a, PermStats.field(r)); // [overnight-1119] 单次点击算一次（没人点另记）
                 if ((r == TASK_ALLOW || r == SESSION_ALLOW) && !offerTask) r = ALLOW;
                 if (r == TASK_ALLOW) { grantTask(TASK.get()); r = ALLOW; logPerm(detail(cmd, a, d.text), "允许本次任务", from); }
                 else if (r == SESSION_ALLOW) { grantSession(); r = ALLOW; logPerm(detail(cmd, a, d.text), "这次运行都允许", from); }
-                else if (loc) logPerm(detail(cmd, a, d.text), r == ALLOW ? "允许一次" : r == REMEMBER ? "允许并记住" : r == TIMEOUT ? "没人确认（拒绝）" : "拒绝", from);
+                else logPerm(detail(cmd, a, d.text), r == ALLOW ? "允许一次" : r == REMEMBER ? "允许并记住" : r == ALWAYS ? "以后直接执行" : r == TIMEOUT ? "没人确认（拒绝）" : "拒绝", from); // [overnight-1119] 手机发来的请求也记
                 if (loc && (r == ALLOW || r == REMEMBER) && approvedSame.size() < 500) approvedSame.add(sameKey(cmd, a));
                 if (r == REMEMBER && rk.isEmpty()) r = ALLOW; // 这条没给「以后这类不用问」：只算允许一次
                 if (offer) {
@@ -581,7 +589,7 @@ public final class PcGuard {
                 }
                 if (f.protectedPath && d.remembered) a.put("_protected_ok", Boolean.TRUE);
                 if (plan != null) o.creates = new ArrayList<>(plan.creates); // [approvals-1118] 执行成功后记成「对话自己建的」
-                if (loc && !d.text.isEmpty() && cat != LinkPolicy.Cat.QUERY) logPerm(detail(cmd, a, d.text), "自动放行", d.text);
+                if (loc && !d.text.isEmpty() && cat != LinkPolicy.Cat.QUERY) { logPerm(detail(cmd, a, d.text), "自动放行", d.text); countPerm(from, cmd, a, PermStats.AUTO); }
                 if (f.mediaToolsMissing && cat == LinkPolicy.Cat.MEDIA_DOWNLOAD) a.put("_media_install_ok", Boolean.TRUE); // 完全访问 + 从不询问 / 记住过「安装下载工具」
                 o.pass = new Pass(cmd, a);
                 return o;
@@ -1349,7 +1357,16 @@ public final class PcGuard {
         d.put("output", out);
         if (!fin) return new Actions.Result(false, "命令超过 " + to + " 秒没结束，已停止", d);
         d.put("exit", (long) p.exitValue());
-        return p.exitValue() == 0 ? Actions.Result.ok("命令执行完了", d) : new Actions.Result(false, "命令失败（退出码 " + p.exitValue() + "）", d);
+        return judged(command, p.exitValue(), out, d);
+    }
+
+    /** [overnight-1119] 按目标判定（adb connect 的 already connected 算成功；多条命令里中间报错是「有警告」）。 */
+    static Actions.Result judged(String command, int exit, String out, Map<String, Object> d) {
+        Outcomes.Judged j = Outcomes.judgeExec(command, exit, out);
+        if (!j.note.isEmpty()) d.put(j.level == Outcomes.Level.WARN ? "warn" : "note", j.note);
+        if (j.level == Outcomes.Level.FAIL) return new Actions.Result(false, "命令失败（退出码 " + exit + "）", d);
+        if (j.level == Outcomes.Level.WARN) return Actions.Result.ok("命令跑完了，有警告：" + j.note, d);
+        return Actions.Result.ok(exit == 0 ? "命令执行完了" : "命令执行完了：" + j.note, d);
     }
 
     Actions.Result result(boolean ok, String text, String reason, Map<String, Object> extra) {

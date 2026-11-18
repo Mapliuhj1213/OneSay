@@ -155,7 +155,7 @@ public final class ChatAgent {
         Map<String, Object> sc = new TreeMap<>();
         sc.put("description", prop("string", DESC));
         sc.put("target", prop("string", "截哪块屏幕：pc = 这台电脑（默认）；android = 用 adb 连着的安卓设备（只有一台时）；或 adb 序列号，如 MuMu 模拟器 127.0.0.1:16384"));
-        sc.put("question", prop("string", "可选：想从屏幕上确认什么（如「有没有弹出 root 授权框」「命令输出里有没有 uid=0」）"));
+        sc.put("question", prop("string", "想从屏幕上确认什么（如「有没有弹出 root 授权框」「命令输出里有没有 uid=0」）。要拿截图当证据时必填：截完会核对画面是不是这个目标，不是就明说"));
         l.add(fn("screenshot", "截屏并看图：图存进工作区 shots/，在任务卡里直接显示给用户；配了看图模型就交给它描述画面，没配就用 Windows 自带 OCR 读出文字（结果会标明是哪种）。", sc, List.of("description")));
         Map<String, Object> au = new TreeMap<>();
         au.put("description", prop("string", DESC));
@@ -167,6 +167,21 @@ public final class ChatAgent {
         Map<String, Object> sf = new TreeMap<>();
         sf.put("description", prop("string", DESC));
         sf.put("path", prop("string", "文件路径（工作区里的相对路径，或完整路径）：图片会显示在任务卡里，文本文件可以在卡里点开看"));
+        // [overnight-1119] 目标有歧义 / 搜索结果只是「最可能」时，有副作用的动作之前先让用户选
+        Map<String, Object> ac = new TreeMap<>();
+        ac.put("description", prop("string", DESC));
+        ac.put("question", prop("string", "问用户的一句（如「你说的 Mika 是哪个？」）"));
+        Map<String, Object> opt = prop("array", "2–3 个候选，每个写清楚：title（如仓库名 owner/name）、detail（星数、一句简介、最新版本号和日期、安装包大小，查到什么写什么）");
+        Map<String, Object> item = new TreeMap<>();
+        item.put("type", "object");
+        Map<String, Object> ip = new TreeMap<>();
+        ip.put("title", prop("string", "候选名"));
+        ip.put("detail", prop("string", "星数 / 简介 / 最新版本 / 大小"));
+        item.put("properties", ip);
+        item.put("required", new ArrayList<Object>(List.of("title")));
+        opt.put("items", item);
+        ac.put("options", opt);
+        l.add(fn("ask_choice", "在任务卡上弹选择卡让用户挑一个（自动附「都不是，我来补充」）。目标有歧义（同名的仓库 / 软件不止一个）、或者你只能判断「最可能是」时，下载、安装、付款这类有副作用的步骤之前必须先用它；只读查询（搜索、查版本）可以先做。", ac, List.of("description", "question", "options")));
         l.add(fn("show_file", "把你生成或找到的图片 / 文本文件显示在任务卡里给用户看（不要用 open_url 打开 file: 地址）。", sf, List.of("description", "path")));
         return l;
     }
@@ -231,6 +246,7 @@ public final class ChatAgent {
                 String tg = a.get("target") == null ? "" : String.valueOf(a.get("target")).trim();
                 out.put("target", tg.isEmpty() ? "pc" : tg);
                 if (a.get("question") != null && !String.valueOf(a.get("question")).isBlank()) out.put("question", clip(String.valueOf(a.get("question")).trim(), 300));
+                else if (a.get("description") != null && !String.valueOf(a.get("description")).isBlank()) out.put("goal", clip(String.valueOf(a.get("description")).trim(), 120)); // [overnight-1119] 没写要看什么：按这一步的说明核对
                 return new Object[] {"screen_look", out};
             }
             case "android_ui": {
@@ -240,6 +256,31 @@ public final class ChatAgent {
                 for (String k : new String[] {"text", "then_tap", "device"}) if (a.get(k) != null && !String.valueOf(a.get(k)).isBlank()) out.put(k, clip(String.valueOf(a.get(k)).trim(), 100));
                 if (!act.equals("dump") && !out.containsKey("text")) return null;
                 return new Object[] {"android_ui", out};
+            }
+            case "ask_choice": {
+                Object q = a.get("question");
+                Object os = a.get("options");
+                if (q == null || String.valueOf(q).isBlank() || !(os instanceof List)) return null;
+                List<Object> opts = new ArrayList<>();
+                for (Object o : (List<?>) os) {
+                    if (opts.size() >= 3) break;
+                    Map<String, Object> x = new TreeMap<>();
+                    if (o instanceof Map) {
+                        Object t = ((Map<?, ?>) o).get("title");
+                        Object d = ((Map<?, ?>) o).get("detail");
+                        if (t == null || String.valueOf(t).isBlank()) continue;
+                        x.put("title", clip(String.valueOf(t).trim(), 80));
+                        x.put("detail", d == null ? "" : clip(String.valueOf(d).trim(), 240));
+                    } else if (o != null && !String.valueOf(o).isBlank()) {
+                        x.put("title", clip(String.valueOf(o).trim(), 80));
+                        x.put("detail", "");
+                    } else continue;
+                    opts.add(x);
+                }
+                if (opts.isEmpty()) return null;
+                out.put("question", clip(String.valueOf(q).trim(), 200));
+                out.put("options", opts);
+                return new Object[] {"ask_choice", out};
             }
             case "show_file": {
                 Object p = a.get("path");
@@ -330,6 +371,10 @@ public final class ChatAgent {
                 + "安卓界面上的按钮 / 复选框（如 root 授权弹窗）用 android_ui：先 dump 看有哪些，再按文字 tap_text / check_text，不要硬编码 input tap 坐标；"
                 + "要「记住选择」的弹窗先 check_text 勾上再点允许（then_tap）。点完再 dump 或截图确认。"
                 + "不要用截图文件的大小、修改时间去猜屏幕上是什么。截图和你生成的文件会显示在任务卡里；要给用户看某个文件用 show_file，不要用 open_url 打开 file: 地址。\n"
+                + "截图结果里写着「截到的不是目标画面」或「没法确认」时，不能说「这张就是…」，要先把目标画面调出来重截，或如实说没截到。\n"
+                + "目标有歧义（同名的仓库 / 软件不止一个）或你只能判断「最可能是」时：可以先做只读查询（搜索、看版本），但下载、安装、付款之前必须用 ask_choice 列 2–3 个候选让用户选，用户选了再做。\n"
+                + "给用户看的话里不要写工具名或能力名（如 phone_operate、caps、find_phone、screen_on），用中文说法；不要用 markdown 符号（** # 之类）。\n"
+                + "任务结束时答复的第一行只写结果标记，按目标有没有真正达成来标：【完成】目标达成；【有警告】达成了但中间有报错 / 截图没核对上 / 有没确认的地方；【没做成】目标没达成；【需要你操作】被挡下（开关没开、要用户点、要用户补充信息）。第二行起用一两句话说结果和下一步。\n"
                 + "用户说「继续」「接着做」时，接着最近一个没做完的任务：看「当前任务」的程序记录（做过哪些步骤、最近的输出）从最后一步往下做，不要把做过的步骤原样再做一遍。更早的任务只有摘要。做完后用一两句话汇报结果（做了什么、现在是什么状态）。"
                 + (memory == null || memory.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准）：\n" + memory);
     }
@@ -342,6 +387,8 @@ public final class ChatAgent {
         int done = 0, fails = 0;
         boolean nudged = false, fakeNudged = false;
         int toolTextNudges = 0;
+        boolean hedged = false, choiceDone = false;
+        int hedgeBlocks = 0;
         String lastKey = "";
         int repeat = 0;
         cancel.set(false);
@@ -405,7 +452,9 @@ public final class ChatAgent {
                 return new Outcome(text.isEmpty() ? "做完了。" : text, "done", done);
             }
             msgs.add(t.message);
-            if (t.content != null && !t.content.isBlank()) steps.step(Map.of("phase", "note", "desc", clip(t.content.trim(), 300), "text", t.content.trim()));
+            if (hedges(t.content)) hedged = true;
+            for (Llm.ToolCall hc : t.calls) if (hedges(hc.arguments)) hedged = true;
+            if (t.content != null && !t.content.isBlank()) steps.step(Map.of("phase", "note", "desc", clip(Humanize.text(t.content.trim()), 300), "text", t.content.trim())); // [overnight-1119] 旁白不露内部名
             for (Llm.ToolCall c : t.calls) {
                 if (cancel.get()) {
                     msgs.add(toolMsg(c.id, "{\"ok\":false,\"text\":\"用户点了停止\"}"));
@@ -428,6 +477,16 @@ public final class ChatAgent {
                     steps.step(stepEv("done", done + 1, desc, cmd, args, false, "同一步原样重复了 " + repeat + " 次，停下", "", "▶ " + what + "\n✗ 同一步已经原样重复 " + repeat + " 次，停下"));
                     return new Outcome("同一步（" + desc + "）原样重复了 " + repeat + " 次还没进展，我先停下。你看一下情况，或者换个说法告诉我下一步怎么做。", "loop", done);
                 }
+                if (!choiceDone && hedged && sideEffect(cmd, args) && hedgeBlocks < 2) {
+                    // [overnight-1119] 目标还不确定（说了「最可能 / 应该是」），下载 / 安装 / 付款前先让用户选：这一步不执行
+                    hedgeBlocks++;
+                    msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "need_choice", "text",
+                            "没执行：目标还不确定（你说了「最可能 / 应该是」这类话），下载 / 安装 / 付款这类有副作用的步骤之前先用 ask_choice 列出 2–3 个候选（名字、星数、简介、最新版本）让用户选。只读查询可以先做。"))));
+                    steps.step(Map.of("phase", "note", "desc", "目标还不确定，先列出候选请你选，选好了再下载 / 安装"));
+                    continue;
+                }
+                if (hedgeBlocks >= 2 && !choiceDone && hedged && sideEffect(cmd, args))
+                    return new Outcome("要做的目标还不确定，我两次想直接下载 / 安装都被拦下了。请告诉我具体是哪个（比如仓库地址 owner/name），我再接着做。", Outcomes.NEEDS_USER, done);
                 steps.step(stepEv("start", done + 1, desc, cmd, args, true, "", "", ""));
                 Actions.Result r;
                 try {
@@ -440,9 +499,17 @@ public final class ChatAgent {
                 String reason = r.data == null ? "" : String.valueOf(r.data.getOrDefault("reason", ""));
                 Object out = r.data == null ? null : r.data.get("output");
                 Map<String, Object> ev = stepEv("done", done, desc, cmd, args, r.ok, summary(r), out == null ? "" : String.valueOf(out), stepText(cmd, args, r));
-                if (r.data != null) for (String k : new String[] {"image", "file"}) if (r.data.get(k) != null) ev.put(k, String.valueOf(r.data.get(k))); // [devtools-1118] 任务卡里显示
+                if (r.data != null) for (String k : new String[] {"image", "file", "verified"}) if (r.data.get(k) != null) ev.put(k, String.valueOf(r.data.get(k))); // [devtools-1118] 任务卡里显示
+                if (r.ok && r.data != null && r.data.get("warn") != null && !String.valueOf(r.data.get("warn")).isBlank()) ev.put("warn", String.valueOf(r.data.get("warn"))); // [overnight-1119] 黄色「有警告」
                 steps.step(ev);
                 msgs.add(toolMsg(c.id, resultJson(r)));
+                if ("ask_choice".equals(cmd)) {
+                    if (r.ok) { choiceDone = true; hedged = false; }
+                    else if ("choice_other".equals(reason))
+                        return new Outcome("你说候选里都不是。告诉我具体是哪个（名字、作者或网址都行），我接着做。", Outcomes.NEEDS_USER, done);
+                    else if ("choice_timeout".equals(reason))
+                        return new Outcome("选择卡没人选（10 分钟到了），我先停在这里。选好了说「继续」，或者直接告诉我是哪个。", Outcomes.NEEDS_USER, done);
+                }
                 if (LinkPolicy.R_CONFIRM_DENIED.equals(reason))
                     return new Outcome("你在确认框里拒绝了这一步（" + desc + "），我停在这里，没有换别的办法去做。要换个做法或继续，直接告诉我。", "denied", done);
                 if (LinkPolicy.R_CONFIRM_TIMEOUT.equals(reason))
@@ -452,6 +519,25 @@ public final class ChatAgent {
                     return new Outcome("连续 " + fails + " 步都失败了（最后一步：" + desc + "：" + summary(r) + "），看起来没有进展，我先停下。你看一下情况，或者告诉我换个思路。", "no_progress", done);
             }
         }
+    }
+
+    // ------------------------------------------------------------------ [overnight-1119] 目标不确定时先问
+
+    static final Pattern HEDGE = Pattern.compile("最可能|最有可能|可能是|应该是|大概率|大概是|猜(测)?是|推测|估计是|似乎是|看起来是|多半是|不确定是|probably|most likely|likely the");
+
+    static boolean hedges(String s) { return s != null && HEDGE.matcher(s).find(); }
+
+    /** 有副作用、目标认错了代价大的步骤：下载、安装（含 adb install）、付款类。 */
+    static boolean sideEffect(String cmd, Map<String, Object> a) {
+        if ("sys_exec".equals(cmd)) {
+            String c = a == null || a.get("command") == null ? "" : String.valueOf(a.get("command"));
+            return PermStats.DOWNLOAD.matcher(c).find() || PermStats.INSTALL.matcher(c).find();
+        }
+        if ("phone_operate".equals(cmd)) {
+            String g = a == null || a.get("goal") == null ? "" : String.valueOf(a.get("goal"));
+            return g.matches("(?s).*(付款|支付|转账|下单|购买|充值|安装|下载).*");
+        }
+        return "media_get".equals(cmd);
     }
 
     // ------------------------------------------------------------------ [approvals-1118] 正文里漏出来的工具调用
@@ -580,7 +666,7 @@ public final class ChatAgent {
             for (String line : o.split("\\R")) { if (!line.isBlank()) { first = line.trim(); break; } }
             if (!first.isEmpty()) t = t + "：" + first;
         }
-        return clip(t, 160);
+        return clip(Humanize.text(t), 160);
     }
 
     static Map<String, Object> stepEv(String phase, int n, String desc, String cmd, Map<String, Object> args, boolean ok, String summary, String output, String text) {
@@ -631,7 +717,7 @@ public final class ChatAgent {
     }
 
     /** 后加的工具缺哪个字段（badArgs 用）。 */
-    static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "description"));
+    static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "description", "ask_choice", "question / options"));
 
     static Map<String, Object> toolMsg(String id, String content) {
         Map<String, Object> m = new TreeMap<>();
@@ -651,6 +737,7 @@ public final class ChatAgent {
             case "phone_status": return "查手机状态";
             case "screen_look": return "截屏：" + ("pc".equals(a.get("target")) ? "这台电脑" : clip(String.valueOf(a.get("target")), 60)) + (a.get("question") != null ? "（看：" + clip(String.valueOf(a.get("question")), 80) + "）" : "");
             case "show_file": return "显示文件：" + clip(String.valueOf(a.get("path")), 200);
+            case "ask_choice": return "请你选：" + clip(String.valueOf(a.get("question")), 120);
             case "android_ui": {
                 String act = String.valueOf(a.get("action"));
                 String dev = a.get("device") == null ? "" : "（" + a.get("device") + "）";
@@ -676,7 +763,7 @@ public final class ChatAgent {
         m.put("ok", r.ok);
         m.put("text", r.text == null ? "" : r.text);
         if (r.data != null) {
-            for (String k : new String[] {"output", "exit", "reason", "reason_zh", "path", "image", "file", "how"}) {
+            for (String k : new String[] {"output", "exit", "reason", "reason_zh", "path", "image", "file", "how", "warn", "note", "verified"}) {
                 Object v = r.data.get(k);
                 if (v == null) continue;
                 m.put(k, "output".equals(k) ? clip(String.valueOf(v), OUTPUT_TO_MODEL) : v);
