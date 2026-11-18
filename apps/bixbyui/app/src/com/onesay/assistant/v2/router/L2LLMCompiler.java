@@ -993,8 +993,8 @@ public class L2LLMCompiler implements IRouter {
             sb.append(rule.name).append(": ");
             if (rule.type == com.onesay.assistant.v2.capability.ParamsSchema.ParamType.INTEGER) {
                 sb.append("整数");
-                if (rule.min != null && rule.max != null) {
-                    sb.append("[").append(rule.min).append("..").append(rule.max).append("]");
+                if (rule.min != null && rule.effectiveMax() != null) {
+                    sb.append("[").append(rule.min).append("..").append(rule.effectiveMax()).append("]");
                 }
             } else if (rule.type == com.onesay.assistant.v2.capability.ParamsSchema.ParamType.BOOLEAN) {
                 sb.append("布尔值");
@@ -1059,8 +1059,8 @@ public class L2LLMCompiler implements IRouter {
                     sb.append(rule.name).append(": ");
                     if (rule.type == com.onesay.assistant.v2.capability.ParamsSchema.ParamType.INTEGER) {
                         sb.append("整数");
-                        if (rule.min != null && rule.max != null) {
-                            sb.append("[").append(rule.min).append("..").append(rule.max).append("]");
+                        if (rule.min != null && rule.effectiveMax() != null) {
+                            sb.append("[").append(rule.min).append("..").append(rule.effectiveMax()).append("]");
                         }
                     } else if (rule.type == com.onesay.assistant.v2.capability.ParamsSchema.ParamType.BOOLEAN) {
                         sb.append("布尔值");
@@ -1128,8 +1128,8 @@ public class L2LLMCompiler implements IRouter {
                     sb.append(rule.name).append(": ");
                     if (rule.type == com.onesay.assistant.v2.capability.ParamsSchema.ParamType.INTEGER) {
                         sb.append("整数");
-                        if (rule.min != null && rule.max != null) {
-                            sb.append("[").append(rule.min).append("..").append(rule.max).append("]");
+                        if (rule.min != null && rule.effectiveMax() != null) {
+                            sb.append("[").append(rule.min).append("..").append(rule.effectiveMax()).append("]");
                         }
                     } else if (rule.type == com.onesay.assistant.v2.capability.ParamsSchema.ParamType.BOOLEAN) {
                         sb.append("布尔值");

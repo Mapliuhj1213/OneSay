@@ -99,6 +99,20 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         this.mRegistry = registry;
     }
 
+    /** ★ meizu-1118：JVM 单测用的应用解析桩（应用名 → 组件；null = 解析不出）。 */
+    interface AppResolver {
+        String resolve(String app);
+    }
+
+    private AppResolver mTestResolver;
+
+    /** ★ meizu-1118：JVM 单测 —— 带一个应用解析桩，让 app.launch 也能参与候选排序（线上走 IntentExecutor）。 */
+    static L0RuleRouter forRegistry(CapabilityRegistry registry, AppResolver resolver) {
+        L0RuleRouter r = new L0RuleRouter(registry);
+        r.mTestResolver = resolver;
+        return r;
+    }
+
     private static class MatchCandidate implements Comparable<MatchCandidate> {
         final Capability capability;
         final JSONObject args;
@@ -174,7 +188,20 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         //   网址槽位按原句取回后不像网址（没有 http(s):// 也没有「主机.后缀」）的候选整条丢掉，换下一个候选。
         MatchCandidate best = null;
         JSONObject args = null;
+        // ★ meizu-1118：「打开网页www.baidu.com」—— app.launch 的分数 = 字面量 2 + 整个槽位长度，长网址让它反超
+        //   「打开网页{url}」（字面量 4，网址槽位不计分），又因为品类别名「网页」能解析成浏览器而成立 → 只拉起浏览器、网址丢了（假成功）。
+        //   有网址候选且按原句取回的网址像网址时，app.launch 不得排在它前面。
+        MatchCandidate urlWin = null;
+        JSONObject urlArgs = null;
         for (MatchCandidate c : candidates) {
+            if (!c.args.has("url") || "app.launch".equals(c.capability.sign)) continue;
+            JSONObject a = restoreRawSlots(raw, c.args);
+            if (plausibleUrl(a.optString("url", null))) { urlWin = c; urlArgs = a; break; }
+        }
+        if (urlWin != null && preferUrlOver(candidates.get(0).capability.sign)) {
+            best = urlWin; args = urlArgs;
+        }
+        if (best == null) for (MatchCandidate c : candidates) {
             JSONObject a = restoreRawSlots(raw, c.args);   // ★ rel-1118 B01：文本槽位按原句取回（不丢标点 / 空格 / 大小写）
             if (a.has("url") && !plausibleUrl(a.optString("url", null))) {
                 SafeLog.i(TAG, "L0 跳过候选：网址槽位不像网址（" + c.capability.sign + "）");
@@ -203,6 +230,11 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
             "^(?:https?://\\S+|(?:[\\p{L}\\p{N}](?:[\\p{L}\\p{N}-]*[\\p{L}\\p{N}])?\\.)+[A-Za-z" + com.onesay.assistant.v2.util.RegexCompat.HAN + "]{2,}(?::\\d{1,5})?(?:[/?#]\\S*)?)$",
             java.util.regex.Pattern.CASE_INSENSITIVE,
             "^https?://\\S+$");
+
+    /** ★ meizu-1118：排第一的是 app.launch（最宽泛的贪婪模板）时，像网址的网址候选优先。 */
+    static boolean preferUrlOver(String topSign) {
+        return "app.launch".equals(topSign);
+    }
 
     static boolean plausibleUrl(String url) {
         if (url == null) return false;
@@ -376,7 +408,8 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
 
             // ★ BUG-003 防贪婪抢占：必须能解析出本地真实应用或品类别名才算命中！
             if ("app.launch".equals(cap.sign)) {
-                String component = mIntentExecutor != null ? mIntentExecutor.resolveComponent(app.trim()) : null;
+                String component = mTestResolver != null ? mTestResolver.resolve(app.trim())
+                        : mIntentExecutor != null ? mIntentExecutor.resolveComponent(app.trim()) : null;
                 if (component == null) {
                     return null; // 无法解析出应用，不准抢占！
                 }

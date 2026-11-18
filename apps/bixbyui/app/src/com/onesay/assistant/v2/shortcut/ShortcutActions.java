@@ -113,7 +113,7 @@ public final class ShortcutActions {
         l.add(new Action("settings.page.wifi", "打开 Wi‑Fi 设置页", "打开"));
         l.add(new Action("dnd.on", "打开勿扰", "系统开关").priv());
         l.add(new Action("dnd.off", "关闭勿扰", "系统开关").priv());
-        l.add(new Action("volume.media.set", "媒体音量", "系统开关").p("level", "音量（0–15）", "int", "媒体音量调到多少？").priv());
+        l.add(new Action("volume.media.set", "媒体音量", "系统开关").p("level", "音量（0–" + com.onesay.assistant.v2.util.MediaVolumeScale.max() + "）", "int", "媒体音量调到多少？").priv());
         l.add(new Action("volume.ring.set", "铃声音量", "系统开关").p("level", "音量（0–15）", "int", "铃声音量调到多少？").priv());
         l.add(new Action("settings.brightness.set", "屏幕亮度", "系统开关").p("level", "亮度（0–255）", "int", "亮度调到多少？").priv());
         l.add(new Action(BRIEF_PLAY, "播报晨间简报", "播报").priv());

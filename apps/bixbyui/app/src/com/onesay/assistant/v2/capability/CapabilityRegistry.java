@@ -78,6 +78,7 @@ public class CapabilityRegistry {
      * @return 本次（或此前）已加载的挖掘接口条数
      */
     public synchronized int init(Context context) {
+        com.onesay.assistant.v2.util.MediaVolumeScale.init(context);   // ★ meizu-1118 B6：媒体音量真实满格（Meizu 0–60）
         if (mMinedLoaded) return mMinedCount;
         mMinedLoaded = true;
         try {

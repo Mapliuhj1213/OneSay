@@ -22,6 +22,26 @@ public class ShellExecutor implements ShellRunner {
 
     private static final String TAG = "ShellExecutor";
     /** ★ fix-1118：BatteryManager 粘性广播读电量 / 温度 / 充电状态，输出与 dumpsys battery 同格式。读不到 = null。 */
+    /** ★ meizu-1118 B8：媒体音量 App 内 AudioManager 读写（不需要特权）。失败 = null（交特权通道）。 */
+    private ShellResponse localMediaVolume(int op) {
+        try {
+            android.media.AudioManager am = (android.media.AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return null;
+            int max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC);
+            if (max <= 0) return null;
+            com.onesay.assistant.v2.util.MediaVolumeScale.set(max);
+            if (op >= 0) {
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, Math.min(op, max), 0);
+                Log.i(TAG, "[EXEC] 媒体音量（App 内 AudioManager，不经特权通道）");
+            }
+            int v = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC);
+            return new ShellResponse(0, com.onesay.assistant.v2.platform.ShizukuCompat.mediaVolumeOut(v, max), false, false);
+        } catch (Throwable t) {
+            Log.w(TAG, "[EXEC] App 内媒体音量失败，交特权通道: " + t.getClass().getSimpleName());
+            return null;
+        }
+    }
+
     private ShellResponse localBattery(String command) {
         try {
             android.content.Intent b = mContext.registerReceiver(null, new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
@@ -179,6 +199,11 @@ public class ShellExecutor implements ShellRunner {
         if (com.onesay.assistant.v2.executor.backend.ShellPrograms.RESOLVE_BROWSER.equals(command.trim())) {
             ShellResponse lr = localResolveBrowser();
             if (lr != null) return lr;
+        }
+        int mv = com.onesay.assistant.v2.platform.ShizukuCompat.mediaVolume(command);   // ★ meizu-1118 B8
+        if (mv != -1) {
+            ShellResponse lv = localMediaVolume(mv);
+            if (lv != null) return lv;
         }
         // ★ fix-1118 B19 真机：只打开一个应用商店 / 网页链接 → App 自己 startActivity（Shizuku 白名单不放带引号的 am start）
         String viewUri = com.onesay.assistant.v2.platform.ShizukuCompat.viewUri(command);
