@@ -137,6 +137,18 @@ public class Preview1120Device2Test {
         assertEquals(0, ChatAgent.questionCount(null));
     }
 
+    /** 真机复验（f22c68b）：先用一段话问会场在哪，再列两条——共 3 问、一步没查，以前只数出 2 个没打回。 */
+    static final String B6 = "先确认几个关键信息，我才能给出靠谱的住宿建议。\n\n你说的“开会”具体在成都哪里？比如天府新区、高新区还是某个具体园区？成都很大。\n\n"
+            + "另外补充两点会更有用：\n1. 会议大概几天、预算多少（比如 300 以内 / 500 左右）\n2. 更看重什么：离会场近、地铁方便、还是吃饭逛街方便\n\n"
+            + "如果你暂时不确定会场，我可以先按地铁 1 号线沿线给一版通用方案。";
+
+    @Test public void proseQuestionCountsTowardOverAsking() {
+        assertEquals(3, ChatAgent.questionCount(B6));
+        assertTrue(ChatAgent.overAsks(B6));
+        assertEquals("一句反问 + 无列表只算 1", 1, ChatAgent.questionCount("你想让我帮你安排这两周假期吗？比如查机票、做行程。\n告诉我想去哪儿，我就开始办。"));
+        assertFalse("方案里带一句问号不算只问不做", ChatAgent.overAsks("先给你一版方案：\n第 1 天 昆明。\n第 2 天 大理。\n最后问一下：从哪出发？\n1. 能走多远？"));
+    }
+
     @Test public void overAskingFirstReplyIsSentBackOnce() {
         List<List<Map<String, Object>>> seen = new ArrayList<>();
         AtomicInteger n = new AtomicInteger();
