@@ -1,0 +1,302 @@
+[
+  {
+    "name": "@dagrejs/graphlib",
+    "version": "2.2.2",
+    "license": "MIT"
+  },
+  {
+    "name": "@emotion/is-prop-valid",
+    "version": "1.4.0",
+    "license": "MIT"
+  },
+  {
+    "name": "@emotion/memoize",
+    "version": "0.9.0",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/background-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/command",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/core",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/document",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/editor",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/form",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/form-core",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/free-auto-layout-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/free-history-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/free-hover-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/free-layout-core",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/free-layout-editor",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/free-lines-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/free-stack-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/history",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/history-node-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/i18n",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/i18n-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/materials-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/node",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/node-core-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/node-variable-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/playground-react",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/reactive",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/redux-devtool-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/renderer",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/select-box-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/shortcuts-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/utils",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/variable-core",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/variable-layout",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@flowgram.ai/variable-plugin",
+    "version": "1.0.16",
+    "license": "MIT"
+  },
+  {
+    "name": "@inversifyjs/common",
+    "version": "1.4.0",
+    "license": "MIT"
+  },
+  {
+    "name": "@inversifyjs/core",
+    "version": "1.3.5",
+    "license": "MIT"
+  },
+  {
+    "name": "@inversifyjs/reflect-metadata-utils",
+    "version": "0.2.4",
+    "license": "MIT"
+  },
+  {
+    "name": "@phosphor/algorithm",
+    "version": "1.2.0",
+    "license": "BSD-3-Clause"
+  },
+  {
+    "name": "@phosphor/collections",
+    "version": "1.2.0",
+    "license": "BSD-3-Clause"
+  },
+  {
+    "name": "@phosphor/messaging",
+    "version": "1.3.0",
+    "license": "BSD-3-Clause"
+  },
+  {
+    "name": "@tweenjs/tween.js",
+    "version": "18.6.4",
+    "license": "MIT"
+  },
+  {
+    "name": "bezier-js",
+    "version": "6.1.4",
+    "license": "MIT"
+  },
+  {
+    "name": "bignumber.js",
+    "version": "11.1.5",
+    "license": "MIT"
+  },
+  {
+    "name": "clsx",
+    "version": "1.2.1",
+    "license": "MIT"
+  },
+  {
+    "name": "fast-equals",
+    "version": "2.0.4",
+    "license": "MIT"
+  },
+  {
+    "name": "i18n-js",
+    "version": "4.5.4",
+    "license": "MIT"
+  },
+  {
+    "name": "inversify",
+    "version": "6.2.2",
+    "license": "MIT"
+  },
+  {
+    "name": "lodash",
+    "version": "4.18.1",
+    "license": "MIT"
+  },
+  {
+    "name": "lodash-es",
+    "version": "4.18.1",
+    "license": "MIT"
+  },
+  {
+    "name": "make-plural",
+    "version": "7.5.0",
+    "license": "Unicode-DFS-2016"
+  },
+  {
+    "name": "nanoid",
+    "version": "5.1.16",
+    "license": "MIT"
+  },
+  {
+    "name": "react",
+    "version": "18.3.1",
+    "license": "MIT"
+  },
+  {
+    "name": "react-dom",
+    "version": "18.3.1",
+    "license": "MIT"
+  },
+  {
+    "name": "reflect-metadata",
+    "version": "0.2.2",
+    "license": "Apache-2.0"
+  },
+  {
+    "name": "rxjs",
+    "version": "7.8.2",
+    "license": "Apache-2.0"
+  },
+  {
+    "name": "scheduler",
+    "version": "0.23.2",
+    "license": "MIT"
+  },
+  {
+    "name": "styled-components",
+    "version": "6.6.0",
+    "license": "MIT"
+  },
+  {
+    "name": "stylis",
+    "version": "4.3.6",
+    "license": "MIT"
+  },
+  {
+    "name": "tslib",
+    "version": "2.9.1",
+    "license": "0BSD"
+  }
+]

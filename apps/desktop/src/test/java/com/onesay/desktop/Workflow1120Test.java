@@ -771,7 +771,7 @@ public class Workflow1120Test {
             HttpResponse<String> r = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(ui.baseUrl() + "workflow.js")).build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(200, r.statusCode());
             assertTrue(r.body().length() > 1000);
-            assertFalse(r.body().contains("FlowGram"));
+            assertTrue(r.body().contains("OneSayWorkflow"));
         } finally {
             ui.stop();
         }

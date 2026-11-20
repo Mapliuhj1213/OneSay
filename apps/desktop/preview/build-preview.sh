@@ -13,8 +13,13 @@ FULL="$VER$SUFFIX"
 B=$(mktemp -d)
 trap 'rm -rf "$B"' EXIT
 mkdir -p "$B/classes" "$OUT"
-javac --release 17 -encoding UTF-8 -d "$B/classes" $(find "$HERE/src/main/java" -name '*.java')
+# [workflow-1120] 依赖按 deps/java.lock 下载校验后解进 jar（DEPS_DIR 可指向已下载的目录）
+export DEPS_DIR=${DEPS_DIR:-$B/deps}
+sh "$HERE/deps/fetch.sh" >/dev/null
+DEPCP=$(grep -v '^#' "$HERE/deps/java.lock" | while read -r p s; do [ -n "$p" ] && printf '%s:' "$DEPS_DIR/$(basename "$p")"; done)
+javac --release 17 -encoding UTF-8 -cp "$DEPCP" -d "$B/classes" $(find "$HERE/src/main/java" -name '*.java')
 cp -r "$HERE/src/main/resources/." "$B/classes/"
+sh "$HERE/deps/unpack.sh" "$B/classes"
 printf 'flavor=preview\nsuffix=%s\n' "$SUFFIX" > "$B/classes/onesay/flavor.properties"
 printf 'Main-Class: com.onesay.desktop.Main\nImplementation-Version: %s\nImplementation-Title: OneSay Preview\n' "$FULL" > "$B/MANIFEST.MF"
 jar --create --file "$OUT/onesay-desktop-preview.jar" --manifest "$B/MANIFEST.MF" -C "$B/classes" .

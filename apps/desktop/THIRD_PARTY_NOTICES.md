@@ -11,6 +11,10 @@
 | Catppuccin Latte / Mocha 配色（Catppuccin） | `themes/catppuccin-latte.json`、`themes/catppuccin-mocha.json` | MIT | 同上 |
 | Dracula 配色（Dracula Theme） | `themes/dracula.json` | MIT | 同上 |
 | Solarized Light 配色（Ethan Schoonover） | `themes/solarized-light.json` | MIT | 同上 |
+| [workflow-1120] quickjs4j 0.1.1（roastedroot） | 解进 jar（`io/roastedroot/quickjs4j/**`） | Apache-2.0 | 工作流代码节点 / JS 技能的沙箱；内含 QuickJS（MIT，© Fabrice Bellard、Charlie Gordon）与 Javy（Apache-2.0 WITH LLVM-exception，Bytecode Alliance）编译出的模块。版本与 SHA-256 锁在 `deps/java.lock`。许可原文见 jar 内 `onesay/third-party/java-licenses.txt` |
+| [workflow-1120] Endive 1.1.0（runtime / wasi / wasm / log，Bytecode Alliance，原 Chicory） | 解进 jar（`run/endive/**`） | Apache-2.0 | 纯 Java 的 WebAssembly 运行时，quickjs4j 依赖 |
+| [workflow-1120] Jackson 2.22（databind 2.22.3、core 2.22.3、annotations 2.22，FasterXML） | 解进 jar（`com/fasterxml/jackson/**`） | Apache-2.0 | quickjs4j 依赖；NOTICE 原文随 jar 在 `META-INF/onesay-third-party/` |
+| [workflow-1120] 自由布局画布库 @flowgram.ai/free-layout-editor 1.0.16 及其插件（Bytedance） | `src/main/resources/onesay/ui/workflow.js`（esbuild 打成单文件） | MIT | 工作流页的画布（拖节点、连线、撤销）。界面上不显示它的名字、没有署名角标。打进包的全部 60 个 npm 包（React 18.3.1 MIT、inversify MIT、rxjs Apache-2.0、reflect-metadata Apache-2.0、@phosphor/* BSD-3-Clause、make-plural Unicode-DFS-2016、tslib 0BSD、styled-components MIT、lodash MIT 等）的名字、版本、许可原文见 `onesay/ui/workflow-licenses.txt`（构建时自动生成），清单见 `web/workflow/bundled-packages.json`；版本由 `web/workflow/package-lock.json` 锁定 |
 
 ## 运行时按需下载（不随安装包附带，由你在设置里点「安装」后从官方发布页下载到 %LOCALAPPDATA%\OneSay\tools）
 | 组件 | 来源 | 许可 | 说明 |
@@ -241,3 +245,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+## [workflow-1120] 只借思路、没有搬代码
+- 工作流节点图的外形（nodes / edges、节点 {id,type,meta.position,data}）沿用上面画布库自己的 JSON 格式；节点 data 的分法参考了 Coze Studio（Apache-2.0）的 `canvas.go`，只参考格式，没有复制代码。
+- 「按参数声明生成节点」的思路参考 ComfyUI 的 INPUT_TYPES、n8n 社区节点的分发方式：只借思路，没有使用它们的代码（n8n 是 Sustainable Use License）。
+

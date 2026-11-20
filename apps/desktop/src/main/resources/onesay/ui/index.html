@@ -44,6 +44,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 /* ---------- 主区 ---------- */
 .main{flex:1;overflow:auto;padding:30px 40px 120px}
 .page{display:none;max-width:1000px;margin:0 auto}
+#workflows{max-width:none;height:calc(100vh - 48px)}
 .page.on{display:block}
 .head{display:flex;align-items:flex-end;gap:16px;margin-bottom:22px}
 .head h1{font-size:34px;font-weight:600;letter-spacing:.5px;line-height:1.1}
@@ -333,6 +334,7 @@ select.field{appearance:auto;padding-right:8px}
     <button class="nav" data-p="pickups"><span class="ic" style="background:var(--pickup)"><svg class="i"><use href="#i-package"/></svg></span>取件<span class="n" id="c-pickups"></span></button>
     <button class="nav" data-p="autos"><span class="ic" style="background:var(--auto)"><svg class="i"><use href="#i-repeat"/></svg></span>自动任务</button>
     <button class="nav" data-p="shortcuts"><span class="ic" style="background:var(--auto)"><svg class="i"><use href="#i-zap"/></svg></span>快捷指令</button>
+    <button class="nav" data-p="workflows"><span class="ic" style="background:var(--auto)"><svg class="i"><use href="#i-repeat"/></svg></span>工作流</button>
 
     <div class="grp">设备</div>
     <button class="nav" data-p="phone"><span class="ic" style="background:var(--device)"><svg class="i"><use href="#i-smartphone"/></svg></span>手机</button>
@@ -360,6 +362,7 @@ select.field{appearance:auto;padding-right:8px}
     <section class="page" id="pickups"></section>
     <section class="page" id="autos"></section>
     <section class="page" id="shortcuts"></section>
+    <section class="page" id="workflows"></section>
     <section class="page" id="phone"></section>
     <section class="page" id="mirror"></section>
     <section class="page" id="pc"></section>
@@ -1086,7 +1089,7 @@ function confirmBar(){const all=(S&&S.confirms)||[];const box=$('cfbox');if(!box
   if(!c.length){box.style.display='none';if(!all.length){cfShown='';cfId=0;cfArmed=false;clearTimeout(cfArmT)}return}
   const x=c[0],key=String(x.id);if(cfShown===key)return;cfShown=key;cfId=x.id;
   box.style.borderLeft='4px solid var(--ctl-wait)';   // ★ console-align：等确认 = 琥珀
-  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px"><span class="tag wait" style="margin-right:6px">等确认</span>${x.from==='本机对话'?'OneSay 要在这台电脑上执行操作，需要你确认':'手机请求，需要你确认'}</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div>${x.remember_kind?`<label class="note" style="display:block;margin:0 0 8px"><input type="checkbox" id="cfrem"> ${x.remember_kind.indexOf(':')>0?esc(x.remember_zh):'以后这类不用问（'+esc(x.remember_zh||x.remember_kind)+'）'}（可在「设置 › 权限记录」里撤销）</label>`:''}${x.task_scope?`<button class="btn sm cfallow" disabled onclick="cfAns(${x.id},true,false,event,'task')">允许本次任务</button> `:''}${x.phone?'<div class="note" style="margin:0 0 6px">已同时发到手机，手机屏幕上点也行</div>':''}<div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
+  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px"><span class="tag wait" style="margin-right:6px">等确认</span>${x.from==='本机对话'?'OneSay 要在这台电脑上执行操作，需要你确认':x.from==='工作流'?'工作流要做一步，需要你确认（只算这一次）':'手机请求，需要你确认'}</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div>${x.remember_kind?`<label class="note" style="display:block;margin:0 0 8px"><input type="checkbox" id="cfrem"> ${x.remember_kind.indexOf(':')>0?esc(x.remember_zh):'以后这类不用问（'+esc(x.remember_zh||x.remember_kind)+'）'}（可在「设置 › 权限记录」里撤销）</label>`:''}${x.task_scope?`<button class="btn sm cfallow" disabled onclick="cfAns(${x.id},true,false,event,'task')">允许本次任务</button> `:''}${x.phone?'<div class="note" style="margin:0 0 6px">已同时发到手机，手机屏幕上点也行</div>':''}<div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
   box.style.display='';const d=$('cfdeny');if(d)d.focus(); // 焦点默认在「拒绝」：误按回车 / 空格 = 拒绝
   if(!LIVE){cfArm();return}
   api('confirm',{op:'seen',id:x.id,focused:document.hasFocus()}).then(r=>{if(r&&r.arm_ms)cfArmMs=r.arm_ms;if(cfId===x.id)cfArm()}).catch(()=>{})}
@@ -1188,6 +1191,7 @@ function render(){if(!S)return;
   for(const k of ['events','todos','tickets','pickups']){const n=k==='todos'?S.todos.filter(t=>!t.done).length:k==='pickups'?S.pickups.filter(p=>!p.done).length:S[k].length;$('c-'+k).textContent=n||''}
   const un=S.notes.filter(n=>!n.read).length;$('nbadge').style.display=un?'':'none';$('nbadge').textContent=un;
   if(page==='chat'){renderChat();return}
+  if(page==='workflows'){wfMount();return} // [workflow-1120] 工作流页自己管渲染（画布不随 2.5 秒刷新重画）
   const ae=document.activeElement;if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')&&$(page).contains(ae))return; // 正在输入时不重绘
   if(page==='mirror'&&mrDrag)return; // 拖文件经过投屏区时不重绘（不然放手时元素已换掉）
   $(page).innerHTML=P[page]();markDanger($(page));if(page==='settings'){applySetFilter();if(pairShown&&lastPair)drawQr(lastPair)}}
@@ -1210,6 +1214,15 @@ if(location.hash==='#edge-fallback'){document.title=(document.documentElement.da
   fb.textContent='Edge 后备窗口：这次没经 OneSay.exe 启动，窗口算在 Edge 名下。从开始菜单或桌面的 OneSay 打开即可恢复正常窗口。';
   fb.style.cssText='position:fixed;left:0;right:0;top:0;z-index:9999;padding:4px 12px;font-size:12px;background:color-mix(in srgb,var(--warn) 18%,var(--card));color:var(--text);text-align:center';
   document.body.appendChild(fb)}
+// [workflow-1120] 工作流页：第一次打开时才加载画布（/workflow.js，打包好的单文件，离线可用）
+let wfLoaded=0;
+function wfMount(){const el=$('workflows');if(wfLoaded===2||wfLoaded===1)return;
+  if(window.OneSayWorkflow){wfLoaded=2;window.OneSayWorkflow.mount(el,{api,snack,live:LIVE});return}
+  wfLoaded=1;el.innerHTML='<div class="card"><div class="empty">正在加载工作流画布…</div></div>';
+  const sc=document.createElement('script');sc.src='/workflow.js';
+  sc.onload=()=>{wfLoaded=2;window.OneSayWorkflow.mount(el,{api,snack,live:LIVE})};
+  sc.onerror=()=>{wfLoaded=0;el.innerHTML='<div class="card"><div class="empty">工作流画布没加载出来，切到别的页再回来试试</div></div>'};
+  document.head.appendChild(sc)}
 refresh();if(LIVE)setInterval(refresh,2500);
 </script>
 </body>
