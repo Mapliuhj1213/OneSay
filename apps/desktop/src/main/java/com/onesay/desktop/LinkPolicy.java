@@ -1465,6 +1465,40 @@ public final class LinkPolicy {
                 Matcher st = NETSH_STMT.matcher(s);
                 if (st.find(m.start()) && st.start() == m.start() && netshReadOnly(st.group(2))) continue;
             }
+            if (m.group().toLowerCase(java.util.Locale.ROOT).contains("hosts") && readOnlyAt(s, m.start())) continue; // [preview-1120 真机 2] 只读 hosts
+            String h = oneLine(m.group());
+            return h.length() > 40 ? h.substring(0, 40) + "…" : h;
+        }
+        return null;
+    }
+
+    /**
+     * [preview-1120 真机综合测试 2] 只读地看机器级注册表 / hosts（{@code Get-ItemProperty 'HKLM:\…\Uninstall\*'}、
+     * {@code Get-Content C:\Windows\System32\drivers\etc\hosts}）普通用户也能做，不算「要管理员」——以前一律生成管理员脚本，
+     * 模型拿不到「装了哪些软件」「hosts 里有什么」，就去翻目录瞎猜（真机：漏掉已装的 VirtualBox、说 hosts 查不了）。
+     * 只在整条命令没有任何写入动作、且命中所在的那一句是由读命令开头时放行；其余照旧算要管理员。
+     */
+    private static final Pattern READ_LEAD = Pattern.compile(
+            "^(?:&\\s*)?(get-itemproperty|get-itempropertyvalue|get-childitem|get-item|test-path|get-acl|resolve-path|get-content|select-string|"
+                    + "gp|gpv|gci|gi|ls|dir|gc|type|cat|sls|reg(?:\\.exe)?\\s+query)\\b");
+    private static final Pattern ANY_WRITE = Pattern.compile(
+            "\\bout-(file|printer)\\b|\\b(set|new|remove|rename|copy|move|clear|add|export|import|install|uninstall|start|stop|restart|invoke|enable|disable|register|unregister)-[a-z]+\\b"
+                    + "|\\b(sp|ni|ri|rni|rm|del|erase|rd|rmdir|mi|move|cpi|copy|cp|mv|clc|cli|iex|icm|saps|start|sc|ac|tee)\\b"
+                    + "|\\breg(\\.exe)?\\s+(add|delete|import|load|unload|restore|copy|save|export)\\b|[^2*=\\-]>|>>|\\.(setvalue|deletevalue|deletesubkey\\w*|createsubkey|opensubkey\\s*\\([^)]*,\\s*\\$?true)");
+
+    static boolean readOnlyAt(String s, int at) {
+        if (ANY_WRITE.matcher(s).find()) return false;
+        int b = at;
+        while (b > 0 && ";|&\n\r({".indexOf(s.charAt(b - 1)) < 0) b--;
+        String stmt = s.substring(b).trim();
+        return READ_LEAD.matcher(stmt).find();
+    }
+
+    private static String readTolerantHit(Pattern p, String s, boolean onlyHosts) {
+        Matcher m = p.matcher(s);
+        while (m.find()) {
+            boolean candidate = !onlyHosts || m.group().contains("hosts");
+            if (candidate && readOnlyAt(s, m.start())) continue;
             String h = oneLine(m.group());
             return h.length() > 40 ? h.substring(0, 40) + "…" : h;
         }
@@ -1474,7 +1508,7 @@ public final class LinkPolicy {
     /** 需要管理员就返回中文原因（给脚本头注释用），不需要返回空串。 */
     public static String adminReason(String normalized) {
         String s = normalized == null ? "" : normalized;
-        String h = firstHit(ADMIN_REG, s);
+        String h = readTolerantHit(ADMIN_REG, s, false);
         if (h != null) return "要改机器级注册表（" + h + "），需要管理员";
         h = firstHit(ADMIN_SVC, s);
         if (h != null) return "要动服务 / 驱动 / 启动项（" + h + "），需要管理员";

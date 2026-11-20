@@ -69,6 +69,8 @@ public final class Chat {
         this.shortcuts = shortcuts;
         this.log = log;
         agent.preset = () -> ChatPolicy.Preset.of(cfg.chatPreset);
+        agent.progressGuard = true;   // [preview-1120 真机综合测试 2] 同类步骤空转防护
+        agent.wrapUpOnStop = true;    // [preview-1120 真机综合测试 2] 被拒 / 空转停下时收尾：查到什么、用户自己怎么做
         agent.delivered = x -> {
             String id = queuedIds.poll();
             if (id != null) store.update("chat", id, Map.of("queued", false));

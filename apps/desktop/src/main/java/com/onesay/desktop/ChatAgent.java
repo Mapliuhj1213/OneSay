@@ -1,11 +1,13 @@
 package com.onesay.desktop;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -28,6 +30,19 @@ public final class ChatAgent {
     /** 连续这么多步失败（不含被拒）就当没有进展，停下。 */
     public static final int MAX_FAILS = 5;
     public static final int DEFAULT_TIMEOUT_MIN = 120;
+    /**
+     * [preview-1120 真机综合测试 2] 同类步骤空转防护（Chat 打开；直接 new 的 ChatAgent 默认关，保持旧行为）：
+     * 真机上模型换着查询参数调同一个接口 18 次、每次结果一模一样，原样重复检测（{@link #MAX_REPEAT}）抓不到，只能等批准超时。
+     * 现在按「同一类步骤」（同一个工具 + 同一个网址主机路径 / 同一个命令开头）计：同类步骤第 {@link #STALE_HINT} 次拿到完全相同的结果时，
+     * 在结果里提醒模型别再换参数；到 {@link #STALE_STOP} 次停下。同类步骤总数到 {@link #FAMILY_HINT} 提醒、{@link #FAMILY_STOP} 停下。
+     */
+    public volatile boolean progressGuard = false;
+    public static final int STALE_HINT = 3, STALE_STOP = 5, FAMILY_HINT = 8, FAMILY_STOP = 16;
+    /**
+     * [preview-1120 真机综合测试 2] 被拒绝 / 空转 / 连续失败停下时，再让模型（不带工具）收个尾：说清已经查到什么、还缺什么、用户自己怎么做。
+     * 以前停在一句固定话上，前面查到的东西和手动步骤都没给用户（真机：Steam 诊断到一半被拒，什么结论都没有）。Chat 打开；默认关。
+     */
+    public volatile boolean wrapUpOnStop = false;
     /** 总时长上限（毫秒）；Chat 按设置填。 */
     public volatile long timeoutMs = DEFAULT_TIMEOUT_MIN * 60_000L;
     /** 任务进行中用户发来的话（下一步之前交给模型）。 */
@@ -461,6 +476,7 @@ public final class ChatAgent {
         int dlHints = 0; // [preview-1120] 命令里下载文件 → 提示改用下载工具的次数
         String lastKey = "";
         int repeat = 0;
+        Map<String, Integer> famCount = new HashMap<>(), sameOut = new HashMap<>();
         cancel.set(false);
         long t0 = clock.getAsLong();
         while (true) {
@@ -525,7 +541,8 @@ public final class ChatAgent {
             if (hedges(t.content)) hedged = true;
             for (Llm.ToolCall hc : t.calls) if (hedges(hc.arguments)) hedged = true;
             if (t.content != null && !t.content.isBlank()) steps.step(Map.of("phase", "note", "desc", clip(Humanize.text(Outcomes.stripTag(t.content.trim())), 300), "text", t.content.trim())); // [preview-1120 真机] 旁白不露【需要你操作】这类结果标记 // [overnight-1119] 旁白不露内部名
-            for (Llm.ToolCall c : t.calls) {
+            for (int ci = 0; ci < t.calls.size(); ci++) {
+                Llm.ToolCall c = t.calls.get(ci);
                 if (cancel.get()) {
                     msgs.add(toolMsg(c.id, "{\"ok\":false,\"text\":\"用户点了停止\"}"));
                     continue;
@@ -545,7 +562,8 @@ public final class ChatAgent {
                     String what = describe(cmd, args);
                     msgs.add(toolMsg(c.id, "{\"ok\":false,\"text\":\"同一步重复太多次，没执行\"}"));
                     steps.step(stepEv("done", done + 1, desc, cmd, args, false, "同一步原样重复了 " + repeat + " 次，停下", "", "▶ " + what + "\n✗ 同一步已经原样重复 " + repeat + " 次，停下"));
-                    return new Outcome("同一步（" + desc + "）原样重复了 " + repeat + " 次还没进展，我先停下。你看一下情况，或者换个说法告诉我下一步怎么做。", "loop", done);
+                    skipRest(msgs, t.calls, ci);
+                    return wrapUp(msgs, brain, new Outcome("同一步（" + desc + "）原样重复了 " + repeat + " 次还没进展，我先停下。你看一下情况，或者换个说法告诉我下一步怎么做。", "loop", done));
                 }
                 if (!choiceDone && hedged && sideEffect(cmd, args) && hedgeBlocks < 2) {
                     // [overnight-1119] 目标还不确定（说了「最可能 / 应该是」），下载 / 安装 / 付款前先让用户选：这一步不执行
@@ -594,7 +612,25 @@ public final class ChatAgent {
                 if (r.data != null) for (String k : new String[] {"image", "file", "verified"}) if (r.data.get(k) != null) ev.put(k, String.valueOf(r.data.get(k))); // [devtools-1118] 任务卡里显示
                 if (r.ok && r.data != null && r.data.get("warn") != null && !String.valueOf(r.data.get("warn")).isBlank()) ev.put("warn", String.valueOf(r.data.get("warn"))); // [overnight-1119] 黄色「有警告」
                 steps.step(ev);
-                msgs.add(toolMsg(c.id, resultJson(r)));
+                String rj = resultJson(r);
+                String staleStop = null;
+                if (progressGuard && !LinkPolicy.R_CONFIRM_DENIED.equals(reason) && !LinkPolicy.R_CONFIRM_TIMEOUT.equals(reason)) {
+                    String fam = family(cmd, args);
+                    int fn = famCount.merge(fam, 1, Integer::sum);
+                    int sn = sameOut.merge(fam + "#" + (r.ok ? "ok" : "fail") + "#" + (out == null ? "" : String.valueOf(out).trim()).hashCode(), 1, Integer::sum);
+                    if (sn >= STALE_STOP || fn >= FAMILY_STOP)
+                        staleStop = sn >= STALE_STOP ? "同一类步骤（" + desc + "）已经 " + sn + " 次拿到完全相同的结果" : "同一类步骤（" + desc + "）已经做了 " + fn + " 次";
+                    else if (sn >= STALE_HINT || fn == FAMILY_HINT)
+                        rj = withNote(rj, sn >= STALE_HINT
+                                ? "OneSay 提示：这一类步骤已经 " + sn + " 次返回完全相同的结果，再换参数也不会有新信息。不要再试同类变体：换一个完全不同的来源（比如官方网页、搜索），或者用已有结果收尾；拿不到就如实告诉用户缺什么。"
+                                : "OneSay 提示：同一类步骤已经做了 " + fn + " 次。先想清楚还缺什么；没有新思路就用已有结果收尾，如实告诉用户。");
+                }
+                msgs.add(toolMsg(c.id, rj));
+                if (staleStop != null) {
+                    skipRest(msgs, t.calls, ci);
+                    steps.step(Map.of("phase", "note", "desc", staleStop + "，没有新进展，先停下"));
+                    return wrapUp(msgs, brain, new Outcome(staleStop + "，没有新进展，我先停下。", "loop", done));
+                }
                 if ("ask_choice".equals(cmd)) {
                     if (r.ok) { choiceDone = true; hedged = false; }
                     else if ("choice_other".equals(reason))
@@ -602,14 +638,62 @@ public final class ChatAgent {
                     else if ("choice_timeout".equals(reason))
                         return new Outcome("选择卡没人选（10 分钟到了），我先停在这里。选好了说「继续」，或者直接告诉我是哪个。", Outcomes.NEEDS_USER, done);
                 }
-                if (LinkPolicy.R_CONFIRM_DENIED.equals(reason))
-                    return new Outcome("你在确认框里拒绝了这一步（" + desc + "），我停在这里，没有换别的办法去做。要换个做法或继续，直接告诉我。", "denied", done);
+                if (LinkPolicy.R_CONFIRM_DENIED.equals(reason)) {
+                    skipRest(msgs, t.calls, ci);
+                    return wrapUp(msgs, brain, new Outcome("你在确认框里拒绝了这一步（" + desc + "），我停在这里，没有换别的办法去做。要换个做法或继续，直接告诉我。", "denied", done));
+                }
                 if (LinkPolicy.R_CONFIRM_TIMEOUT.equals(reason))
                     return new Outcome("批准没人点（60 秒到了，或窗口被切走），这一步没执行：" + desc + "。说「继续」我会重新请求，到时在任务卡上点「允许」。", "timeout", done);
                 fails = r.ok ? 0 : fails + 1;
-                if (fails >= MAX_FAILS)
-                    return new Outcome("连续 " + fails + " 步都失败了（最后一步：" + desc + "：" + summary(r) + "），看起来没有进展，我先停下。你看一下情况，或者告诉我换个思路。", "no_progress", done);
+                if (fails >= MAX_FAILS) {
+                    skipRest(msgs, t.calls, ci);
+                    return wrapUp(msgs, brain, new Outcome("连续 " + fails + " 步都失败了（最后一步：" + desc + "：" + summary(r) + "），看起来没有进展，我先停下。你看一下情况，或者告诉我换个思路。", "no_progress", done));
+                }
             }
+        }
+    }
+
+    // ------------------------------------------------------------------ [preview-1120 真机综合测试 2] 空转防护 / 停下时收尾
+
+    /** 同一类步骤：同一个工具 + 第一个网址的主机和路径（不看查询参数）；没有网址就看命令的第一个词。 */
+    static String family(String cmd, Map<String, Object> a) {
+        String body = a == null ? "" : String.valueOf(a.getOrDefault("command", a.getOrDefault("url", Json.stringify(a))));
+        String low = body.toLowerCase(java.util.Locale.ROOT);
+        Matcher u = FAMILY_URL.matcher(low);
+        if (u.find()) return cmd + "|url:" + u.group(1);
+        String t = low.replaceFirst("^\\s*(\\$progresspreference\\s*=\\s*'[^']*'\\s*;\\s*)?(\\[[^\\]]+\\]::[^;]*;\\s*)?", "").trim();
+        int sp = 0;
+        while (sp < t.length() && !Character.isWhitespace(t.charAt(sp)) && t.charAt(sp) != ';' && t.charAt(sp) != '|') sp++;
+        return cmd + "|" + t.substring(0, sp);
+    }
+
+    static final Pattern FAMILY_URL = Pattern.compile("https?://([^\\s'\"?#;|)]+)");
+
+    static String withNote(String json, String note) {
+        String j = json == null ? "{}" : json.trim();
+        if (!j.endsWith("}")) return j;
+        return j.substring(0, j.length() - 1) + (j.length() > 2 ? "," : "") + "\"onesay_note\":" + Json.stringify(note) + "}";
+    }
+
+    /** 同一轮里还没轮到的工具调用补上结果（接口要求每个调用都有回应），标明没执行。 */
+    static void skipRest(List<Map<String, Object>> msgs, List<Llm.ToolCall> calls, int i) {
+        for (int k = i + 1; k < calls.size(); k++) msgs.add(toolMsg(calls.get(k).id, "{\"ok\":false,\"text\":\"没执行：任务已经停下\"}"));
+    }
+
+    /** 停下时让模型不带工具再说一轮：查到了什么、还缺什么、用户自己怎么做。失败就照原来的话。 */
+    Outcome wrapUp(List<Map<String, Object>> msgs, Brain brain, Outcome o) {
+        if (!wrapUpOnStop || cancel.get()) return o;
+        try {
+            List<Map<String, Object>> m = new ArrayList<>(msgs);
+            m.add(Llm.msg("user", "（OneSay 内部提示）任务到这里停下了：" + o.text + "\n不要再调用任何工具。用中文简短告诉用户："
+                    + "①已经确认了什么（只说上面工具结果里真实出现的，不要推测成事实；结果互相矛盾就直说）；②还没弄清的；③用户自己可以怎么做（具体步骤）。"
+                    + "不要说做了没做的事，不要再问一堆问题。"));
+            Llm.Turn t = brain.next(m, List.of());
+            String x = t == null || t.content == null ? "" : stripFakeSteps(t.content.trim());
+            if (x.isEmpty() || looksLikeToolText(x)) return o;
+            return new Outcome(o.text + "\n\n" + x, o.status, o.steps);
+        } catch (Exception e) {
+            return o;
         }
     }
 
