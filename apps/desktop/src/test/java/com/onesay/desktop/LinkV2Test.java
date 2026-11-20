@@ -172,6 +172,12 @@ public class LinkV2Test {
         }
     }
 
+    /** 连接拿到了指令回复才算「被接受」；没连上、发送时连接已被关（Output closed）、等不到回复都算被拒。 */
+    static boolean answered(Conn c, Config cfg) {
+        if (!c.up) return false;
+        try { return c.request(cfg, "ping", new TreeMap<>()) != null; } catch (Exception e) { return false; }
+    }
+
     @Test public void downgradeAndPinMismatchAreRejected() throws Exception {
         try (Server s = new Server()) {
             Config ph = phoneCfg(s.cfg, "phone-ccc");
@@ -185,7 +191,7 @@ public class LinkV2Test {
             plain.peerFp = "";
             Conn d = new Conn(plain, false, null);
             Thread.sleep(300);
-            assertFalse("用 TLS 连过的设备不许退回明文", d.up && d.request(plain, "ping", new TreeMap<>()) != null);
+            assertFalse("用 TLS 连过的设备不许退回明文", answered(d, plain)); // [always-on-1120] 被拒连接在关闭途中发帧会抛 Output closed（满载时偶发），同样算没答
             assertTrue(d.why.get(), d.why.get().contains("要求加密连接"));
 
             // 同一个设备 id、另一张证书 → 4003
@@ -193,7 +199,7 @@ public class LinkV2Test {
             assertNotEquals(ph.tls().fp, other.tls().fp);
             Conn m = new Conn(other, false, null);
             Thread.sleep(300);
-            assertFalse("证书和记住的不一致必须拒", m.up && m.request(other, "ping", new TreeMap<>()) != null);
+            assertFalse("证书和记住的不一致必须拒", answered(m, other));
             assertTrue(m.why.get(), m.why.get().contains("旧证书"));
 
             // ★ fix-1118 SEC M6：默认不收明文；明确打开 lan_plain 后，没见过的旧版手机才可明文（兼容 v1）
