@@ -38,6 +38,9 @@ public final class ChatAgent {
      */
     public volatile boolean progressGuard = false;
     public static final int STALE_HINT = 3, STALE_STOP = 5, FAMILY_HINT = 8, FAMILY_STOP = 16;
+    /** [preview-1120 真机复验] 联网读网页不分站点的总数：每次换一个站 / 搜索词，同类计数永远到不了上限（查演唱会 16 步、查马拉松 20 步都没收尾）。
+     *  到 {@link #WEB_HINT} 提醒用已有结果作答，到 {@link #WEB_STOP} 停下并收尾（说查到了什么、缺什么）。 */
+    public static final int WEB_HINT = 8, WEB_STOP = 12;
     /**
      * [preview-1120 真机综合测试 2] 被拒绝 / 空转 / 连续失败停下时，再让模型（不带工具）收个尾：说清已经查到什么、还缺什么、用户自己怎么做。
      * 以前停在一句固定话上，前面查到的东西和手动步骤都没给用户（真机：Steam 诊断到一半被拒，什么结论都没有）。Chat 打开；默认关。
@@ -655,8 +658,13 @@ public final class ChatAgent {
                     String fam = family(cmd, args);
                     int fn = famCount.merge(fam, 1, Integer::sum);
                     int sn = sameOut.merge(fam + "#" + (r.ok ? "ok" : "fail") + "#" + (out == null ? "" : String.valueOf(out).trim()).hashCode(), 1, Integer::sum);
+                    int wn = fam.contains("|url:") ? famCount.merge("#web", 1, Integer::sum) : 0;
                     if (sn >= STALE_STOP || fn >= FAMILY_STOP)
                         staleStop = sn >= STALE_STOP ? "同一类步骤（" + desc + "）已经 " + sn + " 次拿到完全相同的结果" : "同一类步骤（" + desc + "）已经做了 " + fn + " 次";
+                    else if (wn >= WEB_STOP)
+                        staleStop = "已经联网查了 " + wn + " 次网页";
+                    else if (wn == WEB_HINT && sn < STALE_HINT && fn != FAMILY_HINT)
+                        rj = withNote(rj, "OneSay 提示：已经联网查了 " + wn + " 次网页。别再换站点 / 搜索词了：用已经查到的内容给用户答复，查不到的如实说缺什么、去哪个官方渠道看。");
                     else if (sn >= STALE_HINT || fn == FAMILY_HINT)
                         rj = withNote(rj, sn >= STALE_HINT
                                 ? "OneSay 提示：这一类步骤已经 " + sn + " 次返回完全相同的结果，再换参数也不会有新信息。不要再试同类变体：换一个完全不同的来源（比如官方网页、搜索），或者用已有结果收尾；拿不到就如实告诉用户缺什么。"

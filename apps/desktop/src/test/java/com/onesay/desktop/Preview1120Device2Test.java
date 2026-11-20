@@ -53,6 +53,24 @@ public class Preview1120Device2Test {
 
     static String api(int n) { return "{\"command\":\"Invoke-RestMethod -Uri 'https://gfwsl.example.com/services/Lookup.php?pfid=10" + n + "&dch=1' | ConvertTo-Json\",\"description\":\"再查一次\"}"; }
 
+    /** 真机复验：每步换一个站点查（同类计数到不了上限），联网总数到 WEB_HINT 提醒、到 WEB_STOP 停下并收尾。 */
+    @Test public void manyDifferentSitesHintThenStop() {
+        AtomicInteger n = new AtomicInteger();
+        List<List<Map<String, Object>>> seen = new ArrayList<>();
+        ChatAgent.Brain b = (m, t) -> { seen.add(new ArrayList<>(m)); int k = n.incrementAndGet();
+            return call("c" + k, "run_command", "{\"command\":\"Invoke-WebRequest -UseBasicParsing -Uri 'https://site" + k + ".example.com/search?q=x'\",\"description\":\"换个站查\"}"); };
+        List<String> calls = new ArrayList<>();
+        ChatAgent.Exec ex = (cmd, args) -> { calls.add(cmd); return Actions.Result.ok("命令执行完了", new TreeMap<>(Map.of("output", "页面 " + calls.size(), "exit", 0L))); };
+        ChatAgent.Outcome o = guarded().run(ctx(), b, ex, t -> { });
+        assertEquals("loop", o.status);
+        assertEquals(ChatAgent.WEB_STOP, calls.size());
+        assertTrue(o.text, o.text.contains("联网查了"));
+        List<Map<String, Object>> hint = seen.get(ChatAgent.WEB_HINT);
+        assertTrue(String.valueOf(hint.get(hint.size() - 1).get("content")).contains("别再换站点"));
+        List<Map<String, Object>> before = seen.get(ChatAgent.WEB_HINT - 1);
+        assertFalse(String.valueOf(before.get(before.size() - 1).get("content")).contains("onesay_note"));
+    }
+
     @Test public void sameFamilySameResultHintsThenStops() {
         AtomicInteger n = new AtomicInteger();
         List<List<Map<String, Object>>> seen = new ArrayList<>();
