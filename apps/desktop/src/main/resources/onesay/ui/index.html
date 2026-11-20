@@ -416,6 +416,16 @@ const now=Date.now(), H=3600e3, D=24*H, t0=new Date(new Date().toDateString()).g
 const DEMO={appearance:{mode:'system',pack:''},mcp:{servers:[],sources:[],notes:[],tool_total:0},version:'0.5.1',phone_level:'',phone_level_zh:'',pc_level:'auto',pc_sandbox:'workspace_write',pc_approval:'untrusted',plugin_enabled:true,workspace:'C:\\Users\\me\\OneSay\\workspace',confirms:[],tls_fp:'1A2B-3C4D',phone:'my-phone',device:'pc-desktop',voice:'长按空格说话',asr_pref:'auto',asr_engine:'cloud',asr_engine_zh:'云端',asr_why:'云端可用',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
  caps:['ping','screenshot','open_url','open_app','clipboard_get','clipboard_set','lock','volume','media','sleep','shutdown','shutdown_abort'],
  shortcuts:['下班模式','备份照片','改代理'],
+ aon:{node:{configured:true,up:true,agents:['node-nas'],queued:1,jobs:2,wake:{enabled:true,auto:false,mac_set:true},err:''},count_local:1,count_node:2,
+  jobs:[{id:'j1',title:'每天早上备份照片',action:'shortcut',action_zh:'运行快捷指令',target:'备份照片',where:'node',where_zh:'常驻节点',missed:'run',missed_zh:'补跑一次',at:t0+8*H,every:D,grace:2*H,wake:true,enabled:true,needs_pc:true,next:t0+D+8*H},
+   {id:'j2',title:'交房租',action:'notify',action_zh:'提醒',text:'今天 15 号',where:'node',where_zh:'常驻节点',missed:'run',missed_zh:'补跑一次',at:t0+D+9*H,every:0,grace:2*H,wake:false,enabled:true,needs_pc:false,next:t0+D+9*H},
+   {id:'j3',title:'演唱会有没有回流票',action:'watch',action_zh:'查网页',url:'https://example.com/tickets',contains:'有票',where:'node',where_zh:'常驻节点',missed:'run',missed_zh:'补跑一次',at:t0,every:15*60e3,grace:2*H,wake:false,enabled:true,needs_pc:false,next:now+6*60e3}],
+  items:[{key:'j1@1',title:'每天早上备份照片',action:'运行快捷指令',due:t0+8*H,via:'常驻节点',state:'done',state_zh:'已完成',note:'晚了 42 分钟，补跑一次',at:now-20*60e3,history:['waking','running','done']},
+   {key:'j1@0',title:'每天早上备份照片',action:'运行快捷指令',due:t0-D+8*H,via:'本机',state:'expired',state_zh:'已过期',note:'到点时电脑没开，超过宽限没补跑',at:now-D,history:['expired']}],
+  wol:{enabled:true,auto:false,mac:'3C:7C:3F:12:34:56',bcast:'192.168.1.255',windows:true,checked_at:now-5*60e3,
+   nics:[{name:'以太网',desc:'Realtek PCIe GbE',mac:'3C:7C:3F:12:34:56',ip:'192.168.1.20',bcast:'192.168.1.255',wireless:false,up:true},{name:'WLAN',desc:'Intel Wi-Fi 6 AX201',mac:'A4:B1:C1:00:11:22',ip:'',bcast:'',wireless:true,up:false}],
+   check:{summary:'网卡可以唤醒；「快速启动」开着，关机后可能唤不醒（睡眠可以）',ok:true,fast_startup:true,fast_note:'「快速启动」开着：关机其实是半休眠，很多网卡这时不响应魔术包。控制面板 › 电源选项 › 选择电源按钮的功能 › 取消「启用快速启动」，或改用睡眠。',bios:'BIOS / UEFI 里的唤醒开关读不到：开机进 BIOS，打开「Wake on LAN」或「Power On By PCI-E / PME」，并关掉「ErP / 深度节能」。',
+    nics:[{name:'以太网',desc:'Realtek PCIe GbE',mac:'3C:7C:3F:12:34:56',wireless:false,verdict:'ok',notes:['魔术包唤醒：开','允许此设备唤醒计算机：开']},{name:'WLAN',desc:'Intel Wi-Fi 6 AX201',mac:'A4:B1:C1:00:11:22',wireless:true,verdict:'warn',notes:['魔术包唤醒：开','这是无线网卡：大多数只能从睡眠唤醒，关机后唤醒请用网线']}]}}},
  shortcut_policy:[{name:'下班模式.ps1',id:'下班模式.ps1',status:'approved',why:''},{name:'备份照片.bat',id:'备份照片.bat',status:'changed',why:''},{name:'改代理.ps1',id:'改代理.ps1',status:'blocked',why:'内容涉及注册表 / 网络配置 / 服务驱动（Set-ItemProperty）'}],
  shortcut_approvals:[{id:'下班模式.ps1',name:'下班模式.ps1',status:'approved',hash:'3f2a9c0d11ee'},{id:'备份照片.bat',name:'备份照片.bat',status:'changed',hash:'a81b77c2d004'}],
  log:['00:21:03 执行 screenshot（来自 my-phone，经局域网）','00:18:40 听到：打开B站','00:12:11 执行 volume（来自 my-phone，经局域网）','00:05:02 拒绝来自 unknown 的指令：BAD_SIG','23:59:30 局域网 在线'],
@@ -497,7 +507,7 @@ P.todos=()=>{const a=S.todos.filter(t=>!t.done),b=S.todos.filter(t=>t.done);
 P.tickets=()=>head('票夹',S.tickets.length+' 张')+(S.tickets.length?card(S.tickets.map(tkItem)):empty(SYNC));
 P.pickups=()=>{const a=S.pickups.filter(p=>!p.done),b=S.pickups.filter(p=>p.done);
   return head('取件',a.length+' 个待取')+(a.length?card(a.map(pkItem)):empty(SYNC))+(b.length?sec('var(--text3)','取过的')+card(b.map(pkItem)):'')};
-P.autos=()=>head('自动任务','触发后的结果会通过通知弹到电脑上')+(S.autos.length?card(S.autos.map(autoItem)):empty(SYNC))+`<p class="note">每条标明在哪台设备上执行。对方离线时不排队。</p>`;
+P.autos=()=>head('自动任务','触发后的结果会通过通知弹到电脑上')+(S.autos.length?card(S.autos.map(autoItem)):empty(SYNC))+`<p class="note">每条标明在哪台设备上执行。手机同步来的自动任务在对方离线时不排队；电脑自己的定时、提醒、查网页在「设置 › 常驻与唤醒」，可以放到常驻节点，电脑关着时排队、上线补跑。</p>`;
 P.shortcuts=()=>{const s=S.shortcuts;
   return head('快捷指令','说名字就执行，只回一句「正在执行快捷指令」')+
   (S.settings.scripts_dir?(s.length?`<div class="grid3">${s.map(n=>`<div class="tile"><span class="tag blue" style="align-self:flex-start">电脑</span><div class="tt">${esc(n)}</div><div class="st">说「${esc(n)}」或「执行${esc(n)}」</div><div class="row"><button class="btn sm" onclick="runSc('${esc(n)}')">运行</button></div></div>`).join('')}</div>`:empty('文件夹里还没有 .ps1 / .bat / .cmd 脚本')):empty('还没设快捷指令文件夹，去「设置 › 替你操作」里填'))+
@@ -752,7 +762,65 @@ async function mcpTry(id){const x=((S.mcp||{}).servers||[]).find(s=>s.id===id);i
 let pairShown=false,lastPair='';
 // ★ console-align 2026-11-12：设置页按「控制台条目清单」（docs/CONSOLE.md）分组，与手机设置区同名同序：
 //   连接 · 权限与审批 · 模型与密钥 · 语音 · 替你操作 · 下载 · 插件 · 关于（「功能」「开发者」只手机有）
-const GROUPS=[['set-connect','连接'],['set-perm','权限与审批'],['set-permlog','权限审批记录'],['set-model','模型与密钥'],['set-voice','语音'],['set-act','替你操作'],['set-download','下载'],['set-look','外观'],['set-mcp','MCP 连接器'],['set-plugins','安全插件'],['set-about','关于']];
+// ---------- [always-on-1120] 常驻与唤醒 ----------
+const AON_ST={scheduled:['','已排程'],queued:['wait','排队'],waking:['run','已唤醒'],wake_failed:['red','唤醒失败'],running:['run','执行中'],done:['green','已完成'],expired:['','已过期'],failed:['red','没做成'],needs_user:['wait','需要你操作'],dup:['','重复（已做过）']};
+const AON_V={ok:['green','可以'],warn:['wait','要改设置'],bad:['red','不支持'],unknown:['','看不出']};
+const AON_REP=[[0,'不重复'],[3600e3,'每小时'],[86400e3,'每天'],[604800e3,'每周']],AON_WREP=[[900e3,'每 15 分钟'],[3600e3,'每小时'],[86400e3,'每天']],AON_GR=[[1800e3,'30 分钟内'],[7200e3,'2 小时内'],[86400e3,'1 天内']];
+let aonF={action:'notify',where:'local',missed:'run',grace:7200e3,every:0,wake:false,title:'',text:'',target:'',url:'',contains:'',at:''},aonOpen=false;
+const aonAt=ms=>ms>0?dayName(ms).split(' ')[0]+' '+hm(ms):'—';
+const aonRep=ms=>{const r=AON_REP.concat(AON_WREP).find(x=>x[0]===ms);return r?r[1]:ms>0?'每 '+Math.round(ms/6e4)+' 分钟':'不重复'};
+const aonSeg=(k,val,opts,dis)=>`<div class="seg">${opts.map(([v,l])=>`<span class="${v===val?'on':''}" style="${dis?'opacity:.5;pointer-events:none':''}" onclick="aonSet('${k}','${v}')">${l}</span>`).join('')}</div>`;
+const aonSel=(k,val,opts)=>`<select class="field" style="min-width:140px" onchange="aonF.${k}=Number(this.value)">${opts.map(([v,l])=>`<option value="${v}" ${v===val?'selected':''}>${l}</option>`).join('')}</select>`;
+const aonIn=(k,ph,w,type)=>`<input class="field" ${type?`type="${type}"`:''} style="min-width:${w||220}px" value="${esc(aonF[k])}" placeholder="${esc(ph||'')}" oninput="aonF.${k}=this.value">`;
+function aonSet(k,v){aonF[k]=v;if(k==='action'){if(v==='watch'){aonF.where='node';aonF.every=900e3}else if(aonF.every===900e3)aonF.every=0}render()}
+function aonPanel(){const a=S.aon||{node:{},jobs:[],items:[],wol:{nics:[],check:{}}},n=a.node||{},w=a.wol||{},ck=w.check||{},ag=n.agents||[];
+  const nodeTag=!n.configured?'<span class="tag">没配中转</span>':n.up?'<span class="tag green">在线</span>':'<span class="tag red">连不上</span>';
+  return `${grp('set-aon','常驻与唤醒','电脑关着时谁接手')}<div class="card">
+  ${kv('怎么分工','定时、提醒、查网页可以交给常驻节点，电脑关着也照常；要用电脑的任务先排队，电脑上线后补跑，或用网络唤醒把电脑叫起来。不需要租云电脑','')}
+  ${kv('常驻节点',n.configured?'由中转兼任：电脑关着时也替你计时、把提醒送到手机、查网页。它只拿到时间和加密过的内容，看不到提醒写了什么':'在上面「连接」里配好中转才能用；没配时任务只能放「电脑本地」，关机期间错过的，开机后按你选的方式补跑或过期',nodeTag)}
+  ${kv('唤醒代理',ag.length?'局域网里能替你发唤醒包的设备：'+esc(ag.join('、')):'现在没有在线的。家里常开的小机器（旧笔记本、NAS）上运行 OneSay 的唤醒代理，或等手机端支持',ag.length?`<span class="tag green">${ag.length} 个在线</span>`:'<span class="tag">没有</span>')}
+  ${kv('任务',`电脑本地 ${a.count_local||0} 条 · 常驻节点 ${a.count_node||0} 条${n.queued?' · 节点上还有 '+n.queued+' 条在排队':''}`,'')}
+  ${n.err?kv('节点报错',esc(n.err),'<span class="tag red">要处理</span>'):''}</div>
+  ${sec('var(--accent)','网络唤醒','只读检查，OneSay 不替你改网卡或 BIOS 设置')}<div class="card">
+  ${kv('网络唤醒','打开后把选中网卡的 MAC 交给常驻节点；电脑关着时由唤醒代理在局域网里发唤醒包',sw('wol_enabled',!!w.enabled))}
+  ${kv('预先授权自动唤醒','需要电脑的任务到点时电脑没开，直接唤醒（每小时最多 3 次）。关着时只排队，由你在手机上决定要不要唤醒',w.enabled?sw('wol_auto',!!w.auto):'<span class="tag">先打开网络唤醒</span>')}
+  ${(w.nics||[]).map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(x.name)} <span style="color:var(--text3);font-weight:400">${esc(x.desc||'')}</span></div><div class="st">${esc(x.mac)}${x.ip?' · '+esc(x.ip):''} · ${x.wireless?'无线':'有线'} · ${x.up?'连着':'没连'}</div></div>${w.mac===x.mac?'<span class="tag green">唤醒用这块</span>':`<button class="tag" onclick="wolUse('${esc(x.mac)}','${esc(x.bcast||'')}')">用这块</button>`}</div>`).join('')||kv('网卡','没找到物理网卡','')}
+  ${kv('能不能被唤醒',ck.summary?esc(ck.summary)+(w.checked_at?' · '+ago(w.checked_at):''):'点「检查」看网卡和电源设置（只读）',`<button class="btn ghost sm" onclick="wolCheck()">${ico('search')}检查</button>`)}
+  ${(ck.nics||[]).map(x=>{const v=AON_V[x.verdict]||AON_V.unknown;return `<div class="item"><div class="tx"><div class="tt">${esc(x.name)}${x.mac?' · '+esc(x.mac):''}</div><div class="st">${(x.notes||[]).map(esc).join('；')}</div></div><span class="tag ${v[0]}">${v[1]}</span></div>`}).join('')}</div>
+  ${ck.fast_note?`<p class="note">${esc(ck.fast_note)}</p>`:''}<p class="note">${esc(ck.bios||'BIOS / UEFI 里的唤醒开关读不到：开机进 BIOS，打开「Wake on LAN」或「Power On By PCI-E / PME」。')}无线网卡、笔记本合盖后多数唤不醒；台式机插网线最稳。</p>
+  <div id="aon-jobs">${sec('var(--auto)','定时、提醒、查网页',(a.jobs||[]).length+' 条')}</div><div class="card">
+  ${(a.jobs||[]).map(aonJob).join('')||kv('还没有','点「新建」：比如每天 8 点运行「备份照片」，放常驻节点，电脑没开就排队、开机补跑','')}
+  <div class="kv"><div class="k"><div>${aonOpen?'新建':''}</div></div><button class="btn ghost sm" onclick="aonOpen=!aonOpen;render()">${aonOpen?'收起':'新建'}</button></div>
+  ${aonOpen?aonFormHtml(n):''}</div>
+  <div id="aon-items">${sec('var(--auto)','排队与记录','电脑离线时到点的：排队 → 已唤醒 → 执行中 → 已完成 / 已过期')}</div><div class="card">
+  ${(a.items||[]).map(aonItem).join('')||kv('还没有记录','到点执行、补跑、过期都记在这里','')}
+  ${(a.items||[]).length?`<div class="kv"><div class="k"><div></div></div><button class="btn ghost sm" onclick="aonOp('clear')">清空记录</button></div>`:''}</div>`}
+function aonJob(j){const ptag=j.where==='node'?'<span class="tag blue">常驻节点</span>':'<span class="tag">电脑本地</span>';
+  const what=j.action==='shortcut'?'运行快捷指令「'+esc(j.target)+'」':j.action==='watch'?'查网页 '+esc(j.url)+(j.contains?' · 出现「'+esc(j.contains)+'」':' · 内容变了'):'提醒'+(j.text?'：'+esc(j.text):'');
+  return `<div class="item ${j.enabled?'':'past'}"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">${esc(j.title)}</div><div class="st">${what} · ${aonRep(j.every)} · 下次 ${aonAt(j.next)}${j.needs_pc?' · 需要电脑，错过了'+esc(j.missed_zh):''}${j.wake?' · 可自动唤醒':''}</div></div>${ptag}<span class="sw ${j.enabled?'on':''}" style="cursor:pointer" onclick="aonOp('toggle',{id:'${esc(j.id)}',on:${!j.enabled}})"></span><button class="tag" onclick="aonDel('${esc(j.id)}','${esc(j.title)}')">删除</button></div>`}
+function aonItem(x){const st=AON_ST[x.state]||['',x.state_zh||x.state];const hist=(x.history||[]).map(h=>(AON_ST[h]||['',h])[1]).join(' → ');
+  return `<div class="item"><div class="tx"><div class="tt">${esc(x.title)} <span style="color:var(--text3);font-weight:400">${esc(x.action||'')}</span></div><div class="st">到点 ${aonAt(x.due)} · 经${esc(x.via||'')}${x.note?' · '+esc(x.note):''}${hist&&hist!==st[1]?' · '+esc(hist):''}</div></div><span class="tag ${st[0]}">${st[1]}</span></div>`}
+function aonFormHtml(n){const f=aonF,sc=S.shortcuts||[],watch=f.action==='watch',canNode=!!n.configured;
+  return `${kv('名字','在通知和记录里显示',aonIn('title','例如 交房租 / 备份照片',220))}
+  ${kv('做什么','提醒：电脑和手机都能收到；运行快捷指令：需要电脑；查网页：电脑关着也能查，只能放常驻节点',aonSeg('action',f.action,[['notify','提醒'],['shortcut','运行快捷指令'],['watch','查网页']]))}
+  ${f.action==='notify'?kv('提醒内容','可以不写',aonIn('text','例如 记得交房租',260)):''}
+  ${f.action==='shortcut'?kv('快捷指令',sc.length?'快捷指令文件夹里的脚本；执行时照常要你批准（第一次、或内容改过）':'先在「替你操作」里选快捷指令文件夹',sc.length?`<select class="field" style="min-width:180px" onchange="aonF.target=this.value"><option value="">选一个</option>${sc.map(x=>`<option ${x===f.target?'selected':''}>${esc(x)}</option>`).join('')}</select>`:''):''}
+  ${watch?kv('网址','只能查公网 http / https；网址会交给常驻节点',aonIn('url','https://…',300))+kv('要出现的文字','页面上出现这段文字才通知（只在从无到有时通知一次）；不写 = 内容变了就通知',aonIn('contains','例如 有票',200)):''}
+  ${kv(watch?'从什么时候开始':'时间','到点的时间（这台电脑的时区）',aonIn('at','',220,'datetime-local'))}
+  ${kv(watch?'多久查一次':'重复',watch?'最短 15 分钟一次':'',watch?aonSel('every',f.every,AON_WREP):aonSel('every',f.every,AON_REP))}
+  ${kv('执行位置',watch?'查网页只能放常驻节点':canNode?'电脑本地：只在电脑开着时计时；常驻节点：电脑关着也计时，提醒送到手机，需要电脑的先排队':'没配中转，只能电脑本地',aonSeg('where',f.where,[['local','电脑本地'],['node','常驻节点']],watch||!canNode))}
+  ${f.action!=='watch'?kv('错过了','电脑没开错过了到点：补跑一次（重复任务错过多次也只补最近一次）或过期不跑',aonSeg('missed',f.missed,[['run','补跑一次'],['expire','过期不跑']])+' '+(f.missed==='run'?aonSel('grace',f.grace,AON_GR):'')):''}
+  ${f.action==='shortcut'&&f.where==='node'?kv('允许自动唤醒','到点电脑没开时请唤醒代理把电脑叫起来（还要上面打开「预先授权自动唤醒」）',`<span class="sw ${f.wake?'on':''}" style="cursor:pointer" onclick="aonF.wake=!aonF.wake;render()"></span>`):''}
+  <div class="kv"><div class="k"><div></div></div><button class="btn sm" onclick="aonAdd()">添加</button></div>`}
+async function aonAdd(){const f=aonF;if(!f.title.trim()){snack('写个名字');return}const at=f.at?new Date(f.at).getTime():0;if(!(at>0)){snack('选个时间');return}
+  if(!LIVE){snack('演示模式');return}
+  const job={title:f.title.trim(),action:f.action,text:f.text,target:f.target,url:f.url.trim(),contains:f.contains,where:f.action==='watch'?'node':f.where,missed:f.missed,grace:f.grace,every:f.every,at,wake:f.action==='shortcut'&&f.where==='node'&&f.wake,enabled:true};
+  const r=await api('aon',{op:'add',job});snack(r.text);if(r.ok){aonF=Object.assign(aonF,{title:'',text:'',url:'',contains:'',at:''});aonOpen=false}refresh()}
+async function aonOp(op,extra){if(!LIVE){snack('演示模式');return}const r=await api('aon',Object.assign({op},extra||{}));snack(r.text);refresh()}
+async function aonDel(id,t){if(!await confirm('删除「'+t+'」？\n\n常驻节点上的同一条也会删掉，排队中的不再补跑。'))return;aonOp('del',{id})}
+async function wolCheck(){if(!LIVE){snack('演示模式');return}snack('正在检查（只读）…');const r=await api('aon',{op:'wol_check'});snack(r.text);refresh()}
+async function wolUse(mac,bc){aonOp('wol_use',{mac,bcast:bc})}
+const GROUPS=[['set-connect','连接'],['set-aon','常驻与唤醒'],['set-perm','权限与审批'],['set-permlog','权限审批记录'],['set-model','模型与密钥'],['set-voice','语音'],['set-act','替你操作'],['set-download','下载'],['set-look','外观'],['set-mcp','MCP 连接器'],['set-plugins','安全插件'],['set-about','关于']];
 const CTL=[['run','操作中','助手正在替你点按'],['wait','等确认','弹确认卡等你点'],['user','你接手','你点了接管 / 按了返回或主页键'],['stop','已停止','点了停止，覆盖层马上撤掉']];
 const DANGER=['清空','清除','删除','撤销','解除','解除配对','卸载','关机','睡眠','换一把钥匙','忘掉','重置','停止'];
 const isDanger=l=>{l=String(l||'').trim();return DANGER.some(v=>l===v||l.startsWith(v))};
@@ -769,6 +837,8 @@ P.settings=()=>{const s=S.settings;
   ${kv('局域网直连','同一个路由器下，端口 '+s.lan_port+'（发现用 '+(s.lan_port+1)+'，组播 224.0.0.167）；新手机走 TLS 加密 + 证书指纹',(s.lan_env_off?'<span class="tag">这次没开（ONESAY_LAN=off）</span>':tag(s.lan_port>0)))}${kv('中转（插件）',s.relay?esc(s.relay_url):'不在同一个 Wi-Fi 也要控制时再开，需自建',tag(s.relay))}
   ${kv('本机证书指纹',`<b>${esc(S.tls_fp||'')}</b>（手机上显示的应一致）`,`<button class="btn ghost sm" onclick="unpin()">忘掉手机证书</button>`)}</div>
   <p class="note">首次运行时 Windows 防火墙会问是否允许联网：勾「专用网络」。</p>
+
+  ${aonPanel()}
 
   ${grp('set-perm','权限与审批','手机→电脑：沙箱档 × 审批策略（照搬 Codex 的两轴）；只能在这台电脑上改，手机改不了')}<div class="card">
   ${kv('沙箱档','只读：只回答状态；工作区可写（默认）：只往工作区里写，工作区外要你确认，认得出的下载命令默认断网（认不准的可能联网命令在确认框里提示，每次都问）；完全访问：按这台电脑当前用户的权限来（仍不提权）',seg2('pc_sandbox',s.pc_sandbox||'workspace_write',[['read_only','只读'],['workspace_write','工作区可写'],['full_access','完全访问']]))}

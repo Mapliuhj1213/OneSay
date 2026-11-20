@@ -24,6 +24,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -184,6 +185,128 @@ public final class App {
     /** [preview-1120] MCP 连接器（配置目录 mcp.json 记住选过的目录）。 */
     McpHub mcp;
 
+    // ---------- [always-on-1120] 常驻分工：定时 / 提醒 / 查网页可声明执行位置；电脑离线时需电脑的任务排队，上线后补跑或过期；网络唤醒 ----------
+    AlwaysOnService aon;
+    volatile boolean relayUp;
+    volatile Map<String, Object> wolCheck;
+    volatile long wolCheckedAt;
+    volatile List<Map<String, Object>> nicCache;
+    volatile long nicAt;
+
+    void setupAlwaysOn() {
+        aon = new AlwaysOnService(Config.defaultDir().resolve("always-on.json"), System::currentTimeMillis, log);
+        aon.load();
+        aonCfg();
+        aon.notifier = (t, x, from) -> notify.post("reminder", t, x, from);
+        aon.runner = this::aonRun;
+        RelayClient rc = agent.relay();
+        if (rc != null) aon.port = new AlwaysOnService.Port() {
+            @Override public boolean up() { return rc.isConnected(); }
+            @Override public void send(Map<String, Object> f) { rc.send(Json.stringify(f)); }
+        };
+        agent.nodeHook = aon::onFrame;
+        agent.onLinkState = (l, c) -> {
+            if (!(l instanceof RelayClient)) return;
+            boolean was = relayUp;
+            relayUp = c;
+            if (c && !was) aon.onNodeUp(); // 中转连上：整份同步交给节点的任务和唤醒设置
+        };
+        aon.start(); // 先补一轮：关机期间错过的按策略补跑或过期
+    }
+
+    void aonCfg() {
+        aon.pcId = cfg.deviceId;
+        aon.pairKey = cfg.pairKey;
+        aon.nodeConfigured = cfg.relayEnabled();
+        aon.wolEnabled = cfg.wolEnabled;
+        aon.wolAuto = cfg.wolAuto;
+        aon.wolMac = cfg.wolMac;
+        aon.wolBcast = cfg.wolBcast;
+    }
+
+    /** 到点真正执行：提醒 → 电脑通知；快捷指令 → 和对话同一条审批链（需要批准时弹在窗口里，没人点按没批准处理）。 */
+    Object[] aonRun(AlwaysOn.Job j, long due, boolean late) {
+        String from = j.where == AlwaysOn.Where.NODE ? "常驻节点" : "本机";
+        switch (j.action) {
+            case NOTIFY:
+                notify.post("reminder", (late ? "补提醒：" : "") + j.title, (j.text.isEmpty() ? "到点了" : j.text) + (late ? "\n（电脑离线时到点：" + AlwaysOnService.hm(due) + "）" : ""), from);
+                return new Object[] {AlwaysOn.St.DONE, "已提醒"};
+            case SHORTCUT: {
+                Map<String, Object> a = new TreeMap<>();
+                a.put("name", j.target);
+                Actions.Result r = agent.runLocal("shortcut_run", a);
+                if (r != null && r.ok) return new Object[] {AlwaysOn.St.DONE, "快捷指令「" + j.target + "」已运行"};
+                String why = r == null ? "" : String.valueOf(r.data == null ? "" : r.data.getOrDefault("reason", ""));
+                String text = r == null ? "没有结果" : r.text;
+                return new Object[] {why.contains("confirm") || why.contains("approval") ? AlwaysOn.St.NEEDS_USER : AlwaysOn.St.FAILED, text};
+            }
+            default:
+                return new Object[] {AlwaysOn.St.FAILED, "查网页只在常驻节点上做"};
+        }
+    }
+
+    List<Map<String, Object>> nics() {
+        long now = System.currentTimeMillis();
+        if (nicCache == null || now - nicAt > 60_000) { nicCache = WakeOnLan.nics(); nicAt = now; }
+        return nicCache;
+    }
+
+    Map<String, Object> aonView() {
+        Map<String, Object> v = aon == null ? new TreeMap<>() : aon.view();
+        Map<String, Object> w = new LinkedHashMap<>();
+        w.put("enabled", cfg.wolEnabled);
+        w.put("auto", cfg.wolAuto);
+        w.put("mac", cfg.wolMac);
+        w.put("bcast", cfg.wolBcast);
+        w.put("nics", new ArrayList<Object>(nics()));
+        w.put("check", wolCheck == null ? Map.of() : wolCheck);
+        w.put("checked_at", wolCheckedAt);
+        w.put("windows", System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win"));
+        v.put("wol", w);
+        return v;
+    }
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> aonApi(Map<String, Object> b) {
+        String op = str(b, "op", "");
+        switch (op) {
+            case "add": {
+                if (!(b.get("job") instanceof Map)) return fail("缺任务");
+                Map<String, Object> jm = new TreeMap<>((Map<String, Object>) b.get("job"));
+                jm.remove("id");
+                jm.remove("seen");
+                AlwaysOn.Job j = AlwaysOn.Job.from(jm);
+                if (AlwaysOn.Action.of(jm.get("action")) == null) return fail("选做什么");
+                String bad = aon.add(j);
+                return bad == null ? ok("已添加：" + j.title + "（" + j.where.zh + "）") : fail(bad);
+            }
+            case "del": { String bad = aon.remove(str(b, "id", "")); return bad == null ? ok("已删除") : fail(bad); }
+            case "toggle": { String bad = aon.toggle(str(b, "id", ""), "true".equals(str(b, "on", ""))); return bad == null ? ok("已" + ("true".equals(str(b, "on", "")) ? "打开" : "暂停")) : fail(bad); }
+            case "clear": aon.clearItems(); return ok("记录已清空");
+            case "wol_check": {
+                boolean win = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+                wolCheck = WakeOnLan.verdict(win ? WakeOnLan.runWindowsCheck() : null, win);
+                wolCheckedAt = System.currentTimeMillis();
+                nicAt = 0;
+                Map<String, Object> m = ok(String.valueOf(wolCheck.get("summary")));
+                m.put("check", wolCheck);
+                return m;
+            }
+            case "wol_use": {
+                String mac = WakeOnLan.normMac(str(b, "mac", ""));
+                if (mac.isEmpty()) return fail("MAC 不对");
+                String bc = str(b, "bcast", "");
+                cfg.wolMac = mac;
+                cfg.wolBcast = WakeOnLan.ipv4(bc) ? bc : "";
+                try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+                aonCfg();
+                aon.wakeChanged();
+                return ok("唤醒用这块网卡：" + mac);
+            }
+            default: return fail("不认识的操作");
+        }
+    }
+
     /** [preview-1120] 当前外观：mode（system / light / dark）、主题包（找不到就当没选）。 */
     Map<String, Object> appearance() {
         Map<String, Object> a = new TreeMap<>();
@@ -269,6 +392,7 @@ public final class App {
         int purged = store.purgeApprovalNotes();
         if (purged > 0) log.accept("通知列表里清掉了 " + purged + " 条旧版本留下的审批记录（审批不进通知）");
         agent.guard.notify = t -> { log.accept("权限：" + t); agent.guard.logPerm(t, "提醒", ""); };
+        setupAlwaysOn(); // [always-on-1120] 要在通道启动前挂好：中转一连上就要同步任务、收排队
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
         setupLinks1119();
@@ -739,6 +863,8 @@ public final class App {
         s.put("mirror_keyboard", "uhid".equals(cfg.mirrorKeyboard) ? "uhid" : "sdk");
         s.put("theme", Themes.mode(cfg.theme));
         s.put("theme_pack", cfg.themePack);
+        s.put("wol_enabled", cfg.wolEnabled);
+        s.put("wol_auto", cfg.wolAuto);
         return s;
     }
 
@@ -791,6 +917,7 @@ public final class App {
             s.put("workspace", cfg.workspace().toString());
             s.put("media", mediaState());
             s.put("mirror", mirror.view());
+            s.put("aon", aonView()); // [always-on-1120] 常驻与唤醒
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
         });
@@ -1093,8 +1220,9 @@ public final class App {
                 return fail(e.getMessage());
             }
         });
+        ui.on("aon", this::aonApi); // [always-on-1120]
         ui.on("settings", b -> {
-            boolean restartVoice = false;
+            boolean restartVoice = false, aonTouched = false;
             for (Map.Entry<String, Object> e : b.entrySet()) {
                 String v = String.valueOf(e.getValue()).trim();
                 switch (e.getKey()) {
@@ -1147,11 +1275,28 @@ public final class App {
                     }
                     case "theme": cfg.theme = Themes.mode(v); break; // [preview-1120] 外观
                     case "theme_pack": if (v.matches("[a-z0-9-]{0,40}")) cfg.themePack = v; else return fail("主题包 id 不对"); break;
+                    case "wol_enabled": { // [always-on-1120] 网络唤醒：打开时没选过网卡就用第一块连着的有线网卡
+                        cfg.wolEnabled = v.equals("true");
+                        if (!cfg.wolEnabled) cfg.wolAuto = false;
+                        if (cfg.wolEnabled && cfg.wolMac.isEmpty()) for (Map<String, Object> n : nics())
+                            if (!Boolean.TRUE.equals(n.get("wireless")) && !String.valueOf(n.get("ip")).isEmpty()) { cfg.wolMac = String.valueOf(n.get("mac")); cfg.wolBcast = String.valueOf(n.get("bcast")); break; }
+                        aonTouched = true;
+                        log.accept("网络唤醒 → " + (cfg.wolEnabled ? "开" : "关"));
+                        break;
+                    }
+                    case "wol_auto":
+                        if (v.equals("true") && !cfg.wolEnabled) return fail("先打开网络唤醒");
+                        if (v.equals("true") && cfg.wolMac.isEmpty()) return fail("先选唤醒用的网卡");
+                        cfg.wolAuto = v.equals("true");
+                        aonTouched = true;
+                        log.accept("预先授权自动唤醒 → " + (cfg.wolAuto ? "开" : "关"));
+                        break;
                     case "mirror_keyboard": cfg.mirrorKeyboard = "uhid".equals(v) ? "uhid" : "sdk"; log.accept("投屏键盘 → " + ("uhid".equals(v) ? "物理键盘（UHID）" : "普通键盘")); break;
                     default: break;
                 }
             }
             try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+            if (aonTouched && aon != null) { aonCfg(); aon.wakeChanged(); }
             if (restartVoice) {
                 voice.stop();
                 Voice nv = new Voice(cfg, actions, log, asr);

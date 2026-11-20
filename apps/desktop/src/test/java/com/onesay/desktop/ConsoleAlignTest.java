@@ -39,7 +39,7 @@ public class ConsoleAlignTest {
     @Test public void settingsGroupsFollowDoc() throws Exception {
         String h = html(), d = doc();
         List<String> want = docGroups(d);
-        assertEquals(List.of("连接", "权限与审批", "权限审批记录", "模型与密钥", "语音", "替你操作", "功能", "下载", "外观", "MCP 连接器", "插件", "关于"), want); // [overnight-1119] 权限审批记录（只电脑有）；[preview-1120] 外观、MCP 连接器（只电脑单列）
+        assertEquals(List.of("连接", "常驻与唤醒", "权限与审批", "权限审批记录", "模型与密钥", "语音", "替你操作", "功能", "下载", "外观", "MCP 连接器", "插件", "关于"), want); // [overnight-1119] 权限审批记录（只电脑有）；[preview-1120] 外观、MCP 连接器（只电脑单列）；[always-on-1120] 常驻与唤醒（只电脑有设置）
         want.remove("功能");   // 只手机有
         // [preview-1120] 电脑端别名：清单里写「电脑端别名：A = B」，跳转条用 B
         for (java.util.Map.Entry<String, String> e : aliases(d).entrySet()) want.replaceAll(x -> x.equals(e.getKey()) ? e.getValue() : x);

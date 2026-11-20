@@ -42,6 +42,7 @@ public final class Main {
             case "send": System.exit(send(cfg, a)); break;
             case "autostart": autostart(a.isEmpty() ? "" : a.get(0)); break;
             case "version": System.out.println("OneSay Desktop " + Flavor.version()); break;
+            case "wake-agent": WakeAgent.run(cfg, s -> System.err.println("[onesay] " + s)); break; // [always-on-1120]
             default: usage();
         }
     }
@@ -56,6 +57,7 @@ public final class Main {
                 "  run [--console]          常驻（有图形界面时进系统托盘）",
                 "  send <设备> <指令> [键=值 ...] [--out 文件夹]",
                 "  autostart on|off         开机自启（Windows）",
+                "  wake-agent               局域网唤醒代理：放在常开的小机器上，替常驻节点发魔术包（配置 wake_allow=MAC）",
                 "  通用：--config <文件>     指定配置文件"));
     }
 
