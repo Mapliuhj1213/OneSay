@@ -251,6 +251,21 @@ public final class Mcp {
 
     /** 这一层是不是一个 MCP 服务器项目；是就加进 d。 */
     @SuppressWarnings("unchecked")
+    /**
+     * [preview-1120 真机] 依赖找得到没有：按 Node 的查找规则，从项目目录往上每一层的 node_modules 里找。
+     * 项目自己有 node_modules 照旧算装好；没有时再往上找。以前只看项目自己的：用 npm install 装成依赖的服务器（依赖被提到上层 node_modules）会被误报「依赖还没装」。
+     */
+    static boolean nodeDepsResolvable(Path dir, java.util.Collection<String> deps) {
+        for (String dep : deps) {
+            if (dep == null || dep.isBlank() || dep.contains("..")) continue;
+            boolean found = false;
+            for (Path p = dir.toAbsolutePath().normalize(); p != null && !found; p = p.getParent())
+                if (Files.isDirectory(p.resolve("node_modules").resolve(dep))) found = true;
+            if (!found) return false;
+        }
+        return true;
+    }
+
     /** [preview-1120] 像 MCP 传输方式的 type / transport 值（"git"、"module" 这类不算）。 */
     static boolean transportWord(Object v) {
         if (!(v instanceof String)) return false;
@@ -286,7 +301,7 @@ public final class Mcp {
                 if (!e.startsWith(dir.normalize())) s.problem = "启动文件在项目外面，没用";
                 else if (!Files.isRegularFile(e)) s.problem = "启动文件 " + entry + " 还没有：先在这个文件夹里运行 npm install 和 npm run build";
                 else if (!(j.get("dependencies") instanceof Map) || ((Map<String, Object>) j.get("dependencies")).isEmpty()) { /* 没依赖，直接跑 */ }
-                else if (!Files.isDirectory(dir.resolve("node_modules"))) s.problem = "依赖还没装：先在这个文件夹里运行 npm install（或 npm install --omit=dev）";
+                else if (!Files.isDirectory(dir.resolve("node_modules")) && !nodeDepsResolvable(dir, ((Map<String, Object>) j.get("dependencies")).keySet())) s.problem = "依赖还没装：先在这个文件夹里运行 npm install（或 npm install --omit=dev）";
             }
             if (s.problem.isEmpty() && which("node", sysEnv) == null) s.problem = "这台电脑上没找到 Node.js（node）";
             d.specs.add(s);

@@ -95,6 +95,25 @@ public class Preview1120FixTest {
         for (Mcp.Spec x : d.specs) assertFalse("仓库地址没被当 HTTP 服务器", x.url.contains("github.com"));
     }
 
+    @Test public void hoistedNodeDepsCountAsInstalled() throws Exception {
+        // [真机] npm install @modelcontextprotocol/server-everything 装成依赖：依赖在上层 node_modules，不在包自己目录下
+        Path root = Files.createTempDirectory("mcp-hoist");
+        Path pkg = root.resolve("node_modules/@modelcontextprotocol/server-everything");
+        Files.createDirectories(pkg.resolve("dist"));
+        Files.writeString(pkg.resolve("dist/index.js"), "// stub");
+        Files.writeString(pkg.resolve("package.json"), "{\"name\":\"@modelcontextprotocol/server-everything\",\"bin\":{\"x\":\"dist/index.js\"},"
+                + "\"dependencies\":{\"@modelcontextprotocol/server\":\"^2\",\"zod\":\"^4\"}}");
+        Files.createDirectories(root.resolve("node_modules/zod"));
+        Mcp.Detected d = Mcp.detect(pkg, Map.of("PATH", ""));
+        assertEquals(1, d.specs.size());
+        assertTrue("缺一个依赖照样报", d.specs.get(0).problem.contains("依赖还没装"));
+        Files.createDirectories(root.resolve("node_modules/@modelcontextprotocol/server"));
+        d = Mcp.detect(pkg, Map.of("PATH", ""));
+        assertFalse("依赖在上层 node_modules 也算装好了：" + d.specs.get(0).problem, d.specs.get(0).problem.contains("依赖还没装"));
+        assertTrue(Mcp.nodeDepsResolvable(pkg, List.of("zod", "@modelcontextprotocol/server")));
+        assertFalse(Mcp.nodeDepsResolvable(pkg, List.of("left-pad")));
+    }
+
     @Test public void packageJsonOfNonMcpProjectSaysSo() throws Exception {
         Path dir = Files.createTempDirectory("mcp-pj2");
         Files.writeString(dir.resolve("package.json"), "{\"name\":\"left-pad\",\"repository\":{\"type\":\"git\",\"url\":\"https://github.com/x/left-pad.git\"}}");
