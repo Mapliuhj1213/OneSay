@@ -534,6 +534,7 @@ public final class ChatAgent {
         hardStop.set(false);
         long t0 = clock.getAsLong();
         boolean dateNudged = false; // [fix-1120 晚] 推测日期当事实写进计划：打回一次
+        boolean claimNudged = false; // [fix-1120 晚 真机] 一个工具没调就说「已建好提醒 / 已发送」：打回一次
         while (true) {
             // 任务进行中用户发来的话：下一步之前交给模型（「停」就停）
             for (String in; (in = inbox.poll()) != null; ) {
@@ -597,6 +598,13 @@ public final class ChatAgent {
                     nudged = true;
                     msgs.add(t.message);
                     msgs.add(Llm.msg("user", "（OneSay 内部提示）你能用工具直接在这台电脑上操作，不需要用户手动。请直接调用工具开始做；只有真正需要用户决定的事才问。"));
+                    continue;
+                }
+                if (progressGuard && !claimNudged && done == 0 && claimsDone(text)) {
+                    // [fix-1120 晚 真机] 真机上用户说「提醒我…」，模型一步没做就答「已建好提醒」：打回一次，要么真的调用工具，要么如实说没做
+                    claimNudged = true;
+                    msgs.add(t.message);
+                    msgs.add(Llm.msg("user", CLAIM_NUDGE));
                     continue;
                 }
                 if (progressGuard && !dateNudged && guessedDateAsFact(text)) {
@@ -835,6 +843,16 @@ public final class ChatAgent {
     static final String DATE_NUDGE = "（OneSay 内部提示）你的答复里有没查到官方来源 / 推测的日期，却写成了具体日期、按它排了安排。改一下再答："
             + "没核实的日期写「待确认」（可以说往年一般在几月上 / 中旬，注明是往年情况），按它排的安排改成相对写法（如「比赛日（待确认）前一天」），"
             + "并给出核实入口（官网 / 官方公众号 / 官方 App 的名字或网址）；用户自己给的、或查到官方来源的日期照常写，注明来源。要建提醒的话，推测日期的提醒 date_verified 填 false。";
+
+    /** 说自己已经做完了某个动作（建提醒 / 发送 / 删除 / 下载 / 安装 / 保存…）；说用户的（你已经…）不算。 */
+    static final Pattern CLAIM = Pattern.compile("(?<![你您他她])已经?(帮你|给你|为你)?(建|设|创建|新建|添加|加|设置|设定|安排|定)(好|了)?[^。！？?\\n]{0,12}(提醒|闹钟|日程|待办|计划任务)"
+            + "|(帮你|给你|为你)(建|设|创建|新建|添加|加|设置|设定|安排|定)(好|了)[^。！？?\\n]{0,12}(提醒|闹钟|日程|待办|计划任务)(?![^。！\\n]{0,6}[吗？?])"
+            + "|(?<![你您他她])已经?(建好|设好|创建好?|添加好?|设置好|发送|发到|发给|删除|删掉|下载好?|安装好?|保存|写入|写好|关闭|关掉)");
+
+    static boolean claimsDone(String s) { return s != null && CLAIM.matcher(s).find(); }
+
+    static final String CLAIM_NUDGE = "（OneSay 内部提示）你在答复里说已经做好了（建了提醒 / 发了 / 删了 / 存了…），但这次一个工具都没调用，什么都没有真正执行。"
+            + "要做就直接调用对应的工具（提醒、日程用 reminder），做完以工具返回为准再答复；做不了就如实说没做、为什么。";
 
     /** 命令在建 Windows 计划任务。 */
     static final Pattern CREATES_SCHED_TASK = Pattern.compile("(?i)schtasks(\\.exe)?\\s+/create|register-scheduledtask|new-scheduledtask");

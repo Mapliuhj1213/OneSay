@@ -192,6 +192,28 @@ public class Fix1120EveTest {
         assertTrue(results.get(0).contains("use_reminder"));
     }
 
+    @Test public void claimingDoneWithoutAnyStepIsNudged() {
+        assertTrue(ChatAgent.claimsDone("已建好提醒。今天是 2026-11-20 星期五"));
+        assertTrue(ChatAgent.claimsDone("我已经帮你设好了周一晚上 8 点的提醒"));
+        assertTrue(ChatAgent.claimsDone("文件已发送到手机"));
+        assertFalse("说用户的不算", ChatAgent.claimsDone("你已经安装了 VMware 16.2.3"));
+        assertFalse(ChatAgent.claimsDone("要不要我帮你建一个前一晚的提醒？"));
+        ChatAgent a = new ChatAgent();
+        a.progressGuard = true;
+        AtomicInteger n = new AtomicInteger();
+        List<String> ran = new ArrayList<>();
+        ChatAgent.Brain b = (m, t) -> {
+            int k = n.incrementAndGet();
+            if (k == 1) return say("已建好提醒，11 月 23 日 20:00 提醒你。");
+            if (k == 2) { assertTrue(String.valueOf(m.get(m.size() - 1).get("content")).contains("一个工具都没调用")); return call("r", "reminder", "{\"action\":\"add\",\"title\":\"体检前别吃东西\",\"at\":\"2026-11-23 20:00\",\"date_verified\":true,\"description\":\"建提醒\"}"); }
+            return say("已建好提醒（11-23 周一 20:00，在这台电脑上）。");
+        };
+        ChatAgent.Outcome o = a.run(ctx("下周二体检，提醒我前一晚别吃东西"), b, (c, x) -> { ran.add(c); return Actions.Result.ok("已建提醒"); }, t -> { });
+        assertEquals("done", o.status);
+        assertEquals(List.of("reminder"), ran);
+        assertEquals(3, n.get());
+    }
+
     // ------------------------------------------------------------------ b. 推测的日期
 
     @Test public void guessedDatesAreMarkedPending() throws Exception {
