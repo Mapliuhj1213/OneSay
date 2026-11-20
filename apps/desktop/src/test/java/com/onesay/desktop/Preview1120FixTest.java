@@ -277,6 +277,9 @@ public class Preview1120FixTest {
         assertEquals(Outcomes.NEEDS_USER, saved.get("state"));
         assertTrue(log.get(log.size() - 1).contains("［需要你操作］"));
         assertFalse(log.get(log.size() - 1).contains("任务完成"));
+        String app = Files.readString(Path.of("src/main/java/com/onesay/desktop/App.java"), StandardCharsets.UTF_8);
+        assertTrue("下载失败不再挂「任务完成」", app.contains("\"下载失败\", (t.title.isEmpty() ? t.url : t.title) + \"：\" + t.error, t.from, Outcomes.FAILED)"));
+        assertTrue(app.contains("\"文件没发到手机\", r.text, phone, r.ok ? Outcomes.DONE : Outcomes.FAILED)"));
         String h = html();
         assertTrue(h.contains("task:'任务结果'"));
         assertTrue(h.contains("needs_user:'需要你操作'"));

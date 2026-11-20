@@ -138,7 +138,7 @@ public final class App {
             Map<String, Object> r = xfer.receive(cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE), a, str(a, "_from", ""));
             return new Actions.Result(Boolean.TRUE.equals(r.get("ok")), String.valueOf(r.get("text")), r);
         });
-        xfer.onDone = st -> notify.post("task", "收到手机发来的文件", st.name + "（" + FileXfer.human(st.size) + "）→ " + st.path, st.peer);
+        xfer.onDone = st -> notify.post("task", "收到手机发来的文件", st.name + "（" + FileXfer.human(st.size) + "）→ " + st.path, st.peer, Outcomes.DONE); // [preview-1120] 带状态
         chat.onPhoneTaskEnd = (from, card) -> {
             if (card == null || from == null || from.isEmpty()) return;
             Map<String, Object> n = new TreeMap<>();
@@ -465,8 +465,8 @@ public final class App {
         Path dir = cfg.file.getParent() == null ? Config.defaultDir() : cfg.file.getParent();
         media = new Media(MediaTools.forThisPc(), new MediaCookies(dir.resolve("cookies")), Media.defaultOutDir(cfg.mediaDir), log);
         media.onFinish = t -> {
-            if (t.state == Media.State.DONE) notify.post("task", "下载完成", (t.title.isEmpty() ? t.url : t.title) + " → " + t.file, t.from);
-            else if (t.state == Media.State.FAILED) notify.post("task", "下载失败", (t.title.isEmpty() ? t.url : t.title) + "：" + t.error, t.from);
+            if (t.state == Media.State.DONE) notify.post("task", "下载完成", (t.title.isEmpty() ? t.url : t.title) + " → " + t.file, t.from, Outcomes.DONE);
+            else if (t.state == Media.State.FAILED) notify.post("task", "下载失败", (t.title.isEmpty() ? t.url : t.title) + "：" + t.error, t.from, Outcomes.FAILED); // [preview-1120] 以前标签也是「任务完成」
         };
         agent.guard.mediaToolsMissing = media.tools::missing;
         agent.local.put("media_get", media::remoteGet);
@@ -882,7 +882,7 @@ public final class App {
                 new Thread(() -> {
                     Actions.Result r = xfer.send(f, phone, this::callPhone);
                     log.accept("发文件到手机：" + (r.ok ? "成功 " : "失败 ") + f.getName());
-                    notify.post("task", r.ok ? "文件已发到手机" : "文件没发到手机", r.text, phone);
+                    notify.post("task", r.ok ? "文件已发到手机" : "文件没发到手机", r.text, phone, r.ok ? Outcomes.DONE : Outcomes.FAILED);
                 }, "onesay-xfer-send").start();
                 return ok("开始发：" + f.getName() + "（" + FileXfer.human(f.length()) + "），进度看下面");
             }
@@ -895,7 +895,7 @@ public final class App {
                 new Thread(() -> {
                     Actions.Result r = xfer.send(f, phone, this::callPhone);
                     log.accept("发文件到手机：" + (r.ok ? "成功 " : "失败 ") + f.getName());
-                    notify.post("task", r.ok ? "文件已发到手机" : "文件没发到手机", r.text, phone);
+                    notify.post("task", r.ok ? "文件已发到手机" : "文件没发到手机", r.text, phone, r.ok ? Outcomes.DONE : Outcomes.FAILED);
                 }, "onesay-xfer-send").start();
                 return ok("开始发：" + f.getName() + "（" + FileXfer.human(f.length()) + "），进度看下面");
             }
