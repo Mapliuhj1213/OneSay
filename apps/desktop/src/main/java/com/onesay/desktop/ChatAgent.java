@@ -584,6 +584,9 @@ public final class ChatAgent {
                     r = Actions.Result.fail(cmd + " 出错：" + e.getClass().getSimpleName());
                 }
                 if (r == null) r = Actions.Result.fail("没有结果");
+                // [preview-1120 真机] 命令错误流是 CLIXML：解成文字再给任务卡「详情」和模型（以前模型看到一堆 XML，还要它自己解）
+                if (r.data != null && r.data.get("output") instanceof String && ((String) r.data.get("output")).contains("#< CLIXML"))
+                    try { r.data.put("output", clixml((String) r.data.get("output"))); } catch (UnsupportedOperationException ignored) { }
                 done++;
                 String reason = r.data == null ? "" : String.valueOf(r.data.getOrDefault("reason", ""));
                 Object out = r.data == null ? null : r.data.get("output");

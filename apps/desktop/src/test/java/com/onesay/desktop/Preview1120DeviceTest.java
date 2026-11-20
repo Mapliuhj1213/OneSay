@@ -107,5 +107,8 @@ public class Preview1120DeviceTest {
         assertTrue(t, t.contains("Register-ScheduledTask : 参数错误"));
         assertEquals("普通输出", ChatAgent.clixml("普通输出"));
         assertEquals("先有一行", ChatAgent.clixml("先有一行\n#< CLIXML\n<Objs></Objs>"));
+        String src;
+        try { src = Files.readString(Path.of("src/main/java/com/onesay/desktop/ChatAgent.java"), StandardCharsets.UTF_8); } catch (java.io.IOException e) { throw new AssertionError(e); }
+        assertTrue("详情和给模型的结果也解开", src.contains("r.data.put(\"output\", clixml((String) r.data.get(\"output\")))"));
     }
 }
