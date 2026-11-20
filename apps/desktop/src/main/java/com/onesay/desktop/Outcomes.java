@@ -183,6 +183,11 @@ public final class Outcomes {
         return DONE.equals(state) || WARN.equals(state);
     }
 
+    /** [preview-1120 真机] 通知标题「任务XX：…」里的说法：「任务你拒绝了」不通，改「任务被你拒绝」；其余同 {@link #zh}。 */
+    public static String titleZh(String state) {
+        return "denied".equalsIgnoreCase(String.valueOf(state)) ? "被你拒绝" : zh(state);
+    }
+
     /** 任务卡状态的中文（通知标题用）。 */
     public static String zh(String state) {
         switch (state == null ? "" : state.toLowerCase(Locale.ROOT)) {

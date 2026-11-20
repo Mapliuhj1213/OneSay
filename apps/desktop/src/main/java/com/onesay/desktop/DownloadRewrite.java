@@ -49,6 +49,9 @@ public final class DownloadRewrite {
         if (c.isEmpty() || c.length() > 2000) return null;
         // 模型常在前面加一句关进度 / 开 TLS1.2 的设置，不影响「这是一次下载」：去掉再认
         c = PREFIX.matcher(c).replaceFirst("").trim();
+        // [preview-1120 真机] 模型常写的两种无害包装：调用运算符「& curl.exe …」、结尾合并错误流「… 2>&1」
+        c = c.replaceFirst("^&\\s+(?=(?i)(curl|wget|invoke-webrequest|iwr|start-bitstransfer)(\\.exe)?\\s)", "");
+        c = c.replaceFirst("\\s+(2|\\*)>&1\\s*$", "").trim();
         // 只认一条语句：有管道 / 分号 / && / 换行 / 子表达式 / 脚本块就不猜
         if (hasTopLevel(c)) return null;
         Matcher wc = WEBCLIENT.matcher(c);
@@ -114,6 +117,7 @@ public final class DownloadRewrite {
             switch (x) {
                 case "-L": case "--location": case "-s": case "-S": case "-sS": case "-sSL": case "-fsSL": case "-fL": case "-f": case "-sL": case "-Ls":
                 case "--silent": case "--show-error": case "--fail": case "-#": case "--progress-bar": case "--retry-connrefused": case "-k": case "--insecure":
+                case "--create-dirs": case "--compressed": // [preview-1120 真机]
                     if (x.equals("-k") || x.equals("--insecure")) return null; // 关掉证书校验的不替它改
                     break;
                 case "-o": case "--output": if (i + 1 >= t.size()) return null; out = t.get(++i); break;
@@ -223,7 +227,8 @@ public final class DownloadRewrite {
     /** 给模型的提示（认不全时）。 */
     public static String hint() {
         return "没执行：这条命令在下载文件。下载文件请改用 download 工具（url + path）：任务卡上会显示进度条、速度、剩余时间，用户能取消，下完给大小和 SHA-256。"
-                + "要先下再处理（解压、安装），就先 download，再用 run_command 做后面的步骤。";
+                + "要先下再处理（解压、安装），就先 download，再用 run_command 做后面的步骤。"
+                + "用户点名要用某条下载命令时，用 download 下同一个网址、存到同一个路径就是在做这件事：直接做，不要回头说命令被禁止、也不要再让用户确认一遍。";
     }
 
     /** 改写成下载工具的参数。 */

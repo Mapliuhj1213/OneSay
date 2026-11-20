@@ -1440,6 +1440,37 @@ public final class LinkPolicy {
                     + "|(\\bnet\\s+(user|localgroup|accounts)\\b)|(\\bsetx\\b[^|;]*\\s/m\\b)|(\\bmsiexec\\b)"
                     + "|(\\bset-executionpolicy\\b(?![^|;]*-scope\\s+(currentuser|process)))", Pattern.CASE_INSENSITIVE);
 
+    /**
+     * [preview-1120 真机] 只读的 {@code netsh … show …}（如 {@code netsh wlan show interfaces}、{@code netsh interface ip show config}）
+     * 不改任何设置、普通用户也能跑，不算「要管理员」——以前一律当成改网络，生成管理员脚本，模型拿不到结果就反复去读脚本、卡住。
+     * 仍算要管理员：带 set / add / delete / reset / connect 等动词、{@code -f} / {@code exec} 跑脚本、{@code key=clear}（显示 Wi-Fi 密码）。
+     */
+    private static final Pattern NETSH_STMT = Pattern.compile("\\bnetsh(\\.exe)?\\b([^|;&\\n\\r]*)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NETSH_WRITE = Pattern.compile(
+            "(^|\\s)(-f|-r|exec|set|add|delete|del|reset|install|uninstall|import|export|connect|disconnect|start|stop|dump|trace|init|flush|commit|offline|online|bridge|refresh|reconnect|hostednetwork)(\\s|=|$)",
+            Pattern.CASE_INSENSITIVE);
+
+    static boolean netshReadOnly(String args) {
+        String a = " " + (args == null ? "" : args.trim().toLowerCase(java.util.Locale.ROOT)) + " ";
+        if (!a.matches("(?s).*\\sshow\\s.*")) return false;
+        if (NETSH_WRITE.matcher(a).find()) return false;
+        return !a.replace(" ", "").contains("key=clear");
+    }
+
+    /** ADMIN_NET 的命中，但跳过只读的 netsh show 语句。 */
+    private static String netAdminHit(String s) {
+        Matcher m = ADMIN_NET.matcher(s);
+        while (m.find()) {
+            if (m.group().toLowerCase(java.util.Locale.ROOT).startsWith("netsh")) {
+                Matcher st = NETSH_STMT.matcher(s);
+                if (st.find(m.start()) && st.start() == m.start() && netshReadOnly(st.group(2))) continue;
+            }
+            String h = oneLine(m.group());
+            return h.length() > 40 ? h.substring(0, 40) + "…" : h;
+        }
+        return null;
+    }
+
     /** 需要管理员就返回中文原因（给脚本头注释用），不需要返回空串。 */
     public static String adminReason(String normalized) {
         String s = normalized == null ? "" : normalized;
@@ -1447,7 +1478,7 @@ public final class LinkPolicy {
         if (h != null) return "要改机器级注册表（" + h + "），需要管理员";
         h = firstHit(ADMIN_SVC, s);
         if (h != null) return "要动服务 / 驱动 / 启动项（" + h + "），需要管理员";
-        h = firstHit(ADMIN_NET, s);
+        h = netAdminHit(s);
         if (h != null) return "要改防火墙 / 网卡 / DNS / 系统级代理 / hosts（" + h + "），需要管理员";
         h = firstHit(ADMIN_TASK, s);
         if (h != null) return "要建系统级计划任务（" + h + "），需要管理员";

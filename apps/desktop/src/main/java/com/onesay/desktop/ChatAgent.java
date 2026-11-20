@@ -571,7 +571,8 @@ public final class ChatAgent {
                     // [preview-1120] 命令里混着下载、认不全：先不执行，提示模型改用下载工具（两次后照原命令执行，免得卡死）
                     dlHints++;
                     msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "use_download", "text", DownloadRewrite.hint()))));
-                    steps.step(Map.of("phase", "note", "desc", "下载文件改用下载工具（任务卡上有进度条），这条命令先不执行"));
+                    // [preview-1120 真机] 卡上带出被拦下的原命令（以前看不到是哪条，没法判断该不该认）
+                    steps.step(Map.of("phase", "note", "desc", "下载文件改用下载工具（任务卡上有进度条），这条命令先不执行：" + clip(LinkPolicy.oneLine(String.valueOf(args.get("command"))), 160)));
                     continue;
                 }
                 if ("android_ui".equals(cmd)) uiRead = true;
@@ -747,14 +748,41 @@ public final class ChatAgent {
     /** 一行结论：成功用结果文字，失败把原因压成一行。 */
     static String summary(Actions.Result r) {
         String t = r.text == null ? "" : LinkPolicy.oneLine(r.text);
-        if (!r.ok && r.data != null && r.data.get("reason_zh") != null) t = t + "（" + r.data.get("reason_zh") + "）";
+        if (!r.ok && r.data != null && r.data.get("reason_zh") != null) {
+            // [preview-1120 真机] 原因已经写在结论里（「这件事要管理员…」），或是「对方点了拒绝」而结论已说拒绝：不再括号里重复一遍
+            String rz = String.valueOf(r.data.get("reason_zh"));
+            boolean dup = t.contains(rz) || (LinkPolicy.R_CONFIRM_DENIED.equals(String.valueOf(r.data.get("reason"))) && t.contains("拒绝"));
+            if (!dup) t = t + "（" + rz + "）";
+        }
         if (!r.ok && r.data != null && r.data.get("output") != null) {
-            String o = String.valueOf(r.data.get("output")).trim();
+            String o = clixml(String.valueOf(r.data.get("output")).trim());
             String first = "";
             for (String line : o.split("\\R")) { if (!line.isBlank()) { first = line.trim(); break; } }
             if (!first.isEmpty()) t = t + "：" + first;
         }
         return clip(Humanize.text(t), 160);
+    }
+
+    /**
+     * [preview-1120 真机] Windows PowerShell 的错误流经管道出来是 CLIXML（「#< CLIXML」+ XML），任务卡上原样显示成「命令失败：#< CLIXML」。
+     * 认出来就取里面的错误文字（S="Error" 段，解开 _x000D__x000A_ 这类转义），别的输出原样返回。
+     */
+    static String clixml(String o) {
+        if (o == null) return "";
+        int k = o.indexOf("#< CLIXML");
+        if (k < 0) return o;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("<S S=\"Error\">(.*?)</S>", java.util.regex.Pattern.DOTALL).matcher(o.substring(k));
+        StringBuilder b = new StringBuilder();
+        while (m.find()) b.append(m.group(1));
+        String before = o.substring(0, k).trim();
+        if (b.length() == 0) return before;
+        String err = b.toString();
+        java.util.regex.Matcher x = java.util.regex.Pattern.compile("_x([0-9A-Fa-f]{4})_").matcher(err);
+        StringBuffer sb = new StringBuffer();
+        while (x.find()) x.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(String.valueOf((char) Integer.parseInt(x.group(1), 16))));
+        x.appendTail(sb);
+        err = sb.toString().replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&").trim();
+        return before.isEmpty() ? err : before + "\n" + err;
     }
 
     static Map<String, Object> stepEv(String phase, int n, String desc, String cmd, Map<String, Object> args, boolean ok, String summary, String output, String text) {

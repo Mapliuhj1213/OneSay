@@ -49,6 +49,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .head h1{font-size:34px;font-weight:600;letter-spacing:.5px;line-height:1.1}
 .head p{color:var(--text2);margin-top:8px;font-size:14px}
 .head .sp{flex:1}
+.head>.btn{flex:none;white-space:nowrap} /* [preview-1120 真机] 通知页「发一条测试 / 全部已读 / 清空」被挤成两行 */
 .btn{height:36px;padding:0 16px;border-radius:18px;background:var(--accent);color:#fff;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px}
 .btn.ghost{background:var(--card);color:var(--accent)}
 .btn.sm{height:30px;padding:0 12px;font-size:12px}
@@ -252,6 +253,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 /* ---------- 通知 ---------- */
 .nk{font-size:11.5px;padding:3px 8px;border-radius:10px;flex:none;font-weight:600}
 .nk.reminder{background:rgba(255,149,0,.12);color:#C66F00}.nk.auto{background:rgba(0,163,180,.12);color:var(--auto)}
+.nk.task{background:rgba(31,164,99,.12);color:var(--green)}.nk.task.st-denied,.nk.task.st-stopped,.nk.task.st-time_limit{background:var(--chip);color:var(--text2)}/* [preview-1120 真机] 完成 / 拒绝也有底色 */
 .nk.task.st-needs_user,.nk.task.st-timeout{background:rgba(255,149,0,.14);color:#B86200}.nk.task.st-failed,.nk.task.st-error,.nk.task.st-loop,.nk.task.st-no_progress{background:rgba(255,69,58,.12);color:var(--red)}.nk.task.st-warn{background:rgba(245,180,0,.16);color:#8A6A00}
 .nk.rain{background:rgba(62,123,250,.12);color:var(--event)}.nk.app{background:rgba(0,0,0,.06);color:var(--text2)}.nk.pc{background:rgba(3,129,254,.1);color:var(--accent)}
 .item.unread .tt{font-weight:600}
@@ -453,7 +455,7 @@ function ago(ms){const s=(Date.now()-ms)/1000;if(s<60)return '刚刚';if(s<3600)
 const KIND={reminder:'提醒',auto:'自动任务',rain:'降水',app:'手机通知',task:'任务结果',pc:'本机'};
 // [preview-1120] 任务通知按结束状态显示标签（以前一律「任务完成」）；旧通知没有 state 时从标题「任务XX：」认
 const TASK_ST={done:'任务完成',warn:'有警告',failed:'没做成',needs_user:'需要你操作'};
-function kindLabel(n){if(n.kind!=='task')return KIND[n.kind]||'通知';if(n.state)return TASK_ST[n.state]||(STATE_ZH[n.state]||[])[0]||'任务结果';const m=/^任务(完成（有警告）|完成|没做成|需要你操作|你拒绝了|没人批准|已停止|到时长上限|卡住了|没有进展|出错)：/.exec(n.title||'');return m?(m[1]==='完成'?'任务完成':m[1]==='完成（有警告）'?'有警告':m[1]):'任务结果'}
+function kindLabel(n){if(n.kind!=='task')return KIND[n.kind]||'通知';if(n.state)return TASK_ST[n.state]||(STATE_ZH[n.state]||[])[0]||'任务结果';const m=/^任务(完成（有警告）|完成|没做成|需要你操作|你拒绝了|被你拒绝|没人批准|已停止|到时长上限|卡住了|没有进展|出错)：/.exec(n.title||'');return m?(m[1]==='完成'?'任务完成':m[1]==='完成（有警告）'?'有警告':m[1]==='被你拒绝'?'你拒绝了':m[1]):'任务结果'}
 const sec=(c,t,n)=>`<div class="sec"><i style="background:${c}"></i>${t}${n!=null?` <span>${n}</span>`:''}</div>`;
 const empty=t=>`<div class="card"><div class="empty">${t}</div></div>`;
 const head=(t,p,btn)=>`<div class="head"><div><h1>${t}</h1><p>${p}</p></div><div class="sp"></div>${btn||''}</div>`;
