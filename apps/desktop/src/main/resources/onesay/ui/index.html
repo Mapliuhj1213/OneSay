@@ -252,6 +252,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 /* ---------- 通知 ---------- */
 .nk{font-size:11.5px;padding:3px 8px;border-radius:10px;flex:none;font-weight:600}
 .nk.reminder{background:rgba(255,149,0,.12);color:#C66F00}.nk.auto{background:rgba(0,163,180,.12);color:var(--auto)}
+.nk.task.st-needs_user,.nk.task.st-timeout{background:rgba(255,149,0,.14);color:#B86200}.nk.task.st-failed,.nk.task.st-error,.nk.task.st-loop,.nk.task.st-no_progress{background:rgba(255,69,58,.12);color:var(--red)}.nk.task.st-warn{background:rgba(245,180,0,.16);color:#8A6A00}
 .nk.rain{background:rgba(62,123,250,.12);color:var(--event)}.nk.app{background:rgba(0,0,0,.06);color:var(--text2)}.nk.pc{background:rgba(3,129,254,.1);color:var(--accent)}
 .item.unread .tt{font-weight:600}
 .badge{margin-left:auto;background:var(--red);color:#fff;font-size:11px;border-radius:9px;padding:0 6px;line-height:18px;font-weight:600}
@@ -449,7 +450,10 @@ function dayName(ms){const k=dayKey(ms),t=dayKey(Date.now());const d=new Date(ms
   if(k===t)return '今天 · 周'+WK[d.getDay()]; if(k===t+D)return '明天 · 周'+WK[d.getDay()];
   return (d.getMonth()+1)+'月'+d.getDate()+'日 · 周'+WK[d.getDay()]}
 function ago(ms){const s=(Date.now()-ms)/1000;if(s<60)return '刚刚';if(s<3600)return Math.floor(s/60)+' 分钟前';if(s<86400&&dayKey(ms)===dayKey(Date.now()))return hm(ms);return (new Date(ms).getMonth()+1)+'月'+new Date(ms).getDate()+'日 '+hm(ms)}
-const KIND={reminder:'提醒',auto:'自动任务',rain:'降水',app:'手机通知',task:'任务完成',pc:'本机'};
+const KIND={reminder:'提醒',auto:'自动任务',rain:'降水',app:'手机通知',task:'任务结果',pc:'本机'};
+// [preview-1120] 任务通知按结束状态显示标签（以前一律「任务完成」）；旧通知没有 state 时从标题「任务XX：」认
+const TASK_ST={done:'任务完成',warn:'有警告',failed:'没做成',needs_user:'需要你操作'};
+function kindLabel(n){if(n.kind!=='task')return KIND[n.kind]||'通知';if(n.state)return TASK_ST[n.state]||(STATE_ZH[n.state]||[])[0]||'任务结果';const m=/^任务(完成（有警告）|完成|没做成|需要你操作|你拒绝了|没人批准|已停止|到时长上限|卡住了|没有进展|出错)：/.exec(n.title||'');return m?(m[1]==='完成'?'任务完成':m[1]==='完成（有警告）'?'有警告':m[1]):'任务结果'}
 const sec=(c,t,n)=>`<div class="sec"><i style="background:${c}"></i>${t}${n!=null?` <span>${n}</span>`:''}</div>`;
 const empty=t=>`<div class="card"><div class="empty">${t}</div></div>`;
 const head=(t,p,btn)=>`<div class="head"><div><h1>${t}</h1><p>${p}</p></div><div class="sp"></div>${btn||''}</div>`;
@@ -460,7 +464,7 @@ function todoItem(t){return `<div class="item ${t.done?'done':''}"><span class="
 function pkItem(p){return `<div class="item ${p.done?'past':''}"><div class="bar" style="background:var(--pickup)"></div><div class="tx"><div class="code">${esc(p.code)}</div><div class="st">${esc([p.place,p.deadline].filter(Boolean).join(' · '))}</div></div>${p.done?'<span class="tag">已取</span>':''}</div>`}
 function tkItem(k){return `<div class="item"><div class="bar" style="background:var(--ticket)"></div><div class="tx"><div class="tt">${esc(k.title)}</div><div class="st">${k.at?dayName(k.at).split(' ')[0]+' '+hm(k.at):''}${k.seat?' · '+esc(k.seat):''}${k.code?' · 取票码 '+esc(k.code):''}</div></div></div>`}
 function autoItem(a){return `<div class="item ${a.enabled?'':'past'}"><div class="bar" style="background:var(--auto)"></div><div class="tx"><div class="tt">${esc(a.title)}</div><div class="st">${esc(a.desc||'')}</div></div><span class="tag ${a.device==='电脑'?'blue':''}">${esc(a.device||'手机')}</span><span class="sw ${a.enabled?'on':''}"></span></div>`}
-function noteItem(n){return `<div class="item ${n.read?'':'unread'}"><span class="nk ${esc(n.kind)}">${KIND[n.kind]||'通知'}</span><div class="tx"><div class="tt">${esc(n.title)}</div><div class="st">${esc(n.text)}</div></div><span class="tag">${ago(n.at)}</span></div>`}
+function noteItem(n){return `<div class="item ${n.read?'':'unread'}"><span class="nk ${esc(n.kind)}${n.kind==='task'&&n.state&&n.state!=='done'?' st-'+esc(n.state):''}">${esc(kindLabel(n))}</span><div class="tx"><div class="tt">${esc(n.title)}</div><div class="st">${esc(n.text)}</div></div><span class="tag">${ago(n.at)}</span></div>`}
 const card=a=>`<div class="card">${a.join('')}</div>`;
 
 // ---------- 各页 ----------
@@ -480,7 +484,7 @@ P.today=()=>{
   ${!nt.length&&!pk.length&&!tk.length&&!au.length?sec('var(--text3)','手机')+empty(SYNC):''}</div></div>`};
 const addRow=()=>`<div class="addrow"><input class="field newtodo" placeholder="记一条待办，回车保存" onkeydown="if(event.key==='Enter')todoAdd(this)"></div>`;
 P.notes=()=>{const n=S.notes.slice().reverse();
-  return head('通知',`只留提示类：任务完成、触发器回调结果、自动任务结果（审批不进通知，次数在「设置 › 权限审批记录」）`,`<button class="btn ghost" onclick="notes('test')">发一条测试</button> <button class="btn ghost" onclick="notes('read')">全部已读</button> <button class="btn ghost" onclick="notes('clear')">清空</button>`)+
+  return head('通知',`只留提示类：任务结果、触发器回调结果、自动任务结果（审批不进通知，次数在「设置 › 权限审批记录」）`,`<button class="btn ghost" onclick="notes('test')">发一条测试</button> <button class="btn ghost" onclick="notes('read')">全部已读</button> <button class="btn ghost" onclick="notes('clear')">清空</button>`)+
   (n.length?card(n.map(noteItem)):empty('还没有通知。手机装上「电脑联动」插件后，手机的提醒会转到这里'))};
 P.events=()=>{const e=S.events.slice().sort((a,b)=>a.start-b.start).filter(x=>(x.end||x.start)>dayKey(Date.now()));
   if(!e.length)return head('日程','接下来没有日程')+empty(SYNC);

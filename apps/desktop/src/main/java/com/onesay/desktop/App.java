@@ -274,7 +274,7 @@ public final class App {
         setupLinks1119();
         chat.phones = agent::peers;             // [phone-tools-1118] 对话的运行环境里写连着哪些手机
         chat.lastPhone = () -> cfg.phoneLast;
-        chat.onTaskEnd = (st, t) -> { String[] p2 = t.split("\n", 2); notify.post("task", "任务" + Outcomes.zh(st) + "：" + p2[0], p2.length > 1 ? p2[1] : "", ""); }; // [overnight-1119]
+        chat.onTaskEnd = (st, t) -> { String[] p2 = t.split("\n", 2); notify.post("task", "任务" + Outcomes.zh(st) + "：" + p2[0], p2.length > 1 ? p2[1] : "", "", st); }; // [preview-1120] 带上状态，标签不再一律「任务完成」 // [overnight-1119]
         chat.onTaskStart = agent.guard::taskStarted; // [approvals-1118] 新任务开始：上一个任务的「允许本次任务」不带过来
         chat.pcExec = agent::runLocal;
         chat.appResolver = n -> LocalLaunch.displayName(n, cfg.appMap(), System.getenv()); // [approvals-1118] 打开前先找本地应用 // [chat-agent-1118] 「对话」能执行任务：同一条安全链（插件 → 矩阵 → 电脑上确认 → 凭证）

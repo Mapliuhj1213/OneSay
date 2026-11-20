@@ -69,9 +69,10 @@ public class Overnight1119Test {
         assertEquals(0, s.list("notes").size());
         assertNotNull("提醒照收", n.post("reminder", "喝水", "下午三点", ""));
         assertNotNull("自动任务结果照收", n.post("auto", "自动任务", "到家开灯：已执行", ""));
-        assertNotNull("任务完成照收（正文里有「需要你确认」也收）", n.post("task", "任务需要你操作：打开微信", "需要你确认手机上的开关", ""));
+        assertNotNull("任务结果照收（正文里有「需要你确认」也收）", n.post("task", "任务需要你操作：打开微信", "需要你确认手机上的开关", "", Outcomes.NEEDS_USER));
         assertEquals(3, s.list("notes").size());
-        assertEquals("任务完成", Notify.label("task"));
+        assertEquals("[preview-1120] 没状态时是「任务结果」，不再一律「任务完成」", "任务结果", Notify.label("task"));
+        assertEquals("需要你操作", Notify.label("task", Outcomes.NEEDS_USER));
     }
 
     @Test public void oldApprovalNotesArePurgedOnStart() throws Exception {
