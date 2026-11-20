@@ -257,7 +257,7 @@ public class Overnight1119Test {
         assertTrue(h.contains("failed:['没做成','fail']"));
         assertTrue(h.contains("needs_user:['需要你操作','wait']"));
         assertTrue(h.contains(".st.warnc{"));
-        assertTrue(h.contains("x.state==='warn'?'<span class=\"ic warn\">!</span>'"));
+        assertTrue("[preview-1120] 警告用 Lucide info 图标 + 警告色", h.contains("x.state==='warn'?'<span class=\"ic warn\">'+ico('info')+'</span>'") && h.contains(".st.warnc,.tc .sp .wn{color:var(--warn)}"));
         assertTrue("系统提示要求标结果", ChatAgent.systemPrompt("now", "ws", "home", "").contains("【需要你操作】"));
     }
 

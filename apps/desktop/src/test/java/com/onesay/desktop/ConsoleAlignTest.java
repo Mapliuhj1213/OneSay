@@ -39,8 +39,10 @@ public class ConsoleAlignTest {
     @Test public void settingsGroupsFollowDoc() throws Exception {
         String h = html(), d = doc();
         List<String> want = docGroups(d);
-        assertEquals(List.of("连接", "权限与审批", "权限审批记录", "模型与密钥", "语音", "替你操作", "功能", "下载", "插件", "关于"), want); // [overnight-1119] 权限审批记录（只电脑有）
+        assertEquals(List.of("连接", "权限与审批", "权限审批记录", "模型与密钥", "语音", "替你操作", "功能", "下载", "外观", "MCP 连接器", "插件", "关于"), want); // [overnight-1119] 权限审批记录（只电脑有）；[preview-1120] 外观、MCP 连接器（只电脑单列）
         want.remove("功能");   // 只手机有
+        // [preview-1120] 电脑端别名：清单里写「电脑端别名：A = B」，跳转条用 B
+        for (java.util.Map.Entry<String, String> e : aliases(d).entrySet()) want.replaceAll(x -> x.equals(e.getKey()) ? e.getValue() : x);
         String g = h.substring(h.indexOf("const GROUPS=["), h.indexOf("];", h.indexOf("const GROUPS=[")));
         List<String> got = new ArrayList<>();
         Matcher m = Pattern.compile("\\['set-[a-z]+','([^']+)'\\]").matcher(g);
@@ -49,22 +51,33 @@ public class ConsoleAlignTest {
         // 页面里每节确实按这个顺序出现
         String p = h.substring(h.indexOf("P.settings=()=>"));
         int prev = -1;
-        for (String id : new String[]{"set-connect", "set-perm", "set-permlog", "set-model", "set-voice", "set-act", "set-download", "set-plugins", "set-about"}) {
-            int i = id.equals("set-download") ? p.indexOf("${mdPanel()}") : id.equals("set-permlog") ? p.indexOf("${permLogPage()}") : p.indexOf(id);
+        for (String id : new String[]{"set-connect", "set-perm", "set-permlog", "set-model", "set-voice", "set-act", "set-download", "set-look", "set-mcp", "set-plugins", "set-about"}) {
+            int i = id.equals("set-download") ? p.indexOf("${mdPanel()}") : id.equals("set-permlog") ? p.indexOf("${permLogPage()}")
+                    : id.equals("set-look") ? p.indexOf("${lookPanel()}") : id.equals("set-mcp") ? p.indexOf("${mcpPanel()}") : p.indexOf(id);
             assertTrue(id + " 顺序对", i > prev);
             prev = i;
         }
     }
 
+    /** 「电脑端别名：插件 = 安全插件（…）」→ {插件: 安全插件}。手机端不改名，只在电脑这边换显示名。 */
+    static java.util.Map<String, String> aliases(String d) {
+        java.util.Map<String, String> out = new java.util.LinkedHashMap<>();
+        Matcher m = Pattern.compile("电脑端别名：([^=\\n]+?) = ([^（\\n]+)").matcher(d);
+        while (m.find()) out.put(m.group(1).trim(), m.group(2).trim());
+        return out;
+    }
+
     @Test public void sameNamesAsPhone() throws Exception {
         String h = html();
         for (String must : new String[]{"grp('set-model','模型与密钥'", "grp('set-voice','语音'", "grp('set-act','替你操作'", "grp('set-perm','权限与审批'",
-                "grp('set-connect','连接'", "sec('var(--accent)','插件','安全插件", "kv('接口地址'", "kv('模型名'", "kv('API Key'", "kv('语音识别 Key'", "remPolicy()"}) {
+                "grp('set-connect','连接'", "sec('var(--accent)','安全插件'", "kv('接口地址'", "kv('模型名'", "kv('API Key'", "kv('语音识别 Key'", "remPolicy()"}) {
             assertTrue(must, h.contains(must));
         }
         for (String old : new String[]{"sec('var(--accent)','大模型'", "sec('var(--accent)','说话')", "sec('var(--accent)','电脑能力')", "kv('识别 Key'", "kv('模型',"}) {
             assertFalse("旧名不再出现：" + old, h.contains(old));
         }
+        assertEquals("手机叫「插件」，电脑别名「安全插件」", java.util.Map.of("插件", "安全插件"), aliases(doc()));
+        assertFalse("提示里也用电脑端的名字", h.contains("「设置 › 插件」"));
         assertTrue("以后这类不用问 在权限与审批里", h.indexOf("remPolicy()", h.indexOf("grp('set-perm'")) < h.indexOf("grp('set-model'"));
         for (String w : new String[]{"Bixby", "三星"}) {
             assertFalse(w, h.contains(w));
