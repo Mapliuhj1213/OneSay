@@ -1,0 +1,31 @@
+{
+ "id": "dracula",
+ "name": "Dracula",
+ "mode": "dark",
+ "author": "配色：Dracula Theme",
+ "license": "MIT",
+ "source": "https://github.com/dracula/dracula-theme",
+ "tokens": {
+  "--bg": "#282A36",
+  "--card": "#343746",
+  "--surface2": "#44475A",
+  "--text": "#F8F8F2",
+  "--text2": "#D6D6CF",
+  "--text3": "#9EA8C7",
+  "--line": "#44475A",
+  "--accent": "#BD93F9",
+  "--accentC": "#3F3757",
+  "--red": "#FF5555",
+  "--green": "#50FA7B",
+  "--warn": "#F1FA8C",
+  "--swoff": "#6272A4",
+  "--hover": "rgba(255,255,255,0.05)",
+  "--chip": "rgba(255,255,255,0.08)",
+  "--event": "#8BE9FD",
+  "--todo": "#FFB86C",
+  "--ticket": "#FF79C6",
+  "--pickup": "#50FA7B",
+  "--auto": "#8BE9FD",
+  "--device": "#6272A4"
+ }
+}

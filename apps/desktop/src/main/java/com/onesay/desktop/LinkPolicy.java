@@ -225,6 +225,8 @@ public final class LinkPolicy {
         /** 操作第三方 App（关掉 / 清后台等，不含卸载）。 */
         APP_OPERATE,
         WORKSPACE_WRITE, OUTSIDE_WRITE,
+        /** [preview-1120] MCP 连接器里有副作用（没声明只读）的工具：每次确认（只读档拒）。 */
+        MCP_TOOL,
         UNINSTALL_APP,
         /** 运行工作区 scripts/ 里已有的脚本。 */
         RUN_WS_SCRIPT,
@@ -334,7 +336,7 @@ public final class LinkPolicy {
     /** 能记住的动作类型（键 → 给人看的说法）。不在这里的不收（远程塞进来的乱写的类型也不收）。 */
     private static final String[][] KINDS = {
             {"pc.setting", "电脑：改音量 / 亮度 / 勿扰"}, {"pc.power", "电脑：关机 / 睡眠"}, {"pc.uninstall", "电脑：卸载程序"},
-            {"pc.script_run", "电脑：运行工作区脚本"}, {"pc.shell_exec", "电脑：执行命令"}, {"pc.outside_write", "电脑：写工作区以外的文件"},
+            {"pc.script_run", "电脑：运行工作区脚本"}, {"pc.shell_exec", "电脑：执行命令"}, {"pc.mcp_tool", "电脑：调用 MCP 工具"}, {"pc.outside_write", "电脑：写工作区以外的文件"},
             {"pc.url", "电脑：打开不在信任列表的网址"}, {"pc.url.risky", "电脑：打开有风险的网址（IP / 内网 / 带账号 / 疑似仿冒）"},
             {"pc.clipboard", "电脑：写剪贴板"}, {"pc.clipboard.command", "电脑：写像命令 / 带特殊链接的剪贴板"}, {"pc.clipboard.sensitive", "电脑：写敏感内容到剪贴板"},
             {"pc.blocked_app.open", "电脑：打开支付 / 银行 / 密码 / 商店类程序"}, {"pc.blocked_app.uninstall", "电脑：卸载支付 / 银行 / 密码 / 商店类程序"},
@@ -541,6 +543,8 @@ public final class LinkPolicy {
                 return needsApproval(sb, ap, "运行工作区脚本（每次都要确认，按你自己的权限执行）", "pc.script_run");
             case SHELL_EXEC:
                 return needsApproval(sb, ap, "执行命令（会显示完整命令，按你自己的权限执行）", "pc.shell_exec");
+            case MCP_TOOL:
+                return needsApproval(sb, ap, "调用 MCP 工具（服务器没声明只读，可能有副作用；按服务器自己的权限执行）", "pc.mcp_tool");
             default:
                 return Decision.deny(R_UNKNOWN, "不认识的指令");
         }
@@ -1485,7 +1489,7 @@ public final class LinkPolicy {
                     // [fix-1114 B10] 关掉 OneSay 的其它写法：Get-Process onesay | Stop-Process、wmic … onesay … delete、Invoke-CimMethod Terminate
                     + "|(\\b(get-process|gps|ps)\\b[^|;]*onesay[^;]*\\|\\s*(stop-process|spps|kill)\\b)|(\\b(wmic|get-wmiobject|gwmi|get-ciminstance|gcim)\\b[^;]*onesay[^;]*\\b(delete|terminate)\\b)"
                     // [fix-1114 B12] OneSay 的数据目录：%APPDATA% 展开后的真实路径 AppData\Roaming\OneSay（还有 Local / LocalLow 下的 OneSay）
-                    + "|(appdata[\\\\/]onesay)|(appdata[\\\\/](roaming|local|locallow)[\\\\/]onesay\\b)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts|remembered|chat_rules|choice|habits))|(approve_kinds)|(clip_autoclear)|(chat_preset)|(chat_allow_prefixes)|(open_habits)|(\\bnet_allow\\b)",
+                    + "|(appdata[\\\\/]onesay)|(appdata[\\\\/](roaming|local|locallow)[\\\\/]onesay\\b)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):4(78|79)30)|(/api/(settings|confirm|shortcuts|remembered|chat_rules|choice|habits))|(approve_kinds)|(clip_autoclear)|(chat_preset)|(chat_allow_prefixes)|(open_habits)|(\\bnet_allow\\b)",
             Pattern.CASE_INSENSITIVE);
 
     public static String selfAuthorizeReason(String normalized, List<String> selfPaths) {

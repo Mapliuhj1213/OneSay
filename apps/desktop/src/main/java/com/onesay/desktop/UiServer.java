@@ -25,7 +25,7 @@ import java.util.function.Function;
  * 别的本机程序拿不到口令。再次启动时第二个进程只打 /show，由正在运行的这个自己开窗口。
  */
 public final class UiServer {
-    public static final int DEFAULT_PORT = 47830;
+    public static final int DEFAULT_PORT = Flavor.uiPort(); // [preview-1120] 正式版 47830，预览版 47930
     private final Map<String, Function<Map<String, Object>, Object>> api = new TreeMap<>();
     private final String token;
     /** ★ fix-1118 SEC L2：入口钥匙（GET / 用），与 API 口令分开。 */
@@ -110,7 +110,7 @@ public final class UiServer {
                             + "<p style=\"font:16px sans-serif;margin:3em\">OneSay 正在运行。请从托盘图标或桌面快捷方式打开窗口。</p>").getBytes(StandardCharsets.UTF_8));
                     return;
                 }
-                String html = new String(resource("onesay/ui/index.html"), StandardCharsets.UTF_8).replace("__ONESAY_TOKEN__", token);
+                String html = flavored(new String(resource("onesay/ui/index.html"), StandardCharsets.UTF_8).replace("__ONESAY_TOKEN__", token));
                 ex.getResponseHeaders().add("Cache-Control", "no-store");
                 ex.getResponseHeaders().add("Content-Security-Policy", "default-src 'self' 'unsafe-inline' data:; connect-src 'self'");
                 send(ex, 200, "text/html; charset=utf-8", html.getBytes(StandardCharsets.UTF_8));
@@ -186,6 +186,14 @@ public final class UiServer {
             } catch (IllegalArgumentException ignored) { }
         }
         return m;
+    }
+
+    /** [preview-1120] 预览版：窗口标题（WebView2 窗口跟着页面标题）和侧栏名字带 Preview。正式版原样返回。 */
+    static String flavored(String html) {
+        if (!Flavor.PREVIEW) return html;
+        return html.replace("<title>OneSay</title>", "<title>" + Flavor.name() + "</title>")
+                .replace("<html lang=\"zh-CN\">", "<html lang=\"zh-CN\" data-flavor=\"preview\">")
+                .replace("<b>OneSay</b>", "<b>OneSay</b><span class=\"pvbadge\">Preview</span>");
     }
 
     static byte[] resource(String name) throws IOException {

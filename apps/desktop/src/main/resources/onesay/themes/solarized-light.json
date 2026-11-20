@@ -1,0 +1,31 @@
+{
+ "id": "solarized-light",
+ "name": "Solarized Light",
+ "mode": "light",
+ "author": "配色：Solarized（Ethan Schoonover）",
+ "license": "MIT",
+ "source": "https://github.com/altercation/solarized",
+ "tokens": {
+  "--bg": "#FDF6E3",
+  "--card": "#FFFDF6",
+  "--surface2": "#EEE8D5",
+  "--text": "#073642",
+  "--text2": "#586E75",
+  "--text3": "#657B83",
+  "--line": "#E4DDC8",
+  "--accent": "#268BD2",
+  "--accentC": "#DCEAF3",
+  "--red": "#DC322F",
+  "--green": "#859900",
+  "--warn": "#B58900",
+  "--swoff": "#D3CBB7",
+  "--hover": "rgba(7,54,66,0.05)",
+  "--chip": "rgba(7,54,66,0.07)",
+  "--event": "#268BD2",
+  "--todo": "#CB4B16",
+  "--ticket": "#6C71C4",
+  "--pickup": "#859900",
+  "--auto": "#2AA198",
+  "--device": "#657B83"
+ }
+}

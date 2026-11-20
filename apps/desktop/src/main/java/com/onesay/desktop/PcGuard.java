@@ -376,6 +376,11 @@ public final class PcGuard {
         if ("pc_task".equals(cmd)) return LinkPolicy.Cat.HARMLESS;
         if ("pc_task_status".equals(cmd)) return LinkPolicy.Cat.QUERY;
         if ("file_put".equals(cmd)) return LinkPolicy.Cat.WORKSPACE_WRITE;
+        // [preview-1120] MCP 工具：服务器声明只读（readOnlyHint、没标 destructive）的不问，其余默认要批准（只读档直接拒）
+        if ("mcp_call".equals(cmd)) {
+            McpHub h = MCP;
+            return h != null && h.readOnlyFn(str(a, "fn")) ? LinkPolicy.Cat.READ_PRIVATE : LinkPolicy.Cat.MCP_TOOL;
+        }
         return LinkPolicy.pcCat(cmd);
     }
 
@@ -385,7 +390,7 @@ public final class PcGuard {
         self.add(cfg.file == null ? "" : cfg.file.toAbsolutePath().toString());
         // [fix-1114 B12] 配置所在的 OneSay 数据目录（%APPDATA%\OneSay：钥匙、日志、WebView2 数据）也算「自己的」；只认名字就叫 OneSay 的目录
         Path dir = cfg.file == null ? null : cfg.file.toAbsolutePath().getParent();
-        if (dir != null && dir.getFileName() != null && dir.getFileName().toString().equalsIgnoreCase("onesay")) self.add(dir.toString() + File.separator);
+        if (dir != null && dir.getFileName() != null && (dir.getFileName().toString().equalsIgnoreCase("onesay") || dir.getFileName().toString().equalsIgnoreCase("onesay-preview"))) self.add(dir.toString() + File.separator);
         LinkPolicy.Rules r = new LinkPolicy.Rules(cfg.pluginEnabled && cfg.pluginEncoded, LinkPolicy.parseDomains(cfg.netAllow), self);
         // 沙箱默认断网（Codex：只读 / 工作区可写没有网络，完全访问有）：这是沙箱档的事，和插件开关无关
         r.net = cfg.mode().sandbox != LinkPolicy.Sandbox.FULL_ACCESS;
@@ -993,6 +998,7 @@ public final class PcGuard {
             case "script_run": return "运行工作区脚本 scripts/" + str(a, "name");
             case "shortcut_run": return "运行快捷指令「" + str(a, "name") + "」（" + why + "）";
             case "sys_exec": return "执行命令：" + str(a, "command");
+            case "mcp_call": return ChatAgent.describe("mcp_call", a) + "（" + why + "）"; // [preview-1120] 确认卡上写清哪个服务器的哪个工具、带什么参数
             case "uninstall_app": return "卸载 " + (str(a, "name").isEmpty() ? str(a, "package") : str(a, "name"));
             case "volume": return "调音量（" + str(a, "action") + "）";
             case "shutdown": return "关机";
@@ -1199,8 +1205,17 @@ public final class PcGuard {
     }
 
     /** 电脑端内建的工作区指令（判定已经过了）。不是这些返回 null，交给 Actions。 */
+    /** [preview-1120] MCP 连接器（App 设上）。 */
+    public static volatile McpHub MCP;
+
     public Actions.Result builtin(String cmd, Map<String, Object> a) {
         File ws = workspace();
+        if ("mcp_call".equals(cmd)) {
+            McpHub h = MCP;
+            if (h == null) return Actions.Result.fail("MCP 连接器没开");
+            @SuppressWarnings("unchecked") Map<String, Object> args = a.get("arguments") instanceof Map ? (Map<String, Object>) a.get("arguments") : new TreeMap<>();
+            return h.call(str(a, "fn"), args);
+        }
         try {
             switch (cmd) {
                 case "level": {

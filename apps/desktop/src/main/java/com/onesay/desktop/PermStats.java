@@ -56,6 +56,7 @@ public final class PermStats {
             }
             case "file_write": return "写文件";
             case "net_download": return "下载文件 / 联网";
+            case "mcp_call": return "调用 MCP 工具";
             case "open_url": return "打开网址";
             case "open_app": return "打开程序";
             case "open_target": return "打开程序 / 网站";

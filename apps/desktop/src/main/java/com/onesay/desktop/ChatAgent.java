@@ -116,6 +116,11 @@ public final class ChatAgent {
 
     static final String DESC = "这一步在做什么：给用户看的一句简短中文（10–20 字，如「下载 Mindustry 安装包」「查 MuMu 装在哪」）";
 
+    /** [preview-1120] 额外的工具（MCP 连接器）；App 接上 {@link McpHub#toolDefs}。 */
+    public static volatile java.util.function.Supplier<List<Map<String, Object>>> extraTools = List::of;
+    /** [preview-1120] MCP 工具给人看的名字（任务卡 / 确认框）。 */
+    public static volatile java.util.function.Function<String, String> mcpName = fn -> "MCP 工具（" + fn + "）";
+
     public static List<Map<String, Object>> tools() {
         List<Map<String, Object>> l = new ArrayList<>();
         Map<String, Object> rc = new TreeMap<>();
@@ -202,6 +207,8 @@ public final class ChatAgent {
         ac.put("options", opt);
         l.add(fn("ask_choice", "在任务卡上弹选择卡让用户挑一个（自动附「都不是，我来补充」）。目标有歧义（同名的仓库 / 软件不止一个）、或者你只能判断「最可能是」时，下载、安装、付款这类有副作用的步骤之前必须先用它；只读查询（搜索、查版本）可以先做。", ac, List.of("description", "question", "options")));
         l.add(fn("show_file", "把你生成或找到的图片 / 文本文件显示在任务卡里给用户看（不要用 open_url 打开 file: 地址）。", sf, List.of("description", "path")));
+        // [preview-1120] MCP 连接器：用户在「设置 › MCP 连接器」里加的服务器的工具（名字 mcp__服务器__工具）
+        try { List<Map<String, Object>> ex = extraTools.get(); if (ex != null) l.addAll(ex); } catch (RuntimeException ignored) { }
         return l;
     }
 
@@ -353,6 +360,12 @@ public final class ChatAgent {
                 return new Object[] {"phone_operate", out};
             }
             default:
+                if (c.name != null && c.name.startsWith("mcp__")) { // [preview-1120] MCP 连接器的工具：原样转给服务器（审批照旧）
+                    out.put("fn", c.name);
+                    a.remove("description");
+                    out.put("arguments", a);
+                    return new Object[] {"mcp_call", out};
+                }
                 return null;
         }
     }
@@ -792,6 +805,7 @@ public final class ChatAgent {
     static String describe(String cmd, Map<String, Object> a) {
         switch (cmd) {
             case "sys_exec": return "执行命令：" + clip(LinkPolicy.oneLine(String.valueOf(a.get("command"))), 200);
+            case "mcp_call": return "调用" + mcpName.apply(String.valueOf(a.get("fn"))) + "：" + clip(LinkPolicy.oneLine(Json.stringify(a.get("arguments") == null ? new TreeMap<String, Object>() : a.get("arguments"))), 160);
             case "open_url": return "打开网址：" + clip(String.valueOf(a.get("url")), 200);
             case "file_write": return "写文件：" + clip(String.valueOf(a.get("path")), 200);
             case "open_app": return "打开程序：" + clip(String.valueOf(a.containsKey("path") ? a.get("path") : a.get("name")), 200);

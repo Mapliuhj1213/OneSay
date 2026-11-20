@@ -1,0 +1,31 @@
+{
+ "id": "catppuccin-latte",
+ "name": "Catppuccin Latte",
+ "mode": "light",
+ "author": "配色：Catppuccin",
+ "license": "MIT",
+ "source": "https://github.com/catppuccin/palette",
+ "tokens": {
+  "--bg": "#EFF1F5",
+  "--card": "#FFFFFF",
+  "--surface2": "#E6E9EF",
+  "--text": "#4C4F69",
+  "--text2": "#5C5F77",
+  "--text3": "#6C6F85",
+  "--line": "#DCE0E8",
+  "--accent": "#1E66F5",
+  "--accentC": "#DCE6FD",
+  "--red": "#D20F39",
+  "--green": "#40A02B",
+  "--warn": "#DF8E1D",
+  "--swoff": "#BCC0CC",
+  "--hover": "rgba(76,79,105,0.06)",
+  "--chip": "rgba(76,79,105,0.08)",
+  "--event": "#1E66F5",
+  "--todo": "#FE640B",
+  "--ticket": "#8839EF",
+  "--pickup": "#40A02B",
+  "--auto": "#179299",
+  "--device": "#7287FD"
+ }
+}

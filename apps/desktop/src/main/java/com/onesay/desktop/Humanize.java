@@ -51,6 +51,7 @@ public final class Humanize {
         TOOLS.put("ask_choice", "让你选");
         TOOLS.put("screen_look", "截屏");
         TOOLS.put("net_download", "下载文件");
+        TOOLS.put("mcp_call", "调用 MCP 工具");
         TOOLS.put("phone_shortcuts", "看手机上的快捷指令");
         TOOLS.put("phone_run_shortcut", "在手机上运行快捷指令");
     }

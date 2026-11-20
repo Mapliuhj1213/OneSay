@@ -159,7 +159,7 @@ public final class App {
     void trayHint(String text) {
         TrayIcon t = trayIcon;
         if (t == null) return;
-        String want = text == null ? "OneSay " + cfg.deviceId : text;
+        String want = text == null ? Flavor.name() + " " + cfg.deviceId : text;
         try { if (!want.equals(t.getToolTip())) t.setToolTip(want); } catch (Exception ignored) { }
     }
 
@@ -181,6 +181,62 @@ public final class App {
         return out[0];
     }
 
+    /** [preview-1120] MCP 连接器（配置目录 mcp.json 记住选过的目录）。 */
+    McpHub mcp;
+
+    /** [preview-1120] 当前外观：mode（system / light / dark）、主题包（找不到就当没选）。 */
+    Map<String, Object> appearance() {
+        Map<String, Object> a = new TreeMap<>();
+        a.put("mode", Themes.mode(cfg.theme));
+        a.put("pack", "");
+        if (!cfg.themePack.isEmpty()) {
+            for (Object o : Themes.list(Config.defaultDir().resolve("themes"))) {
+                @SuppressWarnings("unchecked") Map<String, Object> p = (Map<String, Object>) o;
+                if (cfg.themePack.equals(p.get("id"))) { a.put("pack", p.get("id")); a.put("pack_name", p.get("name")); a.put("pack_mode", p.get("mode")); a.put("tokens", p.get("tokens")); }
+            }
+        }
+        return a;
+    }
+
+    /**
+     * [preview-1120] 系统选择框（在 OneSay 进程里弹，置顶）。kind：folder / exe / json / file / folder_or_json。没界面（测试）返回 null。
+     * Swing 的 JFileChooser 能选文件夹（AWT 的 FileDialog 在 Windows 上选不了）；用系统外观。
+     */
+    java.io.File pick(String kind, String title, String start) {
+        if (java.awt.GraphicsEnvironment.isHeadless()) return null;
+        java.io.File[] out = new java.io.File[1];
+        try {
+            javax.swing.SwingUtilities.invokeAndWait(() -> {
+                try { javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName()); } catch (Exception ignored) { }
+                javax.swing.JFileChooser ch = new javax.swing.JFileChooser(start == null || start.isBlank() ? null : new java.io.File(start));
+                ch.setDialogTitle(title == null || title.isBlank() ? (kind.startsWith("folder") ? "选文件夹" : "选文件") : title);
+                switch (kind) {
+                    case "folder": ch.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY); break;
+                    case "folder_or_json":
+                        ch.setFileSelectionMode(javax.swing.JFileChooser.FILES_AND_DIRECTORIES);
+                        ch.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("文件夹或 MCP 配置（.json）", "json"));
+                        break;
+                    case "exe": ch.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("程序（.exe）", "exe")); break;
+                    case "json": ch.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("主题包（.json）", "json")); break;
+                    default: break;
+                }
+                javax.swing.JFrame owner = new javax.swing.JFrame();
+                owner.setUndecorated(true);
+                owner.setAlwaysOnTop(true);
+                owner.setLocationRelativeTo(null);
+                owner.setVisible(true);
+                try {
+                    if (ch.showDialog(owner, "选择") == javax.swing.JFileChooser.APPROVE_OPTION) out[0] = ch.getSelectedFile();
+                } finally {
+                    owner.dispose();
+                }
+            });
+        } catch (Exception e) {
+            return null;
+        }
+        return out[0];
+    }
+
     void start() throws Exception {
         actions = "1".equals(System.getenv("ONESAY_TEST_ACTIONS")) ? new Main.TestActions() : new DesktopActions(cfg);
         notify = new Notify(store, log);
@@ -195,6 +251,14 @@ public final class App {
             Map<String, Object> m = store.mergeMemory(a.get("text") == null ? null : String.valueOf(a.get("text")), at instanceof Number ? ((Number) at).longValue() : 0L);
             return Actions.Result.ok("记忆已同步", m);
         });
+        // [preview-1120] MCP 连接器：读记住的目录，后台启动（不挡启动）；工具交给对话，调用走审批
+        mcp = new McpHub(Config.defaultDir().resolve("mcp.json"), log);
+        mcp.load();
+        PcGuard.MCP = mcp;
+        ChatAgent.extraTools = mcp::toolDefs;
+        ChatAgent.mcpName = mcp::describe;
+        Runtime.getRuntime().addShutdownHook(new Thread(mcp::shutdown, "onesay-mcp-stop")); // 退出时把 stdio 服务器子进程一起结束
+        new Thread(mcp::startAll, "onesay-mcp-start") {{ setDaemon(true); }}.start();
         setupMedia();
         setupMirror();
         setupWhitelist();
@@ -559,6 +623,9 @@ public final class App {
     static void ensureShortcuts() {
         String exe = System.getProperty("onesay.exe", "");
         if (!isWindows() || exe.isEmpty() || !new File(exe).isFile()) return;
+        // [preview-1120] 预览版不自己建快捷方式：开始菜单 / 桌面的 OneSay.lnk 是正式版的，覆盖了就指到预览版去了。
+        // 预览版的开始菜单项由 install-preview.ps1 建（名字「OneSay Preview」），卸载脚本删。
+        if (Flavor.PREVIEW) return;
         String appdata = System.getenv("APPDATA");
         if (appdata == null) return;
         Path start = Paths.get(appdata, "Microsoft", "Windows", "Start Menu", "Programs", "OneSay.lnk");
@@ -669,6 +736,8 @@ public final class App {
         s.put("chat_timeout_min", (long) cfg.chatTimeoutMin);
         s.put("media_quality", MediaArgs.quality(cfg.mediaQuality));
         s.put("mirror_keyboard", "uhid".equals(cfg.mirrorKeyboard) ? "uhid" : "sdk");
+        s.put("theme", Themes.mode(cfg.theme));
+        s.put("theme_pack", cfg.themePack);
         return s;
     }
 
@@ -676,13 +745,17 @@ public final class App {
         ui.on("state", b -> {
             agent.confirms.uiAlive(); // 界面还活着：确认框显示后界面 8 秒没动静按拒绝
             Map<String, Object> s = store.snapshot();
-            s.put("version", Main.VERSION);
+            s.put("version", Flavor.version());
+            s.put("flavor", Flavor.PREVIEW ? "preview" : "release");
             s.put("device", cfg.deviceId);
             s.put("status", agent.status);
             s.put("voice", voice.status);
             s.putAll(asr.view()); // 识别：设置（先看云端 / 仅云端 / 仅本机）+ 当前用的是哪个 + 原因
             s.put("peers", new TreeMap<String, Object>(agent.peers()));
             s.put("settings", settingsView());
+            s.put("appearance", appearance()); // [preview-1120] 主题插件：当前模式 + 主题包的颜色
+            Map<String, Object> mv = mcp.view(); // [preview-1120] MCP 连接器：每个服务器的状态、工具数、错误
+            s.put("mcp", mv);
             s.put("caps", new ArrayList<Object>(actions.capabilities()));
             s.put("shortcuts", new ArrayList<Object>(shortcuts()));
             s.put("lan_ips", new ArrayList<Object>(LanClient.localAddresses()));
@@ -726,6 +799,77 @@ public final class App {
             return chat.send(str(b, "text", ""), "text", att);
         });
         ui.on("attach", b -> chat.attach(str(b, "name", ""), str(b, "b64", ""))); // [overnight-1119] 粘贴截图 / 拖进来 / 附件按钮
+        // [preview-1120] 主题插件：列出 / 导入 / 删除主题包（外观模式和当前包走 settings 的 theme / theme_pack）
+        ui.on("theme", b -> {
+            String op = str(b, "op", "list");
+            Path dir = Config.defaultDir().resolve("themes");
+            try {
+                switch (op) {
+                    case "import": {
+                        Map<String, Object> m = Themes.importPack(dir, str(b, "json", ""));
+                        Map<String, Object> r = ok("导入了主题「" + m.get("name") + "」");
+                        r.put("pack", m);
+                        return r;
+                    }
+                    case "remove": {
+                        String id = str(b, "id", "");
+                        if (!Themes.remove(dir, id)) return fail("删不了（自带的主题不能删，或者没有这个）");
+                        if (id.equals(cfg.themePack)) { cfg.themePack = ""; cfg.save(); }
+                        return ok("删掉了");
+                    }
+                    default: {
+                        Map<String, Object> r = ok("");
+                        r.put("packs", Themes.list(dir));
+                        return r;
+                    }
+                }
+            } catch (IllegalArgumentException e) {
+                return fail(e.getMessage());
+            } catch (IOException e) {
+                return fail("存不下：" + e.getClass().getSimpleName());
+            }
+        });
+        // [preview-1120] 系统选择框：文件夹 / 程序（.exe）/ 文件。设置页里需要路径的地方都用它，不用手敲
+        ui.on("pick", b -> {
+            String kind = str(b, "kind", "folder");
+            java.io.File f = pick(kind, str(b, "title", ""), str(b, "start", ""));
+            if (f == null) return fail("没选");
+            Map<String, Object> r = ok(f.getAbsolutePath());
+            r.put("path", f.getAbsolutePath());
+            return r;
+        });
+        // [preview-1120] MCP 连接器
+        ui.on("mcp", b -> {
+            String op = str(b, "op", "list");
+            switch (op) {
+                case "add": return mcp.addSource(str(b, "path", ""));
+                case "pick": {
+                    java.io.File f = pick("folder_or_json", "选 MCP 服务器所在的文件夹（或 MCP 配置文件）", "");
+                    if (f == null) return fail("没选");
+                    return mcp.addSource(f.getAbsolutePath());
+                }
+                case "enable": return mcp.setEnabled(str(b, "id", ""), !"false".equals(str(b, "on", "true")));
+                case "restart": return mcp.restart(str(b, "id", ""));
+                case "remove": return mcp.remove(str(b, "id", ""));
+                case "rescan": return mcp.rescan(str(b, "source", ""));
+                case "try": {
+                    // 界面「试一下」：只许服务器声明只读的工具（有副作用的请在对话里用，走确认卡）
+                    String fn = str(b, "fn", "");
+                    if (!mcp.readOnlyFn(fn)) return fail("这个工具没声明只读，可能有副作用：请在对话里让助手用它（会弹确认卡）");
+                    @SuppressWarnings("unchecked") Map<String, Object> args = b.get("arguments") instanceof Map ? (Map<String, Object>) b.get("arguments") : new TreeMap<>();
+                    Actions.Result r = mcp.call(fn, args);
+                    Map<String, Object> m = r.ok ? ok(r.text) : fail(r.text);
+                    if (r.data != null) m.put("output", r.data.get("output"));
+                    log.accept("MCP 试用 " + mcp.describe(fn) + "：" + (r.ok ? "成功" : "失败"));
+                    return m;
+                }
+                default: {
+                    Map<String, Object> r = ok("");
+                    r.putAll(mcp.view());
+                    return r;
+                }
+            }
+        });
         // [overnight-1119] 文件互传：看进度、选文件发到手机、打开「来自手机」文件夹
         ui.on("xfer", b -> {
             String op = str(b, "op", "list");
@@ -962,8 +1106,9 @@ public final class App {
                     case "asr_key": if (v.equals("-")) cfg.asrKey = ""; else if (!v.isEmpty()) cfg.asrKey = v; asr.invalidate(); restartVoice = true; break;
                     case "ptt": cfg.pttEnabled = v.equals("true"); restartVoice = true; break;
                     case "ptt_skip": cfg.pttSkip = v; restartVoice = true; break;
-                    case "files_dir": cfg.filesDir = v; break;
-                    case "scripts_dir": cfg.scriptsDir = v; break;
+                    // [preview-1120] 路径类设置：界面用系统选择框选；这里再核一次，填错了明说（以前什么都收，到用的时候才发现不对）
+                    case "files_dir": { String bad = dirProblem(v); if (bad != null) return fail("共享文件夹：" + bad); cfg.filesDir = v; break; }
+                    case "scripts_dir": { String bad = dirProblem(v); if (bad != null) return fail("快捷指令文件夹：" + bad); cfg.scriptsDir = v; break; }
                     case "apps": cfg.apps = v; break;
                     case "pc_level": cfg.setLegacyLevel(v); log.accept("电脑档位 → " + cfg.mode()); break; // 旧接口：三档映射到两轴
                     case "pc_sandbox": cfg.setMode(new LinkPolicy.Mode(LinkPolicy.Sandbox.of(v), cfg.mode().approval)); log.accept("沙箱档 → " + cfg.pcSandbox); break;
@@ -994,7 +1139,13 @@ public final class App {
                     case "vision_key": if (v.equals("-")) cfg.visionKey = ""; else if (!v.isEmpty()) cfg.visionKey = v; break; // [devtools-1118]
                     case "vision_base": if (baseOk(v)) cfg.visionBase = v; else return fail("看图模型接口地址要用 https（本机的 http://127.0.0.1 / localhost 也行）"); break;
                     case "vision_model": cfg.visionModel = v; break;
-                    case "adb_path": cfg.adbPath = v; break;
+                    case "adb_path": {
+                        if (!v.isEmpty() && (!new File(v).isFile() || !new File(v).getName().toLowerCase(java.util.Locale.ROOT).matches("adb(\\.exe)?"))) return fail("adb 程序要选 adb.exe 这个文件（没找到或不是 adb）");
+                        cfg.adbPath = v;
+                        break;
+                    }
+                    case "theme": cfg.theme = Themes.mode(v); break; // [preview-1120] 外观
+                    case "theme_pack": if (v.matches("[a-z0-9-]{0,40}")) cfg.themePack = v; else return fail("主题包 id 不对"); break;
                     case "mirror_keyboard": cfg.mirrorKeyboard = "uhid".equals(v) ? "uhid" : "sdk"; log.accept("投屏键盘 → " + ("uhid".equals(v) ? "物理键盘（UHID）" : "普通键盘")); break;
                     default: break;
                 }
@@ -1094,7 +1245,7 @@ public final class App {
     boolean autostartOn() {
         if (!isWindows()) return false;
         try {
-            Process p = new ProcessBuilder("reg", "query", RUN_KEY, "/v", "OneSay").redirectErrorStream(true).start();
+            Process p = new ProcessBuilder("reg", "query", RUN_KEY, "/v", Flavor.runValue()).redirectErrorStream(true).start();
             p.getInputStream().readAllBytes();
             return p.waitFor() == 0;
         } catch (Exception e) {
@@ -1114,8 +1265,8 @@ public final class App {
             } catch (Exception e) { return; }
         }
         try {
-            ProcessBuilder pb = on ? new ProcessBuilder("reg", "add", RUN_KEY, "/v", "OneSay", "/t", "REG_SZ", "/d", cmd, "/f")
-                    : new ProcessBuilder("reg", "delete", RUN_KEY, "/v", "OneSay", "/f");
+            ProcessBuilder pb = on ? new ProcessBuilder("reg", "add", RUN_KEY, "/v", Flavor.runValue(), "/t", "REG_SZ", "/d", cmd, "/f")
+                    : new ProcessBuilder("reg", "delete", RUN_KEY, "/v", Flavor.runValue(), "/f");
             Process p = pb.redirectErrorStream(true).start();
             p.getInputStream().readAllBytes();
             p.waitFor();
@@ -1190,7 +1341,7 @@ public final class App {
         menu.add(st);
         menu.addSeparator();
         menu.add(quit);
-        TrayIcon icon = new TrayIcon(trayImage(true), "OneSay " + cfg.deviceId, menu);
+        TrayIcon icon = new TrayIcon(trayImage(true), Flavor.name() + " " + cfg.deviceId, menu);
         icon.setImageAutoSize(true);
         icon.addActionListener(e -> openWindow(ui.url()));
         SystemTray.getSystemTray().add(icon);
@@ -1224,5 +1375,15 @@ public final class App {
         } catch (java.net.URISyntaxException e) {
             return false;
         }
+    }
+
+    /** [preview-1120] 文件夹设置：空 = 不开；否则要是绝对路径、真的存在、是文件夹。返回问题（null = 没问题）。 */
+    static String dirProblem(String v) {
+        if (v == null || v.isEmpty()) return null;
+        File f = new File(v);
+        if (!f.isAbsolute()) return "要完整路径（点「选择…」从电脑上选）";
+        if (!f.exists()) return "「" + v + "」不存在";
+        if (!f.isDirectory()) return "「" + v + "」不是文件夹";
+        return null;
     }
 }

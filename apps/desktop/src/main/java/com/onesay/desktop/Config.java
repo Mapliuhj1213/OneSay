@@ -81,6 +81,8 @@ public final class Config {
     public String mediaDir = "";  // 空 = %USERPROFILE%\OneSay\Downloads（不回退，见 UserDirs.downloadsDir）
     /** phone-mirror M1：投屏窗口的键盘模式 sdk（普通，默认）/ uhid（物理键盘，中文用手机输入法）。 */
     public String mirrorKeyboard = "sdk";
+    /** [preview-1120] 外观：system / light / dark；主题包 id（空 = 不用包）。 */
+    public String theme = "system", themePack = "";
 
     private transient Tls tls;
 
@@ -90,8 +92,8 @@ public final class Config {
 
     public static Path defaultDir() {
         String appdata = System.getenv("APPDATA");
-        if (appdata != null && !appdata.isEmpty()) return Paths.get(appdata, "OneSay");
-        return Paths.get(System.getProperty("user.home"), ".config", "onesay");
+        if (appdata != null && !appdata.isEmpty()) return Paths.get(appdata, Flavor.dir()); // [preview-1120] 预览版 %APPDATA%\OneSay-Preview
+        return Paths.get(System.getProperty("user.home"), ".config", Flavor.unixDir());
     }
 
     public static Config load(Path file) throws IOException {
@@ -156,6 +158,8 @@ public final class Config {
         c.mediaQuality = MediaArgs.quality(p.getProperty("media_quality", "best"));
         c.mediaDir = p.getProperty("media_dir", "").trim();
         c.mirrorKeyboard = "uhid".equals(p.getProperty("mirror_keyboard", "sdk").trim()) ? "uhid" : "sdk";
+        c.theme = Themes.mode(p.getProperty("theme", "system").trim());
+        c.themePack = p.getProperty("theme_pack", "").trim().matches("[a-z0-9-]{0,40}") ? p.getProperty("theme_pack", "").trim() : "";
         return c;
     }
 
@@ -228,6 +232,8 @@ public final class Config {
         p.setProperty("media_quality", MediaArgs.quality(mediaQuality));
         p.setProperty("media_dir", mediaDir);
         p.setProperty("mirror_keyboard", "uhid".equals(mirrorKeyboard) ? "uhid" : "sdk");
+        p.setProperty("theme", Themes.mode(theme));
+        p.setProperty("theme_pack", themePack == null ? "" : themePack);
         p.setProperty("llm_provider", llmProvider);
         p.setProperty("llm_key", llmKey);
         p.setProperty("llm_model", llmModel);
@@ -277,7 +283,7 @@ public final class Config {
         if (!workspaceDir.isEmpty()) return Paths.get(workspaceDir);
         String up = System.getenv("USERPROFILE");
         if (up != null && !up.isEmpty()) return Paths.get(UserDirs.workspaceDir(up, System.getenv("ProgramData")));
-        return Paths.get(System.getProperty("user.home"), "OneSay", "workspace");
+        return Paths.get(System.getProperty("user.home"), Flavor.dir(), "workspace");
     }
 
     public boolean lanEnabled() { return lanPort > 0 && lanPort < 65535; }

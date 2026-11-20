@@ -163,12 +163,11 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
   --bg:#F5F4F1; --card:#FFFFFF; --surface2:#EEECE7; --text:#1C1B19; --text2:#5F5C57; --text3:#75726C; --line:#E6E3DD;
   --accent:#4E7A35; --accentC:#E3EDDA; --red:#C9363B; --green:#1F7A44; --warn:#845A0B; --swoff:#D6D2CA; --r:20px;
 }
-@media (prefers-color-scheme: dark){
-  :root{--bg:#101012; --card:#1B1B1E; --surface2:#26262A; --text:#F2F1EE; --text2:#A9A7A2; --text3:#8C8A85; --line:#2E2E33;
-    --accent:#84AE64; --accentC:#26321F; --red:#F0575C; --green:#5BC27A; --warn:#F2B33D; --swoff:#3A3A3F}
-  .seg span.on{background:var(--card)} .key{background:var(--surface2);border-color:var(--line)} .qr{background:#fff}
-  .nav:hover{background:rgba(255,255,255,.05)} .compose .send:disabled{background:var(--surface2)}
-}
+/* [preview-1120] 主题插件：浅色 / 深色 / 跟随系统由 <html data-theme> 决定（脚本按设置和系统设上），主题包再用 CSS 变量覆盖 */
+:root{--hover:rgba(0,0,0,.04);--chip:rgba(0,0,0,.05);--shadow:rgba(0,0,0,.08)}
+:root[data-theme=dark]{--bg:#101012; --card:#1B1B1E; --surface2:#26262A; --text:#F2F1EE; --text2:#A9A7A2; --text3:#8C8A85; --line:#2E2E33;
+    --accent:#84AE64; --accentC:#26321F; --red:#F0575C; --green:#5BC27A; --warn:#F2B33D; --swoff:#3A3A3F; --hover:rgba(255,255,255,.05); --chip:rgba(255,255,255,.08); --shadow:rgba(0,0,0,.4)}
+:root[data-mode=dark] .qr{background:#fff}
 .logo{background:var(--accent)} .btn{color:var(--card)} .btn.ghost{background:var(--card);color:var(--accent)}
 .sec i{display:none}                                   /* 分组标题不再加彩色竖条 */
 .side .ic,.nav .ic{background:var(--surface2)!important;color:var(--text2)}   /* 侧栏图标统一单色 */
@@ -267,32 +266,78 @@ input.field::placeholder{color:var(--text3)}
 .demo-only{display:none}
 .is-demo .demo-only{display:block}
 </style>
+<style>
+/* ---------- [preview-1120] 主题插件：所有颜色走变量（主题包能改到每一处），线条图标 ---------- */
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
+.ic svg.i{width:15px;height:15px}.hero .big svg.i{width:28px;height:28px}.act .ic svg.i{width:15px;height:15px}
+.act span.ic{color:#fff}.hero .big{color:#fff}
+.tc .sp .ic svg.i{width:11px;height:11px;stroke-width:3;vertical-align:0}
+.compose .attbtn{display:grid;place-items:center}.compose .send{display:grid;place-items:center}.compose .send svg.i{width:18px;height:18px}
+.pvbadge{margin-left:6px;font-size:10.5px;padding:2px 6px;border-radius:6px;background:var(--accentC);color:var(--accent);font-weight:600;letter-spacing:.3px}
+.nav:hover{background:var(--hover)} .tag{background:var(--chip)} .seg{background:var(--surface2)} .seg span.on{background:var(--card);box-shadow:0 1px 2px var(--shadow)}
+.st.stop,.nk.app{background:var(--chip)} .compose .send:disabled{background:var(--surface2)} .key{background:var(--surface2);border-color:var(--line);color:var(--text)}
+.st.warnc,.tc .sp .wn{color:var(--warn)} .st.wait{color:var(--warn)}
+#viewer .box{background:var(--card);color:var(--text)} #viewer .vh .n{color:var(--text2)}
+.tc .shot img,.m .uimg img{background:var(--surface2)} .field{background:var(--surface2);color:var(--text);border-color:var(--line)}
+select.field{appearance:auto;padding-right:8px}
+.m.a.tc,.compose,.card{box-shadow:0 1px 2px var(--shadow)} .ticket .mid hr{border-top-color:var(--line)}
+#cfbox{background:var(--card)!important;border-color:var(--line)!important;color:var(--text)}
+#askbox .box{background:var(--card)}
+.tc .ask{background:color-mix(in srgb,var(--warn) 9%,var(--card));border-color:color-mix(in srgb,var(--warn) 35%,var(--card))}
+/* 设置页：搜索、路径选择、列表编辑、主题卡片、MCP 服务器 */
+.setq{display:flex;gap:8px;align-items:center;margin:0 0 14px;padding:0 12px;height:38px;border-radius:12px;background:var(--card);color:var(--text3)}
+.setq input{flex:1;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:14px}
+.pathrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:520px}
+.pathrow .pv{font:12.5px ui-monospace,Consolas,monospace;color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+.pathrow .pv.none{font-family:inherit;direction:ltr;color:var(--text3)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end;max-width:520px}
+.chips .c{display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border-radius:12px;background:var(--chip);font-size:12.5px}
+.chips .c button{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;color:var(--text3)}
+.chips .c button:hover{background:var(--hover);color:var(--red)}
+.chips input{width:150px;height:28px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text);padding:0 8px;font:inherit;font-size:12.5px}
+.apps .ar{display:flex;gap:8px;align-items:center;padding:10px 20px;border-top:1px solid var(--line)}
+.apps .ar:first-child{border-top:0}.apps .ar b{font-weight:600;min-width:90px}.apps .ar .pv{flex:1;font:12px ui-monospace,Consolas,monospace;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.errline{color:var(--red);font-size:12px;margin-top:4px}
+.themes{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;padding:14px 20px}
+.th{border:1.5px solid var(--line);border-radius:14px;padding:10px;cursor:pointer;background:var(--card);text-align:left}
+.th.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accentC)}
+.th .sw4{display:flex;height:34px;border-radius:8px;overflow:hidden;margin-bottom:8px;border:1px solid var(--line)}
+.th .sw4 i{flex:1}.th b{display:block;font-size:13px;font-weight:600}.th span{font-size:11.5px;color:var(--text3)}
+.mcps .ms{padding:14px 20px;border-top:1px solid var(--line)}.mcps .ms:first-child{border-top:0}
+.mcps .mh{display:flex;align-items:center;gap:10px}.mcps .mh b{font-weight:600;font-size:14px}.mcps .mh .sp{flex:1}
+.mcps .mm{font-size:12.5px;color:var(--text2);margin-top:4px;line-height:1.6;word-break:break-all}
+.mcps .tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.mcps .tools .tag{cursor:default}
+.mcps .tools .tag.ro{background:color-mix(in srgb,var(--green) 12%,transparent);color:var(--green)}
+.hidden-by-q{display:none!important}
+</style>
 </head>
 <body>
+<!-- 图标：Lucide（ISC License，© Lucide Icons and Contributors；部分源自 Feather，MIT © Cole Bemis），见 THIRD_PARTY_NOTICES.md -->
+<svg id="i-sprite" xmlns="http://www.w3.org/2000/svg" style="display:none"><symbol id="i-message-circle" viewBox="0 0 24 24"><path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" /></symbol><symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" /> <path d="M12 2v2" /> <path d="M12 20v2" /> <path d="m4.93 4.93 1.41 1.41" /> <path d="m17.66 17.66 1.41 1.41" /> <path d="M2 12h2" /> <path d="M20 12h2" /> <path d="m6.34 17.66-1.41 1.41" /> <path d="m19.07 4.93-1.41 1.41" /></symbol><symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /></symbol><symbol id="i-calendar" viewBox="0 0 24 24"><path d="M8 2v3" /> <path d="M16 2v3" /> <rect x="3" y="3" width="18" height="18" rx="2" /> <path d="M3 9h18" /></symbol><symbol id="i-square-check-big" viewBox="0 0 24 24"><path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344" /> <path d="m9 11 3 3L22 4" /></symbol><symbol id="i-ticket" viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="M13 5v2" /> <path d="M13 17v2" /> <path d="M13 11v2" /></symbol><symbol id="i-package" viewBox="0 0 24 24"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" /> <path d="M12 22V12" /> <polyline points="3.29 7 12 12 20.71 7" /> <path d="m7.5 4.27 9 5.15" /></symbol><symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4" /> <path d="M3 11v-1a4 4 0 0 1 4-4h14" /> <path d="m7 22-4-4 4-4" /> <path d="M21 13v1a4 4 0 0 1-4 4H3" /></symbol><symbol id="i-zap" viewBox="0 0 24 24"><path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z" /></symbol><symbol id="i-smartphone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2" /> <path d="M12 18h.01" /></symbol><symbol id="i-cast" viewBox="0 0 24 24"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6" /> <path d="M2 12a9 9 0 0 1 8 8" /> <path d="M2 16a5 5 0 0 1 4 4" /> <line x1="2" x2="2.01" y1="20" y2="20" /></symbol><symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2" /> <line x1="8" x2="16" y1="21" y2="21" /> <line x1="12" x2="12" y1="17" y2="21" /></symbol><symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /> <circle cx="12" cy="12" r="3" /></symbol><symbol id="i-volume-2" viewBox="0 0 24 24"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" /> <path d="M16 9a5 5 0 0 1 0 6" /> <path d="M19.364 18.364a9 9 0 0 0 0-12.728" /></symbol><symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /></symbol><symbol id="i-sliders-horizontal" viewBox="0 0 24 24"><path d="M10 5H3" /> <path d="M12 19H3" /> <path d="M14 3v4" /> <path d="M16 17v4" /> <path d="M21 12h-9" /> <path d="M21 19h-5" /> <path d="M21 5h-7" /> <path d="M8 10v4" /> <path d="M8 12H3" /></symbol><symbol id="i-clipboard" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /> <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /></symbol><symbol id="i-external-link" viewBox="0 0 24 24"><path d="M15 3h6v6" /> <path d="M10 14 21 3" /> <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></symbol><symbol id="i-app-window" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2" /> <path d="M10 4v4" /> <path d="M2 8h20" /> <path d="M6 4v4" /></symbol><symbol id="i-mail" viewBox="0 0 24 24"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7" /> <rect x="2" y="4" width="20" height="16" rx="2" /></symbol><symbol id="i-battery-medium" viewBox="0 0 24 24"><path d="M10 14v-4" /> <path d="M22 14v-4" /> <path d="M6 14v-4" /> <rect x="2" y="6" width="16" height="12" rx="2" /></symbol><symbol id="i-alarm-clock" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" /> <path d="M12 9v4l2 2" /> <path d="M5 3 2 6" /> <path d="m22 6-3-3" /> <path d="M6.38 18.7 4 21" /> <path d="M17.64 18.67 20 21" /></symbol><symbol id="i-flashlight" viewBox="0 0 24 24"><path d="M12 13v1" /> <path d="M17 2a1 1 0 0 1 1 1v4a3 3 0 0 1-.6 1.8l-.6.8A4 4 0 0 0 16 12v8a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-8a4 4 0 0 0-.8-2.4l-.6-.8A3 3 0 0 1 6 7V3a1 1 0 0 1 1-1z" /> <path d="M6 6h12" /></symbol><symbol id="i-flashlight-off" viewBox="0 0 24 24"><path d="M11.652 6H18" /> <path d="M12 13v1" /> <path d="M16 16v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-8a4 4 0 0 0-.8-2.4l-.6-.8A3 3 0 0 1 6 7V6" /> <path d="m2 2 20 20" /> <path d="M7.649 2H17a1 1 0 0 1 1 1v4a3 3 0 0 1-.6 1.8l-.6.8a4 4 0 0 0-.55 1.007" /></symbol><symbol id="i-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34" /> <path d="M14 2v5a1 1 0 0 0 1 1h5" /> <path d="M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z" /></symbol><symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" /></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M10 11v6" /> <path d="M14 11v6" /> <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /> <path d="M3 6h18" /> <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h.01" /> <path d="M3 12h.01" /> <path d="M3 19h.01" /> <path d="M8 5h13" /> <path d="M8 12h13" /> <path d="M8 19h13" /></symbol><symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></symbol><symbol id="i-terminal" viewBox="0 0 24 24"><path d="M12 19h8" /> <path d="m4 17 6-6-6-6" /></symbol><symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 3v12" /> <path d="m17 8-5-5-5 5" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /></symbol><symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" /> <path d="m21.854 2.147-10.94 10.939" /></symbol><symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" /></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18" /> <path d="m6 6 12 12" /></symbol><symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="M12 16v-4" /> <path d="M12 8h.01" /></symbol><symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /></symbol><symbol id="i-loader-circle" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></symbol><symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" /> <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /> <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /> <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /> <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /></symbol><symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5" /> <path d="M15 8V2" /> <path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z" /> <path d="M9 8V2" /></symbol><symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /></symbol><symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /> <path d="M14 2v5a1 1 0 0 0 1 1h5" /></symbol><symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /> <path d="M21 3v5h-5" /> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /> <path d="M8 16H3v5" /></symbol><symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /></symbol><symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10" /> <path d="M18.4 6.6a9 9 0 1 1-12.77.04" /></symbol><symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m16 9-5.5 5.5L8 12" /></symbol><symbol id="i-circle-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <path d="m15 9-6 6" /> <path d="m9 9 6 6" /></symbol><symbol id="i-circle-pause" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /></symbol><symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" /></symbol><symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z" /></symbol><symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2" /> <rect width="20" height="8" x="2" y="14" rx="2" ry="2" /> <line x1="6" x2="6.01" y1="6" y2="6" /> <line x1="6" x2="6.01" y1="18" y2="18" /></symbol><symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /></symbol><symbol id="i-sun-moon" viewBox="0 0 24 24"><path d="M12 2v2" /> <path d="M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 5.26 5.259c.589-.255 1.396.09 1.248.715" /> <path d="M16 12a4 4 0 0 0-4-4" /> <path d="m19 5-1.256 1.256" /> <path d="M20 12h2" /></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14" /><path d="M12 5v14" /></symbol></svg>
 <div class="app">
   <aside class="side">
     <div class="brand"><div class="logo">One</div><b>OneSay</b></div>
     <div class="devchip"><i class="dot" id="pdot"></i><div class="t"><span style="color:var(--text);font-size:13px" id="pline">手机离线</span><span id="pline2">等待手机连接</span></div></div>
 
-    <button class="nav" data-p="chat"><span class="ic" style="background:linear-gradient(135deg,#0381FE,#00A3B4)">话</span>对话</button>
-    <button class="nav on" data-p="today"><span class="ic" style="background:var(--accent)">今</span>今天</button>
-    <button class="nav" data-p="notes"><span class="ic" style="background:var(--red)">铃</span>通知<span class="badge" id="nbadge" style="display:none"></span></button>
+    <button class="nav" data-p="chat"><span class="ic" style="background:linear-gradient(135deg,#0381FE,#00A3B4)"><svg class="i"><use href="#i-message-circle"/></svg></span>对话</button>
+    <button class="nav on" data-p="today"><span class="ic" style="background:var(--accent)"><svg class="i"><use href="#i-sun"/></svg></span>今天</button>
+    <button class="nav" data-p="notes"><span class="ic" style="background:var(--red)"><svg class="i"><use href="#i-bell"/></svg></span>通知<span class="badge" id="nbadge" style="display:none"></span></button>
 
     <div class="grp">计划</div>
-    <button class="nav" data-p="events"><span class="ic" style="background:var(--event)">日</span>日程<span class="n" id="c-events"></span></button>
-    <button class="nav" data-p="todos"><span class="ic" style="background:var(--todo)">✓</span>待办<span class="n" id="c-todos"></span></button>
-    <button class="nav" data-p="tickets"><span class="ic" style="background:var(--ticket)">票</span>票夹<span class="n" id="c-tickets"></span></button>
-    <button class="nav" data-p="pickups"><span class="ic" style="background:var(--pickup)">件</span>取件<span class="n" id="c-pickups"></span></button>
-    <button class="nav" data-p="autos"><span class="ic" style="background:var(--auto)">⟳</span>自动任务</button>
-    <button class="nav" data-p="shortcuts"><span class="ic" style="background:var(--auto)">⚡</span>快捷指令</button>
+    <button class="nav" data-p="events"><span class="ic" style="background:var(--event)"><svg class="i"><use href="#i-calendar"/></svg></span>日程<span class="n" id="c-events"></span></button>
+    <button class="nav" data-p="todos"><span class="ic" style="background:var(--todo)"><svg class="i"><use href="#i-square-check-big"/></svg></span>待办<span class="n" id="c-todos"></span></button>
+    <button class="nav" data-p="tickets"><span class="ic" style="background:var(--ticket)"><svg class="i"><use href="#i-ticket"/></svg></span>票夹<span class="n" id="c-tickets"></span></button>
+    <button class="nav" data-p="pickups"><span class="ic" style="background:var(--pickup)"><svg class="i"><use href="#i-package"/></svg></span>取件<span class="n" id="c-pickups"></span></button>
+    <button class="nav" data-p="autos"><span class="ic" style="background:var(--auto)"><svg class="i"><use href="#i-repeat"/></svg></span>自动任务</button>
+    <button class="nav" data-p="shortcuts"><span class="ic" style="background:var(--auto)"><svg class="i"><use href="#i-zap"/></svg></span>快捷指令</button>
 
     <div class="grp">设备</div>
-    <button class="nav" data-p="phone"><span class="ic" style="background:var(--device)">▯</span>手机</button>
-    <button class="nav" data-p="mirror"><span class="ic" style="background:var(--device)">⧉</span>手机投屏</button>
-    <button class="nav" data-p="pc"><span class="ic" style="background:var(--device)">▭</span>这台电脑</button>
+    <button class="nav" data-p="phone"><span class="ic" style="background:var(--device)"><svg class="i"><use href="#i-smartphone"/></svg></span>手机</button>
+    <button class="nav" data-p="mirror"><span class="ic" style="background:var(--device)"><svg class="i"><use href="#i-cast"/></svg></span>手机投屏</button>
+    <button class="nav" data-p="pc"><span class="ic" style="background:var(--device)"><svg class="i"><use href="#i-monitor"/></svg></span>这台电脑</button>
 
     <div class="grow"></div>
-    <button class="nav" data-p="settings"><span class="ic" style="background:#8A8F98">⚙</span>设置</button>
+    <button class="nav" data-p="settings"><span class="ic" style="background:#8A8F98"><svg class="i"><use href="#i-settings"/></svg></span>设置</button>
     <div class="ptt" id="pttbox">按住 <span class="key">空格</span> 说话<br><span id="vstat">松手执行，Esc 取消</span></div>
   </aside>
 
@@ -301,7 +346,7 @@ input.field::placeholder{color:var(--text3)}
       <div class="chatbar"><h1>对话</h1><div class="sp" style="flex:1"></div><span class="chip" id="memchip" onclick="memOpen()">记忆</span><span class="chip danger" onclick="chatClear()">清空对话</span></div>
       <div class="msgs" id="msgs"><div class="in" id="msgin"></div></div>
       <div id="attrow" class="attrow" style="display:none"></div>
-      <div class="compose" id="compose"><button class="attbtn" title="添加图片或文件（也可以直接粘贴截图、拖进来）" onclick="$('attfile').click()">＋</button><input type="file" id="attfile" multiple style="display:none" onchange="attFiles(this.files);this.value=''"><textarea id="ta" rows="1" placeholder="说点什么，或者直接下指令；截图可以直接粘贴（Ctrl+V）或拖进来"></textarea><button class="send" id="sendbtn" onclick="chatSend()">↑</button></div>
+      <div class="compose" id="compose"><button class="attbtn" title="添加图片或文件（也可以直接粘贴截图、拖进来）" onclick="$('attfile').click()"><svg class="i"><use href="#i-paperclip"/></svg></button><input type="file" id="attfile" multiple style="display:none" onchange="attFiles(this.files);this.value=''"><textarea id="ta" rows="1" placeholder="说点什么，或者直接下指令；截图可以直接粘贴（Ctrl+V）或拖进来"></textarea><button class="send" id="sendbtn" onclick="chatSend()" title="发送"><svg class="i"><use href="#i-arrow-up"/></svg></button></div>
        <div class="hintline" id="chathint">Enter 发送，Shift+Enter 换行 · 截图可粘贴 / 拖进来 · 只有一个对话，旧内容自动截断，记忆自动更新、和手机共用</div>
     </section>
     <section class="page on" id="today"></section>
@@ -346,12 +391,26 @@ const TOKEN='__ONESAY_TOKEN__';
 const LIVE=location.protocol.startsWith('http') && !TOKEN.startsWith('__');
 if(!LIVE) document.body.classList.add('is-demo');
 const $=id=>document.getElementById(id);
+// [preview-1120] 线条图标（Lucide，sprite 在 <body> 开头）；汉字只作标签
+const ico=n=>`<svg class="i"><use href="#i-${n}"/></svg>`;
+// [preview-1120] 主题插件：mode = system / light / dark；主题包（tokens）覆盖 CSS 变量；跟随系统时系统一换就跟着换
+const THEME_KEYS=['--bg','--card','--surface2','--text','--text2','--text3','--line','--accent','--accentC','--red','--green','--warn','--swoff','--hover','--chip','--event','--todo','--ticket','--pickup','--auto','--device','--shadow'];
+let themeSig='';
+function applyTheme(a){a=a||{mode:'system'};const sysDark=matchMedia('(prefers-color-scheme: dark)').matches;
+  const base=a.pack&&a.pack_mode?a.pack_mode:(a.mode==='system'?(sysDark?'dark':'light'):a.mode);
+  const sig=JSON.stringify([a.mode,a.pack||'',base,a.tokens||{}]);if(sig===themeSig)return;themeSig=sig;
+  const r=document.documentElement;r.dataset.theme=base;r.dataset.mode=base;r.dataset.pack=a.pack||'';
+  for(const k of THEME_KEYS)r.style.removeProperty(k);
+  if(a.pack&&a.tokens)for(const [k,v] of Object.entries(a.tokens))if(THEME_KEYS.includes(k))r.style.setProperty(k,v);
+  r.style.colorScheme=base}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{themeSig='';applyTheme(S&&S.appearance)});
+applyTheme({mode:'system'});
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let S=null, page='today', pending=false;
 
 // ---------- 演示数据（直接用浏览器打开文件时） ----------
 const now=Date.now(), H=3600e3, D=24*H, t0=new Date(new Date().toDateString()).getTime();
-const DEMO={version:'0.5.1',phone_level:'',phone_level_zh:'',pc_level:'auto',pc_sandbox:'workspace_write',pc_approval:'untrusted',plugin_enabled:true,workspace:'C:\\Users\\me\\OneSay\\workspace',confirms:[],tls_fp:'1A2B-3C4D',phone:'my-phone',device:'pc-desktop',voice:'长按空格说话',asr_pref:'auto',asr_engine:'cloud',asr_engine_zh:'云端',asr_why:'云端可用',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
+const DEMO={appearance:{mode:'system',pack:''},mcp:{servers:[],sources:[],notes:[],tool_total:0},version:'0.5.1',phone_level:'',phone_level_zh:'',pc_level:'auto',pc_sandbox:'workspace_write',pc_approval:'untrusted',plugin_enabled:true,workspace:'C:\\Users\\me\\OneSay\\workspace',confirms:[],tls_fp:'1A2B-3C4D',phone:'my-phone',device:'pc-desktop',voice:'长按空格说话',asr_pref:'auto',asr_engine:'cloud',asr_engine_zh:'云端',asr_why:'云端可用',peers:{'my-phone':'局域网'},lan_ips:['192.168.1.20'],
  caps:['ping','screenshot','open_url','open_app','clipboard_get','clipboard_set','lock','volume','media','sleep','shutdown','shutdown_abort'],
  shortcuts:['下班模式','备份照片','改代理'],
  shortcut_policy:[{name:'下班模式.ps1',id:'下班模式.ps1',status:'approved',why:''},{name:'备份照片.bat',id:'备份照片.bat',status:'changed',why:''},{name:'改代理.ps1',id:'改代理.ps1',status:'blocked',why:'内容涉及注册表 / 网络配置 / 服务驱动（Set-ItemProperty）'}],
@@ -379,7 +438,7 @@ async function api(p,b){
   return r.json();
 }
 let snT;function snack(t){const s=$('snack');s.textContent=t;s.classList.add('on');clearTimeout(snT);snT=setTimeout(()=>s.classList.remove('on'),2600)}
-async function refresh(){ if(LIVE){try{S=await api('state')}catch(e){return}} else S=S||DEMO; render() }
+async function refresh(){ if(LIVE){try{S=await api('state')}catch(e){return}} else S=S||DEMO; applyTheme(S.appearance); render() }
 
 // ---------- 格式 ----------
 const pad=n=>String(n).padStart(2,'0');
@@ -504,7 +563,7 @@ const PRESETS=[['read_only','只读'],['default','默认'],['full','完全访问
 async function setPreset(v){if(v==='full'&&!await confirm('对话改成「完全访问」？\n\n在 OneSay 对话里让它做事时不再弹批准：命令、下载、安装、删除都会直接执行。\n\n仍然不会：提权 / 弹 UAC、改杀毒和防火墙、给自己加权限、付款最后一下。'))return;setv('chat_preset',v)}
 function chatPolicy(s){return `<div id="set-chatperm">${sec('var(--accent)','对话权限','记住的规则和打开习惯在这里撤销；每次批准 / 拒绝的次数在「权限审批记录」')}</div><div class="card">
   ${kv('对话权限预设','只读：除了查询每步都问；默认：查询、开网页和程序、在桌面 / 下载 / 文档 / 工作区里新建直接做，其余第一次问（可「允许本次任务」）；完全访问：不再问（硬规则照旧）',`<div class="seg">${PRESETS.map(([v,l])=>`<span class="${v===(s.chat_preset||'default')?'on':''}" onclick="setPreset('${v}')">${l}</span>`).join('')}</div>`)}
-  ${kv('一个任务最长','兜底时长（分钟）；没有步数限制，做完为止',inp('chat_timeout_min',s.chat_timeout_min||120,'120',90))}
+  ${kv('一个任务最长','兜底时长；没有步数限制，做完为止（5–1440 分钟，默认 120）',numIn('chat_timeout_min',s.chat_timeout_min||120,5,1440,'分钟'))}
   ${kv('本次任务 / 这次运行的批准',S.grants&&(S.grants.task||S.grants.session)?(S.grants.session?'「这次运行都允许」生效中':'「允许本次任务」生效中'):'没有',S.grants&&(S.grants.task||S.grants.session)?'<button class="tag" onclick="revokeGrants()">撤销</button>':'')}</div>
   ${sec('var(--green)','以后不用问的命令',(S.chat_rules||[]).length+' 条')}
   ${(S.chat_rules||[]).length?card((S.chat_rules||[]).map(x=>`<div class="item"><div class="tx"><div class="tt">以「${esc(x.text)}」开头的命令</div></div><button class="tag" onclick="ruleRevoke(${esc(JSON.stringify(x.key))})">撤销</button></div>`)):empty('还没有（在批准卡上勾「以后以 … 开头的命令不用问」）')}
@@ -556,28 +615,28 @@ async function scRevoke(id){if(!await confirm('撤销「'+id+'」？\n\n撤销�
   const r=await api('shortcuts',{op:'revoke',id});snack(r.text);refresh()}
 P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
   return head('手机',on?`在线 · ${esc(S.peers[ids[0]])} · ${esc(ids[0])}`:(ph?`离线 · 上次常连 ${esc(ph)}`:'离线'))+
-  `<div class="hero"><div class="big" style="background:var(--device)">▯</div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'手机开着「接受电脑指令」时，下面这些点一下就发过去':'手机上在「设置 › 连接 › 电脑联动」扫码配对；要让电脑找得到手机，打开手机上的「接受电脑指令」'}</p></div><span class="tag ${on?'green':''}">${on?'在线':'离线'}</span></div>
+  `<div class="hero"><div class="big" style="background:var(--device)"><svg class="i"><use href="#i-smartphone"/></svg></div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'手机开着「接受电脑指令」时，下面这些点一下就发过去':'手机上在「设置 › 连接 › 电脑联动」扫码配对；要让电脑找得到手机，打开手机上的「接受电脑指令」'}</p></div><span class="tag ${on?'green':''}">${on?'在线':'离线'}</span></div>
   <div class="acts">
-  <button class="act" onclick="phone('find_phone',{action:'start',seconds:30})"><span class="ic" style="background:var(--red)">♪</span>找手机<span>最大音量响 30 秒，静音也响</span></button>
-  <button class="act" onclick="phone('find_phone',{action:'stop'})"><span class="ic" style="background:var(--red)">■</span>停止响铃<span>找到了就停</span></button>
-  <button class="act" onclick="phone('screen_on')"><span class="ic" style="background:var(--event)">☀</span>点亮屏幕<span>不解锁</span></button>
-  <button class="act" onclick="phoneVol()"><span class="ic" style="background:var(--auto)">♫</span>媒体音量<span>0–100</span></button>
-  <button class="act" onclick="phone('clipboard_set')"><span class="ic" style="background:var(--auto)">⇄</span>剪贴板发到手机<span>电脑剪贴板里的文字</span></button>
-  <button class="act" onclick="phoneUrl()"><span class="ic" style="background:var(--event)">↗</span>手机上打开网址<span>http / https</span></button>
-  <button class="act" onclick="phoneApp()"><span class="ic" style="background:var(--todo)">▣</span>打开手机 App<span>名字或包名</span></button>
-  <button class="act" onclick="phoneNote()"><span class="ic" style="background:var(--todo)">✉</span>发通知到手机<span>弹在手机上</span></button>
-  <button class="act" onclick="phone('status')"><span class="ic" style="background:var(--device)">ϟ</span>电量和状态<span>电量、充电、铃声模式</span></button>
-  <button class="act" onclick="alarm(true)"><span class="ic" style="background:var(--todo)">⏰</span>设闹钟<span>在手机上响（还没做）</span></button></div>
+  <button class="act" onclick="phone('find_phone',{action:'start',seconds:30})"><span class="ic" style="background:var(--red)"><svg class="i"><use href="#i-volume-2"/></svg></span>找手机<span>最大音量响 30 秒，静音也响</span></button>
+  <button class="act" onclick="phone('find_phone',{action:'stop'})"><span class="ic" style="background:var(--red)"><svg class="i"><use href="#i-square"/></svg></span>停止响铃<span>找到了就停</span></button>
+  <button class="act" onclick="phone('screen_on')"><span class="ic" style="background:var(--event)"><svg class="i"><use href="#i-sun"/></svg></span>点亮屏幕<span>不解锁</span></button>
+  <button class="act" onclick="phoneVol()"><span class="ic" style="background:var(--auto)"><svg class="i"><use href="#i-sliders-horizontal"/></svg></span>媒体音量<span>0–100</span></button>
+  <button class="act" onclick="phone('clipboard_set')"><span class="ic" style="background:var(--auto)"><svg class="i"><use href="#i-clipboard"/></svg></span>剪贴板发到手机<span>电脑剪贴板里的文字</span></button>
+  <button class="act" onclick="phoneUrl()"><span class="ic" style="background:var(--event)"><svg class="i"><use href="#i-external-link"/></svg></span>手机上打开网址<span>http / https</span></button>
+  <button class="act" onclick="phoneApp()"><span class="ic" style="background:var(--todo)"><svg class="i"><use href="#i-app-window"/></svg></span>打开手机 App<span>名字或包名</span></button>
+  <button class="act" onclick="phoneNote()"><span class="ic" style="background:var(--todo)"><svg class="i"><use href="#i-mail"/></svg></span>发通知到手机<span>弹在手机上</span></button>
+  <button class="act" onclick="phone('status')"><span class="ic" style="background:var(--device)"><svg class="i"><use href="#i-battery-medium"/></svg></span>电量和状态<span>电量、充电、铃声模式</span></button>
+  <button class="act" onclick="alarm(true)"><span class="ic" style="background:var(--todo)"><svg class="i"><use href="#i-alarm-clock"/></svg></span>设闹钟<span>在手机上响（还没做）</span></button></div>
   ${sec('var(--device)','更多（手机上每项单独开关）')}<div class="acts">
-  <button class="act" onclick="phone('flashlight',{on:true})"><span class="ic" style="background:var(--event)">☼</span>手电筒开<span>闪光灯常亮</span></button>
-  <button class="act" onclick="phone('flashlight',{on:false})"><span class="ic" style="background:var(--event)">☾</span>手电筒关<span></span></button>
-  <button class="act" onclick="phoneSet()"><span class="ic" style="background:var(--auto)">⚙</span>改手机设置<span>亮度、勿扰、Wi-Fi、蓝牙…</span></button>
-  <button class="act" onclick="phoneFile()"><span class="ic" style="background:var(--todo)">✎</span>写文件到手机<span>手机工作区里</span></button>
-  <button class="act" onclick="phone('file_list')"><span class="ic" style="background:var(--todo)">☰</span>看手机工作区<span>文件列表</span></button>
-  <button class="act" onclick="phoneUninstall()"><span class="ic" style="background:var(--red)">✕</span>卸载手机 App<span>手机上弹系统确认</span></button>
-  <button class="act" onclick="phone('script_list')"><span class="ic" style="background:var(--device)">▤</span>手机脚本列表<span>工作区 scripts/</span></button>
-  <button class="act" onclick="phoneScript()"><span class="ic" style="background:var(--device)">▶</span>运行手机脚本<span>.sh，走特权通道</span></button>
-  <button class="act" onclick="phoneExec()"><span class="ic" style="background:var(--red)">$</span>手机系统命令<span>走特权通道</span></button></div>
+  <button class="act" onclick="phone('flashlight',{on:true})"><span class="ic" style="background:var(--event)"><svg class="i"><use href="#i-flashlight"/></svg></span>手电筒开<span>闪光灯常亮</span></button>
+  <button class="act" onclick="phone('flashlight',{on:false})"><span class="ic" style="background:var(--event)"><svg class="i"><use href="#i-flashlight-off"/></svg></span>手电筒关<span></span></button>
+  <button class="act" onclick="phoneSet()"><span class="ic" style="background:var(--auto)"><svg class="i"><use href="#i-settings"/></svg></span>改手机设置<span>亮度、勿扰、Wi-Fi、蓝牙…</span></button>
+  <button class="act" onclick="phoneFile()"><span class="ic" style="background:var(--todo)"><svg class="i"><use href="#i-file-pen"/></svg></span>写文件到手机<span>手机工作区里</span></button>
+  <button class="act" onclick="phone('file_list')"><span class="ic" style="background:var(--todo)"><svg class="i"><use href="#i-folder-open"/></svg></span>看手机工作区<span>文件列表</span></button>
+  <button class="act" onclick="phoneUninstall()"><span class="ic" style="background:var(--red)"><svg class="i"><use href="#i-trash"/></svg></span>卸载手机 App<span>手机上弹系统确认</span></button>
+  <button class="act" onclick="phone('script_list')"><span class="ic" style="background:var(--device)"><svg class="i"><use href="#i-list"/></svg></span>手机脚本列表<span>工作区 scripts/</span></button>
+  <button class="act" onclick="phoneScript()"><span class="ic" style="background:var(--device)"><svg class="i"><use href="#i-play"/></svg></span>运行手机脚本<span>.sh，走特权通道</span></button>
+  <button class="act" onclick="phoneExec()"><span class="ic" style="background:var(--red)"><svg class="i"><use href="#i-terminal"/></svg></span>手机系统命令<span>走特权通道</span></button></div>
   ${phoneLinks()}
   <p class="note">也可以在「对话」里说：让手机响一下 / 手机别响了 / 手机亮屏 / 把手机音量调到 30 / 手机打开微信 / 把剪贴板发到手机 / 手机还有多少电。
   手机离线时直接提示没发出去，不偷偷排队。每一项手机上都能单独关掉（手机 OneSay › 设置 › 连接 › 电脑联动）；「更多」里的几项在开源版手机上默认关着。
@@ -589,7 +648,7 @@ P.pc=()=>{const s=S.settings;
   ${kv('打开程序',s.apps?'只开设置里列出的程序':'设置里还没加程序',tag(!!s.apps))}${kv('取文件',s.files_dir?'只限：'+esc(s.files_dir)+'，单个 ≤ 5 MB':'没设共享文件夹',tag(!!s.files_dir))}
   ${kv('睡眠、关机','必须说「确认关机」，60 秒内可取消',tag(S.caps.includes('shutdown')))}
   ${kv('沙箱档 · 审批策略（手机→电脑）','在「设置 › 权限与审批」里改。要管理员的事任何档位都只生成脚本；OneSay 永远不提权',`<span class="tag ${S.pc_sandbox==='full_access'?'':'green'}">${esc(SB_ZH[S.pc_sandbox]||'工作区可写')} · ${esc(AP_ZH[S.pc_approval]||'分类')}</span>`)}
-  ${kv('安全插件','永不提权、需要管理员只生成脚本、禁止远程改 OneSay 设置；在「设置 › 插件」里开关',tag(S.plugin_enabled!==false))}
+  ${kv('安全插件','永不提权、需要管理员只生成脚本、禁止远程改 OneSay 设置；在「设置 › 安全插件」里开关',tag(S.plugin_enabled!==false))}
   ${kv('工作区','远程指令只能在这里建 / 改文件，生成的脚本在 scripts/ 里',`<span class="note" style="margin:0">${esc(S.workspace||'')}</span>`)}</div></div>
   <div>${sec('var(--device)','最近')}<div class="card log">${(S.log||[]).slice().reverse().slice(0,14).map(l=>`<div>${esc(l)}</div>`).join('')||'<div>暂无</div>'}</div></div></div>`};
 const kv=(k,p,v)=>`<div class="kv"><div class="k"><div>${k}</div><p>${p}</p></div>${v}</div>`;
@@ -598,15 +657,101 @@ const sw=(key,on)=>`<span class="sw ${on?'on':''}" style="cursor:pointer" onclic
 const seg=(key,val,opts)=>`<div class="seg">${opts.map(([v,l])=>`<span class="${v===val?'on':''}" onclick="setv('${key}','${v}')">${l}</span>`).join('')}</div>`;
 const inp=(key,val,ph,w)=>`<input class="field" style="min-width:${w||220}px" value="${esc(val)}" placeholder="${esc(ph||'')}" onchange="setv('${key}',this.value)">`;
 const secret=(key,set)=>`<input class="field" type="password" placeholder="${set?'已填（不显示），输新的会覆盖':'粘贴 Key'}" onchange="setv('${key}',this.value);this.value=''">`;
+
+// ---------- [preview-1120] 设置页的选择器 / 编辑器：不用手敲路径和分隔符，填错了当场说 ----------
+let setQ='';
+function setFilter(q){setQ=q;applySetFilter()}
+function applySetFilter(){const root=$('settings');if(!root)return;const q=setQ.trim().toLowerCase();
+  root.querySelectorAll('.kv,.ms,.th,.item').forEach(e=>e.classList.toggle('hidden-by-q',!!q&&!e.textContent.toLowerCase().includes(q)));
+  root.querySelectorAll('.card').forEach(c=>{const any=[...c.children].some(x=>!x.classList.contains('hidden-by-q'));c.classList.toggle('hidden-by-q',!!q&&!any)});
+  root.querySelectorAll('.grp-h,.sec').forEach(h=>h.classList.toggle('hidden-by-q',!!q));
+  const toc=root.querySelector('.toc');if(toc)toc.classList.toggle('hidden-by-q',!!q)}
+async function pickInto(key,kind,title){if(!LIVE){snack('演示模式');return}snack('在电脑上选'+(kind==='folder'?'文件夹':'文件')+'…');
+  const r=await api('pick',{kind,title});if(!r.ok){snack(r.text==='没选'?'没选':r.text);return}await setv(key,r.path)}
+const pathPick=(key,val,kind,title,hint)=>`<div class="pathrow">${val?`<span class="pv" title="${esc(val)}">${esc(val)}</span>`:`<span class="pv none">${esc(hint||'没设')}</span>`}<button class="btn ghost sm" onclick="pickInto('${key}','${kind}','${esc(title)}')">${ico(kind==='folder'?'folder-open':'file')}选择…</button>${val?`<button class="tag" onclick="setv('${key}','')">清除</button>`:''}</div>`;
+// 逗号分隔的列表（域名、程序名）→ 标签 + 输入框，回车加一个；格式不对当场说
+const DOMAIN_RX=/^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$/i, EXE_RX=/^[^\\/:*?"<>|]+\.exe$/i;
+function listOf(v){return String(v||'').split(/[,，;；\s]+/).map(x=>x.trim()).filter(Boolean)}
+const chipList=(key,val,ph,kind)=>`<div class="chips">${listOf(val).map(x=>`<span class="c">${esc(x)}<button title="移除" onclick="chipDel('${key}',${esc(JSON.stringify(x))})">${ico('x')}</button></span>`).join('')}<input placeholder="${esc(ph)}" onkeydown="if(event.key==='Enter'){chipAdd('${key}','${kind}',this)}"><button class="tag" onclick="chipAdd('${key}','${kind}',this.previousElementSibling)">添加</button></div>`;
+async function chipAdd(key,kind,el){const v=el.value.trim().replace(/^https?:\/\//,'').replace(/\/.*$/,'');if(!v)return;
+  if(kind==='domain'&&!DOMAIN_RX.test(v)){snack('「'+v+'」不像域名：写成 github.com 这样，不要带 http:// 和路径');return}
+  if(kind==='exe'&&!EXE_RX.test(v)){snack('写程序文件名，例如 mstsc.exe');return}
+  const cur=listOf(S.settings[key]);if(cur.includes(v)){snack('已经有了');return}cur.push(v);el.value='';await setv(key,cur.join(','))}
+async function chipDel(key,v){await setv(key,listOf(S.settings[key]).filter(x=>x!==v).join(','))}
+// 可打开的程序：一行一个「名字 → exe」，选 exe 不手敲
+function appsList(v){return String(v||'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');return i>0?[x.slice(0,i).trim(),x.slice(i+1).trim()]:[x,'']})}
+function appsSave(l){return setv('apps',l.map(([n,p])=>n+'='+p).join(';'))}
+const appsEditor=v=>{const l=appsList(v);return `<div class="apps">${l.map(([n,p],i)=>`<div class="ar"><b>${esc(n)}</b><span class="pv" title="${esc(p)}">${esc(p)||'<span style="color:var(--red)">没选程序</span>'}</span><button class="tag" onclick="appPick(${i})">换</button><button class="tag" onclick="appDel(${i})">删除</button></div>`).join('')||`<div class="ar"><span class="pv" style="font-family:inherit">还没有。加了以后，手机说「打开 名字」就开这个程序</span></div>`}
+  <div class="ar"><input class="field" id="app-new" placeholder="名字，例如 微信" style="min-width:160px"><button class="btn ghost sm" onclick="appAdd()">${ico('plus')}选程序并添加</button></div></div>`};
+async function appAdd(){const n=($('app-new').value||'').trim();if(!n){snack('先写名字（手机上说「打开 …」时用的名字）');return}if(/[=;]/.test(n)){snack('名字里不能有 = 或 ;');return}
+  if(appsList(S.settings.apps).some(([x])=>x===n)){snack('已经有「'+n+'」了');return}
+  const r=await api('pick',{kind:'exe',title:'选「'+n+'」的程序（.exe）'});if(!r.ok){snack(r.text);return}
+  const l=appsList(S.settings.apps);l.push([n,r.path]);await appsSave(l)}
+async function appPick(i){const l=appsList(S.settings.apps);const r=await api('pick',{kind:'exe',title:'选「'+l[i][0]+'」的程序（.exe）'});if(!r.ok){snack(r.text);return}l[i][1]=r.path;await appsSave(l)}
+async function appDel(i){const l=appsList(S.settings.apps);if(!await confirm('删除「'+l[i][0]+'」？\n\n手机就不能再让电脑打开它了。'))return;l.splice(i,1);await appsSave(l)}
+const numIn=(key,val,min,max,unit)=>`<span style="display:inline-flex;gap:6px;align-items:center"><input class="field" type="number" min="${min}" max="${max}" style="min-width:90px;width:90px" value="${esc(val)}" onchange="numSet('${key}',this,${min},${max})"><span style="color:var(--text3);font-size:12.5px">${unit}</span></span>`;
+async function numSet(key,el,min,max){const n=parseInt(el.value,10);if(!(n>=min&&n<=max)){snack('请填 '+min+'–'+max+' 之间的整数');el.value=S.settings[key];return}await setv(key,String(n))}
+const MODELS={deepseek:['deepseek-chat','deepseek-reasoner'],bailian:['qwen-plus','qwen-max','qwen-turbo','qwen3-coder-plus']};
+const modelIn=(s)=>`<span style="display:inline-flex;gap:6px;align-items:center"><input class="field" list="mdl-list" style="min-width:200px" value="${esc(s.llm_model||'')}" placeholder="${esc(s.llm_model_default||'模型名')}" onchange="setv('llm_model',this.value.trim())"><datalist id="mdl-list">${(MODELS[s.llm_provider]||[]).map(m=>`<option value="${m}">`).join('')}</datalist></span>`;
+
+// ---------- [preview-1120] 外观（主题插件） ----------
+let THEMES=null,themesBusy=false;
+async function loadThemes(){if(themesBusy)return;themesBusy=true;try{if(LIVE){const r=await api('theme',{op:'list'});THEMES=r.packs||[]}else THEMES=[]}finally{themesBusy=false}if(page==='settings')render()}
+function swatch(t){const k=t.tokens||{};return `<div class="sw4"><i style="background:${esc(k['--bg']||'#eee')}"></i><i style="background:${esc(k['--card']||'#fff')}"></i><i style="background:${esc(k['--accent']||'#48f')}"></i><i style="background:${esc(k['--text']||'#222')}"></i></div>`}
+const BASE_THEMES=[{id:'',name:'OneSay 默认',mode:'',tokens:{'--bg':'#F5F4F1','--card':'#FFFFFF','--accent':'#4E7A35','--text':'#1C1B19'}}];
+function lookPanel(){const a=S.appearance||{mode:'system',pack:''},s=S.settings;if(THEMES===null)loadThemes();
+  const all=BASE_THEMES.concat(THEMES||[]);
+  return `${grp('set-look','外观','主题插件：浅色 / 深色 / 跟随系统，或者换一套配色包；整个界面（对话、任务卡、审批卡、设置、输入框）一起换')}<div class="card">
+  ${kv('明暗','跟随系统：Windows 设成深色就跟着变深（默认）。选了配色包时，按配色包自己的明暗来',`<div class="seg">${[['system','跟随系统'],['light','浅色'],['dark','深色']].map(([v,l])=>`<span class="${v===(s.theme||'system')?'on':''}" onclick="setv('theme','${v}')">${ico(v==='system'?'sun-moon':v==='light'?'sun':'moon')} ${l}</span>`).join('')}</div>`)}
+  <div class="kv"><div class="k"><div>配色包</div><p>自带几套开源配色（Nord、Catppuccin、Dracula、Solarized，MIT 许可，见「关于」）；也可以导入自己的主题包（.json，格式见下面「怎么写主题包」）</p></div><div style="display:flex;gap:6px"><button class="btn ghost sm" onclick="themeImport()">${ico('upload')}导入主题包…</button><input type="file" id="themefile" accept=".json,application/json" style="display:none" onchange="themeFile(this)"></div></div>
+  <div class="themes">${all.map(t=>`<button class="th ${(a.pack||'')===t.id?'on':''}" onclick="setv('theme_pack','${esc(t.id)}')">${swatch(t)}<b>${esc(t.name)}</b><span>${t.id?(t.mode==='dark'?'深色':'浅色')+(t.bundled?' · 自带':' · 导入的'):'跟着上面的明暗'}</span>${t.id&&!t.bundled?`<span style="float:right" onclick="event.stopPropagation();themeDel('${esc(t.id)}')">删除</span>`:''}</button>`).join('')}</div>
+  <details style="padding:0 20px 14px"><summary style="cursor:pointer;color:var(--text2);font-size:13px">怎么写主题包</summary><pre style="font:12px ui-monospace,Consolas,monospace;background:var(--surface2);padding:10px;border-radius:10px;margin-top:8px;white-space:pre-wrap">{"id": "my-theme", "name": "我的主题", "mode": "dark",
+ "author": "你", "license": "MIT",
+ "tokens": {"--bg": "#101418", "--card": "#182028", "--text": "#E8EEF4",
+            "--accent": "#4FB3FF", "--line": "#26323D", "--text2": "#9FB0C0"}}
+可改的颜色：${THEME_KEYS.join(' ')}
+值只能是 #颜色 或 rgb()/rgba()；至少要有 --bg --card --text --accent。</pre></details></div>`}
+function themeImport(){$('themefile').click()}
+async function themeFile(inp){const f=inp.files[0];inp.value='';if(!f)return;if(f.size>32*1024){snack('主题包太大（超过 32 KB）');return}
+  const txt=await f.text();await themeImportText(txt)}
+async function themeImportText(txt){if(!LIVE){snack('演示模式');return}const r=await api('theme',{op:'import',json:txt});snack(r.text);if(r.ok){THEMES=null;await setv('theme_pack',r.pack.id)}}
+async function themeDel(id){if(!await confirm('删除这个主题包？'))return;const r=await api('theme',{op:'remove',id});snack(r.text);THEMES=null;refresh()}
+
+// ---------- [preview-1120] MCP 连接器 ----------
+const MCP_ST={ready:'green',starting:'run',error:'red',disabled:'',unsupported:'wait',stopped:''};
+const TR_ZH={stdio:'本机程序（stdio）',http:'Streamable HTTP',sse:'HTTP + SSE（旧版）',auto:'HTTP（自动判断）'};
+function mcpPanel(){const m=S.mcp||{servers:[],notes:[]},sv=m.servers||[];
+  return `${grp('set-mcp','MCP 连接器','选一个 MCP 服务器的文件夹（或配置文件），自动认出类型并接给对话里的助手用；官方、第三方都一样')}<div class="card">
+  ${kv('添加 MCP 服务器','能认：claude_desktop_config.json / mcp.json / .mcp.json / .vscode/mcp.json 这类配置文件；单个服务器项目（Node：package.json；Python：pyproject.toml / requirements.txt；可执行文件）；本机程序（stdio）和网络服务（Streamable HTTP / SSE）。Dockerfile 只提示，不自动构建',`<button class="btn sm" onclick="mcpPick()">${ico('folder-open')}选择文件夹…</button>`)}
+  ${kv('工具怎么批准','服务器标了「只读」的工具直接用；其余每次调用都弹确认卡（和执行命令一样，在「权限与审批」的档位下）；只读档下有副作用的工具一律不用。Key 和环境变量只在内存里用来启动，不写日志、不进记录',`<span class="tag green">${m.tool_total||0} 个工具在用</span>`)}</div>
+  ${(m.notes||[]).length?`<p class="note">${(m.notes||[]).map(esc).join('<br>')}</p>`:''}
+  ${sv.length?`<div class="card mcps">${sv.map(mcpRow).join('')}</div>`:empty('还没有 MCP 服务器。点「选择文件夹…」选一个，比如下载好的官方示例服务器文件夹')}`}
+function mcpRow(x){const on=x.status!=='disabled',tools=x.tools||[];
+  return `<div class="ms"><div class="mh">${ico('server')}<b>${esc(x.name)}</b><span class="tag ${MCP_ST[x.status]||''}">${esc(x.status_zh)}</span><span class="tag">${esc(TR_ZH[x.transport]||x.transport)}</span><span class="sp"></span>
+   ${x.status==='unsupported'?'':`<span class="sw ${on?'on':''}" title="${on?'停用':'启用'}" style="cursor:pointer" onclick="mcpOp('enable','${esc(x.id)}',{on:${!on}})"></span>`}
+   ${x.status==='error'||x.status==='ready'?`<button class="tag" onclick="mcpOp('restart','${esc(x.id)}')">${ico('refresh-cw')} 重连</button>`:''}<button class="tag" onclick="mcpDel('${esc(x.id)}','${esc(x.name)}')">移除</button></div>
+   <div class="mm">来自：${esc(x.origin)} · ${esc(x.source)}<br>启动：<code>${esc(x.launch)}</code>${(x.env_keys||[]).length?'<br>环境变量：'+x.env_keys.map(esc).join('、')+'（值不显示）':''}${x.server_name?'<br>服务器：'+esc(x.server_name):''}</div>
+   ${x.error?`<div class="errline">${ico('info')} ${esc(x.error)}</div>`:''}
+   ${tools.length?`<div class="tools">${tools.map(t=>`<span class="tag ${t.read_only?'ro':''}" title="${esc(t.description)}">${esc(t.title||t.name)}${t.read_only?' · 只读':''}</span>`).join('')}</div>`:''}
+   ${tools.some(t=>t.read_only)?`<div class="mm"><button class="tag" onclick="mcpTry('${esc(x.id)}')">${ico('play')} 试一个只读工具</button></div>`:''}</div>`}
+async function mcpPick(){if(!LIVE){snack('演示模式');return}snack('在电脑上选文件夹…');const r=await api('mcp',{op:'pick'});snack(r.text);refresh()}
+async function mcpOp(op,id,extra){const r=await api('mcp',Object.assign({op,id},extra||{}));snack(r.text);refresh()}
+async function mcpDel(id,name){if(!await confirm('移除 MCP 服务器「'+name+'」？\n\n只是不再加载，不删你的文件；重新选这个文件夹可以加回来。'))return;mcpOp('remove',id)}
+async function mcpTry(id){const x=((S.mcp||{}).servers||[]).find(s=>s.id===id);if(!x)return;const t=(x.tools||[]).find(t=>t.read_only);
+  const raw=prompt('试用只读工具「'+t.name+'」——参数（JSON）：', t.name==='echo'?'{"message":"你好 OneSay"}':'{}');if(raw===null)return;
+  let args;try{args=JSON.parse(raw||'{}')}catch(e){snack('参数不是合法的 JSON');return}
+  const r=await api('mcp',{op:'try',fn:'mcp__'+id+'__'+t.name.replace(/[^A-Za-z0-9_-]+/g,'_'),arguments:args});
+  snack(r.ok?'结果：'+String(r.output||'').slice(0,120):r.text)}
+
 let pairShown=false,lastPair='';
 // ★ console-align 2026-11-12：设置页按「控制台条目清单」（docs/CONSOLE.md）分组，与手机设置区同名同序：
 //   连接 · 权限与审批 · 模型与密钥 · 语音 · 替你操作 · 下载 · 插件 · 关于（「功能」「开发者」只手机有）
-const GROUPS=[['set-connect','连接'],['set-perm','权限与审批'],['set-permlog','权限审批记录'],['set-model','模型与密钥'],['set-voice','语音'],['set-act','替你操作'],['set-download','下载'],['set-plugins','插件'],['set-about','关于']];
+const GROUPS=[['set-connect','连接'],['set-perm','权限与审批'],['set-permlog','权限审批记录'],['set-model','模型与密钥'],['set-voice','语音'],['set-act','替你操作'],['set-download','下载'],['set-look','外观'],['set-mcp','MCP 连接器'],['set-plugins','安全插件'],['set-about','关于']];
 const CTL=[['run','操作中','助手正在替你点按'],['wait','等确认','弹确认卡等你点'],['user','你接手','你点了接管 / 按了返回或主页键'],['stop','已停止','点了停止，覆盖层马上撤掉']];
 const DANGER=['清空','清除','删除','撤销','解除','解除配对','卸载','关机','睡眠','换一把钥匙','忘掉','重置','停止'];
 const isDanger=l=>{l=String(l||'').trim();return DANGER.some(v=>l===v||l.startsWith(v))};
 const grp=(id,t,sub)=>`<div id="${id}" class="grp-h">${sec('var(--accent)',t,sub)}</div>`;
-const toc=()=>`<div class="toc">${GROUPS.map(([id,t])=>`<span onclick="document.getElementById('${id}').scrollIntoView({behavior:'smooth'})">${t}</span>`).join('')}</div>`;
+const toc=()=>`<label class="setq">${ico('search')}<input id="setq" placeholder="搜索设置：例如 主题、Key、文件夹、MCP、语音…" value="${esc(setQ)}" oninput="setFilter(this.value)"></label><div class="toc">${GROUPS.map(([id,t])=>`<span onclick="document.getElementById('${id}').scrollIntoView({behavior:'smooth'})">${t}</span>`).join('')}</div>`;
 P.settings=()=>{const s=S.settings;
   return head('设置',`OneSay 电脑端 ${esc(S.version)}`)+toc()+`<div class="setcol">
   ${grp('set-connect','连接','手机和这台电脑怎么连上')}
@@ -622,8 +767,8 @@ P.settings=()=>{const s=S.settings;
   ${grp('set-perm','权限与审批','手机→电脑：沙箱档 × 审批策略（照搬 Codex 的两轴）；只能在这台电脑上改，手机改不了')}<div class="card">
   ${kv('沙箱档','只读：只回答状态；工作区可写（默认）：只往工作区里写，工作区外要你确认，认得出的下载命令默认断网（认不准的可能联网命令在确认框里提示，每次都问）；完全访问：按这台电脑当前用户的权限来（仍不提权）',seg2('pc_sandbox',s.pc_sandbox||'workspace_write',[['read_only','只读'],['workspace_write','工作区可写'],['full_access','完全访问']]))}
   ${kv('审批策略','分类（默认）：只有查询、无害动作、工作区内写不问，其余都问；按需：沙箱以内的直接做，超出沙箱或有破坏性的（关机、卸载、跑脚本、执行命令）才问；从不：永不弹确认，要确认的直接拒绝（只有完全访问下照做）',seg2('pc_approval',s.pc_approval||'untrusted',[['untrusted','分类'],['on_request','按需'],['never','从不']]))}
-  ${kv('信任的网址域名','手机让电脑开这些网站时不用确认；逗号分隔',inp('trusted_domains',s.trusted_domains,'bilibili.com, github.com',260))}
-  ${kv('命令可以联网的域名','沙箱档不是完全访问时，认得出的下载命令（curl / iwr / WebClient…）只放行这些域名；认不准的可能联网命令每次弹确认并提示；逗号分隔',inp('net_allow',s.net_allow,'github.com',260))}
+  ${kv('信任的网址域名','手机让电脑开这些网站时不用确认（含子域名）',chipList('trusted_domains',s.trusted_domains,'例如 bilibili.com','domain'))}
+  ${kv('命令可以联网的域名','沙箱档不是完全访问时，认得出的下载命令（curl / iwr / WebClient…）只放行这些域名；下载被跳转到别的域名时也要在这里',chipList('net_allow',s.net_allow,'例如 github.com','domain'))}
   ${kv('开机自动启动','启动后只在托盘（手机上对应「系统权限」里的电池白名单：保证在后台活着）',sw('autostart',s.autostart))}</div>
   ${remPolicy()}
   ${wlPolicy()}
@@ -632,10 +777,10 @@ P.settings=()=>{const s=S.settings;
 
   ${grp('set-model','模型与密钥','对话和听懂任意说法；Key 只存在这台电脑，不同步到手机')}<div class="card">
   ${kv('服务商','也支持任何 OpenAI 兼容接口',seg('llm_provider',s.llm_provider,[['deepseek','DeepSeek'],['bailian','百炼'],['custom','自定义']]))}
-  ${s.llm_provider==='custom'?kv('接口地址','OpenAI 兼容，到 /v1 为止，例如 https://example.com/v1；只接受 https',inp('llm_base',s.llm_base,'https://…/v1')):''}
-  ${kv('模型名',s.llm_model_default?'留空 = 默认 '+esc(s.llm_model_default):'自定义接口要填模型名',inp('llm_model',s.llm_model,s.llm_model_default||'模型名'))}
+  ${s.llm_provider==='custom'?kv('接口地址','OpenAI 兼容，到 /v1 为止，例如 https://example.com/v1；只接受 https（本机 http://127.0.0.1 也行）',inp('llm_base',s.llm_base,'https://…/v1')):''}
+  ${kv('模型名',s.llm_model_default?'可以从下拉里选，留空 = 默认 '+esc(s.llm_model_default):'自定义接口要填模型名',modelIn(s))}
   ${kv('API Key','只存在这台电脑，不同步到手机',secret('llm_key',s.llm_key_set))}
-  ${kv('连接测试','不填 Key 时只认固定说法，如「锁屏」「打开B站」',`<button class="btn ghost sm" onclick="testLlm()">测试</button>`)}
+  ${kv('连接测试','用上面的服务商、模型和 Key 真的问一句；不填 Key 时只认固定说法，如「锁屏」「打开B站」',`<button class="btn ghost sm" onclick="testLlm()">${ico('plug')}测试连接</button>`)}
   ${kv('语音识别 Key','百炼 DashScope，自己申请；「语音」里的识别方式用它',secret('asr_key',s.asr_key_set))}
   ${kv('看图模型','对话里「截屏看一眼」用；现在：'+(s.vision_source?esc(s.vision_source):'没有（只能用 Windows 自带 OCR 读文字）')+'。不填 Key 时自动用百炼的 Key（默认 qwen-vl-max）',secret('vision_key',s.vision_key_set))}
   ${kv('看图模型名','留空 = qwen-vl-max；接口地址留空 = 百炼',inp('vision_model',s.vision_model||'','qwen-vl-max'))}
@@ -645,18 +790,21 @@ P.settings=()=>{const s=S.settings;
   ${kv('按住空格说话','按住 0.35 秒开始听，短按照常打空格',sw('ptt',s.ptt))}
   ${kv('识别方式','默认先看云端：填了语音识别 Key 且连得上就用云端，否则自动改用本机离线识别（Windows 自带，不联网）。看云端只是连一下地址，不上传任何内容',seg('asr_pref',s.asr_pref||'auto',[['auto','先看云端'],['cloud','仅云端'],['local','仅本机']]))}
   ${kv('现在用的是',esc(S.asr_why||''),`<span class="tag ${S.asr_engine==='none'?'':'green'}">${esc(S.asr_engine_zh||'还没识别过')}</span>`)}
-  ${kv('这些程序里不拦空格','逗号分隔；全屏和管理员窗口本来就不拦',inp('ptt_skip',s.ptt_skip,'mstsc.exe'))}</div>
+  ${kv('这些程序里不拦空格','在这些程序里按住空格不会开始听（全屏和管理员窗口本来就不拦）',chipList('ptt_skip',s.ptt_skip,'例如 mstsc.exe','exe'))}</div>
 
   ${grp('set-act','替你操作','手机能让这台电脑做的事')}<div class="card">
-  ${kv('可打开的程序','名字=路径，多个用 ; 隔开',inp('apps',s.apps,'微信=C:\\…\\WeChat.exe',260))}
-  ${kv('共享给手机的文件夹','留空 = 不开',inp('files_dir',s.files_dir,'D:\\共享'))}
-  ${kv('快捷指令文件夹','放 .ps1 / .bat / .cmd',inp('scripts_dir',s.scripts_dir,'D:\\OneSay\\快捷指令'))}</div>
+  ${kv('可打开的程序','手机说「打开 名字」时开哪个程序；点「选程序并添加」从电脑上选 .exe，不用手敲路径','')}${appsEditor(s.apps)}
+  ${kv('共享给手机的文件夹','手机能从这里取文件（只这一层，单个 ≤ 5 MB）；没选 = 不开',pathPick('files_dir',s.files_dir,'folder','选共享给手机的文件夹','没选（不共享）'))}
+  ${kv('快捷指令文件夹','里面的 .ps1 / .bat / .cmd 就是快捷指令；手机第一次运行某个时要你批准',pathPick('scripts_dir',s.scripts_dir,'folder','选快捷指令文件夹','没选'))}
+  ${kv('adb 程序','连安卓设备 / 模拟器、手机投屏用；没选 = 自动找（Android SDK、MuMu 自带的）',pathPick('adb_path',s.adb_path||'','exe','选 adb.exe','自动找'))}</div>
   ${sec('var(--accent)','控屏颜色','手机替你操作时边框和灵动岛描边的颜色；这里的确认框、下载任务也用同一套')}<div class="card">
   ${CTL.map(([c,t,p])=>kv(t,p,`<span class="tag ${c}">${t}</span>`)).join('')}</div>
 
   ${mdPanel()}
 
-  <div id="set-plugins" class="grp-h">${sec('var(--accent)','插件','安全插件：只收紧不放宽；普通用户能做的事不拦，Windows 自己会挡没有管理员的操作')}</div><div class="card">
+  ${lookPanel()}
+  ${mcpPanel()}
+  <div id="set-plugins" class="grp-h">${sec('var(--accent)','安全插件','只收紧不放宽；普通用户能做的事不拦，Windows 自己会挡没有管理员的操作')}</div><div class="card">
   ${kv('安全插件','关掉要确认两次。关掉后下面四项「始终开」仍然生效，只有「拦截编码」跟着关',plugSw(s.plugin_enabled!==false))}
   ${kv('永不提权','远程指令的子进程绝不 runas、不弹 UAC；OneSay 自己是管理员时远程子进程拒绝启动',`<span class="tag green">始终开</span>`)}
   ${kv('需要管理员 → 只生成脚本','机器级注册表、服务驱动、防火墙 / 网卡 / DNS / hosts、系统级计划任务、磁盘等：生成 .ps1 + 中文说明，由你自己用管理员身份运行',`<span class="tag green">始终开</span>`)}
@@ -665,7 +813,8 @@ P.settings=()=>{const s=S.settings;
   ${kv('拦截编码 / 隐藏命令','powershell -enc、FromBase64String、iex 这类看不出内容的写法',s.plugin_enabled!==false?sw('plugin_encoded',s.plugin_encoded!==false):tag(false))}</div>
 
   ${grp('set-about','关于','')}<div class="card">
-  ${kv('版本','OneSay 电脑端',`<span class="tag">${esc(S.version)}</span>`)}
+  ${kv('版本',S.flavor==='preview'?'OneSay 电脑端 · 预览版（Preview）：和正式版分开的数据目录和端口，可以同时装':'OneSay 电脑端',`<span class="tag">${esc(S.version)}</span>`)}
+  ${kv('第三方','图标 Lucide（ISC）；配色 Nord / Catppuccin / Dracula / Solarized（MIT）；其余见安装目录里的 THIRD_PARTY_NOTICES.md','')}
   ${kv('本机名',esc(S.device||''),'')}
   ${kv('工作区','远程指令只能在这里建 / 改文件，生成的脚本在 scripts/ 里',`<span class="note" style="margin:0">${esc(S.workspace||'')}</span>`)}</div>
   </div>`};
@@ -688,11 +837,11 @@ function progHtml(p){if(!p)return '';const ind=!(p.total>0);
   return `<div class="pbar ${ind?'ind':''}"><i style="${ind?'':'width:'+Math.max(1,p.percent)+'%'}"></i></div><div class="pline"><span style="flex:1">${esc(p.text||'')}</span><button class="tag danger" onclick="dlCancel()">取消</button></div>`}
 async function dlCancel(){const r=await api('dl_cancel',{});snack(r.text)}
 function stepHtml(x,i,prog){if(x.kind==='note')return `<div class="note md">${md(x.desc)}</div>`;
-  const ic=x.state==='ok'?'<span class="ic ok">✓</span>':x.state==='warn'?'<span class="ic warn">!</span>':x.state==='fail'?'<span class="ic fail">!</span>':x.state==='wait'?'<span class="ic wait">…</span>':'<span class="ic run"></span>';
+  const ic=x.state==='ok'?'<span class="ic ok">'+ico('check')+'</span>':x.state==='warn'?'<span class="ic warn">'+ico('info')+'</span>':x.state==='fail'?'<span class="ic fail">'+ico('x')+'</span>':x.state==='wait'?'<span class="ic wait">'+ico('hand')+'</span>':'<span class="ic run"></span>';
   const out=String(x.output||''),long=out.length>600;
   const det=`<details><summary>详情</summary><pre>${esc(x.detail||'')}</pre>${out?`<pre id="out-${i}">${esc(long?out.slice(0,600)+'…':out)}</pre>${long?`<button class="tag" onclick="this.previousElementSibling.textContent=decodeURIComponent('${encodeURIComponent(out)}');this.remove()">展开全部（${out.length} 字）</button>`:''}`:''}</details>`;
   const art=(x.image?`<div class="shot"><img data-art="${esc(x.image)}" alt="截图" onclick="viewArt(this.dataset.art)"></div>`:'')+(x.file?`<div class="shot"><button class="tag" data-art="${esc(x.file)}" onclick="viewArt(this.dataset.art)">查看 ${esc(String(x.file).split(/[\\/]/).pop())}</button></div>`:'');
-  return `<div class="sp">${ic}<div class="bd"><div class="ds">${esc(x.desc||x.detail||'')}</div>${x.state==='run'&&prog?progHtml(prog):''}${art}${x.state==='fail'?`<div class="er">${esc(clipTxt(x.summary,160))}</div>`:x.state==='warn'?`<div class="wn">⚠ ${esc(clipTxt(x.warn||x.summary,160))}</div>`:x.state==='ok'&&x.summary&&x.summary!=='命令执行完了'?`<div class="ok1">${esc(clipTxt(x.summary,120))}</div>`:''}${det}</div></div>`}
+  return `<div class="sp">${ic}<div class="bd"><div class="ds">${esc(x.desc||x.detail||'')}</div>${x.state==='run'&&prog?progHtml(prog):''}${art}${x.state==='fail'?`<div class="er">${esc(clipTxt(x.summary,160))}</div>`:x.state==='warn'?`<div class="wn">${ico('info')} ${esc(clipTxt(x.warn||x.summary,160))}</div>`:x.state==='ok'&&x.summary&&x.summary!=='命令执行完了'?`<div class="ok1">${esc(clipTxt(x.summary,120))}</div>`:''}${det}</div></div>`}
 function askHtml(c){const offerTask=!!c.task_scope,dis=cfArmed&&cfId===c.id?'':'disabled';
   return `<div class="ask" id="ask-${c.id}"><div class="q">这一步要你批准</div><div class="cmdl">${esc(String(c.detail||'').replace(/^本机对话 请求：/,''))}</div>
   <div class="row">${offerTask?`<button class="btn sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event,'task')">允许本次任务</button>`:''}<button class="btn ${offerTask?'ghost ':''}sm cfallow" ${dis} onclick="cfAns(${c.id},true,false,event)">允许一次</button><button class="btn ghost sm" id="cfdeny" onclick="cfAns(${c.id},false,false,event)">拒绝</button>
@@ -809,9 +958,9 @@ function xferRow(x){const ind=!(x.size>0),pc=x.percent||0;
 function fmtB(n){n=Number(n||0);return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':n<1073741824?(n/1048576).toFixed(1)+' MB':(n/1073741824).toFixed(2)+' GB'}
 function phoneLinks(){const xs=S.xfers||[];
   return `${sec('var(--accent)','文件互传','电脑 → 手机：存在手机「下载 / OneSay」；手机 → 电脑：存在 '+esc(S.xfer_dir||'工作区\\来自手机'))}
-  <div class="acts"><button class="act" onclick="xferSend()"><span class="ic" style="background:var(--accent)">⇧</span>发文件到手机<span>选一个文件，最大 1 GB，分块带校验</span></button>
-  <button class="act" onclick="xferOpen()"><span class="ic" style="background:var(--accent)">⇩</span>打开「来自手机」<span>手机发来的文件在这里</span></button>
-  <button class="act" onclick="phoneOperate()"><span class="ic" style="background:var(--todo)">✦</span>交给手机去做<span>说一句目标，手机自己做（要手机上开「按目标操作手机」）</span></button></div>
+  <div class="acts"><button class="act" onclick="xferSend()"><span class="ic" style="background:var(--accent)"><svg class="i"><use href="#i-upload"/></svg></span>发文件到手机<span>选一个文件，最大 1 GB，分块带校验</span></button>
+  <button class="act" onclick="xferOpen()"><span class="ic" style="background:var(--accent)"><svg class="i"><use href="#i-download"/></svg></span>打开「来自手机」<span>手机发来的文件在这里</span></button>
+  <button class="act" onclick="phoneOperate()"><span class="ic" style="background:var(--todo)"><svg class="i"><use href="#i-send"/></svg></span>交给手机去做<span>说一句目标，手机自己做（要手机上开「按目标操作手机」）</span></button></div>
   ${xs.length?card(xs.map(xferRow)):''}
   ${sec('var(--auto)','手机上的快捷指令','在手机上建的，这里能看能运行（手机上照常走确认卡）')}
   ${PSC===null?`<p class="note"><button class="btn ghost sm" onclick="phoneScList()">看手机上的快捷指令</button></p>`:PSC.length?card(PSC.map(x=>`<div class="item"><div class="tx"><div class="tt">${esc(x.name)}</div><div class="st">${esc(x.steps||'')}</div></div><button class="btn sm" onclick="phoneScRun(${esc(JSON.stringify(x.name))})">在手机上运行</button></div>`)):empty('手机上还没有快捷指令')}`}
@@ -959,7 +1108,7 @@ function render(){if(!S)return;
   if(page==='chat'){renderChat();return}
   const ae=document.activeElement;if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')&&$(page).contains(ae))return; // 正在输入时不重绘
   if(page==='mirror'&&mrDrag)return; // 拖文件经过投屏区时不重绘（不然放手时元素已换掉）
-  $(page).innerHTML=P[page]();markDanger($(page));if(page==='settings'&&pairShown&&lastPair)drawQr(lastPair)}
+  $(page).innerHTML=P[page]();markDanger($(page));if(page==='settings'){applySetFilter();if(pairShown&&lastPair)drawQr(lastPair)}}
 // ★ console-align：按钮文字是危险动词（DANGER，与手机 ConsoleStyle 同一张表）→ 红字
 function markDanger(root){root.querySelectorAll('button.btn,button.tag').forEach(b=>{if(isDanger(b.textContent))b.classList.add('danger')})}
 function go(p){page=p;document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('on',x.dataset.p===p));
@@ -974,9 +1123,9 @@ const V=$('voice');const VS=['','<i class="rec"></i>正在听<span class="wave">
 let vk=0;function cycle(){vk=(vk+1)%VS.length;V.innerHTML=VS[vk];V.classList.toggle('show',vk>0)}
 
 // ★ exe-handoff-1118：Edge 后备窗口（没经 OneSay.exe 启动）写明，免得以为是正常窗口
-if(location.hash==='#edge-fallback'){document.title='OneSay（Edge 后备窗口）';const fb=document.createElement('div');fb.id='edgefb';
+if(location.hash==='#edge-fallback'){document.title=(document.documentElement.dataset.flavor==='preview'?'OneSay Preview':'OneSay')+'（Edge 后备窗口）';const fb=document.createElement('div');fb.id='edgefb';
   fb.textContent='Edge 后备窗口：这次没经 OneSay.exe 启动，窗口算在 Edge 名下。从开始菜单或桌面的 OneSay 打开即可恢复正常窗口。';
-  fb.style.cssText='position:fixed;left:0;right:0;top:0;z-index:9999;padding:4px 12px;font-size:12px;background:#fff4ce;color:#5c4400;text-align:center';
+  fb.style.cssText='position:fixed;left:0;right:0;top:0;z-index:9999;padding:4px 12px;font-size:12px;background:color-mix(in srgb,var(--warn) 18%,var(--card));color:var(--text);text-align:center';
   document.body.appendChild(fb)}
 refresh();if(LIVE)setInterval(refresh,2500);
 </script>
