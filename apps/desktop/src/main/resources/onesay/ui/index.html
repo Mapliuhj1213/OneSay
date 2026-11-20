@@ -947,8 +947,13 @@ function taskCard(x,last){const st=STATE_ZH[x.state]||[x.state||'',''],running=x
   const prog=running&&S.progress&&S.progress.task===x.task?S.progress:null;
   const steps=(x.steps||[]).map((y,i)=>stepHtml(y,i,prog)).join('');
   const ans=x.answer?`<div class="ans md ${x.state==='done'||x.state==='warn'?'':'why'}">${md(x.answer)}</div>`:'';
-  return `<div class="m a tc" data-task="${esc(x.task||'')}"><div class="hd"><span class="ti">${esc(x.title||'任务')}</span><span class="st ${waiting?'wait':st[1]}">${waiting?'等你点':esc(st[0])}</span>${running?'<button class="tag danger" onclick="chatStop()">停止</button>':''}</div>
+  return `<div class="m a tc" data-task="${esc(x.task||'')}"><div class="hd"><span class="ti">${esc(x.title||'任务')}</span><span class="st ${waiting?'wait':st[1]}">${waiting?'等你点':esc(st[0])}</span>${running?'<button class="tag danger" onclick="chatStop()">停止</button>':''}${(x.state==='done'||x.state==='warn')&&(x.steps||[]).some(y=>y.kind==='step')?`<button class="tag" title="把这次做成功的步骤存成工作流草稿，去「工作流」页改好再用" onclick="wfDraft(${esc(JSON.stringify(x.task||''))})">存成工作流草稿</button>`:''}</div>
   ${steps||(running?'<div class="note">开始做…</div>':'')}${conf.map(askHtml).join('')}${ch.map(chooseHtml).join('')}${ans}</div>`}
+// [workflow-1120] 一次成功的任务 → 工作流草稿（只带步骤的说明和用的工具，不带参数里的内容）
+async function wfDraft(task){const c=(S.chat||[]).find(m=>m.task===task);if(!c)return;
+  const steps=(c.steps||[]).filter(y=>y.kind==='step'&&y.ok!==false).map(y=>({tool:String(y.tool||''),description:String(y.desc||'')}));
+  const d=await api('wf',{op:'draft_from_steps',name:(c.title||'任务')+'（草稿）',steps});if(!d.ok){snack(d.text);return}
+  const r=await api('wf',{op:'save',workflow:d.workflow});snack(r.ok?'已存成工作流草稿「'+d.workflow.name+'」，去「工作流」页改好再运行':r.text)}
 function renderChat(){const c=S.chat, box=$('msgin');
   const m=S.memory||{}, lines=(m.text||'').split('\n').filter(x=>x.trim()).length;
   $('memchip').textContent='记忆 · '+(lines?lines+' 条':'空')+(m.updated_at?' · '+ago(m.updated_at):'');
