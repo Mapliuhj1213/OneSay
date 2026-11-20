@@ -107,6 +107,13 @@ public final class Outcomes {
     static final Pattern FAILED_TEXT = Pattern.compile("(没(能|有)?(做成|完成|成功|办成|装上|下载成功|打开)|失败了|做不了|无法完成|没法完成|没办法(完成|做)|不支持|版本太旧|版本过旧|被(拒绝|挡)|拒绝了|出错了|报错了)");
     static final Pattern SUCCESS_TEXT = Pattern.compile("(已经?(完成|做好|装好|打开|下载好|发送|发出|关闭|开启|设置好)|成功(了|地)?|搞定|做完了)");
 
+    /** [preview-1120] 去掉开头 / 结尾的结果标记（旁白里模型也会先写一个【需要你操作】）；中间的不动。 */
+    public static String stripTag(String s) {
+        if (s == null) return "";
+        String r = TAG.matcher(s).replaceAll("").trim();
+        return r.isEmpty() ? s.trim() : r;
+    }
+
     /** 任务结果：最终状态 + 去掉标记后的答复。 */
     public static final class TaskEnd {
         public final String state, text;

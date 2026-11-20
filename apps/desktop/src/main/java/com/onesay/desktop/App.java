@@ -703,6 +703,7 @@ public final class App {
         Map<String, Object> s = new TreeMap<>();
         s.put("device_id", cfg.deviceId);
         s.put("lan_port", (long) cfg.lanPort);
+        s.put("lan_env_off", "off".equalsIgnoreCase(String.valueOf(System.getenv("ONESAY_LAN")))); // [preview-1120 真机] ONESAY_LAN=off 时设置页别再显示「开」
         s.put("relay", cfg.relayEnabled());
         s.put("relay_url", cfg.relayUrl);
         s.put("ptt", cfg.pttEnabled);

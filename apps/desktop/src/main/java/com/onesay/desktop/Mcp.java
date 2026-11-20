@@ -94,6 +94,9 @@ public final class Mcp {
         public final List<String> notes = new ArrayList<>();
     }
 
+    /** [preview-1120] 项目清单文件：选中它 = 选了它所在的项目。 */
+    static final List<String> PROJECT_FILES = List.of("package.json", "pyproject.toml", "requirements.txt", "setup.py");
+
     static final List<String> CONFIG_NAMES = List.of("claude_desktop_config.json", "mcp.json", ".mcp.json", "mcp_servers.json",
             ".vscode/mcp.json", ".cursor/mcp.json", ".roo/mcp.json", "cline_mcp_settings.json");
 
@@ -104,7 +107,11 @@ public final class Mcp {
         Detected d = new Detected();
         if (p == null || !Files.exists(p)) { d.notes.add("找不到这个位置"); return d; }
         if (Files.isRegularFile(p)) {
-            if (p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json")) fromConfig(p, p.getParent(), sysEnv, d);
+            String fn = p.getFileName().toString().toLowerCase(Locale.ROOT);
+            // [preview-1120 真机] 选的是项目清单（package.json / pyproject.toml …）= 选了这个项目：按项目认。以前 package.json 被当成
+            // MCP 配置文件，里面的 "repository": {"url": "https://github.com/…"} 被认成一个叫 repository 的 HTTP 服务器还去连了
+            if (PROJECT_FILES.contains(fn)) { if (!project(p.getParent(), sysEnv, d) && d.notes.isEmpty()) d.notes.add(fn + " 所在的项目不像 MCP 服务器（没有 MCP 依赖，也没有 bin）"); return d; }
+            if (fn.endsWith(".json")) fromConfig(p, p.getParent(), sysEnv, d);
             else d.notes.add("选的是文件：MCP 请选它所在的文件夹，或者选 MCP 配置文件（.json）");
             return d;
         }
@@ -156,12 +163,16 @@ public final class Mcp {
         Map<String, Object> m = (Map<String, Object>) root;
         Object servers = m.containsKey("mcpServers") ? m.get("mcpServers") : m.containsKey("servers") ? m.get("servers")
                 : m.get("mcp") instanceof Map && ((Map<String, Object>) m.get("mcp")).get("servers") instanceof Map ? ((Map<String, Object>) m.get("mcp")).get("servers") : m;
+        // [preview-1120] 顶层直接「名字 → 配置」的写法：只认长得像服务器的项（有 command，或 url 再带 type / transport / headers），
+        // 免得别的 JSON 里的 {"url": …}（仓库地址、主页）被当成 HTTP 服务器去连
+        boolean topLevel = servers == m;
         if (!(servers instanceof Map)) { d.notes.add(f.getFileName() + "：没有 mcpServers / servers 段"); return; }
         int before = d.specs.size();
         for (Map.Entry<String, Object> e : ((Map<String, Object>) servers).entrySet()) {
             if (!(e.getValue() instanceof Map)) continue;
             Map<String, Object> x = (Map<String, Object>) e.getValue();
             if (!x.containsKey("command") && !x.containsKey("url") && !x.containsKey("serverUrl")) continue;
+            if (topLevel && !x.containsKey("command") && !(transportWord(x.get("type")) || transportWord(x.get("transport")) || x.get("headers") instanceof Map)) continue; // "type":"git" 不算
             Spec s = new Spec();
             s.name = e.getKey();
             s.origin = "配置文件 " + base.relativize(f).toString().replace('\\', '/');
@@ -240,6 +251,13 @@ public final class Mcp {
 
     /** 这一层是不是一个 MCP 服务器项目；是就加进 d。 */
     @SuppressWarnings("unchecked")
+    /** [preview-1120] 像 MCP 传输方式的 type / transport 值（"git"、"module" 这类不算）。 */
+    static boolean transportWord(Object v) {
+        if (!(v instanceof String)) return false;
+        String t = ((String) v).toLowerCase(Locale.ROOT).replace("_", "").replace("-", "");
+        return t.equals("http") || t.equals("sse") || t.equals("streamablehttp") || t.equals("stdio") || t.equals("streamable");
+    }
+
     static boolean project(Path dir, Map<String, String> sysEnv, Detected d) {
         String folder = dir.getFileName() == null ? "mcp" : dir.getFileName().toString();
         Path pkg = dir.resolve("package.json");

@@ -520,7 +520,7 @@ public final class ChatAgent {
             msgs.add(t.message);
             if (hedges(t.content)) hedged = true;
             for (Llm.ToolCall hc : t.calls) if (hedges(hc.arguments)) hedged = true;
-            if (t.content != null && !t.content.isBlank()) steps.step(Map.of("phase", "note", "desc", clip(Humanize.text(t.content.trim()), 300), "text", t.content.trim())); // [overnight-1119] 旁白不露内部名
+            if (t.content != null && !t.content.isBlank()) steps.step(Map.of("phase", "note", "desc", clip(Humanize.text(Outcomes.stripTag(t.content.trim())), 300), "text", t.content.trim())); // [preview-1120 真机] 旁白不露【需要你操作】这类结果标记 // [overnight-1119] 旁白不露内部名
             for (Llm.ToolCall c : t.calls) {
                 if (cancel.get()) {
                     msgs.add(toolMsg(c.id, "{\"ok\":false,\"text\":\"用户点了停止\"}"));

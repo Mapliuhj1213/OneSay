@@ -209,7 +209,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .pbar{height:6px;border-radius:3px;background:var(--bg);overflow:hidden;margin:6px 0 2px;position:relative}.pbar i{display:block;height:100%;background:var(--accent);border-radius:3px;transition:width .3s}
 .pbar.ind i{width:30%;position:absolute;animation:pind 1.2s ease-in-out infinite}@keyframes pind{0%{left:-30%}100%{left:100%}}
 .pline{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text2)}
-.ic.ok{background:var(--green);color:#fff}.ic.warn{background:#F5B400;color:#fff}.tc .sp .wn{color:#8A6A00;font-size:12.5px}.tc .md b{font-weight:600}.tc .md code,.m .md code{font:12px ui-monospace,Consolas,monospace;background:var(--bg);padding:0 4px;border-radius:4px}.ic.fail{background:var(--red);color:#fff}.ic.wait{background:#FF9500;color:#fff}
+.ic.ok{background:var(--green);color:#fff}.ic.warn{background:#F5B400;color:#fff}.tc .sp .wn{color:#8A6A00;font-size:12.5px}.tc .md b{font-weight:600}.md pre.mdpre{margin:6px 0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:12.5px/1.55 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:var(--text)}.md pre.mdpre code{background:none;padding:0}.md table.mdt{border-collapse:collapse;margin:6px 0;font-size:14px;line-height:1.5;white-space:normal}.md .mdt th,.md .mdt td{border:1px solid var(--line);padding:4px 10px;text-align:left;vertical-align:top}.md .mdt th{background:var(--surface2);font-weight:600}.tc .md code,.m .md code{font:12px ui-monospace,Consolas,monospace;background:var(--bg);padding:0 4px;border-radius:4px}.ic.fail{background:var(--red);color:#fff}.ic.wait{background:#FF9500;color:#fff}
 @keyframes spin{to{transform:rotate(360deg)}}
 .tc .sp .bd{flex:1;min-width:0}.tc .sp .ds{color:var(--text)}.tc .sp .er{color:var(--red);font-size:12.5px}
 .tc .sp .ok1{color:var(--text3);font-size:12.5px}
@@ -760,7 +760,7 @@ P.settings=()=>{const s=S.settings;
   <div style="font-size:13px;color:var(--text2);line-height:1.7"><b style="color:var(--text);font-weight:600">配对手机</b><br>用手机 OneSay 的「设置 › 连接 › 电脑联动」扫码配对。<br>这个码就是钥匙，别截图发给别人。<br><button class="btn ghost sm" style="margin-top:8px" onclick="showPair()">${pairShown?'隐藏':'显示'}</button> <button class="btn ghost sm" onclick="rekey()">换一把钥匙</button></div></div>
   <div id="pairtxt"></div></div>
   <div class="card" style="margin-top:12px">${Object.keys(S.peers).map(id=>kv(esc(id),esc(S.peers[id])+' · 在线','<span class="tag green">在线</span>')).join('')||kv('已连接','没有设备连着','<span class="tag">离线</span>')}
-  ${kv('局域网直连','同一个路由器下，端口 '+s.lan_port+'（发现用 '+(s.lan_port+1)+'，组播 224.0.0.167）；新手机走 TLS 加密 + 证书指纹',tag(s.lan_port>0))}${kv('中转（插件）',s.relay?esc(s.relay_url):'不在同一个 Wi-Fi 也要控制时再开，需自建',tag(s.relay))}
+  ${kv('局域网直连','同一个路由器下，端口 '+s.lan_port+'（发现用 '+(s.lan_port+1)+'，组播 224.0.0.167）；新手机走 TLS 加密 + 证书指纹',(s.lan_env_off?'<span class="tag">这次没开（ONESAY_LAN=off）</span>':tag(s.lan_port>0)))}${kv('中转（插件）',s.relay?esc(s.relay_url):'不在同一个 Wi-Fi 也要控制时再开，需自建',tag(s.relay))}
   ${kv('本机证书指纹',`<b>${esc(S.tls_fp||'')}</b>（手机上显示的应一致）`,`<button class="btn ghost sm" onclick="unpin()">忘掉手机证书</button>`)}</div>
   <p class="note">首次运行时 Windows 防火墙会问是否允许联网：勾「专用网络」。</p>
 
@@ -826,12 +826,18 @@ const STATE_ZH={running:['进行中','running'],done:['完成','done'],warn:['�
   time_limit:['到时长上限','stop'],stopped:['已停止','stop'],error:['出错','fail']};
 const clipTxt=(t,n)=>{t=String(t||'');return t.length>n?t.slice(0,n):t};
 // [overnight-1119] 旁白 / 答复里的 markdown：**粗体**、`代码`、# 标题、- 列表 渲染成样式（先转义再替换，不放任何 HTML 进来）
-function md(t){let h=esc(String(t||''));
-  h=h.replace(/`([^`\n]{1,200})`/g,'<code>$1</code>');
-  h=h.replace(/\*\*([^*\n]{1,300}?)\*\*/g,'<b>$1</b>');
-  h=h.replace(/(^|[^*\w])\*([^*\n]{1,200}?)\*(?!\*)/g,'$1$2');
+function md(t){let h=esc(String(t||'').replace(/\u0000/g,''));
+  // [preview-1120] 真机：要求 Markdown 时模型会给表格 / 代码块，以前原样露出 | --- | 和 ```。先把块级的换成占位，再做行内的
+  const B=[],keep=x=>{B.push(x);return '\u0000'+(B.length-1)+'\u0000'};
+  const inl=s=>s.replace(/`([^`\n]{1,200})`/g,'<code>$1</code>').replace(/\*\*([^*\n]{1,300}?)\*\*/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\n]{1,200}?)\*(?!\*)/g,'$1$2');
+  h=h.replace(/(^|\n)[ \t]*```[ \t]*([\w+#.-]{0,20})[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/g,(m,pre,lang,code)=>pre+keep('<pre class="mdpre"'+(lang?' data-lang="'+lang+'"':'')+'><code>'+code+'</code></pre>'));
+  const cells=r=>r.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(c=>inl(c.trim()));
+  h=h.replace(/(^|\n)([ \t]*\|[^\n]*\|[ \t]*)\n(?=[^\n]*\|)[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*((?:\n[ \t]*\|[^\n]*\|[ \t]*)*)/g,(m,pre,head,body)=>{
+    const rows=body.split('\n').filter(r=>r.trim());
+    return pre+keep('<table class="mdt"><tr>'+cells(head).map(c=>'<th>'+c+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+cells(r).map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')+'</table>')});
+  h=inl(h);
   h=h.replace(/^#{1,6}\s+(.+)$/gm,'<b>$1</b>').replace(/^\s*[-*]\s+/gm,'• ');
-  return h}
+  return h.replace(/\u0000(\d+)\u0000\n?/g,(m,i)=>B[+i])}
 // [overnight-1119] 下载 / 传文件的进度条：百分比、已下 / 总大小、速度、剩余时间；总大小不知道时是不定进度条；可取消
 function progHtml(p){if(!p)return '';const ind=!(p.total>0);
   return `<div class="pbar ${ind?'ind':''}"><i style="${ind?'':'width:'+Math.max(1,p.percent)+'%'}"></i></div><div class="pline"><span style="flex:1">${esc(p.text||'')}</span><button class="tag danger" onclick="dlCancel()">取消</button></div>`}
@@ -1023,7 +1029,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&cfId){e.preventDefa
 // 窗口关闭：在等的请求按拒绝（程序那边界面 8 秒没动静也会按拒绝）
 window.addEventListener('pagehide',()=>{if(!LIVE||!cfId)return;try{fetch('/api/confirm',{method:'POST',keepalive:true,headers:{'X-OneSay-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify({op:'closed'})})}catch(e){}});
 async function setv(k,v){if(!LIVE){S.settings[k]=v;if(k==='llm_key'||k==='asr_key'||k==='vision_key')S.settings[k+'_set']=!!v;render();return}
-  const r=await api('settings',{[k]:v});snack(r.text);if(r.settings)S.settings=r.settings;render()}
+  const r=await api('settings',{[k]:v});snack(r.text);if(r.settings)S.settings=r.settings;render();if(k==='theme'||k==='theme_pack')refresh()} // [preview-1120] 换主题马上生效，不等下一次轮询
 async function testLlm(){snack('测试中…');const r=await api('test_llm',{});snack(r.text)}
 async function showPair(){pairShown=!pairShown;if(!pairShown){lastPair='';render();return}
   let s='onesay://pair?key=DEMO&peer=pc-desktop&lan=192.168.1.20:47820';if(LIVE){const r=await api('pairing',{});s=r.pairing}
@@ -1111,7 +1117,8 @@ function render(){if(!S)return;
   $(page).innerHTML=P[page]();markDanger($(page));if(page==='settings'){applySetFilter();if(pairShown&&lastPair)drawQr(lastPair)}}
 // ★ console-align：按钮文字是危险动词（DANGER，与手机 ConsoleStyle 同一张表）→ 红字
 function markDanger(root){root.querySelectorAll('button.btn,button.tag').forEach(b=>{if(isDanger(b.textContent))b.classList.add('danger')})}
-function go(p){page=p;document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('on',x.dataset.p===p));
+function go(p){if(p==='settings'&&page!=='settings')THEMES=null; // [preview-1120] 进设置页重新读主题包（文件夹里新放的也能看到）
+  page=p;document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('on',x.dataset.p===p));
   document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id===p));$('main').classList.toggle('chatmode',p==='chat');
   if(p!=='settings')pairShown=false;
   if(p==='notes'&&S&&S.notes.some(n=>!n.read))setTimeout(()=>notes('read'),1500);
