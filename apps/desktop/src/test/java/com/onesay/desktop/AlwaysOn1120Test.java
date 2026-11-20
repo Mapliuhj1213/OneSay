@@ -439,8 +439,18 @@ public class AlwaysOn1120Test {
         assertTrue("局域网对端发的 aon_* 不认", got.isEmpty());
         cfg.relayUrl = "https://relay.example.com";
         cfg.relayToken = "t".repeat(32);
-        a.handle(f, new RelayClient(cfg, new Link.Listener() { public void onFrame(Map<String, Object> x) { } }));
+        RelayClient rc = new RelayClient(cfg, new Link.Listener() { public void onFrame(Map<String, Object> x) { } });
+        a.handle(f, rc);
         assertEquals(1, got.size());
+        // 旧版中转回不带 id 的 bad_frame → 告诉常驻分工中转要更新；带 id 的（普通指令的错）不算
+        a.handle(new TreeMap<>(Map.of("type", "error", "code", "bad_frame", "id", "m1")), rc);
+        assertEquals(1, got.size());
+        a.handle(new TreeMap<>(Map.of("type", "error", "code", "bad_frame")), rc);
+        assertEquals(2, got.size());
+        assertEquals("unknown", got.get(1).get("code"));
+        AlwaysOnService s = new AlwaysOnService(null, () -> T0, x -> { });
+        s.onFrame(got.get(1));
+        assertTrue(String.valueOf(((Map<?, ?>) s.view().get("node")).get("err")).contains("要更新中转"));
     }
 
     // ------------------------------------------------------------------ 网络唤醒

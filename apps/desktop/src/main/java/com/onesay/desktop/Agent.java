@@ -106,6 +106,15 @@ public final class Agent {
         }
         if (type.equals("devices") || type.equals("error")) {
             if (type.equals("error")) log.accept(via.name() + "报错 " + f.get("code"));
+            // [always-on-1120] 旧版中转不认识常驻分工的帧，回不带 id 的 bad_frame：告诉常驻分工「中转要更新」，别一直重发
+            java.util.function.Consumer<Map<String, Object>> h = nodeHook;
+            if (type.equals("error") && "bad_frame".equals(f.get("code")) && f.get("id") == null && h != null && via instanceof RelayClient) {
+                Map<String, Object> e = new TreeMap<>();
+                e.put("type", "aon_err");
+                e.put("code", "unknown");
+                e.put("op", "aon");
+                h.accept(e);
+            }
             return;
         }
         if (!type.equals("msg") || !(f.get("body") instanceof Map)) return;

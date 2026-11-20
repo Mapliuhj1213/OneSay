@@ -72,6 +72,8 @@ public final class AlwaysOnService {
     public volatile String wolMac = "", wolBcast = "";
     private volatile Map<String, Object> nodeStatus = new TreeMap<>();
     private volatile String nodeErr = "";
+    /** 中转是旧版本（不认识常驻分工的帧）：不再每分钟问状态，界面提示更新中转。 */
+    private volatile boolean nodeOld;
     private volatile long lastSave, lastStatusReq;
     private ScheduledExecutorService sched;
 
@@ -150,7 +152,7 @@ public final class AlwaysOnService {
         for (Object[] t : todo) occur((Job) t[0], (Long) t[1], (St) t[2], "本机", null, false);
         if (changed || now - lastSave > 60_000) save();
         Port p = port;
-        if (p != null && p.up() && now - lastStatusReq > 60_000) { lastStatusReq = now; p.send(frame("aon_status_req")); }
+        if (p != null && p.up() && now - lastStatusReq > 60_000 && !nodeOld) { lastStatusReq = now; p.send(frame("aon_status_req")); }
     }
 
     /**
@@ -312,8 +314,8 @@ public final class AlwaysOnService {
                 occur(j, due, AlwaysOn.decide(j, due, now), "常驻节点", null, "pc".equals(kind));
                 return;
             }
-            case "aon_status": nodeStatus = new TreeMap<>(f); nodeErr = ""; return;
-            case "aon_err": nodeErr = errZh(AlwaysOn.str(f.get("code"))); log.accept("常驻节点报错：" + f.get("code") + "（" + f.get("op") + "）"); return;
+            case "aon_status": nodeStatus = new TreeMap<>(f); nodeErr = ""; nodeOld = false; return;
+            case "aon_err": nodeErr = errZh(AlwaysOn.str(f.get("code"))); nodeOld = "unknown".equals(f.get("code")); log.accept("常驻节点报错：" + f.get("code") + "（" + f.get("op") + "）"); return;
             default: return;
         }
     }
