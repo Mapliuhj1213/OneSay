@@ -96,7 +96,7 @@ public class Preview1120Device2Test {
                 new Llm.ToolCall("b", "run_command", "{\"command\":\"Get-Process steam\",\"description\":\"看进程\"}")), new TreeMap<>(Llm.msg("assistant", "")));
         ChatAgent.Brain b = (m, t) -> {
             toolsGiven.add(!t.isEmpty()); seen.add(new ArrayList<>(m));
-            return t.isEmpty() ? new Llm.Turn("已确认商店能连上、社区 443 连不上。你可以：1. 换网络试试 2. 用加速器访问社区。", List.of(), Llm.msg("assistant", "x")) : two;
+            return t.isEmpty() ? new Llm.Turn("【需要你操作】已确认商店能连上、社区 443 连不上。你可以：1. 换网络试试 2. 用加速器访问社区。", List.of(), Llm.msg("assistant", "x")) : two;
         };
         List<String> calls = new ArrayList<>();
         ChatAgent.Exec ex = (cmd, args) -> { calls.add(cmd); return new Actions.Result(false, "对方点了拒绝", new TreeMap<>(Map.of("reason", LinkPolicy.R_CONFIRM_DENIED))); };
@@ -106,6 +106,7 @@ public class Preview1120Device2Test {
         assertEquals(List.of(true, false), toolsGiven);
         assertTrue(o.text.startsWith("你在确认框里拒绝了这一步（启动 Steam）"));
         assertTrue(o.text.contains("用加速器访问社区"));
+        assertFalse("收尾不露结果标记", o.text.contains("【需要你操作】"));
         // 没轮到的第二个调用也有回应（接口要求），标明没执行
         List<Map<String, Object>> last = seen.get(1);
         boolean skipped = false;
@@ -121,5 +122,64 @@ public class Preview1120Device2Test {
         ChatAgent.Outcome o = a.run(ctx(), b, ex, t -> { });
         assertEquals("denied", o.status);
         assertTrue(o.text.endsWith("直接告诉我。"));
+    }
+
+    // ------------------------------------------------------------------ [综合任务测试 3] 只问不做打回一次
+
+    static final String L2 = "我可以帮你把行程排出来，但有几个关键信息得先定。\n\n1. 什么时候去？一周具体是哪几天。\n2. 从哪出发、预算大概多少（人均或总预算）。\n"
+            + "3. 爸妈腿脚到什么程度：能连续走 20 分钟吗？\n4. 想玩哪一片：昆明+大理+丽江，还是只待一两个地方？";
+
+    @Test public void questionCountReadsNumberedQuestions() {
+        assertEquals(4, ChatAgent.questionCount(L2));
+        assertTrue(ChatAgent.overAsks(L2));
+        assertFalse(ChatAgent.overAsks("初步倾向云南。\n1. 玩几天？\n2. 想不想看雪？"));
+        assertFalse("步骤清单不是问题", ChatAgent.overAsks("这样做：\n1. 打开设置\n2. 选声音\n3. 把输出改成扬声器"));
+        assertEquals(0, ChatAgent.questionCount(null));
+    }
+
+    @Test public void overAskingFirstReplyIsSentBackOnce() {
+        List<List<Map<String, Object>>> seen = new ArrayList<>();
+        AtomicInteger n = new AtomicInteger();
+        ChatAgent.Brain b = (m, t) -> { seen.add(new ArrayList<>(m)); return new Llm.Turn(L2, List.of(), Llm.msg("assistant", L2)); };
+        ChatAgent.Outcome o = guarded().run(ctx(), b, (c, a) -> null, t -> { });
+        assertEquals("done", o.status);
+        assertEquals("只打回一次", 2, seen.size());
+        assertTrue(String.valueOf(seen.get(1).get(seen.get(1).size() - 1).get("content")).contains("最多问 1–2 个"));
+        // 没开防护（直接 new 的 ChatAgent）不打回
+        List<Integer> calls = new ArrayList<>();
+        new ChatAgent().run(ctx(), (m, t) -> { calls.add(1); return new Llm.Turn(L2, List.of(), Llm.msg("assistant", L2)); }, (c, a) -> null, t -> { });
+        assertEquals(1, calls.size());
+    }
+
+    @Test public void promptAsksToVerifyTimeSensitiveFactsFirst() {
+        String p = ChatAgent.systemPrompt("2026-11-20 周五 18:00", "W", "H", "");
+        assertTrue(p.contains("先联网查官方或权威来源"));
+        assertTrue(p.contains("已经过去"));
+        assertTrue(p.contains("最多问 1–2 个关键问题"));
+    }
+
+    @Test public void lockedScreenIsNotShotAndSaysHowToReadInstead() throws Exception {
+        Chat ch = DevTools1118Test.chat();
+        ch.workspace = java.nio.file.Files.createTempDirectory("ws").toString();
+        byte[] png = DevTools1118Test.tinyPng();
+        List<String> shot = new ArrayList<>();
+        ch.shooter = t -> { shot.add(t); return new Object[] {png, "pc"}; };
+        ch.ocr = f -> "";
+        ch.screenLocked = () -> true;
+        Actions.Result r = ch.screenLook(Map.of("target", "pc"));
+        assertFalse(r.ok);
+        assertEquals("screen_locked", r.data.get("reason"));
+        assertTrue(String.valueOf(r.data.get("output")).contains("Invoke-WebRequest"));
+        assertTrue("锁着就不截", shot.isEmpty());
+        // 安卓设备不受电脑锁屏影响；没锁照常截
+        ch.screenLook(Map.of("target", "emulator-5554"));
+        assertEquals(List.of("emulator-5554"), shot);
+        ch.screenLocked = () -> false;
+        assertTrue(ch.screenLook(Map.of("target", "pc")).ok);
+        assertFalse("沙箱（非 Windows）不算锁屏", Chat.windowsLocked());
+    }
+
+    @Test public void promptSaysOpenUrlIsNotForReading() {
+        assertTrue(ChatAgent.systemPrompt("t", "W", "H", "").contains("不要靠打开后截图来读网页"));
     }
 }

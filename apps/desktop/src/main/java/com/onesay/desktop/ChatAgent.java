@@ -393,6 +393,26 @@ public final class ChatAgent {
     /** 模型把活推回给用户（「我无法直接操作电脑」「需要你手动」）：第一轮这样说就确定性地打回一次。 */
     static final Pattern PUNT = Pattern.compile("(无法|不能|没法|没有办法)(直接)?(操作|控制|访问|在)(你的|您的|这台)?(电脑|计算机|系统)|需要你(自己)?手动|请你手动|你可以按(下面|以下|这个)(的)?(顺序|步骤)");
 
+    /** 一条回复里列了几个要用户回答的问题（编号行 / 项目符号行里带问号或「多少 / 哪 / 几」）。 */
+    static int questionCount(String s) {
+        if (s == null) return 0;
+        int n = 0;
+        for (String line : s.split("\\R")) {
+            String l = line.trim();
+            if (!l.matches("^(\\d+[.、)）]|[-•·*]|[（(]\\d+[)）]).*")) continue;
+            if (l.matches(".*([？?]|多少|哪(个|里|儿|天|类|些)?|几(天|个|号|点|人)|什么时候|是否|要不要|还是).*")) n++;
+        }
+        return n;
+    }
+
+    /** 第一轮就只问不做：没调用任何工具，回复里列了 3 个及以上的问题。 */
+    static boolean overAsks(String s) { return questionCount(s) >= 3; }
+
+    static final String ASK_NUDGE = "（OneSay 内部提示）你一步还没查，就一次问了用户好几个问题。先做能做的："
+            + "能公开查到的（活动 / 展会 / 考试的日期地点、签证政策、开放时间、交通方式）先用工具联网查官方来源；"
+            + "用户没说的偏好按最常见的情况假设，并写明假设，先给出一版可用的答案；最后最多问 1–2 个真正会改变结果的问题。"
+            + "用户给的日期已经过去、活动查不到或地名对不上时，先指出来。";
+
     static boolean punts(String s) {
         return s != null && PUNT.matcher(s).find();
     }
@@ -438,6 +458,11 @@ public final class ChatAgent {
                 + "每次调用工具都要填 description：用一句简短中文说这一步在做什么（给用户看的进度）。\n"
                 + "用户给你一个目标时：自己规划，一步步调用工具把它做完，每步看结果再决定下一步；能由你完成的步骤不要推给用户手动做，也不要只给教程。"
                 + "缺信息先自己用命令查（比如程序装在哪、版本号、文件在不在）；只有真正需要用户拍板的事（花钱、多个选择差别很大、要账号密码）才问。\n"
+                // [preview-1120 真机综合测试 3] 出行 / 活动 / 政策类：先查后问、时效信息核验、日期对照今天
+                + "问到会变的公开信息（活动 / 展会 / 比赛 / 考试的日期和地点、签证与入境政策、开放时间、票价、最新版本）时，先联网查官方或权威来源再答，答案里写明来源和查到的日期；查不到就明说「没查到 / 未核实」，不要凭印象给具体日期。"
+                + "拿用户说的日期和现在的日期对照：已经过去、星期对不上、活动查不到或地名对不上，先指出来再往下做。"
+                + "规划类请求缺偏好时，按常见情况假设并写明，先给一版能用的方案，最后最多问 1–2 个关键问题，不要一上来列一串问题。"
+                + "你自己要看网页内容时用 run_command 的 Invoke-WebRequest（-UseBasicParsing）读出文字；open_url 只是在用户的浏览器里打开页面，你看不到，不要靠打开后截图来读网页。\n"
                 + "安全：要批准的步骤 OneSay 会在任务卡上请用户点（用户可以一次批准整个任务）；"
                 + "被拒绝或没人确认就停下说明，不要换个写法绕过。不要提权（runas / UAC），不要关闭或绕过杀毒软件、防火墙，不要改 OneSay 自己的设置，不要输出或保存密码和 Key。"
                 + "只从官方或可信来源下载软件。\n"
@@ -467,7 +492,7 @@ public final class ChatAgent {
         List<Map<String, Object>> msgs = new ArrayList<>(context);
         List<Map<String, Object>> tools = tools();
         int done = 0, fails = 0;
-        boolean nudged = false, fakeNudged = false;
+        boolean nudged = false, fakeNudged = false, askNudged = false;
         int toolTextNudges = 0;
         boolean hedged = false, choiceDone = false;
         int hedgeBlocks = 0;
@@ -525,6 +550,14 @@ public final class ChatAgent {
                     msgs.add(Llm.msg("assistant", text.isEmpty() ? "（略）" : text));
                     msgs.add(Llm.msg("user", "（OneSay 内部提示）你刚才在回复里写了执行步骤 / 结果的文字，但没有真正调用工具，那些步骤并没有执行。"
                             + "要做的步骤请直接调用工具；已经真实执行过的结果以工具返回为准。"));
+                    continue;
+                }
+                if (progressGuard && !askNudged && done == 0 && overAsks(text)) {
+                    // [preview-1120 真机综合测试 3] 一步没查就甩回一串问题（出行 / 活动类实测 9 条里 7 条这样）：打回一次，
+                    // 先查能公开查到的（时效信息查官方来源）、按常见假设给一版，最后最多问 1–2 个真正影响结果的问题
+                    askNudged = true;
+                    msgs.add(t.message);
+                    msgs.add(Llm.msg("user", ASK_NUDGE));
                     continue;
                 }
                 if (!nudged && done == 0 && punts(text)) {
@@ -689,7 +722,7 @@ public final class ChatAgent {
                     + "①已经确认了什么（只说上面工具结果里真实出现的，不要推测成事实；结果互相矛盾就直说）；②还没弄清的；③用户自己可以怎么做（具体步骤）。"
                     + "不要说做了没做的事，不要再问一堆问题。"));
             Llm.Turn t = brain.next(m, List.of());
-            String x = t == null || t.content == null ? "" : stripFakeSteps(t.content.trim());
+            String x = t == null || t.content == null ? "" : Outcomes.stripTag(stripFakeSteps(t.content.trim())); // 收尾里不露【需要你操作】这类结果标记（真机复验时出现）
             if (x.isEmpty() || looksLikeToolText(x)) return o;
             return new Outcome(o.text + "\n\n" + x, o.status, o.steps);
         } catch (Exception e) {

@@ -561,6 +561,27 @@ public final class Chat {
         };
     }
     volatile Reader ocr = DeviceTools::ocr;
+    /** [preview-1120 真机综合测试 3] 这台电脑的屏幕是不是锁着（测试换）。 */
+    volatile java.util.function.BooleanSupplier screenLocked = Chat::windowsLocked;
+
+    /**
+     * 锁屏 / 登录界面时 Windows 跑着 LogonUI.exe。用 tasklist 看（普通权限也能列出别的会话的进程名），3 秒内没结果就当没锁。
+     * 真机：屏幕锁着时模型照样截图，截到的是锁屏，OCR 读不出字，就反复截、甚至拿截图文件大小去猜网页内容。
+     */
+    static boolean windowsLocked() {
+        if (!System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")) return false;
+        try {
+            Process p = new ProcessBuilder("tasklist", "/FI", "IMAGENAME eq LogonUI.exe", "/NH").redirectErrorStream(true).start();
+            if (!p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) { p.destroyForcibly(); return false; }
+            String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.Charset.defaultCharset());
+            return out.toLowerCase(java.util.Locale.ROOT).contains("logonui.exe");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    static final String LOCKED_TEXT = "这台电脑的屏幕现在是锁着的（锁屏 / 登录界面），截屏只能截到锁屏画面，看不到任何窗口，所以没有截。"
+            + "不要再截图，也不要拿截图去核对网页或程序的内容：网页内容用 run_command 的 Invoke-WebRequest（-UseBasicParsing）读文字；程序状态用命令查；必须看画面的，告诉用户解锁后再看。";
 
     Path workspacePath() {
         String ws = workspace == null || workspace.isEmpty() ? String.valueOf(cfg.workspace()) : workspace;
@@ -590,6 +611,12 @@ public final class Chat {
         String goal = !q.isBlank() ? q : a.get("goal") == null ? "" : String.valueOf(a.get("goal")); // [overnight-1119] 核对用的目标
         byte[] png;
         String who;
+        if ("pc".equals(target) && screenLocked.getAsBoolean()) {
+            Map<String, Object> d = new TreeMap<>();
+            d.put("reason", "screen_locked");
+            d.put("output", LOCKED_TEXT);
+            return new Actions.Result(false, "屏幕锁着，没截图", d);
+        }
         try {
             Object[] s = shooter.shoot(target);
             png = (byte[]) s[0];
