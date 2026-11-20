@@ -1248,6 +1248,7 @@ public final class PcGuard {
         if ("wf_call".equals(cmd)) {
             WfApi w = WF;
             if (w == null) return Actions.Result.fail("工作流没开");
+            if (!local()) return Actions.Result.fail("工作流 / 技能工具只能在电脑本机的对话里用"); // 手机发来的不认
             @SuppressWarnings("unchecked") Map<String, Object> args = a.get("arguments") instanceof Map ? (Map<String, Object>) a.get("arguments") : new TreeMap<>();
             return w.callTool(str(a, "fn"), args);
         }

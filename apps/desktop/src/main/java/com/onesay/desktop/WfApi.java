@@ -175,6 +175,7 @@ public final class WfApi {
         try {
             URI u = URI.create(url.trim());
             if (u.getScheme() == null || !u.getScheme().matches("(?i)https?")) return "{\"error\":\"只能访问 http / https\"}";
+            if (u.getHost() == null || privateHost(u.getHost())) return "{\"error\":\"技能不能访问本机或局域网地址\"}";
             HttpResponse<java.io.InputStream> r = http.send(HttpRequest.newBuilder(u).timeout(Duration.ofSeconds(10)).GET().build(), HttpResponse.BodyHandlers.ofInputStream());
             byte[] b;
             try (java.io.InputStream in = r.body()) { b = in.readNBytes(1024 * 1024); }
@@ -184,6 +185,21 @@ public final class WfApi {
             return Json.stringify(m);
         } catch (Exception e) {
             return "{\"error\":\"请求失败\"}";
+        }
+    }
+
+    /** 本机 / 局域网 / 链路本地地址（技能联网不许碰：本机界面、路由器后台这类）。解析不了也算。 */
+    static boolean privateHost(String host) {
+        try {
+            for (java.net.InetAddress a : java.net.InetAddress.getAllByName(host)) {
+                if (a.isLoopbackAddress() || a.isSiteLocalAddress() || a.isLinkLocalAddress() || a.isAnyLocalAddress() || a.isMulticastAddress()) return true;
+                byte[] b = a.getAddress();
+                if (b.length == 4 && (b[0] & 0xff) == 100 && (b[1] & 0xc0) == 64) return true; // 100.64/10（CGNAT、Tailscale）
+                if (b.length == 16 && (b[0] & 0xfe) == 0xfc) return true; // fc00::/7
+            }
+            return false;
+        } catch (Exception e) {
+            return true;
         }
     }
 

@@ -413,7 +413,9 @@ public final class SkillRegistry {
     public synchronized Map<String, Object> uninstall(String id) {
         Skill k = skills.get(id);
         if (k == null) return fail("没有这个技能");
-        deleteTree(userDir.resolve(id));
+        Path d = k.dir == null ? null : k.dir.toAbsolutePath().normalize();
+        if (d == null || !d.startsWith(userDir.toAbsolutePath().normalize()) || d.equals(userDir.toAbsolutePath().normalize())) return fail("这个技能不在技能目录里，没删");
+        deleteTree(d);
         rescan();
         return ok("已删除技能「" + k.name + "」");
     }

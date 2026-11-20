@@ -26,7 +26,15 @@ public final class WfCode {
     private WfCode() { }
 
     public static final int DEFAULT_TIMEOUT_MS = 3000, MAX_TIMEOUT_MS = 30_000, DEFAULT_MEM_MB = 32, MAX_MEM_MB = 128;
-    static final int MAX_OUT = 1024 * 1024;
+    static final int MAX_OUT = 1024 * 1024, MAX_LOG = 64 * 1024;
+    /** 同时最多跑几段代码（每段最多占 128 MB 线性内存，防止并发把 JVM 堆撑爆）。 */
+    static final java.util.concurrent.Semaphore SLOTS = new java.util.concurrent.Semaphore(3, true);
+
+    /** 有上限的输出缓冲：console.log 刷屏时超过 64 KB 的部分直接丢掉（不然限时之内能攒出几百 MB）。 */
+    static final class Capped extends java.io.ByteArrayOutputStream {
+        @Override public synchronized void write(int b) { if (count < MAX_LOG) super.write(b); }
+        @Override public synchronized void write(byte[] b, int off, int len) { int n = Math.min(len, MAX_LOG - count); if (n > 0) super.write(b, off, n); }
+    }
 
     /** 跑完的结果。ok=false 时 error 是给人看的中文；kind = timeout / memory / error / output。 */
     public static final class Result {
@@ -46,7 +54,7 @@ public final class WfCode {
         int capPages = mem * 16; // 64 KB 一页
         AtomicReference<String> out = new AtomicReference<>();
         Builtins rt = Builtins.builder("onesay_rt").addStringToString("result", s -> { if (s != null && s.length() <= MAX_OUT) out.set(s); else out.set("\u0000too_big"); return ""; }).build();
-        Engine.Builder eb = Engine.builder().addBuiltins(rt)
+        Engine.Builder eb = Engine.builder().addBuiltins(rt).withStdout(new Capped()).withStderr(new Capped())
                 .withMemoryFactory(l -> new ByteArrayMemory(new MemoryLimits(l.initialPages(), Math.max(l.initialPages(), Math.min(l.maximumPages(), capPages)))));
         if (host != null && !host.isEmpty()) {
             Builtins.Builder hb = Builtins.builder("onesay");
@@ -57,6 +65,20 @@ public final class WfCode {
             eb.addBuiltins(hb.build());
         }
         String js = wrap(code, input);
+        try {
+            if (!SLOTS.tryAcquire(Math.max(1000, tmo), java.util.concurrent.TimeUnit.MILLISECONDS)) return new Result(false, null, "同时在跑的代码太多，等了 " + tmo + " 毫秒还没轮到", "busy", "", System.currentTimeMillis() - t0);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Result(false, null, "被取消", "error", "", System.currentTimeMillis() - t0);
+        }
+        try {
+            return exec(eb, js, tmo, mem, out, t0);
+        } finally {
+            SLOTS.release();
+        }
+    }
+
+    private static Result exec(Engine.Builder eb, String js, int tmo, int mem, AtomicReference<String> out, long t0) {
         Engine engine = eb.build();
         try (Runner r = Runner.builder().withEngine(engine).withTimeoutMs(tmo).withCompilationTimeoutMs(Math.max(tmo, 5000)).build()) {
             try {

@@ -776,4 +776,46 @@ public class Workflow1120Test {
             ui.stop();
         }
     }
+
+    // ------------------------------------------------------------------ 审计补的边界
+
+    @Test
+    public void auditBoundaries() throws Exception {
+        WfCode.Result big = WfCode.run("for (let i = 0; i < 1e9; i++) console.log('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' + i);", Map.of(), 1500, 32, null);
+        assertEquals("timeout", big.kind);
+        assertTrue(big.log.length() <= 4001);
+        assertTrue(WfApi.privateHost("127.0.0.1"));
+        assertTrue(WfApi.privateHost("192.168.1.10"));
+        assertTrue(WfApi.privateHost("100.101.102.103"));
+        assertTrue(WfApi.privateHost("localhost"));
+        assertFalse(WfApi.privateHost("8.8.8.8"));
+        WfApi api = new WfApi(tmp, new SecretStore.Memory(), null);
+        assertTrue(api.skillHttpGet("http://127.0.0.1:1/").contains("局域网"));
+        // 技能目录里被人放了一个 id 写成 ../ 的技能：删除只删它自己的文件夹，不跑出技能目录
+        Path evil = tmp.resolve("skills/evil");
+        Files.createDirectories(evil);
+        Files.writeString(evil.resolve("SKILL.md"), "---\nid: ../../victim\nname: evil\n---\n");
+        Path victim = tmp.getParent().resolve("victim-" + System.nanoTime());
+        Files.createDirectories(victim);
+        try {
+            api.skills.rescan();
+            api.skills.uninstall("../../victim");
+            assertTrue(Files.exists(victim));
+        } finally {
+            SkillRegistry.deleteTree(victim);
+        }
+        // 手机发来的 wf_call 不认
+        PcGuard.WF = api;
+        try {
+            PcGuard g = new PcGuard(new Config(tmp.resolve("cfg.properties")), null);
+            PcGuard.LOCAL.remove();
+            Actions.Result r = g.builtin("wf_call", Map.of("fn", "wf__list", "arguments", Map.of()));
+            assertFalse(r.ok);
+            PcGuard.LOCAL.set(Boolean.TRUE);
+            assertTrue(g.builtin("wf_call", Map.of("fn", "wf__list", "arguments", Map.of())).ok);
+        } finally {
+            PcGuard.LOCAL.remove();
+            PcGuard.WF = null;
+        }
+    }
 }
