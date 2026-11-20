@@ -361,7 +361,7 @@ public class Overnight1119Test {
         List<String> picked = new ArrayList<>();
         ChatAgent.Exec ex = (cmd, a) -> {
             if (cmd.equals("ask_choice")) { picked.add(String.valueOf(a.get("question"))); return Actions.Result.ok("用户选了：wangzan101/Mika"); }
-            ran.add(String.valueOf(a.get("command")));
+            ran.add(cmd.equals("net_download") ? "net_download " + a.get("url") : String.valueOf(a.get("command"))); // [preview-1120] 下载命令改走下载工具
             return Actions.Result.ok("命令执行完了");
         };
         List<Map<String, Object>> evs = new ArrayList<>();
@@ -373,7 +373,7 @@ public class Overnight1119Test {
         assertEquals("done", o.status);
         assertEquals("只读搜索先做了；猜的下载被拦下；选了以后才下载", 2, ran.size());
         assertTrue(ran.get(0).startsWith("Invoke-RestMethod"));
-        assertTrue(ran.get(1).startsWith("Invoke-WebRequest"));
+        assertTrue("[preview-1120] 单条 Invoke-WebRequest 下载改走下载工具（有进度条）", ran.get(1).startsWith("net_download https://github.com/wangzan101/Mika/"));
         assertEquals(1, picked.size());
         assertTrue(evs.stream().anyMatch(e -> String.valueOf(e.get("desc")).contains("先列出候选请你选")));
     }

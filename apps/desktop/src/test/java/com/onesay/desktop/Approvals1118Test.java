@@ -138,6 +138,10 @@ public class Approvals1118Test {
         ChatAgent.Brain b = (m, t) -> turns.get(Math.min(i[0]++, turns.size() - 1));
         List<String> ran = new ArrayList<>();
         ChatAgent.Exec ex = (cmd, args) -> {
+            if (cmd.equals("net_download")) { // [preview-1120] 下载命令改走下载工具：和 Agent.netDownload 一样按等价的 Invoke-WebRequest 判定
+                args = new TreeMap<>(Map.of("command", Downloader.equivalentCommand(String.valueOf(args.get("url")), String.valueOf(args.get("path")))));
+                cmd = "sys_exec";
+            }
             PcGuard.Outcome o = local(g, "task-mindustry", cmd, args);
             if (o.reply != null) return o.reply;
             assertTrue(o.pass.consume(cmd, o.args));

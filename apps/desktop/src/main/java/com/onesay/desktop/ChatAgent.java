@@ -127,7 +127,7 @@ public final class ChatAgent {
         rc.put("description", prop("string", DESC));
         rc.put("command", prop("string", "一条 Windows PowerShell 5.1 命令（非交互，不能弹窗等输入）。可以用分号串多步。"));
         rc.put("timeout_sec", prop("integer", "最长等多少秒，默认 60，最多 900（下载大文件时调大）。"));
-        l.add(fn("run_command", "在这台 Windows 电脑上执行 PowerShell 命令并返回输出（以当前用户权限，不提权）。只读查询、在桌面 / 下载 / 文档 / 工作区里新建文件直接执行；其余按权限预设可能要用户批准一次。", rc, List.of("description", "command")));
+        l.add(fn("run_command", "在这台 Windows 电脑上执行 PowerShell 命令并返回输出（以当前用户权限，不提权）。只读查询、在桌面 / 下载 / 文档 / 工作区里新建文件直接执行；其余按权限预设可能要用户批准一次。下载文件不要用它（Invoke-WebRequest / curl / wget），用 download。", rc, List.of("description", "command")));
         Map<String, Object> ou = new TreeMap<>();
         ou.put("description", prop("string", DESC));
         ou.put("url", prop("string", "要打开的 http(s) 网址"));
@@ -242,6 +242,9 @@ public final class ChatAgent {
             case "run_command": {
                 Object cmd = a.get("command");
                 if (cmd == null || String.valueOf(cmd).isBlank()) return null;
+                // [preview-1120] 整条命令就是下载一个文件 → 改走下载工具（任务卡有进度条、能取消）；判定照旧按等价的 Invoke-WebRequest
+                DownloadRewrite.Dl dl = DownloadRewrite.parse(String.valueOf(cmd));
+                if (dl != null) return new Object[] {"net_download", DownloadRewrite.args(dl)};
                 out.put("command", String.valueOf(cmd));
                 Object t = a.get("timeout_sec");
                 if (t instanceof Number) out.put("timeout_sec", Math.max(5L, Math.min(900L, ((Number) t).longValue())));
@@ -455,6 +458,7 @@ public final class ChatAgent {
         int hedgeBlocks = 0;
         boolean uiRead = false;   // [overnight-1119 第 7 条] 这次任务读过安卓界面没有（android_ui）
         int coordBlocks = 0;
+        int dlHints = 0; // [preview-1120] 命令里下载文件 → 提示改用下载工具的次数
         String lastKey = "";
         int repeat = 0;
         cancel.set(false);
@@ -559,6 +563,15 @@ public final class ChatAgent {
                     msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "guess_coords", "text",
                             "没执行：这一步用 input tap / swipe 点固定坐标，但这次还没读过安卓界面，坐标是猜的。先用 android_ui 的 dump 看界面，再用 tap_text / check_text 按文字点；确实要坐标时用 dump 里控件 bounds 的中心。"))));
                     steps.step(Map.of("phase", "note", "desc", "没按猜的坐标点：先读安卓界面，再按文字点"));
+                    continue;
+                }
+                if ("run_command".equals(c.name) && "net_download".equals(cmd))
+                    steps.step(Map.of("phase", "note", "desc", "这条命令是在下载文件：改用下载工具，任务卡上显示进度，可以取消"));
+                if ("sys_exec".equals(cmd) && dlHints < 2 && DownloadRewrite.mentions(String.valueOf(args.get("command")))) {
+                    // [preview-1120] 命令里混着下载、认不全：先不执行，提示模型改用下载工具（两次后照原命令执行，免得卡死）
+                    dlHints++;
+                    msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "use_download", "text", DownloadRewrite.hint()))));
+                    steps.step(Map.of("phase", "note", "desc", "下载文件改用下载工具（任务卡上有进度条），这条命令先不执行"));
                     continue;
                 }
                 if ("android_ui".equals(cmd)) uiRead = true;
