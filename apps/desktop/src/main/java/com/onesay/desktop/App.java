@@ -956,7 +956,7 @@ public final class App {
                     case "llm_provider": if (List.of("deepseek", "bailian", "custom").contains(v)) cfg.llmProvider = v; break;
                     case "llm_key": if (v.equals("-")) cfg.llmKey = ""; else if (!v.isEmpty()) cfg.llmKey = v; break;
                     case "llm_model": cfg.llmModel = v; break;
-                    case "llm_base": if (v.isEmpty() || v.startsWith("https://") || v.startsWith("http://127.0.0.1") || v.startsWith("http://localhost")) cfg.llmBase = v; else return fail("接口地址要用 https"); break;
+                    case "llm_base": if (baseOk(v)) cfg.llmBase = v; else return fail("接口地址要用 https（本机的 http://127.0.0.1 / localhost 也行）"); break;
                     case "asr_mode": if (List.of("local", "phone", "cloud").contains(v)) cfg.asrMode = v; break; // 旧接口，只存不用
                     case "asr_pref": if (List.of("auto", "cloud", "local").contains(v)) { cfg.asrPref = v; asr.invalidate(); restartVoice = true; log.accept("识别 → " + AsrRoute.Pref.of(v).zh); } break;
                     case "asr_key": if (v.equals("-")) cfg.asrKey = ""; else if (!v.isEmpty()) cfg.asrKey = v; asr.invalidate(); restartVoice = true; break;
@@ -992,7 +992,7 @@ public final class App {
                     case "autostart": autostart(v.equals("true")); break;
                     case "media_quality": cfg.mediaQuality = MediaArgs.quality(v); break;
                     case "vision_key": if (v.equals("-")) cfg.visionKey = ""; else if (!v.isEmpty()) cfg.visionKey = v; break; // [devtools-1118]
-                    case "vision_base": if (v.isEmpty() || v.startsWith("https://") || v.startsWith("http://127.0.0.1") || v.startsWith("http://localhost")) cfg.visionBase = v; else return fail("看图模型接口地址要用 https"); break;
+                    case "vision_base": if (baseOk(v)) cfg.visionBase = v; else return fail("看图模型接口地址要用 https（本机的 http://127.0.0.1 / localhost 也行）"); break;
                     case "vision_model": cfg.visionModel = v; break;
                     case "adb_path": cfg.adbPath = v; break;
                     case "mirror_keyboard": cfg.mirrorKeyboard = "uhid".equals(v) ? "uhid" : "sdk"; log.accept("投屏键盘 → " + ("uhid".equals(v) ? "物理键盘（UHID）" : "普通键盘")); break;
@@ -1206,5 +1206,23 @@ public final class App {
                 try { Thread.sleep(2000); } catch (InterruptedException e) { return; }
             }
         }, "onesay-tray").start();
+    }
+
+    /**
+     * [preview-1120 AUDIT A-07] 模型 / 看图接口地址：空、https，或者真正的本机 http。以前用 startsWith("http://localhost")，
+     * 「http://localhost.example.com」「http://127.0.0.1.nip.io」也算本机，Key 会用明文发到别人的服务器。
+     */
+    static boolean baseOk(String v) {
+        if (v == null || v.isEmpty()) return true;
+        try {
+            java.net.URI u = new java.net.URI(v);
+            String sc = u.getScheme() == null ? "" : u.getScheme().toLowerCase(java.util.Locale.ROOT);
+            String h = u.getHost() == null ? "" : u.getHost().toLowerCase(java.util.Locale.ROOT);
+            if (h.isEmpty() || u.getUserInfo() != null) return false;
+            if (sc.equals("https")) return true;
+            return sc.equals("http") && (h.equals("127.0.0.1") || h.equals("localhost") || h.equals("[::1]") || h.equals("::1"));
+        } catch (java.net.URISyntaxException e) {
+            return false;
+        }
     }
 }

@@ -101,10 +101,14 @@ public final class Chat {
 
     /** 界面「取消」：停掉正在下的 / 正在传的（任务本身接着往下，模型会看到「已取消」）。 */
     public boolean cancelTransfer() {
-        if (live == null) return false;
-        Progress.CANCEL.set(true);
+        java.util.concurrent.atomic.AtomicBoolean t = stepCancel;
+        if (live == null || t == null) return false;
+        t.set(true); // [preview-1120 A-01] 只停这一步自己的，不碰界面上别的传输
         return true;
     }
+
+    /** [preview-1120 AUDIT A-01] 正在跑的那一步自己的取消开关（下载 / 发文件 / 命令都看它）。 */
+    volatile java.util.concurrent.atomic.AtomicBoolean stepCancel;
 
     /** [overnight-1119] 发文件到手机（App 接上）。 */
     public volatile FileXfer xfer;
@@ -393,8 +397,10 @@ public final class Chat {
                     ChatAgent.Exec ex = (cmd, args) -> {
                         // [overnight-1119] 下载 / 发文件的进度：只放内存（界面每次刷新读 progress），不每 300 毫秒写一次 state.json
                         Progress.SINK.set(pg -> { Map<String, Object> x = new TreeMap<>(pg); x.put("task", taskId); x.put("at", System.currentTimeMillis()); live = x; });
-                        Progress.CANCEL.set(false);
-                        try { return local(pe, cmd, args); } finally { Progress.SINK.remove(); live = null; }
+                        java.util.concurrent.atomic.AtomicBoolean tok = new java.util.concurrent.atomic.AtomicBoolean(agent.cancel.get());
+                        stepCancel = tok;
+                        Progress.TOKEN.set(tok);
+                        try { return local(pe, cmd, args); } finally { Progress.SINK.remove(); Progress.TOKEN.remove(); stepCancel = null; live = null; }
                     };
                     o = agent.run(context(), b, ex, new CardSteps(card));
                 } finally {
@@ -1092,7 +1098,8 @@ public final class Chat {
     public boolean stop() {
         if (!running) return false;
         agent.cancel.set(true);
-        Progress.CANCEL.set(true); // [overnight-1119] 下载 / 传输也停
+        java.util.concurrent.atomic.AtomicBoolean t = stepCancel; // [preview-1120 A-01/A-04] 下载 / 传输 / 正在跑的命令也停（只停这个任务自己的）
+        if (t != null) t.set(true);
         choices.cancelAll();
         return true;
     }

@@ -228,7 +228,7 @@ public final class Agent {
         if (o.pass == null || !o.pass.consume("sys_exec", o.args)) return Actions.Result.fail("没有通过审批，不执行");
         log.accept("对话下载 " + LinkPolicy.oneLine(url));
         Object t = args.get("timeout_sec");
-        Actions.Result r = Downloader.download(url, dest, t instanceof Number ? ((Number) t).intValue() : 1800);
+        Actions.Result r = Downloader.download(url, dest, t instanceof Number ? ((Number) t).intValue() : 1800, guard::redirectHostOk);
         if (r.ok) guard.noteCreated(o.creates);
         return r;
     }

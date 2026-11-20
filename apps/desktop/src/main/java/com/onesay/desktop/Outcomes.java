@@ -57,10 +57,13 @@ public final class Outcomes {
             boolean connected = ADB_CONNECTED.matcher(out).find() && !ADB_CONNECT_FAIL.matcher(lastLines(out, 2)).find();
             if (connected && exit != 0) {
                 boolean multi = multi(cmd);
-                if (!multi || !ERROR_WORD.matcher(lastLines(out, 2)).find() || ADB_CONNECTED.matcher(lastLines(out, 2)).find())
+                // [preview-1120 A-06] 多条命令时只看最后一行：最后一行是报错（su: not found …）就不能因为前面连上了而算成功
+                if (!multi || !ERROR_WORD.matcher(lastLines(out, 1)).find() || ADB_CONNECTED.matcher(lastLines(out, 1)).find())
                     return new Judged(Level.OK, "adb 已经连上了（「already connected」也算成功，退出码 " + exit + " 不代表失败）");
             }
-            if (connected) return new Judged(Level.OK, "");
+            // [preview-1120 AUDIT A-06] 以前这里不看退出码：「adb connect …; adb shell su -c …」里 adb 连上了、后面那条失败（退出码非 0、
+            // 最后几行是报错）也判成绿色「完成」。现在只有退出码 0 才直接算成功，其余交给下面的通用判定（多条命令 / 最后一行有没有报错）。
+            if (connected && exit == 0) return new Judged(Level.OK, "");
         }
         if (ROBOCOPY.matcher(cmd).find() && !multi(cmd) && exit >= 0 && exit < 8) return new Judged(Level.OK, exit == 0 ? "" : "robocopy 退出码 " + exit + " 表示复制成功");
         if (exit == 0) {

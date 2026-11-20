@@ -16,6 +16,26 @@ public final class Progress {
     public static final ThreadLocal<Consumer<Map<String, Object>>> SINK = new ThreadLocal<>();
     /** 取消当前的下载 / 传输（界面「取消」按钮、任务「停止」）。 */
     public static final AtomicBoolean CANCEL = new AtomicBoolean();
+    /**
+     * [preview-1120 AUDIT A-01] 这条线程上正在跑的那一步自己的取消开关（对话任务每一步一个，Chat 设上）。
+     * 以前只有全局 {@link #CANCEL}：对话里「停止 / 取消」会顺带停掉界面上另一个正在发的文件，新开的下载又会把别人的取消清掉。
+     * 有这个就只认它；没有（界面直接发文件、测试）才退回全局的。
+     */
+    public static final ThreadLocal<AtomicBoolean> TOKEN = new ThreadLocal<>();
+
+    /** 当前这一步该看的取消开关。 */
+    public static AtomicBoolean cancelFlag() {
+        AtomicBoolean t = TOKEN.get();
+        return t != null ? t : CANCEL;
+    }
+
+    /** 开始一次新的下载 / 传输：只有用的是全局开关时才清掉它（每步自己的开关是新建的，不用清）。 */
+    public static AtomicBoolean begin() {
+        AtomicBoolean t = TOKEN.get();
+        if (t != null) return t;
+        CANCEL.set(false);
+        return CANCEL;
+    }
 
     /** 一次下载 / 传输的计量器：报得太勤会把任务卡刷爆，最多每 {@link #EVERY_MS} 报一次（结束那次一定报）。 */
     public static final class Meter {

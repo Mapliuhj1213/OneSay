@@ -87,7 +87,10 @@ public final class FileXfer {
 
     static String safeName(String n) {
         String s = n == null ? "" : n.replaceAll(".*[\\\\/]", "").replaceAll("[\\p{Cntrl}:*?\"<>|]", "_").trim();
+        // [preview-1120 AUDIT A-05] Windows 会悄悄去掉结尾的点 / 空格；CON、NUL、COM1… 这类设备名（带不带扩展名都算）会写到设备上
+        s = s.replaceAll("[. ]+$", "");
         if (s.isEmpty() || s.equals(".") || s.equals("..")) s = "文件";
+        if (s.matches("(?i)(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\\$|conout\\$)(\\..*)?")) s = "_" + s;
         if (s.length() > 120) s = s.substring(s.length() - 120);
         return s;
     }
@@ -213,11 +216,11 @@ public final class FileXfer {
         }
         Actions.Result last = null;
         Progress.Meter meter = new Progress.Meter("发到手机 " + f.getName(), size);
-        Progress.CANCEL.set(false);
+        java.util.concurrent.atomic.AtomicBoolean cancel = Progress.begin(); // [preview-1120 A-01]
         try (InputStream in = Files.newInputStream(f.toPath())) {
             meter.tick(0, true);
             for (int seq = 0; seq < total; seq++) {
-                if (Progress.CANCEL.get()) {
+                if (cancel.get()) {
                     s.status = "failed";
                     s.error = "已取消";
                     return Actions.Result.fail("已取消发送（发了 " + human(s.done) + " / " + human(size) + "）");

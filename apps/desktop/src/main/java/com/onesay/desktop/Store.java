@@ -31,7 +31,15 @@ public final class Store {
     }
 
     @SuppressWarnings("unchecked")
-    public synchronized List<Map<String, Object>> list(String k) { return (List<Map<String, Object>>) root.get(k); }
+    private List<Map<String, Object>> raw(String k) { return (List<Map<String, Object>>) root.get(k); }
+
+    /**
+     * [preview-1120 AUDIT A-08] 以前直接把内部列表交出去：界面线程（取任务卡图片、查手机任务进展）在锁外遍历，
+     * 同时对话线程 add / 裁掉最老的一条 → ConcurrentModificationException / 越界，界面接口回 500、图片显示不出来。
+     * 现在给一份副本（里面的每条还是同一个对象，改字段照旧走 {@link #update}）。
+     */
+    @SuppressWarnings("unchecked")
+    public synchronized List<Map<String, Object>> list(String k) { return new java.util.ArrayList<>(raw(k)); }
 
     /** 给界面用的完整副本。 */
     public synchronized Map<String, Object> snapshot() { return Json.obj(Json.stringify(root)); }
@@ -51,7 +59,7 @@ public final class Store {
         Map<String, Object> m = new TreeMap<>(item);
         m.putIfAbsent("id", Protocol.newId());
         m.put("updated_at", System.currentTimeMillis());
-        List<Map<String, Object>> l = list(k);
+        List<Map<String, Object>> l = raw(k);
         l.add(m);
         while (max > 0 && l.size() > max) l.remove(0);
         save();
@@ -59,7 +67,7 @@ public final class Store {
     }
 
     public synchronized Map<String, Object> find(String k, String id) {
-        for (Map<String, Object> m : list(k)) if (id.equals(m.get("id"))) return m;
+        for (Map<String, Object> m : raw(k)) if (id.equals(m.get("id"))) return m;
         return null;
     }
 
@@ -73,12 +81,12 @@ public final class Store {
     }
 
     public synchronized boolean remove(String k, String id) {
-        boolean r = list(k).removeIf(m -> id.equals(m.get("id")));
+        boolean r = raw(k).removeIf(m -> id.equals(m.get("id")));
         if (r) save();
         return r;
     }
 
-    public synchronized void clear(String k) { list(k).clear(); save(); }
+    public synchronized void clear(String k) { raw(k).clear(); save(); }
 
     /** [overnight-1119] 权限审批记录：某类事件某个字段 +1（单次点击算一次）。 */
     @SuppressWarnings("unchecked")
@@ -95,9 +103,9 @@ public final class Store {
 
     /** [overnight-1119] 删掉通知列表里旧版本写进去的审批类条目；返回删了几条。 */
     public synchronized int purgeApprovalNotes() {
-        int before = list("notes").size();
-        list("notes").removeIf(m -> PermStats.looksLikeApproval(String.valueOf(m.getOrDefault("title", "")), String.valueOf(m.getOrDefault("text", ""))));
-        int n = before - list("notes").size();
+        int before = raw("notes").size();
+        raw("notes").removeIf(m -> PermStats.looksLikeApproval(String.valueOf(m.getOrDefault("title", "")), String.valueOf(m.getOrDefault("text", ""))));
+        int n = before - raw("notes").size();
         if (n > 0) save();
         return n;
     }

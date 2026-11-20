@@ -630,6 +630,17 @@ public final class PcGuard {
 
     public ChatPolicy.Preset chatPreset() { return ChatPolicy.Preset.of(cfg.chatPreset); }
 
+    /**
+     * [preview-1120 AUDIT A-03] 下载被跳转到另一个主机时能不能跟：完全访问档（不限联网）可以；否则这个主机得在联网白名单里。
+     * 都不是就停下，让模型用新网址重新发起（重新走确认）。在发起下载的那条线程上调（本机对话 / 手机看 LOCAL）。
+     */
+    public boolean redirectHostOk(String host) {
+        if (host == null || host.isEmpty()) return false;
+        LinkPolicy.Mode m = local() ? ChatPolicy.mode(chatPreset()) : cfg.mode();
+        if (m.sandbox == LinkPolicy.Sandbox.FULL_ACCESS) return true;
+        return LinkPolicy.trustedHost(host, rules().netAllow);
+    }
+
     public List<List<String>> chatRules() { return ChatPolicy.parseRules(cfg.chatAllowPrefixes); }
 
     PathScope.Env pathEnv() {
@@ -1290,12 +1301,51 @@ public final class PcGuard {
         if (ws.isDirectory()) pb.directory(ws);
         Process p = SafeExec.start(pb.redirectErrorStream(true));
         p.getOutputStream().close();
-        byte[] out = p.getInputStream().readNBytes(4000);
-        if (!p.waitFor(60, TimeUnit.SECONDS)) { p.destroyForcibly(); return Actions.Result.ok("命令还在跑（超过 60 秒，已停止等待）"); }
+        // [preview-1120 AUDIT A-04] 以前先 readNBytes(4000) 再 waitFor(60)：命令输出不到 4000 字节又不退出时 readNBytes 一直阻塞，60 秒超时根本走不到；
+        // 走到了也回「成功」（其实进程被杀了）。现在输出另起线程读，到时连子进程一起结束，如实回失败。
+        Object[] r = waitOut(p, 60, 4000);
         Map<String, Object> d = new TreeMap<>();
+        d.put("output", new String((byte[]) r[1], java.nio.charset.Charset.defaultCharset()).trim());
+        if (!(Boolean) r[0]) { d.put("reason", "timeout"); return new Actions.Result(false, "命令超过 60 秒没结束，已停止", d); }
         d.put("exit", (long) p.exitValue());
-        d.put("output", new String(out, java.nio.charset.Charset.defaultCharset()).trim());
         return p.exitValue() == 0 ? Actions.Result.ok("命令执行完了", d) : new Actions.Result(false, "命令失败（" + p.exitValue() + "）", d);
+    }
+
+    /**
+     * [preview-1120 AUDIT A-04] 等进程结束：输出另起线程读（最多 max 字节，多的读掉丢弃，不会把管道塞满卡住）；
+     * 每 100 毫秒看一次这一步的取消开关（{@link Progress#TOKEN}，对话「停止」会置上）；到时 / 取消就连子进程一起结束。
+     * 返回 {是否正常结束(Boolean), 输出(byte[]), 是否被取消(Boolean)}。
+     */
+    static Object[] waitOut(Process p, int timeoutSec, int max) throws InterruptedException {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        Thread rd = new Thread(() -> {
+            byte[] b = new byte[8192];
+            try (java.io.InputStream in = p.getInputStream()) {
+                int n;
+                while ((n = in.read(b)) > 0) synchronized (buf) { if (buf.size() < max) buf.write(b, 0, Math.min(n, max - buf.size())); }
+            } catch (java.io.IOException ignored) { }
+        }, "onesay-exec-out");
+        rd.setDaemon(true);
+        rd.start();
+        java.util.concurrent.atomic.AtomicBoolean tok = Progress.TOKEN.get();
+        long end = System.currentTimeMillis() + timeoutSec * 1000L;
+        boolean fin = false, cancelled = false;
+        while (true) {
+            if (p.waitFor(100, TimeUnit.MILLISECONDS)) { fin = true; break; }
+            if (tok != null && tok.get()) { cancelled = true; break; }
+            if (System.currentTimeMillis() >= end) break;
+        }
+        if (!fin) killTree(p);
+        rd.join(2000);
+        byte[] out;
+        synchronized (buf) { out = buf.toByteArray(); }
+        return new Object[] {fin, out, cancelled};
+    }
+
+    /** 结束进程和它起的子进程（PowerShell 起的 ping -t、Start-Process 出来的…）。 */
+    static void killTree(Process p) {
+        try { p.descendants().forEach(ProcessHandle::destroyForcibly); } catch (Exception ignored) { }
+        p.destroyForcibly();
     }
 
     /** PowerShell -EncodedCommand 的参数：UTF-16LE 再 base64。 */
@@ -1341,24 +1391,14 @@ public final class PcGuard {
         if (ws.isDirectory()) pb.directory(ws);
         Process p = SafeExec.start(pb.redirectErrorStream(true));
         p.getOutputStream().close();
-        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
-        Thread rd = new Thread(() -> {
-            byte[] b = new byte[8192];
-            try (java.io.InputStream in = p.getInputStream()) {
-                int n;
-                while ((n = in.read(b)) > 0) synchronized (buf) { if (buf.size() < LOCAL_OUT_MAX * 4) buf.write(b, 0, n); }
-            } catch (java.io.IOException ignored) { }
-        }, "onesay-chat-exec-out");
-        rd.setDaemon(true);
-        rd.start();
-        boolean fin = p.waitFor(to, TimeUnit.SECONDS);
-        if (!fin) p.destroyForcibly();
-        rd.join(2000);
-        String out;
-        synchronized (buf) { out = decodeOut(buf.toByteArray()).trim(); }
+        // [preview-1120 AUDIT A-04] 「停止」以前要等这条命令自己跑完（最长 900 秒）；超时只杀 PowerShell 本身，它起的子进程还在跑。
+        Object[] w = waitOut(p, to, LOCAL_OUT_MAX * 4);
+        boolean fin = (Boolean) w[0];
+        String out = decodeOut((byte[]) w[1]).trim();
         if (out.length() > LOCAL_OUT_MAX) out = out.substring(0, LOCAL_OUT_MAX) + "…（输出太长，已截断）";
         Map<String, Object> d = new TreeMap<>();
         d.put("output", out);
+        if ((Boolean) w[2]) { d.put("reason", "cancelled"); return new Actions.Result(false, "你点了停止，这条命令已结束（没跑完）", d); }
         if (!fin) return new Actions.Result(false, "命令超过 " + to + " 秒没结束，已停止", d);
         d.put("exit", (long) p.exitValue());
         return judged(command, p.exitValue(), out, d);

@@ -231,10 +231,12 @@ public class DesktopActions implements Actions {
         pb.directory(p.getParent().toFile()).redirectErrorStream(true);
         Process proc = SafeExec.start(pb); // 永不提权：不走 runas；OneSay 是管理员时远程触发的拒绝
         proc.getOutputStream().close();
-        byte[] out = proc.getInputStream().readNBytes(4000);
-        boolean done = proc.waitFor(60, TimeUnit.SECONDS);
-        if (!done) { proc.destroyForcibly(); return Result.ok("正在执行快捷指令（超过 60 秒，已停止等待）"); }
-        return Result.ok("正在执行快捷指令", map("exit", (long) proc.exitValue(), "output", new String(out, java.nio.charset.Charset.defaultCharset()).trim()));
+        // [preview-1120 AUDIT A-04] 以前 readNBytes 会挡住 60 秒超时；超时被杀、退出码非 0 也都回「成功」。现在如实回。
+        Object[] w = PcGuard.waitOut(proc, 60, 4000);
+        String o = new String((byte[]) w[1], java.nio.charset.Charset.defaultCharset()).trim();
+        if (!(Boolean) w[0]) return new Result(false, "快捷指令「" + p.getFileName() + "」超过 60 秒没结束，已停止", map("reason", "timeout", "output", o));
+        if (proc.exitValue() != 0) return new Result(false, "快捷指令「" + p.getFileName() + "」执行失败（退出码 " + proc.exitValue() + "）", map("exit", (long) proc.exitValue(), "output", o));
+        return Result.ok("快捷指令执行完了", map("exit", (long) proc.exitValue(), "output", o));
     }
 
     Result volume(String action, int steps) throws Exception {
