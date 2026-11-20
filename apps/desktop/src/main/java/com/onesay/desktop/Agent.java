@@ -32,6 +32,9 @@ public final class Agent {
     public final PcGuard guard;
     /** 手机回复里带来的手机执行级别（只读显示，在手机上改）。 */
     public volatile String phoneLevel = "";
+    /** [always-on-1120] 常驻分工的帧（aon_*，只从中转来）交给 AlwaysOnService；通道上线 / 掉线时回调（中转连上要同步任务）。 */
+    public volatile java.util.function.Consumer<Map<String, Object>> nodeHook;
+    public volatile java.util.function.BiConsumer<Link, Boolean> onLinkState;
 
     public Agent(Config cfg, Actions actions, Consumer<String> log) {
         this.cfg = cfg;
@@ -78,13 +81,23 @@ public final class Agent {
         status = s.toString();
         String line = quiet.computeIfAbsent(l, k -> new LogQuiet()).filter(l.name(), c, why, System.currentTimeMillis()); // [overnight-1119] 同样的离线原因不刷屏
         if (line != null) log.accept(line);
+        java.util.function.BiConsumer<Link, Boolean> h = onLinkState;
+        if (h != null) try { h.accept(l, c); } catch (RuntimeException e) { log.accept("通道回调出错：" + e.getClass().getSimpleName()); }
     }
+
+    /** [always-on-1120] 中转连接（没配中转 = null）。 */
+    public RelayClient relay() { for (Link l : links) if (l instanceof RelayClient) return (RelayClient) l; return null; }
 
     private final Map<Link, LogQuiet> quiet = new java.util.concurrent.ConcurrentHashMap<>();
 
     @SuppressWarnings("unchecked")
     void handle(Map<String, Object> f, Link via) {
         String type = String.valueOf(f.get("type"));
+        if (type.startsWith("aon_")) { // [always-on-1120] 常驻节点的帧只认中转来的（局域网对端冒充不了节点）
+            java.util.function.Consumer<Map<String, Object>> h = nodeHook;
+            if (h != null && via instanceof RelayClient) h.accept(f);
+            return;
+        }
         if (type.equals("presence")) {
             boolean on = Boolean.TRUE.equals(f.get("online"));
             if (on) relayPeers.add(String.valueOf(f.get("device"))); else relayPeers.remove(String.valueOf(f.get("device")));
@@ -93,6 +106,15 @@ public final class Agent {
         }
         if (type.equals("devices") || type.equals("error")) {
             if (type.equals("error")) log.accept(via.name() + "报错 " + f.get("code"));
+            // [always-on-1120] 旧版中转不认识常驻分工的帧，回不带 id 的 bad_frame：告诉常驻分工「中转要更新」，别一直重发
+            java.util.function.Consumer<Map<String, Object>> h = nodeHook;
+            if (type.equals("error") && "bad_frame".equals(f.get("code")) && f.get("id") == null && h != null && via instanceof RelayClient) {
+                Map<String, Object> e = new TreeMap<>();
+                e.put("type", "aon_err");
+                e.put("code", "unknown");
+                e.put("op", "aon");
+                h.accept(e);
+            }
             return;
         }
         if (!type.equals("msg") || !(f.get("body") instanceof Map)) return;

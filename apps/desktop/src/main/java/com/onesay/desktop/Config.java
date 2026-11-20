@@ -83,6 +83,11 @@ public final class Config {
     public String mirrorKeyboard = "sdk";
     /** [preview-1120] 外观：system / light / dark；主题包 id（空 = 不用包）。 */
     public String theme = "system", themePack = "";
+    /** [always-on-1120] 网络唤醒：开关、预先授权常驻节点自动唤醒、用哪块网卡（MAC）和它的广播地址。MAC 不是秘密，但只交给常驻节点和唤醒代理。 */
+    public boolean wolEnabled = false, wolAuto = false;
+    public String wolMac = "", wolBcast = "";
+    /** [always-on-1120] 只在「唤醒代理」那台机器上用：允许替哪些 MAC 发魔术包（逗号分隔；空 = 一个都不发）。 */
+    public String wakeAllow = "";
 
     private transient Tls tls;
 
@@ -133,6 +138,12 @@ public final class Config {
         // 没有 lan_plain_v=2 标记的旧配置一律按关处理（下次保存写上标记）；要连 0.4.x 手机得重新明确打开（设置 / 配置文件写 lan_plain=on）。
         c.lanPlain = "2".equals(p.getProperty("lan_plain_v", "").trim()) && "on".equalsIgnoreCase(p.getProperty("lan_plain", "off").trim());
         c.phoneLast = p.getProperty("phone_last", "").trim();
+        c.wolEnabled = "on".equalsIgnoreCase(p.getProperty("wol_enabled", "off").trim());
+        c.wolAuto = "on".equalsIgnoreCase(p.getProperty("wol_auto", "off").trim());
+        c.wolMac = WakeOnLan.normMac(p.getProperty("wol_mac", ""));
+        String wb = p.getProperty("wol_bcast", "").trim();
+        c.wolBcast = WakeOnLan.ipv4(wb) ? wb : "";
+        c.wakeAllow = p.getProperty("wake_allow", "").trim();
         c.pcLevel = LinkPolicy.Level.of(p.getProperty("pc_level", "auto")).id;
         // 两轴：新配置直接读；旧配置只有 pc_level，按 LinkPolicy.Mode.ofLegacy 映射（只读 / 自动 / 完全访问 → 两轴）
         LinkPolicy.Mode legacy = LinkPolicy.Mode.ofLegacy(LinkPolicy.Level.of(c.pcLevel));
@@ -245,6 +256,11 @@ public final class Config {
         p.setProperty("lan_plain", lanPlain ? "on" : "off");
         p.setProperty("lan_plain_v", "2");   // ★ fix-1118 SEC M6：迁移标记（见 load）
         p.setProperty("phone_last", phoneLast);
+        p.setProperty("wol_enabled", wolEnabled ? "on" : "off");
+        p.setProperty("wol_auto", wolAuto ? "on" : "off");
+        p.setProperty("wol_mac", wolMac);
+        p.setProperty("wol_bcast", wolBcast);
+        if (!wakeAllow.isEmpty()) p.setProperty("wake_allow", wakeAllow);
         try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) { p.store(w, "OneSay desktop - contains secrets, do not share"); }
         try { Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------")); } catch (UnsupportedOperationException | IOException ignored) { }
     }
