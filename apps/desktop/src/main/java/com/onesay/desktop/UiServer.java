@@ -117,6 +117,7 @@ public final class UiServer {
                 return;
             }
             if (path.equals("/favicon.ico")) { send(ex, 200, "image/x-icon", resource("onesay/ui/favicon.ico")); return; }
+            if (path.equals("/workflow.js")) { ex.getResponseHeaders().add("Cache-Control", "no-store"); send(ex, 200, "text/javascript; charset=utf-8", resource("onesay/ui/workflow.js")); return; } // [workflow-1120] 画布（打包好的单文件，离线）
             if (path.equals("/qr.js")) { send(ex, 200, "text/javascript; charset=utf-8", resource("onesay/ui/qr.js")); return; }
             if (path.equals("/ping")) { send(ex, 200, "text/plain", "onesay".getBytes()); return; }
             if (path.equals("/show") && ex.getRequestMethod().equals("POST")) {   // ★ fix-1118 SEC L2：再次启动 → 正在运行的进程自己开窗口（不回任何口令）

@@ -379,6 +379,7 @@ public final class PcGuard {
         if ("pc_task_status".equals(cmd)) return LinkPolicy.Cat.QUERY;
         if ("file_put".equals(cmd)) return LinkPolicy.Cat.WORKSPACE_WRITE;
         // [preview-1120] MCP 工具：服务器声明只读（readOnlyHint、没标 destructive）的不问，其余默认要批准（只读档直接拒）
+        if ("wf_call".equals(cmd)) return LinkPolicy.Cat.READ_PRIVATE; // [workflow-1120] 只读 / 只生成预览；装技能由技能库自己弹确认卡（不能记住）
         if ("mcp_call".equals(cmd)) {
             McpHub h = MCP;
             return h != null && h.readOnlyFn(str(a, "fn")) ? LinkPolicy.Cat.READ_PRIVATE : LinkPolicy.Cat.MCP_TOOL;
@@ -1239,8 +1240,17 @@ public final class PcGuard {
     /** [preview-1120] MCP 连接器（App 设上）。 */
     public static volatile McpHub MCP;
 
+    /** [workflow-1120] 工作流 / 技能 / 连接器（App 设上）。 */
+    public static volatile WfApi WF;
+
     public Actions.Result builtin(String cmd, Map<String, Object> a) {
         File ws = workspace();
+        if ("wf_call".equals(cmd)) {
+            WfApi w = WF;
+            if (w == null) return Actions.Result.fail("工作流没开");
+            @SuppressWarnings("unchecked") Map<String, Object> args = a.get("arguments") instanceof Map ? (Map<String, Object>) a.get("arguments") : new TreeMap<>();
+            return w.callTool(str(a, "fn"), args);
+        }
         if ("mcp_call".equals(cmd)) {
             McpHub h = MCP;
             if (h == null) return Actions.Result.fail("MCP 连接器没开");

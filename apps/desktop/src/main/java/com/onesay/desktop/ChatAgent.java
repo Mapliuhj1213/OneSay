@@ -393,6 +393,12 @@ public final class ChatAgent {
                 return new Object[] {"phone_operate", out};
             }
             default:
+                if (WfApi.isTool(c.name)) { // [workflow-1120] 工作流 / 技能工具：改图只生成差异预览，装技能自己弹确认卡
+                    out.put("fn", c.name);
+                    a.remove("description");
+                    out.put("arguments", a);
+                    return new Object[] {"wf_call", out};
+                }
                 if (c.name != null && c.name.startsWith("mcp__")) { // [preview-1120] MCP 连接器的工具：原样转给服务器（审批照旧）
                     out.put("fn", c.name);
                     a.remove("description");
@@ -1114,6 +1120,7 @@ public final class ChatAgent {
     static String describe(String cmd, Map<String, Object> a) {
         switch (cmd) {
             case "sys_exec": return "执行命令：" + clip(LinkPolicy.oneLine(String.valueOf(a.get("command"))), 200);
+            case "wf_call": return "工作流工具：" + String.valueOf(a.get("fn")).replace("wf__", ""); // [workflow-1120]
             case "mcp_call": return "调用" + mcpName.apply(String.valueOf(a.get("fn"))) + "：" + clip(LinkPolicy.oneLine(Json.stringify(a.get("arguments") == null ? new TreeMap<String, Object>() : a.get("arguments"))), 160);
             case "open_url": return "打开网址：" + clip(String.valueOf(a.get("url")), 200);
             case "file_write": return "写文件：" + clip(String.valueOf(a.get("path")), 200);

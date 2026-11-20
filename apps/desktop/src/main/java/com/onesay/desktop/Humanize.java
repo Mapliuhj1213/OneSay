@@ -52,6 +52,7 @@ public final class Humanize {
         TOOLS.put("screen_look", "截屏");
         TOOLS.put("net_download", "下载文件");
         TOOLS.put("mcp_call", "调用 MCP 工具");
+        TOOLS.put("wf_call", "工作流 / 技能"); // [workflow-1120]
         TOOLS.put("phone_shortcuts", "看手机上的快捷指令");
         TOOLS.put("phone_run_shortcut", "在手机上运行快捷指令");
     }

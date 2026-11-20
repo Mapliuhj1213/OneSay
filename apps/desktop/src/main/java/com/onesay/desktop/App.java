@@ -378,7 +378,8 @@ public final class App {
         mcp = new McpHub(Config.defaultDir().resolve("mcp.json"), log);
         mcp.load();
         PcGuard.MCP = mcp;
-        ChatAgent.extraTools = mcp::toolDefs;
+        setupWorkflow(); // [workflow-1120] 工作流 / 技能 / 万能 API 连接器 / OAuth
+        ChatAgent.extraTools = () -> { List<Map<String, Object>> l = new ArrayList<>(mcp.toolDefs()); l.addAll(WfApi.toolDefs()); return l; };
         ChatAgent.mcpName = mcp::describe;
         Runtime.getRuntime().addShutdownHook(new Thread(mcp::shutdown, "onesay-mcp-stop")); // 退出时把 stdio 服务器子进程一起结束
         new Thread(mcp::startAll, "onesay-mcp-start") {{ setDaemon(true); }}.start();
@@ -419,6 +420,39 @@ public final class App {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); mirror.shutdown(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();
         new Thread(App::ensureShortcuts, "onesay-shortcuts").start();
+    }
+
+    // ---------- [workflow-1120] 工作流 / 技能 / 万能 API 连接器 ----------
+    WfApi wf;
+
+    /** 数据放预览版 / 正式版各自的数据目录；key 进 Windows 凭据管理器；审批接现有确认卡（只有允许 / 拒绝，不能记住）。 */
+    void setupWorkflow() {
+        wf = new WfApi(Config.defaultDir(), SecretStore.system(), log);
+        PcGuard.WF = wf;
+        wf.llm = (sys, prompt, temp, conn, tmo) -> {
+            Llm l = Llm.from(cfg);
+            if (!l.ready()) throw new IllegalStateException("没配置大模型（设置 › 模型与密钥）");
+            List<Map<String, Object>> msgs = new ArrayList<>();
+            if (sys != null && !sys.isBlank()) msgs.add(Llm.msg("system", sys));
+            msgs.add(Llm.msg("user", prompt));
+            return l.chat(msgs, temp, tmo);
+        };
+        wf.mcp = new WfApi.McpPort() {
+            @Override public List<Map<String, Object>> toolDefs() { return mcp.toolDefs(); }
+            @Override public boolean readOnly(String fn) { return mcp.readOnlyFn(fn); }
+            @Override public String describe(String fn) { return mcp.describe(fn); }
+            @Override public Actions.Result call(String fn, Map<String, Object> args) { return mcp.call(fn, args); }
+        };
+        wf.approver((title, detail, risk) -> askPlain("workflow", detail));
+        wf.skillApprover = (title, detail) -> askPlain("skill_install", detail);
+        wf.oauth.opener = url -> { try { if (Desktop.isDesktopSupported()) Desktop.getDesktop().browse(URI.create(url)); } catch (Exception ignored) { } };
+    }
+
+    /** 弹一张只有「允许 / 拒绝」的确认卡（4 参数 ask：不给「记住」「允许本次任务」）。 */
+    boolean askPlain(String cmd, String detail) {
+        PcGuard.Confirmer c = agent.guard.confirmer;
+        if (c == null) return false;
+        try { return c.ask("工作流", cmd, detail, 60_000) == PcGuard.ALLOW; } catch (Throwable t) { return false; }
     }
 
     // ---------- [app-whitelist-1116] 应用白名单 ----------
@@ -1222,6 +1256,7 @@ public final class App {
             }
         });
         ui.on("aon", this::aonApi); // [always-on-1120]
+        ui.on("wf", b -> wf.handle(b)); // [workflow-1120] 工作流页
         ui.on("settings", b -> {
             boolean restartVoice = false, aonTouched = false;
             for (Map.Entry<String, Object> e : b.entrySet()) {
