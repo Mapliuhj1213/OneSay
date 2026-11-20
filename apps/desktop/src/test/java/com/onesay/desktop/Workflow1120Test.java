@@ -568,6 +568,8 @@ public class Workflow1120Test {
         assertFalse(json.contains("sk-abcdef"));
         assertTrue(json.contains("\"connectors\""));
         assertTrue(json.contains("本地"));
+        assertTrue(json.contains("\"steps\""));
+        assertTrue(json.contains("\"risk\":\"read\""));
         // 导入到一台没有这个连接的机器：列出缺的连接
         WfApi other = new WfApi(tmp.resolve("other"), new SecretStore.Memory(), null);
         Map<String, Object> chk = WfStore.importCheck(Json.obj(json), other.skills, other.api);

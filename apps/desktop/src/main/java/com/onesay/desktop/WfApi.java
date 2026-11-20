@@ -287,7 +287,18 @@ public final class WfApi {
                 Map<String, Object> wf = b.get("workflow") instanceof Map ? map(b.get("workflow")) : store.get(s(b.get("id")));
                 if (wf == null) return fail("没有这个工作流");
                 Map<String, Object> m = ok("已导出（不含任何 key）");
-                m.put("json", Json.stringify(WfStore.export(wf, api)));
+                Map<String, Object> ex = WfStore.export(wf, api);
+                List<Object> steps = new ArrayList<>(); // 清单：每一步是什么、风险档
+                for (Map<String, Object> n : WfSchema.nodes(WfSchema.normalize(wf))) {
+                    Map<String, Object> st = new TreeMap<>();
+                    st.put("id", WfSchema.id(n));
+                    st.put("type", WfSchema.type(n));
+                    st.put("title", WfSchema.title(n));
+                    st.put("risk", engine.risk(n));
+                    steps.add(st);
+                }
+                map(ex.get("requires")).put("steps", steps);
+                m.put("json", Json.stringify(ex));
                 return m;
             }
             case "import_check": {
