@@ -383,6 +383,35 @@ public final class AlwaysOnService {
         return null;
     }
 
+    /**
+     * [fix-1120 晚] 修改一条（对话里的提醒工具用）：change 在副本上改，校验通过才换进去；时间改了从现在重新算（不回头补）。
+     * 返回 null = 成功，否则是给人看的原因。
+     */
+    public String update(String id, java.util.function.Consumer<Job> change) {
+        Job old, nj;
+        synchronized (this) {
+            old = find(id);
+            if (old == null) return "没有这条";
+            nj = Job.from(old.toMap());
+        }
+        change.accept(nj);
+        nj.id = id;
+        String bad = AlwaysOn.validate(nj, nodeConfigured);
+        if (bad != null) return bad;
+        synchronized (this) {
+            int i = jobs.indexOf(find(id));
+            if (i < 0) return "没有这条";
+            nj.seen = clock.getAsLong() - 1;
+            jobs.set(i, nj);
+        }
+        save();
+        Port p = port;
+        if (old.where == Where.NODE && nj.where != Where.NODE && p != null && p.up()) { Map<String, Object> f = frame("aon_del"); f.put("id", id); p.send(f); }
+        if (old.where == Where.NODE || nj.where == Where.NODE) resync();
+        log.accept("常驻分工：改了「" + nj.title + "」");
+        return null;
+    }
+
     public String toggle(String id, boolean on) {
         Job j;
         synchronized (this) { j = find(id); if (j == null) return "没有这条"; j.enabled = on; if (on) j.seen = clock.getAsLong(); }

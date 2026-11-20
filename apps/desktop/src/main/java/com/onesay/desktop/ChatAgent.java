@@ -104,6 +104,13 @@ public final class ChatAgent {
     }
 
     public final AtomicBoolean cancel = new AtomicBoolean();
+    /** [fix-1120 晚] 第二次点停止：立刻结束，不收尾（收尾那一轮模型调用也放弃）。 */
+    public final AtomicBoolean hardStop = new AtomicBoolean();
+
+    /** 点一次「停止」：先中断、再收尾；已经在停了再点一次 = 立刻结束。 */
+    public void requestStop() {
+        if (!cancel.compareAndSet(false, true)) hardStop.set(true);
+    }
     /** 模型暂时失败（{@link Llm.Transient}：超时 / 429 / 5xx / 空回复）时最多重试几次；每次等 backoffMs × 次数。 */
     static final int RETRIES = 2;
     volatile long backoffMs = 1500;
@@ -161,6 +168,7 @@ public final class ChatAgent {
         wf.put("path", prop("string", "文件路径：相对路径写在 OneSay 工作区里；工作区以外要给完整路径（会先请用户确认）。"));
         wf.put("text", prop("string", "文件内容（UTF-8 文本，最多 256 KB）"));
         l.add(fn("write_file", "写一个文本文件。", wf, List.of("description", "path", "text")));
+        l.add(ChatReminders.toolDef()); // [fix-1120 晚] 电脑本机的提醒 / 日程
         // [phone-tools-1118] 手机：走已配对的手机联动通道（不是 adb）
         Map<String, Object> ps = new TreeMap<>();
         ps.put("description", prop("string", DESC));
@@ -297,6 +305,10 @@ public final class ChatAgent {
             }
             case "phone_status":
                 return new Object[] {"phone_status", out};
+            case "reminder": { // [fix-1120 晚]
+                Map<String, Object> ra = ChatReminders.mapArgs(a);
+                return ra == null ? null : new Object[] {"reminder", ra};
+            }
             case "screenshot": {
                 String tg = a.get("target") == null ? "" : String.valueOf(a.get("target")).trim();
                 out.put("target", tg.isEmpty() ? "pc" : tg);
@@ -470,6 +482,14 @@ public final class ChatAgent {
                 + "拿用户说的日期和现在的日期对照：已经过去、星期对不上、活动查不到或地名对不上，先指出来再往下做。"
                 + "规划类请求缺偏好时，按常见情况假设并写明，先给一版能用的方案，最后最多问 1–2 个关键问题，不要一上来列一串问题。"
                 + "你自己要看网页内容时用 run_command 的 Invoke-WebRequest（-UseBasicParsing）读出文字；open_url 只是在用户的浏览器里打开页面，你看不到，不要靠打开后截图来读网页。\n"
+                // [fix-1120 晚] 推测的日期不能当事实写进计划
+                + "日期没查到官方来源时：计划里写「日期待确认」，不要写一个具体的推测日期当安排的依据（可以说「往年一般在几月上 / 中旬」，并注明是往年情况）；"
+                + "按它排的安排写成相对的（如「比赛日（待确认）前一天领物」），并给出核实入口（官网 / 官方公众号 / 官方 App 的名字或网址）。\n"
+                // [fix-1120 晚] 电脑本机的提醒
+                + "提醒 / 日程用 reminder 工具：提醒建在这台电脑上，到点由 OneSay 在电脑上弹通知，不需要手机，手机没连不是不建提醒的理由；不要用 schtasks / Register-ScheduledTask 建 Windows 计划任务来提醒。"
+                + "用户说「提醒我」就直接建（时间按今天的日期算准，写进 at）；规划有明确时间的事（考试、出差、比赛、预约、体检、车次、航班）收尾时，主动建关键时间点的提醒（如前一晚、出发前），或在答复里一句话提议要不要建。"
+                + "日期是推测的（没查到官方）时，date_verified 填 false：提醒会标「待确认」；也可以建成「去核实 XX 日期」的提醒。"
+                + "把东西发到手机是另一件事（phone_* 工具）：手机没连就如实说「没发到手机」，但电脑上的提醒照样建，答复里两件事分开说。\n"
                 + "安全：要批准的步骤 OneSay 会在任务卡上请用户点（用户可以一次批准整个任务）；"
                 + "被拒绝或没人确认就停下说明，不要换个写法绕过。不要提权（runas / UAC），不要关闭或绕过杀毒软件、防火墙，不要改 OneSay 自己的设置，不要输出或保存密码和 Key。"
                 + "只从官方或可信来源下载软件。\n"
@@ -506,11 +526,14 @@ public final class ChatAgent {
         boolean uiRead = false;   // [overnight-1119 第 7 条] 这次任务读过安卓界面没有（android_ui）
         int coordBlocks = 0;
         int dlHints = 0; // [preview-1120] 命令里下载文件 → 提示改用下载工具的次数
+        boolean schedHinted = false; // [fix-1120 晚] 建 Windows 计划任务 → 提示改用提醒工具（一次）
         String lastKey = "";
         int repeat = 0;
         Map<String, Integer> famCount = new HashMap<>(), sameOut = new HashMap<>();
         cancel.set(false);
+        hardStop.set(false);
         long t0 = clock.getAsLong();
+        boolean dateNudged = false; // [fix-1120 晚] 推测日期当事实写进计划：打回一次
         while (true) {
             // 任务进行中用户发来的话：下一步之前交给模型（「停」就停）
             for (String in; (in = inbox.poll()) != null; ) {
@@ -524,14 +547,16 @@ public final class ChatAgent {
                 steps.step(Map.of("phase", "note", "desc", "权限预设改成了「" + now.zh + "」"));
             }
             if (now != null) toldPreset = now;
-            if (cancel.get()) return new Outcome("已停止。" + (done > 0 ? "做了 " + done + " 步，说「继续」可以接着做。" : ""), "stopped", done);
+            if (cancel.get()) return stopped(msgs, brain, done);
             if (clock.getAsLong() - t0 > timeoutMs)
                 return new Outcome("这个任务已经做了 " + ((clock.getAsLong() - t0) / 60000) + " 分钟，到了设置里的时长上限，先停下。说「继续」我接着做。", "time_limit", done);
             compactToolResults(msgs, KEEP_FULL_RESULTS, OLD_RESULT_CHARS);
             Llm.Turn t;
             try {
-                t = nextWithRetry(brain, msgs, tools);
+                t = wrapUpOnStop ? nextAbortable(brain, msgs, tools) : nextWithRetry(brain, msgs, tools);
+                if (t == null) continue; // [fix-1120 晚] 等模型时点了停止：不等这一轮，回到循环开头收尾
             } catch (Exception e) {
+                if (cancel.get()) continue;
                 String m = e.getMessage() == null ? "大模型出错" : e.getMessage();
                 return new Outcome(done > 0 ? m + "。已经做了 " + done + " 步，说「继续」接着做。" : m, "error", done);
             }
@@ -572,6 +597,13 @@ public final class ChatAgent {
                     nudged = true;
                     msgs.add(t.message);
                     msgs.add(Llm.msg("user", "（OneSay 内部提示）你能用工具直接在这台电脑上操作，不需要用户手动。请直接调用工具开始做；只有真正需要用户决定的事才问。"));
+                    continue;
+                }
+                if (progressGuard && !dateNudged && guessedDateAsFact(text)) {
+                    // [fix-1120 晚] 答复里承认日期没查到 / 是推测的，却把具体日期当安排依据、没标「待确认」：打回一次
+                    dateNudged = true;
+                    msgs.add(t.message);
+                    msgs.add(Llm.msg("user", DATE_NUDGE));
                     continue;
                 }
                 if (!inbox.isEmpty()) { msgs.add(t.message); continue; } // 收工前用户又说了话：再给模型看一眼
@@ -625,6 +657,13 @@ public final class ChatAgent {
                 }
                 if ("run_command".equals(c.name) && "net_download".equals(cmd))
                     steps.step(Map.of("phase", "note", "desc", "这条命令是在下载文件：改用下载工具，任务卡上显示进度，可以取消"));
+                if ("sys_exec".equals(cmd) && !schedHinted && CREATES_SCHED_TASK.matcher(String.valueOf(args.get("command"))).find()) {
+                    // [fix-1120 晚] 用 Windows 计划任务做提醒（真机上模型建过 5 个，清理时还得一个个删）：先提示改用提醒工具；确实要计划任务（开机运行程序等）再发一次照常走审批
+                    schedHinted = true;
+                    msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "use_reminder", "text", SCHED_HINT))));
+                    steps.step(Map.of("phase", "note", "desc", "提醒改用 OneSay 的提醒（不建 Windows 计划任务），这条命令先不执行"));
+                    continue;
+                }
                 if ("sys_exec".equals(cmd) && dlHints < 2 && DownloadRewrite.mentions(String.valueOf(args.get("command")))) {
                     // [preview-1120] 命令里混着下载、认不全：先不执行，提示模型改用下载工具（两次后照原命令执行，免得卡死）
                     dlHints++;
@@ -671,6 +710,7 @@ public final class ChatAgent {
                                 : "OneSay 提示：同一类步骤已经做了 " + fn + " 次。先想清楚还缺什么；没有新思路就用已有结果收尾，如实告诉用户。");
                 }
                 msgs.add(toolMsg(c.id, rj));
+                if (cancel.get()) continue; // [fix-1120 晚] 这一步执行中点了停止：后面的调用都回「用户点了停止」，回到循环开头收尾
                 if (staleStop != null) {
                     skipRest(msgs, t.calls, ci);
                     steps.step(Map.of("phase", "note", "desc", staleStop + "，没有新进展，先停下"));
@@ -724,6 +764,83 @@ public final class ChatAgent {
     static void skipRest(List<Map<String, Object>> msgs, List<Llm.ToolCall> calls, int i) {
         for (int k = i + 1; k < calls.size(); k++) msgs.add(toolMsg(calls.get(k).id, "{\"ok\":false,\"text\":\"没执行：任务已经停下\"}"));
     }
+
+    // ------------------------------------------------------------------ [fix-1120 晚] 用户点「停止」后收尾
+
+    /** 等模型这一轮：每 50 毫秒看一眼停止开关，点了停止就不等了（返回 null；那一轮的结果丢掉）。 */
+    Llm.Turn nextAbortable(Brain brain, List<Map<String, Object>> msgs, List<Map<String, Object>> tools) throws Exception {
+        List<Map<String, Object>> snap = new ArrayList<>(msgs);
+        java.util.concurrent.FutureTask<Llm.Turn> ft = new java.util.concurrent.FutureTask<>(() -> nextWithRetry(brain, snap, tools));
+        Thread th = new Thread(ft, "onesay-chat-llm");
+        th.setDaemon(true);
+        th.start();
+        return await(ft, cancel);
+    }
+
+    static <T> T await(java.util.concurrent.FutureTask<T> ft, AtomicBoolean flag) throws Exception {
+        while (true) {
+            try {
+                return ft.get(50, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                if (flag.get()) { ft.cancel(true); return null; }
+            } catch (java.util.concurrent.ExecutionException e) {
+                Throwable c = e.getCause();
+                if (c instanceof Exception) throw (Exception) c;
+                throw new RuntimeException(c);
+            }
+        }
+    }
+
+    static final String STOP_PROMPT = "（OneSay 内部提示）用户点了「停止」，任务到这里停下，正在跑的那一步已经中断。不要再调用任何工具。用中文简短收尾（几行就够）："
+            + "①已经确认了什么（只说上面工具结果里真实出现的，带上来源 / 数字；结果互相矛盾就直说）；②还缺什么、没弄清什么；③用户怎么继续（说「继续」我接着做，或者他自己可以怎么做）。"
+            + "不要说做了没做的事，不要再问一堆问题，不要写结果标记。";
+
+    /**
+     * 用户点了停止：没开收尾（直接 new 的 ChatAgent）或第二次点停止 → 立刻结束；否则不带工具让模型说一轮
+     * （已确认什么、还缺什么、怎么继续），查到的东西不丢。收尾时再点停止 = 不等了，直接结束。
+     */
+    Outcome stopped(List<Map<String, Object>> msgs, Brain brain, int done) {
+        Outcome base = new Outcome("已停止。" + (done > 0 ? "做了 " + done + " 步，说「继续」可以接着做。" : ""), "stopped", done);
+        if (!wrapUpOnStop || hardStop.get() || done == 0) return base;
+        try {
+            List<Map<String, Object>> m = new ArrayList<>(msgs);
+            m.add(Llm.msg("user", STOP_PROMPT));
+            java.util.concurrent.FutureTask<Llm.Turn> ft = new java.util.concurrent.FutureTask<>(() -> brain.next(m, List.of()));
+            Thread th = new Thread(ft, "onesay-chat-stop-wrap");
+            th.setDaemon(true);
+            th.start();
+            Llm.Turn t = await(ft, hardStop);
+            String x = t == null || t.content == null ? "" : Outcomes.stripTag(stripFakeSteps(t.content.trim()));
+            if (hardStop.get() || x.isEmpty() || looksLikeToolText(x)) return base;
+            return new Outcome(base.text + "\n\n" + x, "stopped", done);
+        } catch (Exception e) {
+            return base;
+        }
+    }
+
+    // ------------------------------------------------------------------ [fix-1120 晚] 推测的日期 / 计划任务
+
+    /** 承认没查到 / 推测的说法。 */
+    static final Pattern GUESS_ADMIT = Pattern.compile("没查到|未查到|查不到|没能查到|没能确认|未能确认|没核实|未核实|未经核实|没找到官方|未公布|还没公布|尚未公布|推测|估计|往年|按惯例|大概率|预计");
+    /** 具体的月日（11月29日 / 11-29 / 11/29 / 11.29）。 */
+    static final Pattern MONTH_DAY = Pattern.compile("(?<!\\d)(1[0-2]|0?[1-9])\\s*(月\\s*(3[01]|[12]\\d|0?[1-9])\\s*[日号]|[-/.](3[01]|[12]\\d|0[1-9])(?![\\d.]))");
+    static final Pattern PENDING_WORD = Pattern.compile("待确认|待核实|待定|日期未定");
+
+    /** 答复承认日期没查到 / 是推测的，又写了具体月日，却一处「待确认」都没标：推测的日期被当成了安排依据。 */
+    static boolean guessedDateAsFact(String s) {
+        if (s == null || s.isEmpty()) return false;
+        return GUESS_ADMIT.matcher(s).find() && MONTH_DAY.matcher(s).find() && !PENDING_WORD.matcher(s).find();
+    }
+
+    static final String DATE_NUDGE = "（OneSay 内部提示）你的答复里有没查到官方来源 / 推测的日期，却写成了具体日期、按它排了安排。改一下再答："
+            + "没核实的日期写「待确认」（可以说往年一般在几月上 / 中旬，注明是往年情况），按它排的安排改成相对写法（如「比赛日（待确认）前一天」），"
+            + "并给出核实入口（官网 / 官方公众号 / 官方 App 的名字或网址）；用户自己给的、或查到官方来源的日期照常写，注明来源。要建提醒的话，推测日期的提醒 date_verified 填 false。";
+
+    /** 命令在建 Windows 计划任务。 */
+    static final Pattern CREATES_SCHED_TASK = Pattern.compile("(?i)schtasks(\\.exe)?\\s+/create|register-scheduledtask|new-scheduledtask");
+
+    static final String SCHED_HINT = "没执行：要提醒用户的话用 reminder 工具（action=add），提醒存在 OneSay 里、到点在电脑上弹通知，不会在系统里留计划任务，用户在设置里也能看到和删除。"
+            + "如果确实需要 Windows 计划任务（比如开机自动运行某个程序，不是提醒），再发一次这条命令，会照常请用户批准。";
 
     /** 停下时让模型不带工具再说一轮：查到了什么、还缺什么、用户自己怎么做。失败就照原来的话。 */
     Outcome wrapUp(List<Map<String, Object>> msgs, Brain brain, Outcome o) {
@@ -965,7 +1082,7 @@ public final class ChatAgent {
     }
 
     /** 后加的工具缺哪个字段（badArgs 用）。 */
-    static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "description", "ask_choice", "question / options", "phone_send_file", "path", "phone_run_shortcut", "name", "download", "url / path"));
+    static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "description", "ask_choice", "question / options", "phone_send_file", "path", "phone_run_shortcut", "name", "download", "url / path", "reminder", "action（add 还要 title、at；update / delete 要 id）"));
 
     static Map<String, Object> toolMsg(String id, String content) {
         Map<String, Object> m = new TreeMap<>();
@@ -984,6 +1101,12 @@ public final class ChatAgent {
             case "open_app": return "打开程序：" + clip(String.valueOf(a.containsKey("path") ? a.get("path") : a.get("name")), 200);
             case "open_target": return "打开：" + clip(String.valueOf(a.get("name")), 200);
             case "phone_status": return "查手机状态";
+            case "reminder": {
+                String act = String.valueOf(a.get("action"));
+                if ("list".equals(act)) return "看这台电脑上的提醒";
+                String t = a.get("title") == null ? String.valueOf(a.getOrDefault("id", "")) : String.valueOf(a.get("title"));
+                return ("add".equals(act) ? "建提醒" : "update".equals(act) ? "改提醒" : "删除提醒") + "「" + clip(t, 60) + "」" + (a.get("at") != null ? "：" + a.get("at") : "");
+            }
             case "screen_look": return "截屏：" + ("pc".equals(a.get("target")) ? "这台电脑" : clip(String.valueOf(a.get("target")), 60)) + (a.get("question") != null ? "（看：" + clip(String.valueOf(a.get("question")), 80) + "）" : "");
             case "show_file": return "显示文件：" + clip(String.valueOf(a.get("path")), 200);
             case "ask_choice": return "请你选：" + clip(String.valueOf(a.get("question")), 120);

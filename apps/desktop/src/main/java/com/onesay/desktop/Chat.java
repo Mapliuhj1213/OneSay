@@ -36,6 +36,8 @@ public final class Chat {
      * [chat-agent-1118] 「对话」执行任务用的电脑能力（App 接到 {@link Agent#runLocal}：同一条安全链）。null = 没接（只能聊天）。
      */
     public volatile ChatAgent.Exec pcExec;
+    /** [fix-1120 晚] 对话里的提醒工具（App 接上常驻分工）。 */
+    public volatile ChatReminders reminders;
     /** 测试用：换掉大模型（null = 按设置连 {@link Llm}）。 */
     volatile ChatAgent.Brain brain;
     /** 正在跑的任务（界面「停止」用）。 */
@@ -290,7 +292,7 @@ public final class Chat {
                 Map<String, Object> m = store.add("chat", u, Store.MAX_CHAT);
                 queuedIds.add(String.valueOf(m.get("id")));
                 agent.inbox.add(text + note);
-                if (ChatAgent.stopWord(text)) agent.cancel.set(true);
+                if (ChatAgent.stopWord(text)) agent.requestStop(); // [fix-1120 晚] 第二次说「停」= 立刻结束
                 return m;
             }
         }
@@ -502,6 +504,11 @@ public final class Chat {
             if ("ask_choice".equals(cmd)) return new Actions.Result(false, "这个任务是手机交来的，电脑上弹选择卡手机看不到：把 2–3 个候选写进答复、标【需要你操作】，让用户在手机上回话选哪个",
                     new TreeMap<>(Map.of("reason", "choice_remote")));
             if ("android_ui".equals(cmd)) return Actions.Result.fail("手机交来的任务不能替你点安卓界面（在电脑上直接说就行）");
+        }
+        if ("reminder".equals(cmd)) { // [fix-1120 晚] 电脑本机的提醒 / 日程
+            if (origin != null && !origin.isEmpty()) return Actions.Result.fail("这个任务是手机交来的：提醒请在手机上建（电脑上的批准卡手机看不到）");
+            ChatReminders cr = reminders;
+            return cr == null ? Actions.Result.fail("提醒功能没启动") : cr.run(args);
         }
         if ("open_target".equals(cmd)) return openTarget(pe, args);
         if (cmd.startsWith("phone_")) return phoneTool(cmd, args);
@@ -966,6 +973,7 @@ public final class Chat {
             for (Map.Entry<String, String> e : on.entrySet()) l.add(e.getKey() + "（" + e.getValue() + "）");
             b.append(String.join("、", l)).append("。用 phone_status / phone_open_app / phone_operate 操作。\n");
         } else {
+            b.append("- 手机没连不影响在这台电脑上建提醒（reminder 工具）。\n");
             String last = "";
             try { last = String.valueOf(lastPhone.get()); } catch (RuntimeException ignored) { }
             boolean known = last != null && !last.isBlank() && !"null".equals(last);
@@ -1123,10 +1131,13 @@ public final class Chat {
         return b.toString();
     }
 
-    /** 界面「停止」：正在跑的任务做完当前这一步就停。 */
+    /**
+     * 界面「停止」：先中断正在跑的这一步（命令 / 下载 / 等批准），再不带工具简短收尾（已确认什么、还缺什么、怎么继续）；
+     * [fix-1120 晚] 再点一次 = 立刻结束，不收尾。
+     */
     public boolean stop() {
         if (!running) return false;
-        agent.cancel.set(true);
+        agent.requestStop();
         java.util.concurrent.atomic.AtomicBoolean t = stepCancel; // [preview-1120 A-01/A-04] 下载 / 传输 / 正在跑的命令也停（只停这个任务自己的）
         if (t != null) t.set(true);
         choices.cancelAll();
@@ -1134,6 +1145,9 @@ public final class Chat {
     }
 
     public boolean running() { return running; }
+
+    /** [fix-1120 晚] 已经点过一次停止、正在收尾。 */
+    public boolean stopping() { return agent.cancel.get(); }
 
     /** 发给手机：剪贴板指令没带文字时取电脑剪贴板；status 把电量等拼成一句。 */
     String runPhone(Intent it) {

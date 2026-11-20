@@ -178,8 +178,10 @@ public final class PcGuard {
                         info.put("phone", true);
                     }
                 } catch (Throwable ignored) { } // 发不到手机：照样只在电脑上等
+                java.util.concurrent.atomic.AtomicBoolean stopTok = Progress.TOKEN.get(); // [fix-1120 晚] 对话「停止」：等批准时也立刻结束（当没批准）
                 while (p.res.get() == PENDING) {
                     if (p.latch.await(Math.max(1, tickMs), TimeUnit.MILLISECONDS)) break;
+                    if (stopTok != null && stopTok.get()) { p.res.compareAndSet(PENDING, DENY); break; }
                     String end = p.gate.expired(now());
                     if (end != null) {
                         // 窗口关了 = 拒绝；超时 / 失焦没人点 / 界面没动静 = 没人确认（也是拒绝）
@@ -688,6 +690,35 @@ public final class PcGuard {
     public void noteCreated(List<String> paths) {
         if (paths == null) return;
         for (String p : paths) if (chatCreated.size() < 2000) chatCreated.add(p.toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * [fix-1120 晚] 低风险的本机动作（对话里建 / 改 / 删提醒：只动 OneSay 自己的数据，不碰系统）：
+     * 完全访问预设、或已点过「允许本次任务 / 这次运行都允许」就直接做；否则弹确认卡（默认预设给「允许本次任务」，一次批准整个任务）。
+     * 返回 null = 允许；否则是没批准的结果（原因码和别的步骤一样：拒绝 / 没人确认）。
+     */
+    public Actions.Result confirmLow(String from, String cmd, String detail) {
+        ChatPolicy.Preset preset = chatPreset();
+        if (preset == ChatPolicy.Preset.FULL || granted()) {
+            logPerm(detail, "自动放行", preset == ChatPolicy.Preset.FULL ? "完全访问" : sessionGrant ? "按「这次运行都允许」" : "按「允许本次任务」");
+            return null;
+        }
+        Confirmer c = confirmer;
+        boolean offerTask = preset == ChatPolicy.Preset.DEFAULT && TASK.get() != null && !TASK.get().isEmpty();
+        String card = from + " 请求：" + detail;
+        int r;
+        try {
+            r = c == null ? TIMEOUT : offerTask ? c.ask(from, cmd, card, CONFIRM_MS, false, "", true) : c.ask(from, cmd, card, CONFIRM_MS);
+        } catch (Throwable t) {
+            r = DENY; // 确认框出错 = 拒绝
+        }
+        if ((r == TASK_ALLOW || r == SESSION_ALLOW) && !offerTask) r = ALLOW;
+        if (r == TASK_ALLOW) { grantTask(TASK.get()); r = ALLOW; logPerm(detail, "允许本次任务", from); }
+        else if (r == SESSION_ALLOW) { grantSession(); r = ALLOW; logPerm(detail, "这次运行都允许", from); }
+        else logPerm(detail, r == ALLOW || r == ALWAYS || r == REMEMBER ? "允许一次" : r == TIMEOUT ? "没人确认（拒绝）" : "拒绝", from);
+        if (r == ALLOW || r == ALWAYS || r == REMEMBER) return null;
+        return r == TIMEOUT ? result(false, "没人确认（60 秒到了，或确认框被切走 / 界面没响应），已拒绝", LinkPolicy.R_CONFIRM_TIMEOUT, null)
+                : result(false, "电脑上拒绝了", LinkPolicy.R_CONFIRM_DENIED, null);
     }
 
     /** 现在这一步能不能按「允许本次任务 / 这次运行都允许」直接做。 */

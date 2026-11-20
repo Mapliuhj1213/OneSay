@@ -393,6 +393,7 @@ public final class App {
         if (purged > 0) log.accept("通知列表里清掉了 " + purged + " 条旧版本留下的审批记录（审批不进通知）");
         agent.guard.notify = t -> { log.accept("权限：" + t); agent.guard.logPerm(t, "提醒", ""); };
         setupAlwaysOn(); // [always-on-1120] 要在通道启动前挂好：中转一连上就要同步任务、收排队
+        chat.reminders = new ChatReminders(aon, d -> agent.guard.confirmLow(ChatAgent.FROM, "reminder", d), System::currentTimeMillis, null); // [fix-1120 晚] 对话里建提醒：存在常驻分工里，默认电脑本地
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
         setupLinks1119();
@@ -1040,7 +1041,7 @@ public final class App {
             return m;
         });
         ui.on("chat_clear", b -> { if (chat.running()) return fail("任务还在做，先点「停止」"); store.clear("chat"); return ok("已清空对话，记忆保留"); });
-        ui.on("chat_stop", b -> chat.stop() ? ok("做完当前这一步就停") : ok("没有在做的任务"));
+        ui.on("chat_stop", b -> { boolean again = chat.running() && chat.stopping(); return chat.stop() ? ok(again ? "直接结束，不再收尾" : "正在停下：中断当前这一步，再简短收尾（再点一次停止就直接结束）") : ok("没有在做的任务"); });
         ui.on("dl_cancel", b -> chat.cancelTransfer() ? ok("已取消，任务会接着往下") : ok("现在没有在下载 / 传的")); // [overnight-1119]
         ui.on("artifact", b -> chat.artifact(str(b, "path", ""))); // [devtools-1118] 任务卡里的截图 / 文件（只给对话里登记过的路径）
         ui.on("memory", b -> { store.setMemory(str(b, "text", ""), System.currentTimeMillis()); return ok("记忆已保存"); });

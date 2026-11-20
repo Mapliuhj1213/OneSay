@@ -84,6 +84,10 @@ public final class AlwaysOn {
         public Missed missed = Missed.RUN;
         public long at, every, grace = DEF_GRACE_MS;
         public boolean wake, enabled = true;
+        /** [fix-1120 晚] 谁建的：chat = 对话里模型用提醒工具建的；空 = 设置页。 */
+        public String origin = "";
+        /** [fix-1120 晚] 日期 / 时间是推测的（没查到官方来源）：提醒里标「待确认」。 */
+        public boolean unverified;
         /** 本机已经处理到哪个时刻（含）。 */
         public long seen;
 
@@ -94,6 +98,8 @@ public final class AlwaysOn {
             m.put("id", id); m.put("title", title); m.put("text", text); m.put("action", action.id); m.put("target", target);
             m.put("url", url); m.put("contains", contains); m.put("where", where.id); m.put("missed", missed.id);
             m.put("at", at); m.put("every", every); m.put("grace", grace); m.put("wake", wake); m.put("enabled", enabled); m.put("seen", seen);
+            if (!origin.isEmpty()) m.put("origin", origin);
+            if (unverified) m.put("unverified", true);
             return m;
         }
 
@@ -109,6 +115,8 @@ public final class AlwaysOn {
             j.wake = Boolean.TRUE.equals(m.get("wake")) || "true".equals(String.valueOf(m.get("wake")));
             j.enabled = !Boolean.FALSE.equals(m.get("enabled")) && !"false".equals(String.valueOf(m.get("enabled")));
             j.seen = num(m.get("seen"));
+            j.origin = str(m.get("origin")).replaceAll("[^a-z]", "");
+            j.unverified = Boolean.TRUE.equals(m.get("unverified")) || "true".equals(String.valueOf(m.get("unverified")));
             return j;
         }
     }
