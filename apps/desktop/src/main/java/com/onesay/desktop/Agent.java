@@ -40,7 +40,8 @@ public final class Agent {
         this.guard = new PcGuard(cfg, confirms);
         confirms.phoneOffer = this::offerToPhone;
         confirms.phoneClose = this::closeOnPhone;
-        if (cfg.lanEnabled()) add(l -> new LanServer(cfg, l));
+        // [preview-1120] 环境变量 ONESAY_LAN=off：这次不开局域网监听（真机测预览版时用，免得新路径的 exe 弹防火墙询问；手机离线时也用不上）
+        if (cfg.lanEnabled() && !"off".equalsIgnoreCase(String.valueOf(System.getenv("ONESAY_LAN")))) add(l -> new LanServer(cfg, l));
         if (cfg.relayEnabled()) add(l -> new RelayClient(cfg, l));
     }
 

@@ -65,13 +65,13 @@ public final class UserDirs {
 
     /** 本账户在 ProgramData 下的回退根目录：%ProgramData%\OneSay\accounts\&lt;账户标记&gt;。 */
     public static String fallbackRoot(String userProfile, String programData) {
-        return pd(programData) + "\\OneSay\\accounts\\" + accountTag(userProfile);
+        return pd(programData) + "\\" + Flavor.dir() + "\\accounts\\" + accountTag(userProfile);
     }
 
     /** 工作区：%USERPROFILE%\OneSay\workspace；非 ASCII 时 %ProgramData%\OneSay\accounts\&lt;账户&gt;\workspace。 */
     public static String workspaceDir(String userProfile, String programData) {
         String up = userProfile == null ? "" : userProfile.trim();
-        if (isAscii(up)) return strip(up) + "\\OneSay\\workspace";
+        if (isAscii(up)) return strip(up) + "\\" + Flavor.dir() + "\\workspace";
         return fallbackRoot(up, programData) + "\\workspace";
     }
 
@@ -81,8 +81,8 @@ public final class UserDirs {
      */
     public static String toolsDir(String localAppData, String programData, String userHome, String userProfile) {
         String la = localAppData == null ? "" : localAppData.trim();
-        if (la.isEmpty()) return Paths.get(userHome == null ? "." : userHome, ".local", "share", "onesay", "tools").toString();
-        if (isAscii(la)) return strip(la) + "\\OneSay\\tools";
+        if (la.isEmpty()) return Paths.get(userHome == null ? "." : userHome, ".local", "share", Flavor.unixDir(), "tools").toString();
+        if (isAscii(la)) return strip(la) + "\\" + Flavor.dir() + "\\tools";
         String up = userProfile == null ? "" : userProfile.trim();
         if (up.isEmpty()) {
             String s = strip(la);
@@ -96,7 +96,7 @@ public final class UserDirs {
     /** 链接下载的输出目录：设置里的 media_dir；否则 %USERPROFILE%\OneSay\Downloads（不回退）；没有 USERPROFILE 时 ~/OneSay/Downloads。 */
     public static Path downloadsDir(String configured, String userProfile, String userHome) {
         if (configured != null && !configured.isBlank()) return Paths.get(configured.trim());
-        if (userProfile != null && !userProfile.isEmpty()) return Paths.get(userProfile, "OneSay", "Downloads");
-        return Paths.get(userHome == null ? "." : userHome, "OneSay", "Downloads");
+        if (userProfile != null && !userProfile.isEmpty()) return Paths.get(userProfile, Flavor.dir(), "Downloads");
+        return Paths.get(userHome == null ? "." : userHome, Flavor.dir(), "Downloads");
     }
 }

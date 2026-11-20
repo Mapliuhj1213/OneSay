@@ -276,7 +276,7 @@ public final class Voice {
     /** 本机语音截图：存到 图片\OneSay，并放进剪贴板。 */
     static Actions.Result saveShot(Map<String, Object> d) throws Exception {
         byte[] jpg = Base64.getDecoder().decode((String) d.get("b64"));
-        Path dir = Paths.get(System.getProperty("user.home"), "Pictures", "OneSay");
+        Path dir = Paths.get(System.getProperty("user.home"), "Pictures", Flavor.dir());
         Files.createDirectories(dir);
         Path f = dir.resolve("截图-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".jpg");
         Files.write(f, jpg);

@@ -32,7 +32,7 @@ public final class Notify {
             case "rain": return "降水";
             case "app": return "手机通知";
             case "task": return "任务完成";
-            default: return "OneSay";
+            default: return Flavor.name();
         }
     }
 

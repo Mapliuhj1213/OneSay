@@ -60,7 +60,7 @@ final class ExeHandoff {
             Path h = javaHome.toAbsolutePath();
             if (h.getFileName() != null && h.getFileName().toString().equalsIgnoreCase("runtime") && h.getParent() != null) c.add(h.getParent());
         }
-        if (localAppData != null && !localAppData.isBlank()) c.add(Paths.get(localAppData, "Programs", "OneSay"));
+        if (localAppData != null && !localAppData.isBlank()) c.add(Paths.get(localAppData, "Programs", Flavor.dir()));
         return new ArrayList<>(c);
     }
 

@@ -41,7 +41,7 @@ public final class Main {
             case "app": App.launch(cfg, !a.contains("--tray")); break;
             case "send": System.exit(send(cfg, a)); break;
             case "autostart": autostart(a.isEmpty() ? "" : a.get(0)); break;
-            case "version": System.out.println("OneSay Desktop " + VERSION); break;
+            case "version": System.out.println("OneSay Desktop " + Flavor.version()); break;
             default: usage();
         }
     }
@@ -167,7 +167,7 @@ public final class Main {
         menu.addSeparator();
         menu.add(copy);
         menu.add(quit);
-        TrayIcon icon = new TrayIcon(dot(true), "OneSay " + cfg.deviceId, menu);
+        TrayIcon icon = new TrayIcon(dot(true), Flavor.name() + " " + cfg.deviceId, menu);
         icon.setImageAutoSize(true);
         SystemTray.getSystemTray().add(icon);
         new Thread(() -> {
@@ -198,8 +198,8 @@ public final class Main {
         String javaw = Paths.get(System.getProperty("java.home"), "bin", "javaw.exe").toString();
         String key = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
         ProcessBuilder pb = onOff.equals("on")
-                ? new ProcessBuilder("reg", "add", key, "/v", "OneSay", "/t", "REG_SZ", "/d", "\"" + javaw + "\" -jar \"" + jar + "\" run", "/f")
-                : onOff.equals("off") ? new ProcessBuilder("reg", "delete", key, "/v", "OneSay", "/f") : null;
+                ? new ProcessBuilder("reg", "add", key, "/v", Flavor.runValue(), "/t", "REG_SZ", "/d", "\"" + javaw + "\" -jar \"" + jar + "\" run", "/f")
+                : onOff.equals("off") ? new ProcessBuilder("reg", "delete", key, "/v", Flavor.runValue(), "/f") : null;
         if (pb == null) { System.out.println("用法：autostart on|off"); return; }
         int code = pb.inheritIO().start().waitFor();
         System.out.println(code == 0 ? "已" + (onOff.equals("on") ? "开启" : "关闭") + "开机自启" : "失败（" + code + "）");
