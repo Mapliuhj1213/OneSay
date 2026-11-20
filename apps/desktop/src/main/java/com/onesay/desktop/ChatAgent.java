@@ -887,7 +887,8 @@ public final class ChatAgent {
     static boolean sideEffect(String cmd, Map<String, Object> a) {
         if ("sys_exec".equals(cmd)) {
             String c = a == null || a.get("command") == null ? "" : String.valueOf(a.get("command"));
-            return PermStats.DOWNLOAD.matcher(c).find() || PermStats.INSTALL.matcher(c).find();
+            // [fix-1120 晚 真机] 只读网页（Invoke-WebRequest / irm 不落盘）不算下载：真机上模型说了「可能是」之后查厦马官网被当成下载拦了两次，任务以「下载 / 安装被拦」收尾
+            return DownloadRewrite.mentions(c) || PermStats.INSTALL.matcher(c).find();
         }
         if ("phone_operate".equals(cmd)) {
             String g = a == null || a.get("goal") == null ? "" : String.valueOf(a.get("goal"));

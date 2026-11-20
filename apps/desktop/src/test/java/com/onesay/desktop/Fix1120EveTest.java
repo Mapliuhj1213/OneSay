@@ -214,6 +214,25 @@ public class Fix1120EveTest {
         assertEquals(3, n.get());
     }
 
+    @Test public void hedgedWebReadIsNotTreatedAsDownload() {
+        assertFalse(ChatAgent.sideEffect("sys_exec", Map.of("command", "Invoke-WebRequest -Uri https://www.xmim.org -UseBasicParsing")));
+        assertFalse(ChatAgent.sideEffect("sys_exec", Map.of("command", "irm https://api.example.com/x | ConvertTo-Json")));
+        assertTrue(ChatAgent.sideEffect("sys_exec", Map.of("command", "Invoke-WebRequest https://x.com/a.zip -OutFile C:\\Users\\me\\Downloads\\a.zip")));
+        assertTrue(ChatAgent.sideEffect("sys_exec", Map.of("command", "winget install Git.Git")));
+        ChatAgent a = new ChatAgent();
+        AtomicInteger n = new AtomicInteger();
+        ChatAgent.Brain b = (m, t) -> {
+            int k = n.incrementAndGet();
+            if (k == 1) return new Llm.Turn("比赛日期可能是 1 月 10 日，我查一下官网。", List.of(new Llm.ToolCall("1", "run_command", "{\"command\":\"Invoke-WebRequest https://www.xmim.org -UseBasicParsing\",\"description\":\"查官网\"}")), new TreeMap<>(Llm.msg("assistant", "")));
+            if (k == 2) return call("2", "run_command", "{\"command\":\"Invoke-WebRequest https://www.xmim.org/news -UseBasicParsing\",\"description\":\"查公告\"}");
+            return say("官网写 2027 年 1 月 10 日 7:00 开跑。");
+        };
+        List<String> ran = new ArrayList<>();
+        ChatAgent.Outcome o = a.run(ctx("厦马"), b, (c, x) -> { ran.add(String.valueOf(x.get("command"))); return Actions.Result.ok("ok"); }, t -> { });
+        assertEquals("done", o.status);
+        assertEquals(2, ran.size());
+    }
+
     // ------------------------------------------------------------------ b. 推测的日期
 
     @Test public void guessedDatesAreMarkedPending() throws Exception {
