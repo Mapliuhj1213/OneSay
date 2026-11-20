@@ -547,6 +547,38 @@ public class Workflow1120Test {
         assertTrue(SecretStore.WinCred.script("get", "a'b").contains("'a''b'"));
     }
 
+    /** 真机 1120：PowerShell 输出重定向时把进度写成 #< CLIXML（以前 stderr 合并进来、取最后一行 → 存进去了也报失败）；1312 = 当前登录会话没有凭据库。 */
+    @Test
+    public void winCredOutputParsingIgnoresProgressNoise() {
+        String clixml = "#< CLIXML\r\n<Objs Version=\"1.1.0.1\"><Obj S=\"progress\" RefId=\"0\"></Obj></Objs>";
+        assertEquals("OK", SecretStore.WinCred.marker("OK\r\n" + clixml));
+        assertEquals("OK", SecretStore.WinCred.marker(clixml + "\r\nOK\r\n"));
+        assertEquals("VAL:c2stYWJj", SecretStore.WinCred.marker("警告：xxx\nVAL:c2stYWJj\n" + clixml));
+        assertEquals("FAIL:1312", SecretStore.WinCred.marker("FAIL:1312\r\n"));
+        assertNull(SecretStore.WinCred.marker(clixml));
+        assertNull(SecretStore.WinCred.marker(null));
+        assertTrue(SecretStore.WinCred.script("put", "x").contains("$ProgressPreference='SilentlyContinue'"));
+        assertTrue(SecretStore.WinCred.script("put", "x").contains("'FAIL:'+[OsCred]::LastErr"));
+        assertTrue(SecretStore.WinCred.problem("FAIL:1312").contains("1312"));
+        assertTrue(SecretStore.WinCred.problem(null).contains("没有结果"));
+        assertNull(SecretStore.WinCred.problem("OK"));
+        // 存不进凭据库：新连接不留半条、不进列表，提示带原因
+        Map<String, String> held = new java.util.concurrent.ConcurrentHashMap<>();
+        SecretStore bad = new SecretStore() {   // 模拟「写进去了却报失败」
+            @Override public boolean put(String name, String secret) { held.put(name, secret); return false; }
+            @Override public String get(String name) { return held.get(name); }
+            @Override public boolean delete(String name) { return held.remove(name) != null; }
+            @Override public String where() { return "模拟凭据库"; }
+            @Override public String lastProblem() { return "模拟原因"; }
+        };
+        ApiConnectors ac = new ApiConnectors(tmp.resolve("bad-cred.json"), bad, null);
+        Map<String, Object> r = ac.save(conn("坏凭据", "https://api.example-unknown.io/v1", "backend", "测试用", "k-123456"));
+        assertEquals(Boolean.FALSE, r.get("ok"));
+        assertTrue(String.valueOf(r.get("text")), String.valueOf(r.get("text")).contains("模拟原因"));
+        assertTrue(held.isEmpty());
+        assertTrue(ac.list().isEmpty());
+    }
+
     // ------------------------------------------------------------------ 导出 / 导入 / 改图
 
     @Test

@@ -233,7 +233,11 @@ public final class ApiConnectors {
         c.presetName = p == null ? "" : p[1];
         if (!key.isEmpty()) {
             if (key.length() > 4096 || key.matches(".*[\\r\\n].*")) return fail("key 太长或带了换行");
-            if (!secrets.put(SecretStore.name("api", c.id), key.trim())) return fail("key 没存进" + secrets.where() + "，没保存");
+            if (!secrets.put(SecretStore.name("api", c.id), key.trim())) {
+                String why = secrets.lastProblem();
+                if (!conns.containsKey(c.id)) secrets.delete(SecretStore.name("api", c.id));   // 新连接没存成：别在凭据库里留半条
+                return fail("key 没存进" + secrets.where() + "，没保存" + (why == null ? "" : "：" + why));
+            }
             keyCache.put(c.id, key.trim());
             c.hasKey = true;
             changed = true;
