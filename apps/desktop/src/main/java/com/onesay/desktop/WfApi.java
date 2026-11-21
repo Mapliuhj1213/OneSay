@@ -72,6 +72,19 @@ public final class WfApi {
 
     static Map<String, Object> fail(String t) { Map<String, Object> m = ok(t); m.put("ok", false); return m; }
 
+    /** [workflow-1120] 导入成功后的提示：说清导入了哪个；缺技能 / 连接时说缺几个、补上才能运行。 */
+    static String importedText(String name, Map<String, Object> chk) {
+        int ms = chk.get("missing_skills") instanceof java.util.List ? ((java.util.List<?>) chk.get("missing_skills")).size() : 0;
+        int mc = chk.get("missing_connectors") instanceof java.util.List ? ((java.util.List<?>) chk.get("missing_connectors")).size() : 0;
+        String t = "已导入「" + (name == null || name.isEmpty() || name.equals("null") ? "工作流" : name) + "」";
+        if (ms == 0 && mc == 0) return t + "，可以直接运行";
+        StringBuilder miss = new StringBuilder();
+        if (ms > 0) miss.append(ms).append(" 个技能");
+        if (mc > 0) miss.append(miss.length() > 0 ? "、" : "").append(mc).append(" 个连接");
+        String fix = ms > 0 && mc > 0 ? "装好技能、加上连接" : ms > 0 ? "去「技能」页装好" : "去「连接」页加上";
+        return t + "。还缺 " + miss + "，" + fix + "后才能运行";
+    }
+
     @SuppressWarnings("unchecked")
     static Map<String, Object> map(Object o) { return o instanceof Map ? (Map<String, Object>) o : new TreeMap<>(); }
 
@@ -318,7 +331,7 @@ public final class WfApi {
                 Map<String, Object> r = store.save(clean);
                 r.put("missing_skills", chk.get("missing_skills"));
                 r.put("missing_connectors", chk.get("missing_connectors"));
-                if (Boolean.TRUE.equals(r.get("ok"))) r.put("text", "已导入。" + chk.get("text"));
+                if (Boolean.TRUE.equals(r.get("ok"))) r.put("text", importedText(String.valueOf(clean.get("name")), chk));
                 return r;
             }
             case "caps": { Map<String, Object> m = ok("能力"); m.put("capabilities", capabilities()); return m; }

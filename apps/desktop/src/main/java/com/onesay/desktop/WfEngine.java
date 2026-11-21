@@ -150,7 +150,10 @@ public final class WfEngine {
 
     static final class Stop extends RuntimeException {
         final String status;
-        Stop(String status, String msg) { super(msg); this.status = status; }
+        /** 节点自己已经在运行日志里写过这条出错 / 没批准（收尾时不再重复写一行）。 */
+        final boolean logged;
+        Stop(String status, String msg) { this(status, msg, false); }
+        Stop(String status, String msg, boolean logged) { super(msg); this.status = status; this.logged = logged; }
     }
 
     private void execute(Map<String, Object> wf0, Map<String, Object> input, Run r, long runTimeoutMs) {
@@ -175,7 +178,7 @@ public final class WfEngine {
         } catch (Stop s) {
             r.status = s.status;
             r.error = redact(s.getMessage());
-            log(r, null, null, s.status, r.error, 0);
+            if (!s.logged) log(r, null, null, s.status, r.error, 0); // 出错的节点已经写过一行，不重复
         } catch (RuntimeException e) {
             r.status = "failed";
             r.error = redact("执行器出错：" + e.getClass().getSimpleName() + (e.getMessage() == null ? "" : "：" + e.getMessage()));
@@ -289,7 +292,7 @@ public final class WfEngine {
             if (!yes) {
                 r.node(id, "denied");
                 log(r, id, title, "denied", "「" + title + "」要你批准（" + riskZh(risk) + "），没有批准，已停下", System.currentTimeMillis() - t0);
-                throw new Stop("denied", "「" + title + "」没有批准，工作流停下了");
+                throw new Stop("denied", "「" + title + "」没有批准，工作流停下了", true);
             }
         }
         try {
@@ -348,7 +351,7 @@ public final class WfEngine {
             }
             r.node(id, "error");
             log(r, id, title, "error", "「" + title + "」出错：" + msg, System.currentTimeMillis() - t0);
-            throw new Stop(e instanceof TimeoutException ? "timeout" : "failed", "「" + title + "」出错：" + msg);
+            throw new Stop(e instanceof TimeoutException ? "timeout" : "failed", "「" + title + "」出错：" + msg, true);
         }
     }
 

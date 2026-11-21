@@ -1,90 +1,172 @@
-/* [workflow-1120] 工作流页样式：沿用主界面的颜色变量（--card / --text / --accent …） */
-.wf-root{display:flex;flex-direction:column;height:100%;min-height:560px;color:var(--text,#222);font-size:13px}
+/* [workflow-1120] 工作流页样式：沿用主界面的颜色变量（--card / --text / --accent …）。
+   浅色 / 深色两套：主界面 <html data-theme> 一变（包括「跟随系统」时系统切换），这里的变量跟着变，不用重画。
+   画布库内部写死的颜色（底色、点阵、连线、端口、选中框、滚动条）在下面「画布库覆盖」一节用它自己的 CSS 变量或选择器盖掉。 */
+
+/* ---------- 颜色变量：浅色 ---------- */
+.wf-root{
+  --wf-canvas-bg:#F8F7F4; --wf-dot:#C9C5BC; --wf-node-bg:var(--card,#fff); --wf-node-line:#DAD6CE; --wf-node-shadow:0 1px 3px rgba(0,0,0,.06);
+  --wf-edge:#8A867D; --wf-port:#948F86; --wf-input-bg:var(--card,#fff); --wf-backdrop:rgba(20,20,18,.32); --wf-modal-line:transparent;
+  --wf-ok:#1A6A3A; --wf-run:#7A5308; --wf-err:#B32D32; --wf-scroll:rgba(0,0,0,.28); --wf-muted:#66635D;
+  --wf-b0-bg:#ECEAE5; --wf-b0-fg:#4D4A45;
+  --wf-start-bg:#DCEFD9; --wf-start-fg:#1E5A2B; --wf-end-bg:#F6DEDD; --wf-end-fg:#8A2427;
+  --wf-cond-bg:#F5EACB; --wf-cond-fg:#6E4A06; --wf-loop-bg:#DAEBF5; --wf-loop-fg:#11506F;
+  --wf-code-bg:#E7E2F5; --wf-code-fg:#4B3590; --wf-skill-bg:#EEDFF3; --wf-skill-fg:#682F7C;
+  --wf-api-bg:#D5EEEA; --wf-api-fg:#155A52; --wf-llm-bg:#E3EDDA; --wf-llm-fg:#355A22; --wf-tool-bg:#E6E8EC; --wf-tool-fg:#3D4552;
+  /* 画布库自己的变量 */
+  --g-editor-background:var(--wf-canvas-bg); --g-selection-background:var(--accent,#4E7A35);
+  --g-playground-selectBox-outline:var(--accent,#4E7A35); --g-playground-selectBox-background:color-mix(in srgb,var(--accent,#4E7A35) 10%,transparent);
+  --g-playground-select-hover-background:color-mix(in srgb,var(--accent,#4E7A35) 10%,transparent);
+  --g-workflow-line-color-default:var(--wf-edge); --g-workflow-line-color-hover:var(--accent,#4E7A35); --g-workflow-line-color-selected:var(--accent,#4E7A35);
+  --g-workflow-line-color-drawing:var(--accent,#4E7A35); --g-workflow-line-color-flowing:var(--accent,#4E7A35); --g-workflow-line-color-error:var(--wf-err);
+  --g-workflow-port-color-primary:var(--accent,#4E7A35); --g-workflow-port-color-secondary:var(--wf-port); --g-workflow-port-color-background:var(--wf-node-bg);
+  --g-workflow-port-color-error:var(--wf-err);
+}
+/* ---------- 颜色变量：深色（低饱和深底 + 亮字） ---------- */
+:root[data-theme=dark] .wf-root{
+  --wf-canvas-bg:#141416; --wf-dot:#3A3A40; --wf-node-bg:#1E1E22; --wf-node-line:#3A3A41; --wf-node-shadow:0 2px 8px rgba(0,0,0,.45);
+  --wf-edge:#6E6C68; --wf-port:#7A7873; --wf-input-bg:#26262A; --wf-backdrop:rgba(0,0,0,.6); --wf-modal-line:#34343A; --wf-scroll:rgba(255,255,255,.3);
+  --wf-ok:var(--green,#5BC27A); --wf-run:var(--warn,#F2B33D); --wf-err:var(--red,#F0575C); --wf-muted:#9A9893;
+  --wf-b0-bg:#2C2C31; --wf-b0-fg:#CFCDC8;
+  --wf-start-bg:#1E3324; --wf-start-fg:#9BDCA8; --wf-end-bg:#3A2224; --wf-end-fg:#F2A7A9;
+  --wf-cond-bg:#3A311C; --wf-cond-fg:#F1CF7A; --wf-loop-bg:#1A2E3A; --wf-loop-fg:#8FCDEE;
+  --wf-code-bg:#29243F; --wf-code-fg:#C3B6F2; --wf-skill-bg:#30243B; --wf-skill-fg:#DDB7EC;
+  --wf-api-bg:#17332F; --wf-api-fg:#83D9CB; --wf-llm-bg:#26321F; --wf-llm-fg:#B4D69A; --wf-tool-bg:#272B33; --wf-tool-fg:#BCC4D2;
+}
+
+/* ---------- 页面骨架 ---------- */
+.wf-root{display:flex;flex-direction:column;height:100%;min-height:520px;color:var(--text,#222);font-size:13px}
 .wf-tabs{display:flex;gap:6px;margin-bottom:8px}
-.wf-tabs button{padding:6px 14px;border-radius:10px;background:transparent;border:1px solid var(--line,#ddd);color:var(--text,#222);cursor:pointer}
+.wf-tabs button{padding:6px 14px;border-radius:10px;background:transparent;border:1px solid var(--line,#ddd);color:var(--text,#222);cursor:pointer;font-size:13px}
 .wf-tabs button.on{background:var(--card,#fff);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06)}
 .wf-flow{display:flex;gap:10px;flex:1;min-height:0}
-.wf-list{width:170px;flex:none;display:flex;flex-direction:column;gap:6px;overflow:auto}
-.wf-sec{font-size:12px;color:var(--text3,#888);margin:8px 0 2px}
-.wf-item{text-align:left;padding:7px 9px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--text,#222);cursor:pointer;display:flex;flex-direction:column}
-.wf-item span{font-size:11px;color:var(--text3,#888)}
+.wf-list{width:164px;flex:none;display:flex;flex-direction:column;gap:6px;overflow:auto}
+.wf-list-h{display:flex;align-items:center;gap:4px}
+.wf-list-h .wf-btn{flex:1}
+.wf-fold{flex:none;width:28px;height:28px;border-radius:8px;border:1px solid var(--line,#ddd);background:transparent;color:var(--text2,#555);cursor:pointer;font-size:14px;line-height:1;display:grid;place-items:center}
+.wf-fold:hover{background:var(--card,#fff);color:var(--text,#222)}
+.wf-sec{font-size:12px;color:var(--wf-muted);margin:8px 0 2px}
+.wf-item{text-align:left;padding:7px 9px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--text,#222);cursor:pointer;display:flex;flex-direction:column;font-size:13px}
+.wf-item span{font-size:12px;color:var(--wf-muted)}
 .wf-item.on,.wf-item:hover{background:var(--card,#fff);border-color:var(--line,#e5e5e5)}
 .wf-chip{text-align:left;padding:5px 9px;border-radius:999px;border:1px solid var(--line,#ddd);background:var(--card,#fff);color:var(--text,#222);cursor:pointer}
 .wf-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;position:relative}
-.wf-empty{align-items:center;justify-content:center;color:var(--text3,#888);text-align:center;line-height:1.8}
+.wf-empty{align-items:center;justify-content:center;color:var(--wf-muted);text-align:center;line-height:1.8}
 .wf-bar,.wf-ai,.wf-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .wf-ai input{flex:1}
 .wf-sp{flex:1}
-.wf-name{font-weight:600;font-size:15px;min-width:160px;flex:0 1 260px}
-.wf-btn{padding:6px 12px;border-radius:9px;border:1px solid var(--accent,#0a7cff);background:var(--accent,#0a7cff);color:#fff;cursor:pointer;font-size:13px}
+.wf-name{font-weight:600;font-size:15px;min-width:140px;flex:0 1 240px}
+.wf-btn{padding:6px 12px;border-radius:9px;border:1px solid var(--accent,#4E7A35);background:var(--accent,#4E7A35);color:var(--card,#fff);cursor:pointer;font-size:13px}
 .wf-btn.ghost{background:transparent;color:var(--text,#222);border-color:var(--line,#ddd)}
+.wf-btn.ghost:hover{background:var(--card,#fff)}
 .wf-btn.sm{padding:3px 9px;font-size:12px}
-.wf-btn.danger{color:var(--red,#d33)}
+.wf-btn.danger{color:var(--wf-err)}
 .wf-btn:disabled{opacity:.5;cursor:default}
-.wf-root input,.wf-root select,.wf-root textarea{border:1px solid var(--line,#ddd);border-radius:8px;padding:5px 8px;background:var(--surface2,#fafafa);color:var(--text,#222);font:inherit;box-sizing:border-box}
+/* 缩放：− 百分比 ＋ */
+.wf-zoom{display:inline-flex;align-items:stretch;border:1px solid var(--line,#ddd);border-radius:9px;overflow:hidden}
+.wf-zoom button{background:transparent;border:0;color:var(--text,#222);cursor:pointer;font-size:13px;padding:5px 9px;min-width:30px}
+.wf-zoom button:hover{background:var(--card,#fff)}
+.wf-zoom .pct{min-width:54px;font-variant-numeric:tabular-nums;border-left:1px solid var(--line,#ddd);border-right:1px solid var(--line,#ddd)}
+/* 输入框 */
+.wf-root input,.wf-root select,.wf-root textarea{border:1px solid var(--line,#ddd);border-radius:8px;padding:5px 8px;background:var(--wf-input-bg);color:var(--text,#222);font:inherit;box-sizing:border-box}
+.wf-root input::placeholder,.wf-root textarea::placeholder{color:var(--wf-muted);opacity:1}
+.wf-root input:focus,.wf-root select:focus,.wf-root textarea:focus{outline:2px solid color-mix(in srgb,var(--accent,#4E7A35) 45%,transparent);outline-offset:0;border-color:var(--accent,#4E7A35)}
+.wf-root input[type=checkbox]{accent-color:var(--accent,#4E7A35)}
 .wf-root textarea{width:100%;resize:vertical}
 .wf-root .mono,.wf-root textarea.mono{font-family:Consolas,Menlo,monospace;font-size:12px}
-.wf-root textarea.bad{border-color:var(--red,#d33)}
-.wf-body{flex:1;display:flex;gap:8px;min-height:0}
-.wf-palette{width:110px;flex:none;display:flex;flex-direction:column;gap:5px;overflow:auto}
-.wf-pal{padding:7px 9px;border-radius:9px;background:var(--card,#fff);border:1px solid var(--line,#e2e2e2);cursor:grab;user-select:none}
-.wf-pal.t-skill{border-left:3px solid #8b5cf6}
-.wf-canvas{flex:1;position:relative;min-width:0;border:1px solid var(--line,#e2e2e2);border-radius:12px;overflow:hidden;background:var(--surface2,#f7f7f8)}
+.wf-root textarea.bad{border-color:var(--wf-err)}
+.wf-root code{font-family:Consolas,Menlo,monospace;font-size:12px}
+
+/* ---------- 编辑区：节点库 | 画布 | 属性面板 ---------- */
+.wf-body{flex:1;display:flex;gap:8px;min-height:0;position:relative}
+.wf-palette{width:100px;flex:none;display:flex;flex-direction:column;gap:5px;overflow:auto}
+.wf-pal{padding:7px 9px;border-radius:9px;background:var(--wf-node-bg);border:1px solid var(--wf-node-line);color:var(--text,#222);cursor:grab;user-select:none;font-size:13px}
+.wf-pal:hover{border-color:var(--accent,#4E7A35)}
+.wf-pal.t-skill{border-left:3px solid var(--wf-skill-fg)}
+.wf-canvas{flex:1;position:relative;min-width:0;border:1px solid var(--line,#e2e2e2);border-radius:12px;overflow:hidden;background:var(--wf-canvas-bg)}
 .wf-editor{position:absolute;inset:0}
-.wf-panel{width:280px;flex:none;overflow:auto;background:var(--card,#fff);border:1px solid var(--line,#e2e2e2);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
-.wf-panel.empty{color:var(--text3,#888);line-height:1.8}
-.wf-panel-h{display:flex;gap:6px;align-items:center}
+.wf-tip{position:absolute;left:10px;bottom:8px;z-index:20;font-size:12px;color:var(--text2,#555);background:color-mix(in srgb,var(--wf-canvas-bg) 88%,transparent);padding:3px 8px;border-radius:7px;pointer-events:none;max-width:calc(100% - 20px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 属性面板：选中节点时浮在画布右侧（不挤画布，画布不会因为点了节点就整体跳一下）；没选中时不显示 */
+.wf-panel{position:absolute;top:0;right:0;bottom:0;z-index:30;width:280px;overflow:auto;background:var(--card,#fff);border:1px solid var(--line,#e2e2e2);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;box-shadow:-6px 0 24px rgba(0,0,0,.10)}
+:root[data-theme=dark] .wf-panel{box-shadow:-6px 0 24px rgba(0,0,0,.45);border-color:var(--wf-node-line)}
+.wf-panel-h{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text2,#555)}
+.wf-panel-h .wf-sp{flex:1}
 .wf-field{display:flex;flex-direction:column;gap:3px}
 .wf-field input,.wf-field select{width:100%}
 .wf-lab{font-size:12px;color:var(--text2,#555)}
-.wf-hint{font-size:12px;color:var(--text3,#888);line-height:1.6}
-.wf-hint.err,.err{color:var(--red,#d33)}
+.wf-hint{font-size:12px;color:var(--wf-muted);line-height:1.6}
+.wf-hint.err,.err{color:var(--wf-err)}
 .wf-kv{display:flex;flex-direction:column;gap:4px}
 .wf-kvrow{display:flex;gap:4px}
 .wf-kvrow input{flex:1;min-width:0}
-.wf-x{border:none;background:transparent;color:var(--text3,#888);cursor:pointer;font-size:16px}
-.wf-node{width:230px;min-height:84px;background:var(--card,#fff);border:1px solid var(--line,#d9d9de);border-radius:12px;box-shadow:0 2px 6px rgba(0,0,0,.05);padding:8px 10px;box-sizing:border-box;cursor:move;position:relative}
-.wf-node.sel,.wf-node.selected{border-color:var(--accent,#0a7cff);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#0a7cff) 25%,transparent)}
-.wf-node.missing{border-color:var(--red,#d33);background:color-mix(in srgb,var(--red,#d33) 7%,var(--card,#fff))}
-.wf-node.run-running{border-color:#f59e0b}
-.wf-node.run-ok{border-color:#16a34a}
-.wf-node.run-error,.wf-node.run-denied{border-color:var(--red,#d33)}
-.wf-node.run-skipped{opacity:.55}
+.wf-x{border:none;background:transparent;color:var(--wf-muted);cursor:pointer;font-size:16px}
+.wf-x:hover{color:var(--text,#222)}
+
+/* ---------- 画布上的节点 ---------- */
+.wf-node{width:240px;min-height:90px;background:var(--wf-node-bg);color:var(--text,#222);border:1px solid var(--wf-node-line);border-radius:12px;box-shadow:var(--wf-node-shadow);padding:9px 11px;box-sizing:border-box;cursor:move;position:relative;font-size:14px}
+.wf-node.sel,.wf-node.selected{border-color:var(--accent,#4E7A35);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#4E7A35) 35%,transparent)}
+.wf-node.missing{border-color:var(--wf-err);background:color-mix(in srgb,var(--wf-err) 8%,var(--wf-node-bg))}
+.wf-node.run-running{border-color:var(--wf-run)}
+.wf-node.run-ok{border-color:var(--wf-ok)}
+.wf-node.run-error,.wf-node.run-denied{border-color:var(--wf-err)}
+.wf-node.run-skipped{border-style:dashed}  /* 跳过：虚线框（不用半透明，字照样看得清） */
 .wf-node-head{display:flex;gap:6px;align-items:center}
-.wf-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.wf-badge{font-size:11px;padding:1px 6px;border-radius:6px;background:var(--surface2,#f0f0f3);color:var(--text2,#555);flex:none}
-.t-start .wf-badge{background:#dcfce7}.t-end .wf-badge{background:#fee2e2}.t-condition .wf-badge{background:#fef3c7}.t-loop .wf-badge{background:#e0f2fe}.t-code .wf-badge{background:#ede9fe}.t-skill .wf-badge{background:#f3e8ff}.t-api .wf-badge{background:#ccfbf1}
-.wf-risk{font-size:11px;color:#b45309}
-.wf-rs{font-size:11px;padding:0 5px;border-radius:5px;background:var(--surface2,#eee)}
-.wf-rs.rs-ok{color:#16a34a}.wf-rs.rs-error,.wf-rs.rs-denied{color:var(--red,#d33)}.wf-rs.rs-running{color:#b45309}
-.wf-node-body{margin-top:6px;color:var(--text2,#666);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.wf-miss{margin-top:4px;font-size:12px;color:var(--red,#d33)}
-.wf-miss.big{padding:6px 8px;border-radius:8px;background:color-mix(in srgb,var(--red,#d33) 10%,transparent)}
-.wf-plabels span{position:absolute;right:12px;font-size:11px;color:var(--text3,#888)}
+.wf-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.wf-badge{font-size:14px;line-height:20px;padding:0 7px;border-radius:6px;background:var(--wf-b0-bg);color:var(--wf-b0-fg);flex:none;font-weight:600}
+.t-start .wf-badge{background:var(--wf-start-bg);color:var(--wf-start-fg)}
+.t-end .wf-badge{background:var(--wf-end-bg);color:var(--wf-end-fg)}
+.t-condition .wf-badge{background:var(--wf-cond-bg);color:var(--wf-cond-fg)}
+.t-loop .wf-badge{background:var(--wf-loop-bg);color:var(--wf-loop-fg)}
+.t-code .wf-badge{background:var(--wf-code-bg);color:var(--wf-code-fg)}
+.t-skill .wf-badge{background:var(--wf-skill-bg);color:var(--wf-skill-fg)}
+.t-api .wf-badge{background:var(--wf-api-bg);color:var(--wf-api-fg)}
+.t-llm .wf-badge{background:var(--wf-llm-bg);color:var(--wf-llm-fg)}
+.t-tool .wf-badge{background:var(--wf-tool-bg);color:var(--wf-tool-fg)}
+.wf-risk{font-size:14px;color:var(--wf-run);flex:none}
+.wf-rs{font-size:14px;line-height:20px;padding:0 6px;border-radius:5px;background:var(--wf-b0-bg);color:var(--wf-b0-fg);flex:none}
+.wf-rs.rs-ok,.wf-rs.rs-error,.wf-rs.rs-denied,.wf-rs.rs-running{background:var(--wf-node-bg);box-shadow:inset 0 0 0 1px currentColor}
+.wf-rs.rs-ok{color:var(--wf-ok)}.wf-rs.rs-error,.wf-rs.rs-denied{color:var(--wf-err)}.wf-rs.rs-running{color:var(--wf-run)}
+.wf-node-body{margin-top:8px;color:var(--text2,#555);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wf-miss{margin-top:4px;font-size:14px;color:var(--wf-err)}
+.wf-miss.big{padding:6px 8px;border-radius:8px;background:color-mix(in srgb,var(--wf-err) 10%,transparent)}
+.wf-plabels span{position:absolute;right:12px;font-size:14px;color:var(--text2,#555)}
 .wf-plabels span.bottom{right:auto;left:50%;transform:translateX(-50%);bottom:4px;top:auto}
+
+/* ---------- 画布库覆盖（它写死的颜色） ---------- */
+.wf-canvas .gedit-playground{background-color:var(--wf-canvas-bg)}
+.wf-canvas .gedit-grid-svg circle{stroke:var(--wf-dot);fill:var(--wf-dot)}           /* 点阵：选择器优先于它在 SVG 上写的颜色属性 */
+.wf-canvas .gedit-grid-svg rect:first-child:not([fill^="url"]){fill:var(--wf-canvas-bg)}
+.wf-canvas .gedit-playground-scroll-right-block,.wf-canvas .gedit-playground-scroll-bottom-block{background:var(--wf-scroll)!important}
+.wf-canvas .gedit-selector-bounds-background{background-color:color-mix(in srgb,var(--accent,#4E7A35) 8%,transparent)!important}
+
+/* ---------- 问题、运行日志 ---------- */
 .wf-issues{font-size:12px;padding:6px 10px;border-radius:10px;background:var(--card,#fff);border:1px solid var(--line,#e2e2e2)}
 .wf-run{max-height:34%;display:flex;flex-direction:column;background:var(--card,#fff);border:1px solid var(--line,#e2e2e2);border-radius:12px;padding:8px 10px}
 .wf-run-h{display:flex;gap:8px;align-items:center}
-.wf-st{font-size:12px;padding:1px 7px;border-radius:7px;background:var(--surface2,#eee)}
-.wf-st.st-done{color:#16a34a}.wf-st.st-failed,.wf-st.st-denied,.wf-st.st-timeout{color:var(--red,#d33)}
-.wf-err{color:var(--red,#d33);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%}
-.wf-run-log{overflow:auto;font-family:Consolas,Menlo,monospace;font-size:12px;line-height:1.6;margin-top:4px}
-.wf-run-log .l-error,.wf-run-log .l-denied,.wf-run-log .l-failed{color:var(--red,#d33)}
-.wf-run-log .l-ok,.wf-run-log .l-done{color:#15803d}
-.wf-run-log .ms{color:var(--text3,#999)}
+.wf-st{font-size:12px;padding:1px 7px;border-radius:7px;background:var(--surface2,#eee);color:var(--text,#222)}
+.wf-st.st-done{color:var(--wf-ok)}.wf-st.st-failed,.wf-st.st-denied,.wf-st.st-timeout{color:var(--wf-err)}.wf-st.st-running{color:var(--wf-run)}
+.wf-err{color:var(--wf-err);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%}
+.wf-run-log{overflow:auto;font-family:Consolas,Menlo,monospace;font-size:12px;line-height:1.6;margin-top:4px;color:var(--text,#222)}
+.wf-run-log .l-error,.wf-run-log .l-denied,.wf-run-log .l-failed,.wf-run-log .l-timeout{color:var(--wf-err)}
+.wf-run-log .l-ok,.wf-run-log .l-done{color:var(--wf-ok)}
+.wf-run-log .ms{color:var(--wf-muted)}
 .wf-result{font-size:12px;margin-top:4px;word-break:break-all}
-.wf-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;z-index:40}
-.wf-modal{width:min(620px,92vw);max-height:86vh;overflow:auto;background:var(--card,#fff);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 10px 40px rgba(0,0,0,.2)}
+
+/* ---------- 弹窗 ---------- */
+.wf-modal-bg{position:fixed;inset:0;background:var(--wf-backdrop);display:flex;align-items:center;justify-content:center;z-index:40}
+.wf-modal{width:min(620px,92vw);max-height:86vh;overflow:auto;background:var(--card,#fff);color:var(--text,#222);border:1px solid var(--wf-modal-line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 10px 40px rgba(0,0,0,.25)}
 .wf-modal-h{display:flex;justify-content:space-between;align-items:center}
 .wf-diff div{padding:3px 0}
-.wf-diff .add{color:#15803d}.wf-diff .del{color:var(--red,#d33)}.wf-diff .chg{color:#b45309}
+.wf-diff .add{color:var(--wf-ok)}.wf-diff .del{color:var(--wf-err)}.wf-diff .chg{color:var(--wf-run)}
+
+/* ---------- 技能页、连接页 ---------- */
 .wf-page{overflow:auto;display:flex;flex-direction:column;gap:10px;max-width:880px}
 .wf-page h2{margin:4px 0}.wf-page h3{margin:14px 0 0}
 .wf-page .wf-row input{flex:1;min-width:200px}
 .wf-card{background:var(--card,#fff);border:1px solid var(--line,#e2e2e2);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
 .wf-form .wf-field{max-width:520px}
-.wf-tag{font-size:11px;padding:1px 7px;border-radius:7px;background:var(--surface2,#eee);margin-left:6px}
-.wf-tag.ok{color:#15803d}
+.wf-tag{font-size:12px;padding:1px 7px;border-radius:7px;background:var(--surface2,#eee);color:var(--text2,#555);margin-left:6px}
+.wf-tag.ok{color:var(--wf-ok)}
 .wf-msg{font-size:13px;padding:6px 8px;border-radius:8px;background:var(--surface2,#f3f3f5)}
-.wf-check{display:flex;gap:6px;align-items:center;font-size:12px}
-.card-empty{color:var(--text3,#888);padding:10px}
+.wf-check{display:flex;flex-direction:column;gap:4px;font-size:12px}
+label.wf-check{flex-direction:row;gap:6px;align-items:center}
+.card-empty{color:var(--wf-muted);padding:10px}

@@ -246,6 +246,73 @@ public class Workflow1120Test {
         assertTrue(String.valueOf(((Map<?, ?>) r.result).get("e")).contains("坏了"));
     }
 
+    /** [workflow-1120 界面修] 出错的节点自己写过一行「出错」，收尾不再重复写同一句；没批准同理。 */
+    @Test
+    public void runLogErrorLineNotDuplicated() {
+        Map<String, Object> w = wf(List.of(node("start", "start"), node("bad", "code", "code", "throw new Error('坏了')"), node("end", "end")),
+                List.of(edge("start", "bad", null), edge("bad", "end", null)));
+        WfEngine.Run r = engine(null).runSync(w, Map.of(), 30_000);
+        assertEquals("failed", r.status);
+        assertTrue(r.error, r.error.contains("坏了"));
+        List<?> log = (List<?>) r.view().get("log");
+        long errLines = log.stream().filter(e -> String.valueOf(((Map<?, ?>) e).get("text")).contains("坏了")).count();
+        assertEquals("出错只写一行：" + log, 1, errLines);
+        Map<String, Object> w2 = wf(List.of(node("start", "start"), node("t", "tool", "capability", "x"), node("end", "end")),
+                List.of(edge("start", "t", null), edge("t", "end", null)));
+        WfEngine.Run r2 = engine((t, d, k) -> false).runSync(w2, Map.of(), 30_000);
+        assertEquals(r2.error, "denied", r2.status);
+        List<?> l2 = (List<?>) r2.view().get("log");
+        assertEquals("没批准只写一行：" + l2, 1, l2.stream().filter(e -> "denied".equals(((Map<?, ?>) e).get("status"))).count());
+        // 不是节点自己写过的停下（超时 / 取消）仍然写一行
+        Map<String, Object> w3 = wf(List.of(node("start", "start"), node("slow", "code", "code", "while (true) {}", "codeTimeoutMs", 30000L), node("end", "end")),
+                List.of(edge("start", "slow", null), edge("slow", "end", null)));
+        WfEngine.Run r3 = engine(null).runSync(w3, Map.of(), 800);
+        assertTrue(r3.status, r3.status.equals("timeout") || r3.status.equals("failed"));
+        assertFalse(((List<?>) r3.view().get("log")).isEmpty());
+    }
+
+    /** [workflow-1120 界面修] 导入成功的提示是通顺的一句话，缺东西时说缺几个、补上才能运行。 */
+    @Test
+    public void importTextReadsWell() {
+        WfApi api = new WfApi(tmp, new SecretStore.Memory(), null);
+        Map<String, Object> w = wf(List.of(node("start", "start"), node("end", "end")), List.of(edge("start", "end", null)));
+        Map<String, Object> b = new TreeMap<>();
+        b.put("op", "import");
+        b.put("workflow", w);
+        Map<?, ?> r = (Map<?, ?>) api.handle(b);
+        assertTrue(String.valueOf(r.get("text")), Boolean.TRUE.equals(r.get("ok")));
+        assertEquals("已导入「测试」，可以直接运行", r.get("text"));
+        Map<String, Object> c = api.api.save(conn("本地", base() + "/v1", "backend", "模拟", "k-123456789"));
+        String id = String.valueOf(((Map<?, ?>) c.get("connector")).get("id"));
+        Map<String, Object> wa = wf(List.of(node("start", "start"), node("a", "api", "connector", id, "path", "/x"), node("end", "end")), List.of(edge("start", "a", null), edge("a", "end", null)));
+        Map<String, Object> ex = new TreeMap<>();
+        ex.put("op", "export");
+        ex.put("workflow", wa);
+        String json = String.valueOf(((Map<?, ?>) api.handle(ex)).get("json"));
+        WfApi other = new WfApi(tmp.resolve("other2"), new SecretStore.Memory(), null);
+        Map<String, Object> im = new TreeMap<>();
+        im.put("op", "import");
+        im.put("json", json);
+        String t = String.valueOf(((Map<?, ?>) other.handle(im)).get("text"));
+        assertTrue(t, t.startsWith("已导入「测试」。还缺 1 个连接"));
+        assertTrue(t, t.endsWith("后才能运行"));
+        assertFalse(t, t.contains("可以导入"));
+        assertFalse(t, t.contains("。。"));
+    }
+
+    /** [workflow-1120 界面修] 画布页带浅色 / 深色两套颜色（跟主界面 data-theme），盖掉画布库写死的颜色；确认卡的说明保留换行。 */
+    @Test
+    public void canvasThemeAndConfirmLineBreaks() throws Exception {
+        String js;
+        try (java.io.InputStream in = UiServer.class.getResourceAsStream("/onesay/ui/workflow.js")) { js = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8); }
+        assertTrue(js.contains(":root[data-theme=dark] .wf-root"));
+        for (String v : new String[] {"--g-editor-background", "--g-workflow-line-color-default", "--g-workflow-port-color-primary", ".gedit-grid-svg circle", "--wf-start-fg"}) assertTrue(v, js.contains(v));
+        String html;
+        try (java.io.InputStream in = UiServer.class.getResourceAsStream("/onesay/ui/index.html")) { html = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8); }
+        assertTrue(html.contains("white-space:pre-wrap;line-height:1.6\">${esc(x.detail)}"));
+        assertTrue(html.contains("classList.toggle('wfmode',p==='workflows')"));
+    }
+
     @Test
     public void approvalDeniedStopsPostApi() throws Exception {
         WfApi api = new WfApi(tmp, new SecretStore.Memory(), null);

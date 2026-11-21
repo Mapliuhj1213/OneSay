@@ -45,7 +45,7 @@ const PORTS = {
 };
 const REGISTRIES = Object.keys(ZH).map((t) => ({
   type: t,
-  meta: { defaultPorts: PORTS[t] || [{ type: 'input' }, { type: 'output' }], isStart: t === 'start', deleteDisable: t === 'start', copyDisable: t === 'start', size: { width: 230, height: 90 } },
+  meta: { defaultPorts: PORTS[t] || [{ type: 'input' }, { type: 'output' }], isStart: t === 'start', deleteDisable: t === 'start', copyDisable: t === 'start', size: { width: 240, height: 90 } },
 }));
 
 // ---------- 小状态仓库（节点标红、运行状态） ----------
@@ -101,21 +101,61 @@ function NodeRender(props) {
   );
 }
 
+// ---------- 缩放 ----------
+// 画布能缩放的范围；「适应窗口」时最小只缩到 FIT_MIN（字还看得清），放不下的部分拖动 / 滚轮平移去看，最大不超过 100%。
+const ZOOM_MIN = 0.3, ZOOM_MAX = 2, FIT_MIN = 0.86, FIT_MAX = 1; // 节点字号 14px × 0.86 ≈ 12px
+function zoomLimits(ctx) {
+  const cfg = ctx.playground.config;
+  if (cfg.config.minZoom !== ZOOM_MIN || cfg.config.maxZoom !== ZOOM_MAX) cfg.updateConfig({ minZoom: ZOOM_MIN, maxZoom: ZOOM_MAX });
+}
+/** 适应窗口：放得下就居中；放不下就按 FIT_MIN 显示，左边从开始节点那头对齐（往右拖着看）。 */
+function fitCanvas(ctx, easing) {
+  zoomLimits(ctx);
+  const cfg = ctx.playground.config;
+  const W = cfg.config.width, H = cfg.config.height;
+  const nodes = ctx.document.getAllNodes().filter((n) => n.flowNodeType !== 'root');
+  if (!W || !H || !nodes.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  nodes.forEach((n) => { const b = n.bounds; if (!b) return; x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.width); y1 = Math.max(y1, b.y + b.height); });
+  if (!isFinite(x0)) return;
+  const pad = 36;
+  const bw = x1 - x0 + pad * 2, bh = y1 - y0 + pad * 2;
+  const z = Math.max(FIT_MIN, Math.min(FIT_MAX, Math.min(W / bw, H / bh)));
+  let sx, sy;
+  if (bw * z <= W) sx = ((x0 + x1) / 2) * z - W / 2; else sx = (x0 - pad) * z;
+  if (bh * z <= H) sy = ((y0 + y1) / 2) * z - H / 2;
+  else { const st = nodes.find((n) => n.flowNodeType === 'start') || nodes[0]; const c = st.bounds.y + st.bounds.height / 2; sy = Math.max((y0 - pad) * z, c * z - H / 2); }
+  cfg.scroll({ scrollX: sx, scrollY: sy, zoom: z }, !!easing);
+}
+function zoomTo(ctx, z) { zoomLimits(ctx); ctx.playground.config.updateZoom(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)), false); }
+function zoomStep(ctx, dir) {
+  const cur = ctx.playground.config.config.zoom;
+  const steps = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+  const next = dir > 0 ? steps.find((v) => v > cur + 0.001) : [...steps].reverse().find((v) => v < cur - 0.001);
+  zoomTo(ctx, next == null ? cur : next);
+}
+
 // ---------- 画布内的桥：把画布上下文交给外面 ----------
-function Bridge({ onReady, onSelect, onChange }) {
+function Bridge({ onReady, onSelect, onChange, onZoom }) {
   const ctx = useClientContext();
   const sel = useService(WorkflowSelectService);
   const drag = useService(WorkflowDragService);
   useEffect(() => {
     onReady({ ctx, drag, sel });
+    zoomLimits(ctx);
+    const cfg = ctx.playground.config;
+    let last = -1;
+    const zr = () => { const z = Math.round(cfg.config.zoom * 100); if (z !== last) { last = z; onZoom(z); } };
+    zr();
+    const d0 = cfg.onConfigChanged(zr);
     const d1 = sel.onSelectionChanged(() => onSelect(sel.selectedNodes.length === 1 ? sel.selectedNodes[0] : null));
     const d2 = ctx.document.onContentChange(() => onChange());
-    return () => { d1.dispose(); d2.dispose(); };
+    return () => { d0.dispose(); d1.dispose(); d2.dispose(); };
   }, []);
   return null;
 }
 
-function Canvas({ initial, onReady, onSelect, onChange }) {
+function Canvas({ initial, onReady, onSelect, onChange, onZoom }) {
   const props = useMemo(() => ({
     initialData: initial,
     nodeRegistries: REGISTRIES,
@@ -124,13 +164,21 @@ function Canvas({ initial, onReady, onSelect, onChange }) {
     canDeleteLine: () => true,
     history: { enable: true, enableChangeNode: true },
     nodeEngine: { enable: false },
-    onAllLayersRendered: (ctx) => { setTimeout(() => ctx.tools.fitView(false), 30); },
+    onAllLayersRendered: (ctx) => {
+      zoomLimits(ctx);
+      setTimeout(() => fitCanvas(ctx, false), 30);
+      // 连线位置在第一帧按节点还没量好的大小算过一次，之后节点量好了（字体加载完、内容撑高）它不一定重算 → 有的线画不出来。
+      // 打开后、字体加载完后各让连线重算一次。
+      const relines = () => { try { ctx.document.linesManager.forceUpdate(); } catch (e) { /* 画布已关 */ } };
+      [120, 450, 1200].forEach((t) => setTimeout(relines, t));
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => setTimeout(relines, 30));
+    },
     getNodeDefaultRegistry: (type) => ({ type, meta: { defaultPorts: [{ type: 'input' }, { type: 'output' }] } }),
   }), []);
   return (
     <FreeLayoutEditorProvider {...props}>
       <EditorRenderer className="wf-editor" />
-      <Bridge onReady={onReady} onSelect={onSelect} onChange={onChange} />
+      <Bridge onReady={onReady} onSelect={onSelect} onChange={onChange} onZoom={onZoom} />
     </FreeLayoutEditorProvider>
   );
 }
@@ -184,10 +232,10 @@ function SchemaForm({ schema, value, onChange }) {
 }
 
 // ---------- 节点表单（右侧） ----------
-function NodePanel({ node, caps, conns, skills, onPatch, onRelink }) {
+function NodePanel({ node, caps, conns, skills, onPatch, onRelink, onClose }) {
   const [, force] = useState(0);
   const st = useStore();
-  if (!node) return <div className="wf-panel empty">点一个节点，在这里改它的设置。<br />从左边把节点拖进画布；从节点右边的小圆点拖线连到下一个节点。</div>;
+  if (!node) return null; // 没选中节点时收起，画布多占地方（提示放在画布左下角）
   const type = node.flowNodeType;
   const d = node.getExtInfo() || {};
   const set = (k, v) => { const nd = { ...d, [k]: v }; node.updateExtInfo(nd); onPatch(); force((x) => x + 1); };
@@ -259,7 +307,7 @@ function NodePanel({ node, caps, conns, skills, onPatch, onRelink }) {
       body = null;
   }
   return <div className="wf-panel">
-    <div className="wf-panel-h"><span className="wf-badge">{ZH[type]}</span> 编号 <code>{node.id}</code></div>
+    <div className={'wf-panel-h t-' + type}><span className="wf-badge">{ZH[type]}</span> 编号 <code>{node.id}</code><span className="wf-sp" /><button className="wf-x" title="收起（取消选中）" onClick={onClose}>×</button></div>
     {s.missing ? <div className="wf-miss big">⚠ {s.why}</div> : null}
     <Field label="名字"><Txt name="title" value={d.title} onChange={(v) => set('title', v)} /></Field>
     {body}
@@ -313,6 +361,9 @@ function FlowTab({ api, snack }) {
   const [name, setName] = useState('');
   const [dirty, setDirty] = useState(false);
   const [issues, setIssues] = useState([]);
+  const [zoom, setZoom] = useState(100);
+  const [listFold, setListFold] = useState(() => { try { return localStorage.getItem('wf.listFold') === '1'; } catch (e) { return false; } });
+  const fold = (v) => { setListFold(v); try { localStorage.setItem('wf.listFold', v ? '1' : '0'); } catch (e) { /* 存不了就算了 */ } };
   const ed = useRef(null);
   const pollT = useRef(0);
 
@@ -395,7 +446,7 @@ function FlowTab({ api, snack }) {
     if (!r.ok) { snack(r.text); return; }
     const e = ed.current;
     e.ctx.operation.fromJSON({ nodes: r.workflow.nodes, edges: r.workflow.edges }); // 带撤销的热重载
-    setTimeout(() => e.ctx.document.fitView && e.ctx.document.fitView(), 50);
+    setTimeout(() => fitCanvas(e.ctx, true), 50);
     store.set({ status: r.status || {} });
     setDirty(true);
     snack(r.text);
@@ -441,24 +492,30 @@ function FlowTab({ api, snack }) {
   const onChange = useCallback(() => { setDirty(true); }, []);
 
   return <div className="wf-flow">
-    <aside className="wf-list">
-      <button className="wf-btn" onClick={create}>＋ 新建工作流</button>
+    {cur && listFold ? null : <aside className="wf-list">
+      <div className="wf-list-h"><button className="wf-btn" onClick={create}>＋ 新建工作流</button>{cur ? <button className="wf-fold" title="收起列表，画布更宽" onClick={() => fold(true)}>«</button> : null}</div>
       <button className="wf-btn ghost" onClick={() => setDialog({ kind: 'import', text: '' })}>导入</button>
       {shortcuts.length ? <div className="wf-sec">快捷指令</div> : null}
       {shortcuts.map((s) => <button key={s.name} className="wf-chip" title={'运行「' + s.workflow_name + '」'} onClick={() => runShortcut(s.name)}>▶ {s.name}</button>)}
       <div className="wf-sec">我的工作流</div>
       {list.length ? null : <div className="wf-hint">还没有工作流</div>}
       {list.map((w) => <button key={w.id} className={'wf-item' + (cur && cur.id === w.id ? ' on' : '')} onClick={() => open(w.id)}>{w.name}<span>{w.nodes} 个节点</span></button>)}
-    </aside>
+    </aside>}
     {cur ? <div className="wf-main">
       <div className="wf-bar">
+        {listFold ? <button className="wf-fold" title="展开工作流列表" onClick={() => fold(false)}>»</button> : null}
         <input className="wf-name" name="wf-name" value={name} onChange={(e) => { setName(e.target.value); setDirty(true); }} />
         <button className="wf-btn" onClick={save} disabled={busy === 'save'}>{dirty ? '保存*' : '保存'}</button>
         <button className="wf-btn" onClick={startRun} disabled={run && run.status === 'running'}>运行</button>
         {run && run.status === 'running' ? <button className="wf-btn ghost danger" onClick={cancelRun}>停止</button> : null}
         <button className="wf-btn ghost" onClick={undo} title="撤销">撤销</button>
         <button className="wf-btn ghost" onClick={redo} title="重做">重做</button>
-        <button className="wf-btn ghost" onClick={() => ed.current && ed.current.ctx.tools.fitView()}>适应窗口</button>
+        <span className="wf-zoom" title="缩放：Ctrl + 滚轮、触控板双指捏合也行">
+          <button name="zoom-out" title="缩小" onClick={() => ed.current && zoomStep(ed.current.ctx, -1)}>−</button>
+          <button name="zoom-100" className="pct" title="回到 100%" onClick={() => ed.current && zoomTo(ed.current.ctx, 1)}>{zoom}%</button>
+          <button name="zoom-in" title="放大" onClick={() => ed.current && zoomStep(ed.current.ctx, 1)}>＋</button>
+        </span>
+        <button className="wf-btn ghost" onClick={() => ed.current && fitCanvas(ed.current.ctx, true)}>适应窗口</button>
         <span className="wf-sp" />
         <button className="wf-btn ghost" onClick={exportWf}>导出</button>
         <button className="wf-btn ghost" disabled={!cur.id} onClick={() => setDialog({ kind: 'shortcut', name: (cur.shortcut && cur.shortcut.name) || cur.name || '' })}>存成快捷指令</button>
@@ -478,9 +535,10 @@ function FlowTab({ api, snack }) {
         </div>
         <div className="wf-canvas">
           <Canvas key={canvasKey} initial={{ nodes: cur.nodes || [], edges: cur.edges || [] }}
-            onReady={(x) => { ed.current = x; }} onSelect={setSelected} onChange={onChange} />
+            onReady={(x) => { ed.current = x; }} onSelect={setSelected} onChange={onChange} onZoom={setZoom} />
+          {selected ? null : <div className="wf-tip">点节点改设置 · 从左边拖节点进来 · 从小圆点拖线连接 · 滚轮 / 按住空格拖动来移动 · Ctrl + 滚轮缩放</div>}
         </div>
-        <NodePanel node={selected} caps={caps} conns={conns} skills={skills} onPatch={() => setDirty(true)} onRelink={relink} />
+        <NodePanel node={selected} caps={caps} conns={conns} skills={skills} onPatch={() => setDirty(true)} onRelink={relink} onClose={() => { const e = ed.current; if (e) e.sel.clear ? e.sel.clear() : (e.sel.selection = []); setSelected(null); }} />
       </div>
       {issues.filter((i) => i.fatal || i.code === 'unreachable').length ? <div className="wf-issues">{issues.filter((i) => i.fatal || i.code === 'unreachable').slice(0, 4).map((i, k) => <div key={k} className={i.fatal ? 'err' : ''}>{i.fatal ? '✗ ' : '· '}{i.text}</div>)}</div> : null}
       {run ? <RunLog run={run} onClose={() => { setRun(null); store.set({ runNodes: {} }); }} /> : null}

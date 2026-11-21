@@ -45,6 +45,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .main{flex:1;overflow:auto;padding:30px 40px 120px}
 .page{display:none;max-width:1000px;margin:0 auto}
 #workflows{max-width:none;height:calc(100vh - 48px)}
+.main.wfmode{padding:14px 18px;overflow:hidden} .main.wfmode #workflows{height:calc(100vh - 28px)} /* [workflow-1120] 工作流页少留边，画布多占地方 */
 .page.on{display:block}
 .head{display:flex;align-items:flex-end;gap:16px;margin-bottom:22px}
 .head h1{font-size:34px;font-weight:600;letter-spacing:.5px;line-height:1.1}
@@ -1094,7 +1095,7 @@ function confirmBar(){const all=(S&&S.confirms)||[];const box=$('cfbox');if(!box
   if(!c.length){box.style.display='none';if(!all.length){cfShown='';cfId=0;cfArmed=false;clearTimeout(cfArmT)}return}
   const x=c[0],key=String(x.id);if(cfShown===key)return;cfShown=key;cfId=x.id;
   box.style.borderLeft='4px solid var(--ctl-wait)';   // ★ console-align：等确认 = 琥珀
-  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px"><span class="tag wait" style="margin-right:6px">等确认</span>${x.from==='本机对话'?'OneSay 要在这台电脑上执行操作，需要你确认':x.from==='工作流'?'工作流要做一步，需要你确认（只算这一次）':'手机请求，需要你确认'}</div><div style="margin-bottom:10px;word-break:break-all">${esc(x.detail)}</div>${x.remember_kind?`<label class="note" style="display:block;margin:0 0 8px"><input type="checkbox" id="cfrem"> ${x.remember_kind.indexOf(':')>0?esc(x.remember_zh):'以后这类不用问（'+esc(x.remember_zh||x.remember_kind)+'）'}（可在「设置 › 权限记录」里撤销）</label>`:''}${x.task_scope?`<button class="btn sm cfallow" disabled onclick="cfAns(${x.id},true,false,event,'task')">允许本次任务</button> `:''}${x.phone?'<div class="note" style="margin:0 0 6px">已同时发到手机，手机屏幕上点也行</div>':''}<div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
+  box.innerHTML=`<div style="font-weight:600;margin-bottom:6px"><span class="tag wait" style="margin-right:6px">等确认</span>${x.from==='本机对话'?'OneSay 要在这台电脑上执行操作，需要你确认':x.from==='工作流'?'工作流要做一步，需要你确认（只算这一次）':'手机请求，需要你确认'}</div><div style="margin-bottom:10px;word-break:break-all;white-space:pre-wrap;line-height:1.6">${esc(x.detail)}</div>${x.remember_kind?`<label class="note" style="display:block;margin:0 0 8px"><input type="checkbox" id="cfrem"> ${x.remember_kind.indexOf(':')>0?esc(x.remember_zh):'以后这类不用问（'+esc(x.remember_zh||x.remember_kind)+'）'}（可在「设置 › 权限记录」里撤销）</label>`:''}${x.task_scope?`<button class="btn sm cfallow" disabled onclick="cfAns(${x.id},true,false,event,'task')">允许本次任务</button> `:''}${x.phone?'<div class="note" style="margin:0 0 6px">已同时发到手机，手机屏幕上点也行</div>':''}<div class="note" id="cfhint" style="margin:0 0 10px">「允许」稍后可点（防误点）</div><button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,false,event)">允许${x.always?'':'一次'}</button> ${x.always?`<button class="btn sm cfallow" disabled onkeydown="if(event.repeat)event.preventDefault()" onclick="cfAns(${x.id},true,true,event)">以后直接执行</button> `:''}<button class="btn ghost sm" id="cfdeny" onclick="cfAns(${x.id},false,false,event)">拒绝</button>`;
   box.style.display='';const d=$('cfdeny');if(d)d.focus(); // 焦点默认在「拒绝」：误按回车 / 空格 = 拒绝
   if(!LIVE){cfArm();return}
   api('confirm',{op:'seen',id:x.id,focused:document.hasFocus()}).then(r=>{if(r&&r.arm_ms)cfArmMs=r.arm_ms;if(cfId===x.id)cfArm()}).catch(()=>{})}
@@ -1204,7 +1205,7 @@ function render(){if(!S)return;
 function markDanger(root){root.querySelectorAll('button.btn,button.tag').forEach(b=>{if(isDanger(b.textContent))b.classList.add('danger')})}
 function go(p){if(p==='settings'&&page!=='settings')THEMES=null; // [preview-1120] 进设置页重新读主题包（文件夹里新放的也能看到）
   page=p;document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('on',x.dataset.p===p));
-  document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id===p));$('main').classList.toggle('chatmode',p==='chat');
+  document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id===p));$('main').classList.toggle('chatmode',p==='chat');$('main').classList.toggle('wfmode',p==='workflows');
   if(p!=='settings')pairShown=false;
   if(p==='notes'&&S&&S.notes.some(n=>!n.read))setTimeout(()=>notes('read'),1500);
   lastChatLen=-1;render();if(p==='chat')$('ta').focus()}
