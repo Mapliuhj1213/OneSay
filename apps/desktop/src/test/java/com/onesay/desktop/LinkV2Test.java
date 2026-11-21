@@ -229,6 +229,9 @@ public class LinkV2Test {
                 answered = false;
             }
             assertFalse(answered);
+            // [dual-1122] 去抖：机器忙时先报「局域网 127.0.0.1」（刚连上），拒绝原因稍后才到——等一会儿再看
+            long until = System.currentTimeMillis() + 3000;
+            while (!lg2.why.get().contains("要求加密连接") && System.currentTimeMillis() < until) Thread.sleep(50);
             assertTrue(lg2.why.get(), lg2.why.get().contains("要求加密连接"));
         }
     }

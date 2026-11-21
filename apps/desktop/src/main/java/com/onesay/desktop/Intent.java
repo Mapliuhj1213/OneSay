@@ -89,6 +89,14 @@ public final class Intent {
         return reply("手机能做的：响铃找手机、亮屏、调媒体音量、打开网址或 App、发剪贴板、发通知、看电量。换个说法试试，比如「让手机响一下」");
     }
 
+    /** [dual-1122] 「打开」后面除了 App 名还跟着要做的事（看看 / 查 / 然后 / 帮我…）。 */
+    static final java.util.regex.Pattern OPEN_TAIL = java.util.regex.Pattern.compile(
+            ".+?(看看|看一下|看下|查一下|查查|查看|搜索|搜一下|然后|并且|接着|帮我|给我|找一下|点一下|点开|发给|发送|里面|里的|是多少|是什么|怎么|有没有)");
+
+    static boolean openWithTask(String what) {
+        return what != null && OPEN_TAIL.matcher(what).lookingAt();
+    }
+
     /** apps：可按名字打开的程序（小写名）；shortcuts：快捷指令文件名（不含扩展名）。 */
     public static Intent parse(String text, Map<String, String> apps, List<String> shortcuts) {
         return parse(text, apps, shortcuts, false);
@@ -123,6 +131,9 @@ public final class Intent {
             Intent p = phone(t, text);
             // 长句里提到手机但不是手机指令（比如「把电脑上的文件传到手机」之类的任务）：交给模型
             if (preferModel && t.length() > TASK_CHARS && p.phoneCmd == null) return reply("没听懂：" + text);
+            // [dual-1122] 「让手机打开设置看看安卓版本」：打开之后还要做事，是交给手机的目标（按目标操作），
+            // 不是打开一个叫「设置看看安卓版本」的 App。大模型能用时交给模型（它用按目标操作交给手机）。
+            if (preferModel && "open_app".equals(p.phoneCmd) && openWithTask(String.valueOf(p.args.get("name")))) return reply("没听懂：" + text);
             return p;
         }
         if (preferModel && t.length() > TASK_CHARS) return reply("没听懂：" + text);

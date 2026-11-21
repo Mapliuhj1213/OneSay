@@ -330,7 +330,9 @@ public final class Chat {
         // [chat-agent-1118] 「继续」接着上一件事（上一条助手回复是模型 / 任务的）：交给模型，不再被当成「播放 / 暂停」媒体键
         boolean cont = modelOk && Intent.isContinuation(text) && continuing();
         Intent it = cont || (pa != null && modelOk) || "phone".equals(via) ? null : Intent.parse(text, cfg.appMap(), shortcuts.get(), tasks); // 带附件的、手机交来的交给模型
-        if (it == null) return answer(llm0, tasks, true);
+        // [dual-1122] 手机交来的每个任务都是新任务（新任务卡、标题是这次的目标）：以前这里一律按「继续」，
+        // 第二个手机任务会接在上一个任务卡里（标题还是上一个、结果推回手机时说的也是上一个）。带附件的照旧。
+        if (it == null) return answer(llm0, tasks, "phone".equals(via) ? cont : true);
         if (it.phoneCmd != null) return add("assistant", runPhone(it), "cmd");
         if (it.cmd != null) {
             String reply;
