@@ -686,6 +686,9 @@ public class FloatingSheetView extends CurvedEdgeContainer {
      * 屏幕上必须留着上一轮问答，不能像新唤醒那样把转录区改成"请重新唤醒"。
      */
     public void markTerminalState(int dotColor, String title, String sub) {
+        // [rel-1123-b] 电脑交来的目标以出错收尾（「出错了」「启动超时」这类）：当作没做成的结果
+        if (com.onesay.assistant.v2.ui.wake.WakeStage.classifyBadge(title) == com.onesay.assistant.v2.ui.wake.WakeStage.Event.ERROR)
+            com.onesay.assistant.v2.pclink.PcGoals.shown(false, (title == null ? "" : title) + (sub == null || sub.length() == 0 ? "" : "：" + sub));
         if (mV2) {
             com.onesay.assistant.v2.ui.wake.WakeStage.Event ev = com.onesay.assistant.v2.ui.wake.WakeStage.classifyBadge(title);
             if (ev == com.onesay.assistant.v2.ui.wake.WakeStage.Event.ERROR) mV2ErrorLine = com.onesay.assistant.v2.ui.wake.WakeCopy.errorLine(title);
@@ -724,6 +727,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
      * 之后是否回中性态 / 收起由宿主按 {@link ConfirmRejectPolicy} 安排。
      */
     public void showRejectedState(String summary) {
+        com.onesay.assistant.v2.pclink.PcGoals.shownState(com.onesay.assistant.v2.pclink.PcGoals.DENIED,
+                "你在手机上拒绝了" + (summary == null || summary.length() == 0 ? "" : "：" + summary));   // [rel-1123-b]
         mPendingCap = null;
         mPendingArgs = null;
         mConfirmDecided = true;
@@ -1082,6 +1087,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
             result = new ExecutionResult(result.ok, result.code, result.verification, com.onesay.assistant.v2.router.UntrustedTags.strip(result.userMessage),
                     result.detail, result.hint, result.capability, result.args);
         }
+        if (result != null) com.onesay.assistant.v2.pclink.PcGoals.shown(result.ok, result.userMessage);   // [rel-1123-b] 电脑交来的目标：简单指令的结果
         if (mV2) {
             v2ShowResult(result);
             return;
@@ -1351,6 +1357,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
      * @param note 追加说明（如循环任务的"确认后将继续完成剩余步骤"），可空
      */
     public void showConfirmCard(Capability cap, JSONObject args, boolean isTainted, int tier, String note) {
+        com.onesay.assistant.v2.pclink.PcGoals.waiting(true);   // [rel-1123-b] 等人点确认卡时不收尾
         mPendingTainted = isTainted;
         clearToggles();
         clearAlarmCards();
@@ -1422,6 +1429,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
             showLeakBlocked();
             return;
         }
+        com.onesay.assistant.v2.pclink.PcGoals.shown(true, answer);   // [rel-1123-b] 电脑交来的目标：回答上屏
         streamThrottleReset();   // 终稿直接上屏，丢掉排着的流式尾刷新
         if (mV2) {
             v2ShowAskReply(question, answer);
@@ -1589,6 +1597,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     }
 
     public void hideConfirmCard() {
+        com.onesay.assistant.v2.pclink.PcGoals.waiting(false);   // [rel-1123-b]
         mConfirmBox.setVisibility(GONE);
         mPendingCap = null;
         mPendingArgs = null;

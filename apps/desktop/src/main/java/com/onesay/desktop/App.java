@@ -400,6 +400,14 @@ public final class App {
         setupLinks1119();
         chat.phones = agent::peers;             // [phone-tools-1118] 对话的运行环境里写连着哪些手机
         chat.lastPhone = () -> cfg.phoneLast;
+        // [rel-1123-b] 离线写原因；交给手机的目标等手机回传结果（没人在等时结果回来发一条电脑通知）
+        chat.phoneWhy = () -> { OfflineWhy.Why w = agent.offlineWhy(); return w == null ? "" : w.text; };
+        chat.phoneGoal = (gid, goal) -> { String to = agent.phoneTarget(""); agent.goalStarted(to == null ? "" : to, gid, goal); return agent.goalFuture(gid); };
+        chat.phoneGoalUnwait = agent::goalUnwait;
+        agent.onGoalDone = (g, waited) -> {
+            if (waited) return;
+            notify.post("task", "手机任务" + Humanize.goalState(g.state) + "：" + Notify.clip(g.goal, 40), g.text, g.device, g.ok() ? Outcomes.DONE : Outcomes.FAILED);
+        };
         chat.onTaskEnd = (st, t) -> { String[] p2 = t.split("\n", 2); notify.post("task", "任务" + Outcomes.titleZh(st) + "：" + p2[0], p2.length > 1 ? p2[1] : "", "", st); }; // [preview-1120] 带上状态，标签不再一律「任务完成」 // [overnight-1119]
         chat.onTaskStart = agent.guard::taskStarted; // [approvals-1118] 新任务开始：上一个任务的「允许本次任务」不带过来
         chat.pcExec = agent::runLocal;
@@ -923,6 +931,11 @@ public final class App {
             s.put("lan_ips", new ArrayList<Object>(LanClient.localAddresses()));
             String ph = agent.phoneTarget("");
             s.put("phone", ph == null ? "" : ph);
+            OfflineWhy.Why why = agent.offlineWhy(); // [rel-1123-b] 没有手机在线时写原因（{code, text}）；有在线的不给
+            if (why != null) s.put("phone_why", why.view());
+            s.put("pair_invite", cfg.pairInvite); // [rel-1123-b] 免扫码配对开没开
+            Agent.Goal lg = agent.lastGoal();
+            if (lg != null) s.put("phone_goal", lg.view()); // [rel-1123-b] 最近一次交给手机的目标和它回传的结果
             s.put("tls_fp", Tls.shortFp(cfg.tls().fp));
             // link-v2 执行级别：手机的（只读显示，在手机上改）、电脑自己的（设置页改）、电脑上待确认的远程请求
             LinkPolicy.Level pl = agent.phoneLevel.isEmpty() ? null : LinkPolicy.Level.of(agent.phoneLevel);
@@ -1228,6 +1241,20 @@ public final class App {
             return m;
         });
         ui.on("pairing", b -> {
+            // [rel-1123-b] 免扫码配对：查看 / 打开 / 关上「允许同一局域网里的新手机发起配对」（配对请求本身走 confirms，在右下角确认框里点）
+            if (str(b, "op", "").equals("invite")) {
+                Object on = b.get("on");
+                if (on instanceof Boolean && (Boolean) on != cfg.pairInvite) {
+                    cfg.pairInvite = (Boolean) on;
+                    try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+                    log.accept(cfg.pairInvite ? "已允许同一网络里的新手机发起配对（每次都要你在电脑上点允许）" : "已关上新手机配对（扫码配对照旧能用）");
+                }
+                Map<String, Object> m = ok(cfg.pairInvite ? "同一个网络里的手机可以找到这台电脑、发起配对，每次都要你在电脑上点「允许」" : "新手机配对关着：同一个网络里的手机找不到这台电脑（扫码配对照旧能用）");
+                m.put("invite", cfg.pairInvite);
+                m.put("lan_ips", new ArrayList<Object>(LanClient.localAddresses()));
+                m.put("port", (long) cfg.lanPort);
+                return m;
+            }
             if (str(b, "op", "").equals("unpin")) {
                 cfg.pins = "";
                 try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }

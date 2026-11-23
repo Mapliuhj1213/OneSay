@@ -42,8 +42,16 @@ public final class PcRxPolicy {
     public static final String[] AGENT = {OPERATE, FILE_PUT, SHORTCUT_RUN};
     public static final int GOAL_MAX = 500;
 
-    /** 控制台里全部的逐项开关（原来的 8 项 + 加回来的 8 项 + 按目标操作）。 */
-    public static final String[] ALL = concat(concat(CMDS, EXTRA), AGENT);
+    /**
+     * [rel-1123-b] 看手机上装了哪些 App：电脑问「手机上有哪些 App」时用（桌面上能打开的 App 的名字和包名，最多 {@link #APP_LIST_MAX} 个，不带图标）。
+     * 只读，单独一个开关；默认值照开源版现有规则（{@link #defaultOn}：不是危险项、不是加回来的 8 项 → 开），总开关「接受电脑指令」照旧默认关。
+     */
+    public static final String APP_LIST = "app_list";
+    public static final String[] INFO = {APP_LIST};
+    public static final int APP_LIST_MAX = 300;
+
+    /** 控制台里全部的逐项开关（原来的 8 项 + 看已装 App + 加回来的 8 项 + 按目标操作）。 */
+    public static final String[] ALL = concat(concat(concat(CMDS, INFO), EXTRA), AGENT);
     public static final int FILE_MAX = 256 * 1024, CMD_MAX = 4000;
 
     static String[] concat(String[] a, String[] b) {
@@ -64,6 +72,7 @@ public final class PcRxPolicy {
 
     public static boolean known(String cmd) {
         for (String c : CMDS) if (c.equals(cmd)) return true;
+        if (APP_LIST.equals(cmd)) return true;
         if (OPERATE.equals(cmd) || FILE_PUT.equals(cmd) || SHORTCUT_RUN.equals(cmd) || SHORTCUT_LIST.equals(cmd) || OPERATE_STATUS.equals(cmd)) return true;
         return extra(cmd);
     }
@@ -115,6 +124,7 @@ public final class PcRxPolicy {
         if (FILE_PUT.equals(cmd)) return "接收电脑发来的文件";
         if (SHORTCUT_RUN.equals(cmd) || SHORTCUT_LIST.equals(cmd)) return "运行手机上的快捷指令";
         if (OPERATE_STATUS.equals(cmd)) return "按目标操作手机";
+        if (APP_LIST.equals(cmd)) return "看手机上装了哪些 App";
         return cmd;
     }
 
@@ -137,7 +147,8 @@ public final class PcRxPolicy {
         if (SYS_EXEC.equals(cmd)) return "走特权通道执行命令；给 App 授权的只生成脚本，不执行；卸载 / 停用支付类和系统 App 先问你";
         if (FILE_PUT.equals(cmd)) return "电脑发来的文件存进「下载 / OneSay」（分块传、带校验，重名不覆盖），不会自动打开或安装";
         if (SHORTCUT_RUN.equals(cmd)) return "电脑能看到并运行你在手机上建的快捷指令；快捷指令里打电话、发消息、付款这类照旧在手机上问你";
-        if (OPERATE.equals(cmd)) return "电脑上的对话把一句目标交给手机上的 OneSay 自己规划去做（和你在手机上说这句话一样）；打电话、发短信、付款、给别人发消息照旧在手机上问你";
+        if (OPERATE.equals(cmd)) return "电脑上的对话把一句目标交给手机上的 OneSay 自己规划去做（和你在手机上说这句话一样），做完把结果告诉电脑；打电话、发短信、付款、给别人发消息照旧在手机上问你";
+        if (APP_LIST.equals(cmd)) return "电脑能看到手机桌面上有哪些 App（名字和包名，不带图标，最多 300 个）";
         return "";
     }
 
@@ -216,6 +227,7 @@ public final class PcRxPolicy {
             if (n.length() == 0) return "要给快捷指令名";
             return n.length() > 64 ? "快捷指令名太长" : null;
         }
+        if (APP_LIST.equals(cmd)) return str(a, "query").length() > 40 ? "要找的名字太长" : null;
         if (SYS_EXEC.equals(cmd)) {
             String c = str(a, "command");
             if (c.length() == 0) return "没给命令";

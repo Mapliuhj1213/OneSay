@@ -635,7 +635,7 @@ async function scRevoke(id){if(!await confirm('撤销「'+id+'」？\n\n撤销�
   const r=await api('shortcuts',{op:'revoke',id});snack(r.text);refresh()}
 P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
   return head('手机',on?`在线 · ${esc(S.peers[ids[0]])} · ${esc(ids[0])}`:(ph?`离线 · 上次常连 ${esc(ph)}`:'离线'))+
-  `<div class="hero"><div class="big" style="background:var(--device)"><svg class="i"><use href="#i-smartphone"/></svg></div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'手机开着「接受电脑指令」时，下面这些点一下就发过去':'手机上在「设置 › 连接 › 电脑联动」扫码配对；要让电脑找得到手机，打开手机上的「接受电脑指令」'}</p></div><span class="tag ${on?'green':''}">${on?'在线':'离线'}</span></div>
+  `<div class="hero"><div class="big" style="background:var(--device)"><svg class="i"><use href="#i-smartphone"/></svg></div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'手机开着「接受电脑指令」时，下面这些点一下就发过去':(S.phone_why&&S.phone_why.text?esc(S.phone_why.text):'手机上在「设置 › 连接 › 电脑联动」扫码配对；要让电脑找得到手机，打开手机上的「接受电脑指令」')}</p></div><span class="tag ${on?'green':''}">${on?'在线':'离线'}</span></div>
   <div class="acts">
   <button class="act" onclick="phone('find_phone',{action:'start',seconds:30})"><span class="ic" style="background:var(--red)"><svg class="i"><use href="#i-volume-2"/></svg></span>找手机<span>最大音量响 30 秒，静音也响</span></button>
   <button class="act" onclick="phone('find_phone',{action:'stop'})"><span class="ic" style="background:var(--red)"><svg class="i"><use href="#i-square"/></svg></span>停止响铃<span>找到了就停</span></button>
@@ -1192,7 +1192,7 @@ window.addEventListener('drop',e=>{if(e.dataTransfer&&[...e.dataTransfer.types].
 function render(){if(!S)return;
   confirmBar();
   const ids=Object.keys(S.peers),on=ids.length>0;
-  $('pdot').classList.toggle('off',!on);$('pline').textContent=on?'手机在线':'手机离线';$('pline2').textContent=on?S.peers[ids[0]]+' · '+ids[0]:'等待手机连接';
+  $('pdot').classList.toggle('off',!on);$('pline').textContent=on?'手机在线':'手机离线';$('pline2').textContent=on?S.peers[ids[0]]+' · '+ids[0]:'等待手机连接';$('pline2').title=on?'':((S.phone_why&&S.phone_why.text)||'');
   pttView();
   for(const k of ['events','todos','tickets','pickups']){const n=k==='todos'?S.todos.filter(t=>!t.done).length:k==='pickups'?S.pickups.filter(p=>!p.done).length:S[k].length;$('c-'+k).textContent=n||''}
   const un=S.notes.filter(n=>!n.read).length;$('nbadge').style.display=un?'':'none';$('nbadge').textContent=un;

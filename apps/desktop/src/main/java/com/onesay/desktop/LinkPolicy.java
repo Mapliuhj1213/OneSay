@@ -632,7 +632,7 @@ public final class LinkPolicy {
         if (isPayFinal(cmd)) return Cat.PAY_FINAL;
         if (isSelfAuthorizeCmd(cmd)) return Cat.SELF_AUTHORIZE;
         if (in(cmd, "ping", "caps", "status", "level")) return Cat.QUERY;
-        if (in(cmd, "file_list", "script_list")) return Cat.READ_PRIVATE;
+        if (in(cmd, "file_list", "script_list", "app_list")) return Cat.READ_PRIVATE; // [rel-1123-b] app_list：手机上装了哪些 App
         if (in(cmd, "find_phone", "screen_on", "notify", "flashlight")) return Cat.HARMLESS;
         if (in(cmd, "volume_set", "setting_set")) return Cat.SIMPLE_SETTING;
         if ("open_url".equals(cmd)) return Cat.OPEN_URL;

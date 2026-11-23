@@ -62,6 +62,14 @@ public final class LanServer implements Link {
     private volatile boolean running;
     private ServerSocket ss;
     private DatagramSocket ds;
+    /** [rel-1123-b] 免扫码配对：电脑上弹确认框的那一下（Agent 接上 PcGuard.Confirms）；没接 = 不收配对请求。 */
+    public volatile LanPair.Asker pairAsk;
+    /** 配对过程写进电脑日志（Agent 接上）。 */
+    public volatile java.util.function.Consumer<String> log = x -> { };
+    final LanPair.Limiter pairLimit = new LanPair.Limiter();
+    /** [rel-1123-b] 给「为什么离线」用的最近见闻（都只在内存里）。 */
+    final Seen seen = new Seen();
+    private volatile String bindError = "";
 
     public LanServer(Config cfg, Link.Listener listener) {
         this.cfg = cfg;
@@ -71,7 +79,12 @@ public final class LanServer implements Link {
     @Override public String name() { return "局域网"; }
     @Override public boolean isConnected() { return running; }
     public int port() { return ss == null ? -1 : ss.getLocalPort(); }
-    public List<String> clients() { return List.copyOf(conns.keySet()); }
+    /** [rel-1123-b] 现在在线的设备 = 有常连通道（hold）的；一次性连接（按一下按钮 / 手机页刷新）不算在线。 */
+    public List<String> clients() {
+        List<String> out = new java.util.ArrayList<>();
+        for (Map.Entry<String, Conn> e : conns.entrySet()) if (e.getValue().held && !e.getValue().closed) out.add(e.getKey());
+        return out;
+    }
 
     @Override
     public void start() {
@@ -88,6 +101,7 @@ public final class LanServer implements Link {
         } catch (IOException e) {
             close(ss);
             if (ds != null) ds.close();
+            bindError = "电脑上的局域网端口 " + cfg.lanPort + " 开不了（被别的程序占着，或被防火墙拦了）";
             listener.onState(false, "局域网端口 " + cfg.lanPort + " 开不了：" + e.getClass().getSimpleName() + (e.getMessage() == null ? "" : " " + e.getMessage()));
             return;
         }
@@ -158,7 +172,9 @@ public final class LanServer implements Link {
             try {
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
                 ds.receive(p);
-                String reply = answerProbe(cfg, new String(p.getData(), p.getOffset(), p.getLength(), StandardCharsets.UTF_8));
+                String text = new String(p.getData(), p.getOffset(), p.getLength(), StandardCharsets.UTF_8);
+                String reply = answerProbe(cfg, text);
+                if (reply == null) reply = LanPair.answerPairProbe(cfg.pairInvite && pairAsk != null, cfg.lanPort, text, p.getAddress()); // [rel-1123-b] 没配对的手机找可配对的电脑
                 if (reply != null) {
                     byte[] r = reply.getBytes(StandardCharsets.UTF_8);
                     ds.send(new DatagramPacket(r, r.length, p.getSocketAddress()));
@@ -211,6 +227,13 @@ public final class LanServer implements Link {
         to.addAll(LanClient.broadcasts());
         for (InetAddress a : to) {
             try { d.send(new DatagramPacket(b, b.length, a, dport)); } catch (Exception ignored) { }
+        }
+        // [rel-1123-b] 允许新手机配对时，顺带发一条不带身份的邀请（{"t":"pinv","v":1,"port"}），没配对的手机打开「找附近的电脑」就能看到
+        if (cfg.pairInvite && pairAsk != null) {
+            byte[] inv = LanPair.inviteText(cfg.lanPort).getBytes(StandardCharsets.UTF_8);
+            for (InetAddress a : to) {
+                try { d.send(new DatagramPacket(inv, inv.length, a, dport)); } catch (Exception ignored) { }
+            }
         }
     }
 
@@ -289,8 +312,14 @@ public final class LanServer implements Link {
             out.flush();
             c = new Conn(s, out);
             c.tls = tlsFp != null;
-            Hello hello = checkHello(readMessage(in, c), tlsFp);
+            String firstMsg = readMessage(in, c);
+            if (firstMsg != null && firstMsg.startsWith("{") && firstMsg.contains("\"pair_req\"")) { // [rel-1123-b] 免扫码配对请求
+                pair(c, s, in, firstMsg, tlsFp, raw.getInetAddress());
+                return;
+            }
+            Hello hello = checkHello(firstMsg, tlsFp);
             if (hello.who == null) {
+                if (firstMsg != null && firstMsg.contains("\"hello\"")) seen.refused(hello.code, System.currentTimeMillis());
                 c.sendText("{\"code\":" + Json.stringify(hello.why) + ",\"type\":\"error\"}");
                 c.close(hello.code, hello.why);
                 return;
@@ -299,22 +328,22 @@ public final class LanServer implements Link {
             c.device = who;
             c.held = hello.hold;
             Conn old = conns.get(who);
-            boolean primary;
+            boolean wasOnline = old != null && old.held && !old.closed;
             if (old == null || old.closed || c.held || !old.held) {
                 conns.put(who, c);
-                primary = true;
                 if (old != null && old != c) old.close(4000, "replaced");
             } else {
                 extra.add(c); // 已有常连：一次性连接不顶掉它
-                primary = false;
             }
+            if (c.held) seen.held(who); else seen.oneShot(who, System.currentTimeMillis());
             if (c.held && !who.equals(cfg.phoneLast)) {
                 cfg.phoneLast = who;
                 try { cfg.save(); } catch (IOException ignored) { }
             }
             s.setSoTimeout(95_000); // 客户端每 25 秒 ping
             c.sendText("{\"list\":[{\"device\":" + Json.stringify(cfg.deviceId) + ",\"kind\":\"pc\",\"online\":true}],\"type\":\"devices\"}");
-            if (primary) listener.onFrame(presence(who, true));
+            // [rel-1123-b] 只有常连算上线；一次性连接（手机页每 10 秒刷新、按一下按钮）不再每次报「上线 / 离线」
+            if (c.held && !wasOnline) listener.onFrame(presence(who, true));
             while (running) {
                 String msg = readMessage(in, c);
                 if (msg == null) break;
@@ -340,10 +369,105 @@ public final class LanServer implements Link {
         } finally {
             if (c != null) {
                 extra.remove(c);
-                if (c.device != null && conns.remove(c.device, c)) listener.onFrame(presence(c.device, false));
+                if (c.device != null && conns.remove(c.device, c) && c.held) {
+                    seen.dropped(c.device, System.currentTimeMillis());
+                    listener.onFrame(presence(c.device, false));
+                }
                 c.close(1000, "");
             } else close(s);
         }
+    }
+
+    // ---- [rel-1123-b] 免扫码配对 ----
+
+    private void pair(Conn c, Socket s, InputStream in, String first, String tlsFp, InetAddress remote) throws IOException {
+        String ip = remote == null ? "?" : remote.getHostAddress();
+        LanPair.Asker ask = pairAsk;
+        if (!cfg.pairInvite || ask == null) { pairNo(c, "closed"); return; }
+        if (!LanPair.privateAddr(remote)) { pairNo(c, "addr"); return; }
+        if (tlsFp == null) { pairNo(c, "tls"); return; }
+        Map<String, Object> f;
+        try { f = Json.obj(first); } catch (Exception e) { pairNo(c, "bad"); return; }
+        String from = String.valueOf(f.get("from"));
+        Object commit = f.get("commit");
+        if (!"pair_req".equals(f.get("type")) || !from.matches("[A-Za-z0-9._-]{1,64}") || from.equals(cfg.deviceId)
+                || !(commit instanceof String) || !((String) commit).matches("[A-Za-z0-9_-]{43}")) { pairNo(c, "bad"); return; }
+        String name = LanPair.cleanName(f.get("name"));
+        String adm = pairLimit.admit(ip, System.currentTimeMillis());
+        if (adm != null) { pairNo(c, adm); return; }
+        try {
+            String nPc = Protocol.nonce() + Protocol.nonce();
+            Map<String, Object> chal = new TreeMap<>();
+            chal.put("type", "pair_chal");
+            chal.put("v", 1L);
+            chal.put("n", nPc);
+            c.sendText(Json.stringify(chal));
+            s.setSoTimeout(LanPair.REVEAL_MS);
+            String rv = readMessage(in, c);
+            Map<String, Object> r;
+            try { r = rv == null ? null : Json.obj(rv); } catch (Exception e) { r = null; }
+            Object nPhone = r == null ? null : r.get("n");
+            if (r == null || !"pair_reveal".equals(r.get("type")) || !LanPair.validNonce(nPhone) || !LanPair.commit((String) nPhone).equals(commit)) { pairNo(c, "bad"); return; }
+            String code = LanPair.code(tlsFp, cfg.tls().fp, (String) nPhone, nPc);
+            Map<String, Object> w = new TreeMap<>();
+            w.put("type", "pair_wait");
+            w.put("timeout_ms", LanPair.ASK_MS);
+            c.sendText(Json.stringify(w));
+            s.setSoTimeout((int) (LanPair.ASK_MS + 15_000));
+            log.accept("手机「" + name + "」（" + from + "，" + ip + "）想配对，等你在电脑上确认");
+            int ans;
+            String pinned = cfg.pinOf(from);
+            boolean replaces = pinned != null && !Tls.fpEquals(pinned, tlsFp);
+            try { ans = ask.ask(name, from, code, ip, replaces, LanPair.ASK_MS); } catch (RuntimeException e) { ans = PcGuard.DENY; }
+            if (ans != PcGuard.ALLOW && ans != PcGuard.ALWAYS && ans != PcGuard.REMEMBER) {
+                pairLimit.denied(ip, System.currentTimeMillis());
+                pairNo(c, ans == PcGuard.TIMEOUT ? "timeout" : "denied");
+                log.accept("手机「" + name + "」的配对" + (ans == PcGuard.TIMEOUT ? "没人确认，没配上" : "被你拒绝了"));
+                return;
+            }
+            String before = cfg.pinOf(from);
+            cfg.pin(from, tlsFp); // 记住这台手机的证书：之后它的签名 hello 必须是这张证书
+            try { cfg.save(); } catch (IOException ignored) { }
+            Map<String, Object> ok = new TreeMap<>();
+            ok.put("type", "pair_ok");
+            ok.put("pairing", cfg.pairingString());
+            try {
+                c.sendText(Json.stringify(ok));
+            } catch (IOException e) {
+                cfg.pin(from, before); // 手机已经走了：不留这张证书
+                try { cfg.save(); } catch (IOException ignored) { }
+                throw e;
+            }
+            seen.paired(from, System.currentTimeMillis());
+            log.accept("手机「" + name + "」（" + from + "）配对好了");
+            c.close(1000, "paired");
+        } finally {
+            pairLimit.release();
+        }
+    }
+
+    private static void pairNo(Conn c, String why) {
+        try { c.sendText("{\"type\":\"pair_no\",\"why\":" + Json.stringify(why) + "}"); } catch (IOException ignored) { }
+        c.close(4005, why);
+    }
+
+    /** [rel-1123-b] 「为什么手机不在线」要用的见闻：哪台设备最近只用一次性连接来过、哪台常连刚断、最近有没有被拒的握手。 */
+    static final class Seen {
+        final Map<String, Long> oneShot = new ConcurrentHashMap<>(), dropped = new ConcurrentHashMap<>(), paired = new ConcurrentHashMap<>();
+        volatile long refusedAt;
+        volatile int refusedCode;
+
+        void oneShot(String who, long now) { if (oneShot.size() < 64) oneShot.put(who, now); else { oneShot.clear(); oneShot.put(who, now); } }
+        void held(String who) { oneShot.remove(who); dropped.remove(who); }
+        void dropped(String who, long now) { dropped.put(who, now); }
+        void paired(String who, long now) { paired.put(who, now); }
+        void refused(int code, long now) { refusedAt = now; refusedCode = code; }
+    }
+
+    /** 现在为什么没有手机在线（有在线的返回 null）。phoneLast = 最近常连过的手机。 */
+    public OfflineWhy.Why offlineWhy(String phoneLast, long now) {
+        if (!clients().isEmpty()) return null;
+        return OfflineWhy.of(running, bindError, LanClient.localAddresses().isEmpty(), phoneLast, seen, now);
     }
 
     static String[] protocols(String[] supported) {

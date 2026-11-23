@@ -135,13 +135,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
 
     /** 控制台显示用：常连状态。 */
     public static String stateText() {
-        String s = state;
-        if (PcRx.S_UP.equals(s)) return "已连上 " + detail;
-        if (PcRx.S_SEARCH.equals(s)) return "正在找电脑…";
-        if (PcRx.S_WAIT.equals(s)) return "电脑不在，等它上线（电脑一开 OneSay 就会连上）";
-        if (PcRx.S_NO_WIFI.equals(s)) return "没连 Wi-Fi，暂停";
-        if (PcRx.S_ERROR.equals(s)) return detail;
-        return "没在运行";
+        return PcLinkText.rxState(state, detail); // [rel-1123-b] 离线写原因
     }
 
     public static boolean up() {
@@ -385,6 +379,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
         if (PcRxPolicy.OPEN_APP.equals(cmd)) return openApp(PcRxPolicy.str(a, "package"), PcRxPolicy.str(a, "name"));
         if (PcRxPolicy.OPERATE.equals(cmd)) return operate(PcRxPolicy.str(a, "goal"));
         if (PcRxPolicy.OPERATE_STATUS.equals(cmd)) return operateStatus();
+        if (PcRxPolicy.APP_LIST.equals(cmd)) return appList(PcRxPolicy.str(a, "query")); // [rel-1123-b]
         if (PcRxPolicy.FILE_PUT.equals(cmd)) return PcFileAndroid.rx(app).receive(a, PcLink.pcName(app)); // [overnight-1119] 电脑发文件过来
         if (PcRxPolicy.SHORTCUT_LIST.equals(cmd)) return shortcutList();
         if (PcRxPolicy.SHORTCUT_RUN.equals(cmd)) return shortcutRun(PcRxPolicy.str(a, "name"));
@@ -475,6 +470,15 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
 
     PcLanClient.Result operateStatus() {
         Map<String, Object> d = new TreeMap<String, Object>();
+        Map<String, Object> gs = PcGoals.status(); // [rel-1123-b] 有回传结果的就说结果
+        if (gs != null) {
+            String st = String.valueOf(gs.get("state"));
+            String goal = clip(String.valueOf(gs.get("goal")), 40), text = String.valueOf(gs.get("text"));
+            long min = gs.get("minutes_ago") instanceof Number ? ((Number) gs.get("minutes_ago")).longValue() : 0;
+            String when = min == 0 ? "刚才" : min + " 分钟前";
+            if (PcGoals.RUNNING.equals(st)) return ok(when + "交给手机的「" + goal + "」还在做（做完会把结果告诉电脑）", gs);
+            return ok(when + "交给手机的「" + goal + "」" + goalStateZh(st) + (text.length() > 0 ? "：" + text : ""), gs);
+        }
         if (lastGoalAt == 0) {
             d.put("state", "none");
             return ok("这次手机上的 OneSay 启动后，电脑还没交过目标", d);
@@ -535,6 +539,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
         if (goal.length() == 0) return fail("没说要手机做什么");
         lastGoal = goal;
         lastGoalAt = System.currentTimeMillis();
+        String gid = PcGoals.begin(PcLink.peerId(app), goal); // [rel-1123-b] 做完把结果回传电脑
         try {
             Intent i = new Intent(app, com.onesay.assistant.v2.ui.FloatingSheetService.class)
                     .setAction(com.onesay.assistant.v2.ui.FloatingSheetService.ACTION_SHOW)
@@ -543,9 +548,38 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
             Log.i(TAG, "[PCLINK] 电脑交来一个目标（" + goal.length() + " 字）→ 面板");
             Map<String, Object> d = new TreeMap<String, Object>();
             d.put("goal", goal);
-            return ok("已交给手机上的 OneSay 去做（手机会自己规划执行，打电话 / 发短信 / 付款 / 给别人发消息会在手机上问你）", d);
+            d.put("goal_id", gid);
+            return ok("已交给手机上的 OneSay 去做（手机会自己规划执行，打电话 / 发短信 / 付款 / 给别人发消息会在手机上问你），做完会把结果告诉电脑", d);
         } catch (Exception e) {
             return fail("手机上的 OneSay 面板没起来：" + e.getClass().getSimpleName());
+        }
+    }
+
+    static String goalStateZh(String st) {
+        if (PcGoals.DONE.equals(st)) return "做完了";
+        if (PcGoals.DENIED.equals(st)) return "你在手机上拒绝了";
+        if (PcGoals.STOPPED.equals(st)) return "在手机上停掉了";
+        if (PcGoals.TIMEOUT.equals(st)) return "做太久，停了";
+        if (PcGoals.INTERRUPTED.equals(st)) return "被打断了";
+        if (PcGoals.UNKNOWN.equals(st)) return "没留下结果";
+        return "没做成";
+    }
+
+    /** [rel-1123-b] 手机上装了哪些 App：桌面启动项的名字 + 包名（不带图标），按名字排，最多 300 个；query 非空只列名字带这几个字的。 */
+    PcLanClient.Result appList(String query) {
+        try {
+            PackageManager pm = app.getPackageManager();
+            List<ResolveInfo> all = pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0);
+            java.util.List<PcAppList.App> l = new java.util.ArrayList<PcAppList.App>();
+            for (ResolveInfo ri : all) {
+                if (ri.activityInfo == null) continue;
+                CharSequence lb = ri.loadLabel(pm);
+                l.add(new PcAppList.App(lb == null ? "" : lb.toString(), ri.activityInfo.packageName));
+            }
+            Log.i(TAG, "[PCLINK] 电脑要已装 App 列表（" + l.size() + " 个入口" + (query.length() > 0 ? "，带筛选" : "") + "）");
+            return PcAppList.view(l, query, PcRxPolicy.APP_LIST_MAX);
+        } catch (Exception e) {
+            return fail("读不到手机上的 App 列表：" + e.getClass().getSimpleName());
         }
     }
 

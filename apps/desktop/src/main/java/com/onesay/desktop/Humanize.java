@@ -39,6 +39,7 @@ public final class Humanize {
         PHONE.put("script_run", "运行工作区脚本");
         PHONE.put("sys_exec", "系统命令");
         PHONE.put("operate", "按目标操作手机");
+        PHONE.put("app_list", "看手机上装了哪些 App"); // [rel-1123-b]
         TOOLS.put("phone_status", "查手机状态");
         TOOLS.put("phone_open_app", "在手机上打开 App");
         TOOLS.put("phone_operate", "按目标操作手机");
@@ -55,6 +56,35 @@ public final class Humanize {
         TOOLS.put("wf_call", "工作流 / 技能"); // [workflow-1120]
         TOOLS.put("phone_shortcuts", "看手机上的快捷指令");
         TOOLS.put("phone_run_shortcut", "在手机上运行快捷指令");
+        TOOLS.put("phone_apps", "看手机上装了哪些 App"); // [rel-1123-b]
+    }
+
+    /** [rel-1123-b] 手机回传的目标结果状态 → 中文（接在「手机任务」后面）。 */
+    public static String goalState(String st) {
+        switch (st == null ? "" : st) {
+            case "running": return "还在做";
+            case "done": return "做完了";
+            case "denied": return "被拒绝了";
+            case "stopped": return "停掉了";
+            case "timeout": return "做太久停了";
+            case "interrupted": return "被打断了";
+            case "unknown": return "没回结果";
+            default: return "没做成";
+        }
+    }
+
+    /** [rel-1123-b] 一句话说手机回传的结果（电脑任务卡 / 给模型的工具结果）。text = 手机自己说的话。 */
+    public static String goalLine(String st, String text) {
+        String t = text == null ? "" : text.trim();
+        switch (st == null ? "" : st) {
+            case "done": return "手机做完了" + (t.isEmpty() ? "" : "：" + t);
+            case "denied": return "手机没做" + (t.isEmpty() ? "（在手机上被拒绝了）" : "（" + t + "）");
+            case "stopped": return "手机上停掉了" + (t.isEmpty() ? "" : "：" + t);
+            case "timeout": return "手机做太久，停了" + (t.isEmpty() ? "" : "：" + t);
+            case "interrupted": return "手机上被新指令打断了" + (t.isEmpty() ? "" : "：" + t);
+            case "unknown": return "手机没回结果" + (t.isEmpty() ? "" : "：" + t);
+            default: return "手机没做成" + (t.isEmpty() ? "（手机没说原因）" : "：" + t);
+        }
     }
 
     /** 一个手机能力名的中文；不认识的返回「其他功能」（不把 id 原样给人看）。 */
