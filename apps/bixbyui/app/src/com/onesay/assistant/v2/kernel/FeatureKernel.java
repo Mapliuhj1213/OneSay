@@ -242,8 +242,23 @@ public final class FeatureKernel {
         return null;
     }
 
+    /**
+     * 插件本地接管。★ fix/1123-bug2：按 {@link com.onesay.assistant.v2.router.RouteArbiter} 的一张优先级表分档问
+     * （状态插件 → 点名插件 → 快路径整句命中时内容插件让路 → 内容插件）；没有点名、快路径也不中时与修前逐个顺序完全一样。
+     */
     public Hit takeover(Context ctx, String query, L2LLMCompiler l2) {
+        return com.onesay.assistant.v2.router.RouteArbiter.takeover(this, ctx, query, l2).hit;
+    }
+
+    /**
+     * ★ fix/1123-bug2：只问 TAKEOVER 优先级落在 [lo, hi) 的插件（顺序照旧）；skipId 不问（已单独问过的点名插件）。
+     * 给 {@link com.onesay.assistant.v2.router.RouteArbiter} 分档用：状态插件 → 点名插件 → 快路径 → 内容插件。
+     */
+    public Hit takeoverRange(Context ctx, String query, L2LLMCompiler l2, int lo, int hi, String skipId) {
         for (FeaturePlugin p : order(FeatureHook.TAKEOVER)) {
+            int pr = p.priority(FeatureHook.TAKEOVER);
+            if (pr < lo || pr >= hi) continue;
+            if (skipId != null && skipId.equals(p.id())) continue;
             if (!active(p, ctx)) continue;
             try {
                 Invocation inv = p.route(ctx, query, l2);
@@ -253,6 +268,31 @@ public final class FeatureKernel {
             }
         }
         return null;
+    }
+
+    /** ★ fix/1123-bug2：只问某一个插件接不接（用户点名「随口记 …」时先问记一记）。没有 / 没开 / 不接 → null。 */
+    public Hit takeoverOnly(Context ctx, String query, L2LLMCompiler l2, String id) {
+        FeaturePlugin p = id == null ? null : find(id);
+        if (p == null || !active(p, ctx)) return null;
+        try {
+            Invocation inv = p.route(ctx, query, l2);
+            return inv == null ? null : new Hit(p, inv);
+        } catch (Throwable t) {
+            warn(p, "route", t);
+            return null;
+        }
+    }
+
+    /** ★ fix/1123-bug2：只问某一个插件认不认领（与 {@link #takeoverOnly} 配对，给「进不进 AgentLoop」用）。 */
+    public boolean claimsOnly(Context ctx, String query, String id) {
+        FeaturePlugin p = id == null ? null : find(id);
+        if (p == null || !active(p, ctx)) return false;
+        try {
+            return p.claims(ctx, query);
+        } catch (Throwable t) {
+            warn(p, "claims", t);
+            return false;
+        }
     }
 
     /** 任一插件认领这句话 → 不进 AgentLoop。 */

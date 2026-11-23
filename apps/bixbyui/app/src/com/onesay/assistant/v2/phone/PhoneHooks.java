@@ -203,6 +203,9 @@ public final class PhoneHooks {
                 SafeLog.i(TAG, "[PHONE] 画面稳定再读：" + agent.settle);
             }
             agent.labels = !legacy && labelsEnabled(app);
+            // ★ fix/1123-bug2：没配识屏 Key → 这次任务从头就不截屏、不给模型「要看画面」
+            agent.visionKnownOff = !legacy && !com.onesay.assistant.v2.vision.VisionAvailability.usableForPhoneAgent(app);
+            if (agent.visionKnownOff) SafeLog.i(TAG, "[PHONE] 识屏用不了（没配识屏 Key 或看图兜底关着）：这次只靠读屏");
             if (!legacy) agent.whitelist = com.onesay.assistant.v2.whitelist.WhitelistAndroid.state(app);   // ★ app-whitelist-1116   // ★ a11y-labels：改前口径（legacy）保持原样
             if (replayEnabled(app) && !legacy) agent.replay = replayStore(app);   // ★ smart-replay：开关关 = null，原行为
             // ★ borrow-1112：发给模型前本地脱敏（默认开；映射只在这次任务的内存里）、本轮污染标记、等待期间画面变化进时间轴

@@ -150,6 +150,10 @@ public final class TtsSpeaker {
     private String mPending;
     /** 当前云端播报（null = 没有）。 */
     private com.onesay.assistant.v2.tts.CloudUtterance mCloud;
+    /** ★ fix/1123-bug2：这一句整句朗读念不出来时退回的模板（只在「朗读完整回答」开着时设）。 */
+    private com.onesay.assistant.v2.tts.VoiceTemplate mFallbackTpl;
+    /** ★ fix/1123-bug2：云端念的一次性提示（「我在」），不进回答状态机。 */
+    private com.onesay.assistant.v2.tts.CloudUtterance mCueCloud;
     private com.onesay.assistant.v2.tts.PcmStreamPlayer mPlayer;
     /** ★ 综合包：当前云端播报的进度闸门（fireStart / fireDone 每句一次）。 */
     private com.onesay.assistant.v2.tts.SpeechProgressGate mCloudGate;
@@ -311,11 +315,15 @@ public final class TtsSpeaker {
             if (!force) fireSkipped("提示词回吐拦截");
             return;
         }
-        String text = SpeechText.forSpeech(raw, max);
+        // ★ fix/1123-bug2：「朗读完整回答」开着时不再按 40 / 60 字截（以前开了也只念第一句，听着和关着一样）
+        boolean fullRead = isFullAnswerEnabled(mApp);
+        String text = SpeechText.forSpeech(raw, com.onesay.assistant.v2.tts.VoiceTemplate.speechMax(max, force, fullRead, tpl != null));
         if (text.length() == 0) {
             if (!force) fireSkipped("文字为空");
             return;
         }
+        // ★ fix/1123-bug2：整句朗读念不出来（云端没配 / 失败，又没有系统朗读兜底）时，至少说一句模板短句，别整轮没声
+        mFallbackTpl = com.onesay.assistant.v2.tts.VoiceTemplate.useTemplate(force, fullRead) ? null : tpl;
         // ★ device-1102：登记这次要读的话（AnswerEchoGuard：开麦后识别出的若就是它 → 回采，不上屏不执行）
         com.onesay.assistant.v2.asr.AnswerEchoGuard.noteSpoken(text, android.os.SystemClock.elapsedRealtime());
         // ★ r2/voice-templates：回答默认只说模板短句（正文在卡片上）；「朗读完整回答」开着才整句读
@@ -336,6 +344,13 @@ public final class TtsSpeaker {
     /** 系统 TTS 播一句（持锁调用）。force = 主动播报（不报 skipped，那不是一轮对话）。 */
     private void speakSystemLocked(String text, boolean force) {
         if (!SYSTEM_TTS_FALLBACK) {
+            com.onesay.assistant.v2.tts.VoiceTemplate fb = mFallbackTpl;
+            mFallbackTpl = null;
+            if (!force && fb != null && loadTemplate(fb) != null) {   // ★ fix/1123-bug2：整句念不出来 → 退回模板短句
+                Log.w(TAG, "[TTS] 整句朗读不可用（云端未配置或失败），改说模板「" + fb.text + "」");
+                playTemplateLocked(fb);
+                return;
+            }
             if (!force) fireSkipped("云端语音未配置或失败（不回退系统 TTS）");
             return;
         }
@@ -511,6 +526,94 @@ public final class TtsSpeaker {
             }
         }
         return pcm != null;
+    }
+
+    /**
+     * ★ fix/1123-bug2：一次性提示（「我在」等）—— 有预录音频就播音频（同 {@link #playCue}）；
+     * 没有（OneSay 不随包带预录音频）就用云端语音念这句短句。都不行返回 false（不出声）。
+     * <b>不进回答状态机</b>：不报 SpeechListener 的开始 / 结束，不触发续听、不动焦点。done 播完 / 被停 / 失败都只回调一次。
+     */
+    public boolean speakCue(final com.onesay.assistant.v2.tts.VoiceTemplate t, final Runnable done) {
+        if (t == null) return false;
+        if (playCue(t, done)) return true;
+        synchronized (this) {
+            return speakCueCloudLocked(t.text, done);
+        }
+    }
+
+    /** 停掉云端念的提示（「我在」被长按掐断等）。 */
+    public void stopCueCloud() {
+        com.onesay.assistant.v2.tts.CloudUtterance cu;
+        synchronized (this) {
+            cu = mCueCloud;
+            mCueCloud = null;
+        }
+        if (cu != null) try { cu.cancel(); } catch (Throwable ignore) {}
+    }
+
+    private boolean speakCueCloudLocked(final String text, final Runnable done) {
+        final com.onesay.assistant.v2.tts.CloudTtsConfig cfg;
+        final String key;
+        try {
+            cfg = new com.onesay.assistant.v2.tts.CloudTtsConfig(mApp);
+            if (!cfg.isEnabled()) return false;
+            key = new com.onesay.assistant.v2.asr.AliyunAsrConfig(mApp).getDashScopeKey();
+        } catch (Throwable t) {
+            return false;
+        }
+        if (key == null || key.length() == 0) return false;
+        com.onesay.assistant.v2.tts.CloudUtterance old = mCueCloud;
+        mCueCloud = null;
+        if (old != null) try { old.cancel(); } catch (Throwable ignore) {}
+        final boolean[] once = {false};
+        final Runnable fin = new Runnable() {
+            @Override public void run() {
+                synchronized (once) {
+                    if (once[0]) return;
+                    once[0] = true;
+                }
+                if (done != null) try { done.run(); } catch (Throwable e) { Log.w(TAG, "[TTS] 提示收尾回调异常: " + e); }
+            }
+        };
+        final String url = sHostDowngraded && !cfg.hasCustomEndpoint() ? com.onesay.assistant.v2.tts.CloudTtsConfig.DASHSCOPE_WS_URL : cfg.wsUrl();
+        final String model = cfg.getModel();
+        final String voice = cfg.getVoice();
+        final int sr = cfg.getSampleRate();
+        final int connectMs = cfg.getConnectTimeoutMs();
+        final com.onesay.assistant.v2.tts.PcmStreamPlayer player = new com.onesay.assistant.v2.tts.PcmStreamPlayer(mApp,
+                new com.onesay.assistant.v2.tts.PcmStreamPlayer.PlaybackListener() {
+                    @Override public void onAudible() {}
+                    @Override public void onFinished(boolean stopped, String err) { fin.run(); }
+                }, false);
+        final com.onesay.assistant.v2.tts.CloudUtterance[] self = new com.onesay.assistant.v2.tts.CloudUtterance[1];
+        com.onesay.assistant.v2.tts.CloudUtterance u = new com.onesay.assistant.v2.tts.CloudUtterance(text,
+                new com.onesay.assistant.v2.tts.CloudUtterance.SessionFactory() {
+                    @Override
+                    public com.onesay.assistant.v2.tts.DashScopeTtsSession create(com.onesay.assistant.v2.tts.DashScopeTtsSession.Listener l) {
+                        return new com.onesay.assistant.v2.tts.DashScopeTtsSession(url, key, model, voice, sr, Math.max(connectMs, 1000), l);
+                    }
+                },
+                player,
+                new com.onesay.assistant.v2.tts.CloudUtterance.Fallback() {
+                    @Override public void speakSystem(String t, String reason) {
+                        Log.w(TAG, "[TTS] 提示「" + t + "」云端没出声：" + reason);
+                        fin.run();
+                    }
+                },
+                new com.onesay.assistant.v2.tts.CloudUtterance.Observer() {
+                    @Override public void onFinished(com.onesay.assistant.v2.tts.CloudUtterance cu) {
+                        synchronized (TtsSpeaker.this) {
+                            if (mCueCloud == self[0]) mCueCloud = null;
+                        }
+                        Log.i(TAG, "[TTS] 提示云端 " + cu.outcome() + " 首包=" + cu.firstAudioMs + "ms " + cu.reason());
+                    }
+                },
+                connectMs, cfg.getFirstAudioTimeoutMs());
+        self[0] = u;
+        mCueCloud = u;
+        Log.i(TAG, "[TTS] 提示「" + text + "」没有预录音频，改用云端语音念（一次性，不进回答状态机）");
+        u.start();
+        return true;
     }
 
     /**

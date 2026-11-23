@@ -120,6 +120,11 @@ public final class PhoneAgent {
     public int legacyMaxSteps = 8;
     /** ★ fast-screen-v3：无人值守（定时任务等）= 8 次调用 / 3 分钟，到上限不问、直接收尾并注明「未完成」。 */
     public boolean unattended;
+    /**
+     * ★ fix/1123-bug2：开局就知道识屏用不了（没配识屏 Key / 看图兜底关着）。true = 从第一轮起就不给模型「要看画面」、也不截屏；
+     * 以前要先白问一轮模型、白截一次屏才发现，每个任务都来一遍。false = 原行为（拿不到描述那一刻再关）。
+     */
+    public boolean visionKnownOff;
     public int maxElementLines = 120;
     /** ★ mika-plug：Mika 执行层插件（null 或全关 = 原行为）。 */
     public MikaExec mika;
@@ -207,7 +212,8 @@ public final class PhoneAgent {
         UiTree screen = startPkg != null && startPkg.length() > 0 ? observeAfterAction("打开应用") : obs();
         String lastBatchReport = "";
         boolean wantShot = false;
-        boolean visionOff = false;   // ★ overnight-1119：识屏用不了（第一次拿不到描述就记下）
+        boolean visionOff = visionKnownOff;   // ★ overnight-1119：识屏用不了（第一次拿不到描述就记下）；★ fix/1123-bug2：开局已知就直接关
+        if (visionOff) res.trace.add("vision off (no key)");
         int shotRefused = 0;
         int stepNo = 0;
         mRec = null;

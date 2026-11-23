@@ -830,6 +830,10 @@ public class AgentLoop {
             candidates = ensureDomainFallbacks(candidates, query);
             // ★ 11-04 ②：有搜索 API 时去掉拉起可见浏览器的 browser.search.*（用户明确要浏览器的除外）
             candidates = SearchRouting.filterCandidates(candidates, query, mWeb != null);
+            // ★ fix/1123-bug2：没配识屏 Key → 不给模型识屏工具（以前给了，模型一调就截屏再失败，还一遍遍重试）
+            boolean visionOk = com.onesay.assistant.v2.vision.VisionAvailability.usable(mContext);
+            candidates = com.onesay.assistant.v2.vision.VisionAvailability.filterCandidates(candidates, visionOk);
+            if (!visionOk) SafeLog.i(TAG, "[AGENT-LOOP] 没配识屏 Key：本次不给识屏工具");
 
             JSONArray tools = mRegistry.exportToolsSchema(candidates);
             int regSize = mRegistry.listCapabilities().size();
@@ -1391,7 +1395,8 @@ public class AgentLoop {
                                     if (taintsAfter(cap, r)) { tainted = true; mLastTainted = true; }
                                     // 探针挖到/指出的接口立刻加入本轮 tools。
                                     //   旧实现 tools 在循环前一次性导出，模型"看得到工具名却调不了"。
-                                    List<Capability> added = refreshCandidates(candidates, r, regSize);
+                                    List<Capability> added = com.onesay.assistant.v2.vision.VisionAvailability.filterCandidates(
+                                            refreshCandidates(candidates, r, regSize), visionOk);   // ★ fix/1123-bug2：补进来的也不带识屏
                                     regSize = mRegistry.listCapabilities().size();
                                     if (!added.isEmpty()) {
                                         candidates.addAll(added);
@@ -1757,6 +1762,10 @@ public class AgentLoop {
         String all = "";
         for (Step st : steps) if (st.observation != null) all += st.observation;
         String q = query == null ? "" : query;
+        // ★ fix/1123-bug2：识屏没配好不是邮箱没配好，别把人往邮箱设置里指
+        if (all.contains(com.onesay.assistant.v2.vision.VisionAvailability.NO_KEY_TEXT) || all.contains("vision no key")) {
+            return "识屏要先在设置里填好识屏用的 Key；在那之前我只能读屏幕上的文字，看不了图。";
+        }
         if (all.contains("未配置") || all.contains("not configured") || all.contains("NOT_CONFIGURED")
                 || ((q.contains("邮件") || q.contains("邮箱")) && !all.contains("\"ok\":true"))) {
             return "①在 QQ 邮箱网页版「设置→账户」开启 IMAP/SMTP 服务并生成授权码；②打开 OneSay 控制台 →「邮箱（IMAP）配置」（面板上也有「去填写邮箱授权码」按钮），选 QQ邮箱 预设、填邮箱地址和授权码；"

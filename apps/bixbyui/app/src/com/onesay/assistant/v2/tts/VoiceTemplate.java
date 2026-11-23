@@ -198,6 +198,27 @@ public enum VoiceTemplate {
         return !force && !fullReadOpt;
     }
 
+    /** ★ fix/1123-bug2：「朗读完整回答」开着时最多念多少字（约 1 分钟；更长的看卡片）。 */
+    public static final int FULL_READ_MAX = 300;
+
+    /**
+     * ★ fix/1123-bug2：这句最多念几个字。回答类（有模板）+「朗读完整回答」开着 → 放宽到 {@link #FULL_READ_MAX}
+     * （以前开了也按 40 / 60 字截，只念第一句，听着和关着没区别）；主动播报 / 没开 → 调用方给的上限不变。
+     */
+    public static int speechMax(int baseMax, boolean force, boolean fullReadOpt, boolean replyTemplate) {
+        if (!force && fullReadOpt && replyTemplate) return Math.max(baseMax, FULL_READ_MAX);
+        return baseMax;
+    }
+
+    /** ★ fix/1123-bug2：「我在」从哪儿出声。 */
+    public enum CueSource { ASSET, CLOUD, NONE }
+
+    /** 有预录音频 → 播音频；没有但云端语音可用 → 云端念；都没有 → 不出声（日志写明）。 */
+    public static CueSource cueSource(boolean assetPresent, boolean cloudAvailable) {
+        if (assetPresent) return CueSource.ASSET;
+        return cloudAvailable ? CueSource.CLOUD : CueSource.NONE;
+    }
+
     /**
      * 原「完成应答音」ack_done 要不要单独响：这一轮会播回答模板时不响（模板里已经有「已完成 / 好了，看屏幕」，
      * 否则会连说两句）；不出声的回合（文字回合等）和「朗读完整回答」开着时照旧响。

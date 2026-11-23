@@ -25,6 +25,10 @@ public final class VisionBackend implements ExecutorBackend {
 
     @Override
     public BackendOutcome run(ExecRequest req) {
+        // ★ fix/1123-bug2：没配识屏 Key → 不截屏，直接回「没配好、别再试」（以前先截一张再报可重试的失败，模型就一遍遍再要识屏）
+        if (!com.onesay.assistant.v2.vision.VisionAvailability.usable(req.context)) {
+            return BackendOutcome.terminal(noKey(req.cap, req.args));
+        }
         String ask = req.args != null ? req.args.optString("content", null) : null;
         ScreenVisionEngine.VisionResult vr = ScreenVisionEngine.getInstance(req.context)
                 .recognizeScreenSync(ask, ScreenVisionEngine.SYNC_TIMEOUT_MS);
@@ -35,5 +39,11 @@ public final class VisionBackend implements ExecutorBackend {
         // 识屏结果是"看到的文字"，既是给用户的答复也是给模型的观察值（detail）
         return BackendOutcome.terminal(ExecutionResult.success(req.cap, req.args, vr.text,
                 ExecutionResult.Verification.UNVERIFIED, vr.text));
+    }
+
+    /** ★ fix/1123-bug2：没配识屏 Key 的结果（不可重试；纯函数，JVM 可测）。 */
+    public static ExecutionResult noKey(Capability cap, org.json.JSONObject args) {
+        return ExecutionResult.failed(ErrorCode.NOT_CONFIGURED, com.onesay.assistant.v2.vision.VisionAvailability.NO_KEY_TEXT,
+                "vision no key", com.onesay.assistant.v2.vision.VisionAvailability.NO_KEY_HINT, cap, args);
     }
 }

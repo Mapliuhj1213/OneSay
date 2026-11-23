@@ -289,6 +289,8 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
             if (fast) mLastTriage.put(query, fastT, fastT.at);
         }
         if (fast) return false;
+        // ★ fix/1123-bug2：与级联同一张表 —— 用户点名的插件（「随口记 …」）认领 → 不进 AgentLoop（排在诊断插件的 wantsAgentLoop 之前）
+        if (mContext != null && RouteArbiter.explicitClaims(com.onesay.assistant.v2.kernel.FeatureKernel.get(), mContext, query)) return false;
         // ★ audit-J 2：点名的常见 App 没装（「打开抖音」「在小红书搜穿搭」）→ 本地下发 app.launch 出安装卡，不进 AgentLoop
         if (missingAppPlan(query) != null) return false;
         // ★ device-1102：症状句没命中已知案例 → 进 AgentLoop（先搜索、再列计划、再做只读检查），不再走无工具的模板诊断 / ASK
@@ -400,7 +402,9 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
      *      LLM 单步结果登记为"待验证"，执行成功后（{@link #reportExecution}）才写 L1。
      * </pre>
      */
-    private void cascade(final String query, final StreamHandler h, final Cancel cancel, boolean allowStream) {
+    private void cascade(final String query, final StreamHandler h0, final Cancel cancel, boolean allowStream) {
+        // ★ fix/1123-bug2：统一出口 —— 同一句只交付一次（RouteArbiter.once）
+        final StreamHandler h = RouteArbiter.once(h0, query);
         if (query == null || query.trim().length() == 0 || isAckEcho(query)) {
             h.onFinal(null);
             return;
@@ -435,6 +439,8 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         //   日志口径不变：[ROUTE-IMG] / [ROUTE-SUM] / [ROUTE-S3] / [ROUTE-S2] / [ROUTE-DIAG]；
         //   需要的插件先跑一次 triage(query)，只为 [TRIAGE] 日志口径一致（规则判，不触网；5 秒内复用）。
         // ★ rel-1118 B04：否定 / 反悔 / 只是在问的句子不给插件本地接管（S3 建提醒、记一记、诊断…），直接进分诊落 ASK
+        // ★ fix/1123-bug2：内核 takeover 现在按 RouteArbiter 一张表分档 —— 状态插件 → 点名插件（「随口记 …」）→ 快路径整句命中（内容插件让路）
+        //   → 内容插件（日程 / 提醒待办 / 记一下 / 诊断 …）。以前内容插件排在快路径前，「每天 6 点 50 叫我」被提醒插件抢成通知栏提醒。
         com.onesay.assistant.v2.kernel.FeatureKernel.Hit take = NegationGuard.blocks(query) ? null
                 : com.onesay.assistant.v2.kernel.FeatureKernel.get().takeover(mContext, query, mL2);
         if (take != null) {
