@@ -251,6 +251,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 .welcome h2{font-size:26px;font-weight:600;color:var(--text);margin-bottom:10px}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:380px;background:var(--card);box-shadow:-8px 0 30px rgba(0,0,0,.1);padding:24px;display:none;flex-direction:column;gap:12px;z-index:5}
 .drawer.on{display:flex}
+.codein{width:150px!important;flex:0 0 150px;height:48px;box-sizing:border-box;font-size:24px;letter-spacing:8px;text-align:center}.codein::placeholder{font-size:14px;letter-spacing:1px}
 .memlist{display:flex;flex-direction:column;gap:6px;overflow:auto;min-height:60px;flex:1}.memrow{display:flex;gap:8px;align-items:flex-start;background:var(--bg);border-radius:10px;padding:8px 10px;font-size:13.5px;line-height:1.6}.memrow span{flex:1;word-break:break-word}.memempty{font-size:13px;color:var(--text3)}
 #memedit textarea{width:100%;min-height:160px;box-sizing:border-box}
 .drawer textarea{flex:1;border:0;background:var(--bg);border-radius:14px;padding:14px;font:inherit;font-size:13.5px;line-height:1.7;resize:none;outline:0}
@@ -512,7 +513,7 @@ async function refresh(){ if(LIVE){try{S=await api('state')}catch(e){return}} el
 let navSeen=null;
 function uiNav(){const n=S&&S.ui_nav;const seq=n&&n.seq||0;if(navSeen===null){navSeen=seq;return}if(seq<=navSeen)return;navSeen=seq;
   if(!n.page||!P[n.page]&&n.page!=='chat'&&n.page!=='workflows')return;if(Date.now()-(n.at||0)>120e3)return;
-  if(n.page==='settings')setQ='';go(n.page);if(n.anchor==='home-pair'&&!pairShown)showPair();if(n.anchor)setTimeout(()=>flashTo(n.anchor),80)}
+  if(n.page==='settings')setQ='';go(n.page);if(n.anchor==='home-pair'&&!nbShown){nbShown=true;render()}if(n.anchor)setTimeout(()=>flashTo(n.anchor),80)}
 
 // ---------- 格式 ----------
 const pad=n=>String(n).padStart(2,'0');
@@ -692,8 +693,8 @@ async function scRevoke(id){if(!await confirm('撤销「'+id+'」？\n\n撤销�
   const r=await api('shortcuts',{op:'revoke',id});snack(r.text);refresh()}
 P.phone=()=>{const ids=Object.keys(S.peers),on=ids.length>0,ph=S.phone||'';
   return head('手机',on?`在线 · ${esc(S.peers[ids[0]])} · ${esc(ids[0])}`:(ph?`离线 · 上次常连 ${esc(ph)}`:'离线'))+
-  `<div class="hero"><div class="big" style="background:var(--device)"><svg class="i"><use href="#i-smartphone"/></svg></div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'手机开着「接受电脑指令」时，下面这些点一下就发过去':(S.phone_why&&S.phone_why.text?esc(S.phone_why.text):'没配对过就点「配对」，用手机 OneSay 扫码；配过的手机打开「接受电脑指令」就会自己连回来')}</p></div>${on?'<span class="tag green">在线</span>':`<span class="tag">离线</span><button class="btn" onclick="showPair()">${ico('qr-code')}${pairShown?'收起':'配对'}</button>`}</div>
-  ${!on&&pairShown?`<div class="card" style="padding:18px 20px;margin:12px 0">${pairBlock()}</div>`:''}
+  `<div class="hero"><div class="big" style="background:var(--device)"><svg class="i"><use href="#i-smartphone"/></svg></div><div style="flex:1"><h2>${on?esc(ids[0]):'还没有手机连着'}</h2><p>${on?'手机开着「接受电脑指令」时，下面这些点一下就发过去':(S.phone_why&&S.phone_why.text?esc(S.phone_why.text):'没配对过就点「配对」，用手机 OneSay 扫码；配过的手机打开「接受电脑指令」就会自己连回来')}</p></div>${on?'<span class="tag green">在线</span>':`<span class="tag">离线</span><button class="btn" onclick="togglePairPanel()">${ico('qr-code')}${nbShown?'收起':'配对新手机'}</button>`}</div>
+  ${!on&&nbShown?`<div style="margin:0 0 12px">${pairPanel()}</div>`:''}
   <div class="acts">
   <button class="act" onclick="phone('find_phone',{action:'start',seconds:30})"><span class="ic" style="background:var(--red)"><svg class="i"><use href="#i-volume-2"/></svg></span>找手机<span>最大音量响 30 秒，静音也响</span></button>
   <button class="act" onclick="phone('find_phone',{action:'stop'})"><span class="ic" style="background:var(--red)"><svg class="i"><use href="#i-square"/></svg></span>停止响铃<span>找到了就停</span></button>
@@ -927,6 +928,9 @@ P.settings=()=>{const s=S.settings;
   <div id="pairtxt"></div></div>
   <div class="card" style="margin-top:12px">${Object.keys(S.peers).map(id=>kv(esc(id),esc(S.peers[id])+' · 在线','<span class="tag green">在线</span>')).join('')||kv('已连接','没有设备连着','<span class="tag">离线</span>')}
   ${kv('局域网直连',s.lan_port>0?'同一个路由器下，端口 '+s.lan_port+'（发现用 '+(s.lan_port+1)+'，组播 224.0.0.167）；新手机走 TLS 加密 + 证书指纹':'关着：配置文件里写的 lan_port=0。手机只能走中转连这台电脑；要打开，把 lan_port 删掉或改成端口号后重开 OneSay',(s.lan_env_off?'<span class="tag">这次没开（ONESAY_LAN=off）</span>':tag(s.lan_port>0)))}${kv('中转（插件）',s.relay?esc(s.relay_url):'不在同一个 Wi-Fi 也要控制时再开，需自建',tag(s.relay))}
+  ${kv('允许新手机配对（免扫码）',pv().invite?'开着：同一个网络里的手机点「找附近的电脑」能找到「'+esc(pv().name||'')+'」，输对你设的 4 位配对码就配上（输错 5 次锁 10 分钟）':pv().code_set?'关着：同一个网络里的手机找不到这台电脑。打开后手机输配对码就能配对':'关着：要先设一个 4 位配对码才能打开',`<span class="sw ${pv().invite?'on':''}" style="cursor:pointer" onclick="pairInvite(${!pv().invite})"></span>`)}
+  ${kv('配对码',pv().code_set?'已设好（不显示）。改了以后新手机用新码；已经配好的手机不受影响'+(pv().locked_until?`。<b>试错太多次，暂停到 ${hm(pv().locked_until)}</b>`:''):'还没设。设好以后才能打开「允许新手机配对」',pv().code_set?`<span><button class="btn ghost sm" onclick="PCODE.open=true;render()">改</button> ${pv().locked_until?'<button class="btn ghost sm" onclick="pairUnlock()">解锁</button> ':''}<button class="btn ghost sm" onclick="pairCodeOff()">删掉</button></span>`:`<button class="btn ghost sm" onclick="PCODE.open=true;render()">设配对码</button>`)}
+  ${PCODE.open&&page==='settings'?`<div style="padding:0 20px 14px">${codeForm(!pv().code_set)}</div>`:''}${pv().last?`<div style="padding:0 20px 10px">${pairLastLine()}</div>`:''}
   ${kv('本机证书指纹',`<b>${esc(S.tls_fp||'')}</b>（手机上显示的应一致）`,`<button class="btn ghost sm" onclick="unpin()">忘掉手机证书</button>`)}</div>
   <p class="note">首次运行时 Windows 防火墙会问是否允许联网：勾「专用网络」。</p>
 
@@ -1158,7 +1162,7 @@ async function xferOpen(){const r=await api('xfer',{op:'open_dir'});if(!r.ok)sna
 async function phoneScList(){const r=await api('phone',{cmd:'shortcut_list',args:{}});if(!r.ok){snack(r.text);return}PSC=((r.data||{}).shortcuts||[]);render()}
 async function phoneScRun(n){if(!await confirm('在手机上运行快捷指令「'+n+'」？\n\n手机上会照常弹确认卡。'))return;phone('shortcut_run',{name:n})}
 // ---------- [fix-1123-a] 「手机」页：点开就能用的控件（开关 / 拉条 / 选项 / 列表），不再弹浏览器输入框 ----------
-let PX='',PST=null,PSENT={},PFILES=null,PFERR='',PSCRIPTS=null,PSERR='',PPKGS=null,PPERR='',POUT='',POPRES='';
+let PX='',PST=null,PSENT={},PFILES=null,PFERR='',PSCRIPTS=null,PSERR='',PPKGS=null,PPERR='',POUT='',POPRES='',POPGID='';
 const PD={vol:null,app:'',note:'',url:'',urlClip:false,op:'',exec:'',fdir:'inbox',fname:'note.txt',ftext:'',pkg:''};
 const LS=(k,d)=>{try{const v=JSON.parse(localStorage.getItem('onesay.'+k));return v==null?d:v}catch(e){return d}};
 function lsPush(k,v,n){const l=LS(k,[]).filter(x=>x!==v);l.unshift(v);try{localStorage.setItem('onesay.'+k,JSON.stringify(l.slice(0,n||8)))}catch(e){}}
@@ -1232,8 +1236,15 @@ async function phoneUrlOpen(u){let x=(u||PD.url).trim();if(!x){snack('先填网�
 const POPS=['打开设置看看安卓版本','看看手机还剩多少存储空间','打开相机准备拍照'];
 function opPanel(){return pcard('交给手机去做','说一句完整的目标，手机上的 OneSay 自己去做（手机上要开「按目标操作手机」）',
   `<div class="inrow"><input class="field" maxlength="500" placeholder="让手机做什么，比如：打开设置看看安卓版本" value="${esc(PD.op)}" oninput="PD.op=this.value" onkeydown="if(event.key==='Enter')phoneOpSend()"><button class="btn sm" onclick="phoneOpSend()">${ico('send')}交给手机</button></div>
-  <div class="chiprow">${POPS.map(t=>`<button class="chipb" onclick="PD.op=${esc(JSON.stringify(t))};render()">${t}</button>`).join('')}</div>${POPRES?`<p class="note" style="margin:4px 0 0">${esc(POPRES)}</p>`:''}`)}
-async function phoneOpSend(){const g=PD.op.trim();if(!g){snack('先写一句要手机做什么');return}snack('正在交给手机…');const r=await phoneQ('operate',{goal:g});POPRES=(r.ok?'手机回话：':'没交出去：')+(r.text||'');snack(r.ok?'交给手机了':r.text);if(r.ok)PD.op='';render()}
+  <div class="chiprow">${POPS.map(t=>`<button class="chipb" onclick="PD.op=${esc(JSON.stringify(t))};render()">${t}</button>`).join('')}</div>${opResult()}`)}
+// [rel-1123 合并] 交给手机的目标（这里交的、对话里交的都算）：显示手机回传的结果
+const GOALZH={running:'还在做',done:'做完了',denied:'被拒绝了',stopped:'停掉了',timeout:'做太久停了',interrupted:'被打断了',unknown:'没回结果'};
+function opResult(){const g=S.phone_goal;let h=POPRES?`<p class="note" style="margin:4px 0 0">${esc(POPRES)}</p>`:'';
+  if(!g||!g.id)return h;
+  const t=String(g.text||'').slice(0,600),zh=GOALZH[g.state]||'没做成';
+  const line=g.state==='running'?`手机正在做「${esc(String(g.goal||'').slice(0,60))}」，已经 ${Math.max(0,Math.round((Date.now()-(g.at||Date.now()))/1000))} 秒`:`「${esc(String(g.goal||'').slice(0,60))}」${zh}${t?'：'+esc(t):''}`;
+  return (g.id===POPGID?'':h)+`<div class="note" style="margin:6px 0 0;white-space:pre-wrap;line-height:1.6"><span class="tag ${g.state==='done'?'green':g.state==='running'?'wait':''}" style="margin-right:6px">${g.id===POPGID?'手机回话':'最近一次交给手机的'}</span>${line}</div>`}
+async function phoneOpSend(){const g=PD.op.trim();if(!g){snack('先写一句要手机做什么');return}snack('正在交给手机…');const r=await phoneQ('operate',{goal:g});POPRES=(r.ok?'手机回话：':'没交出去：')+(r.text||'');POPGID=r.ok&&r.data&&r.data.goal_id?String(r.data.goal_id):'';if(POPGID)await refresh();snack(r.ok?'交给手机了':r.text);if(r.ok)PD.op='';render()}
 // 手机工作区：文件列表；写文件：选文件夹 + 文件名 + 内容
 async function phoneFilesLoad(){PFILES=null;PFERR='';render();const r=await phoneQ('file_list');if(r.ok)PFILES=((r.data||{}).files||[]).map(String);else{PFILES=[];PFERR=r.text}render()}
 function phoneDirs(){const d=new Set(['','inbox']);(PFILES||[]).forEach(f=>{const i=f.lastIndexOf('/');if(i>0){const p=f.slice(0,i).split('/');for(let k=1;k<=p.length;k++)d.add(p.slice(0,k).join('/'))}});return [...d].sort()}
@@ -1326,15 +1337,43 @@ async function setv(k,v){if(!LIVE){S.settings[k]=v;if(k==='llm_key'||k==='asr_ke
   const r=await api('settings',{[k]:v});snack(r.text);if(r.settings)S.settings=r.settings;render();if(k==='theme'||k==='theme_pack')refresh()} // [preview-1120] 换主题马上生效，不等下一次轮询
 async function testLlm(){snack('测试中…');const r=await api('test_llm',{});snack(r.text)}
 // [fix-1123-a] 配对二维码：主页、「手机」页、设置页都能点出来；只画在当前页里（别的页留着的旧内容不算）
-function pairBlock(){return `<div class="pairrow"><div class="qr" id="qrbox">${pairShown?'':ico('qr-code')}</div><div class="pairtx"><b>用手机扫这个码配对</b><br>手机打开 OneSay › 设置 › 连接 › 电脑联动 › 扫码配对。<br>这个码就是钥匙，别截图发给别人。配好以后，手机上打开「接受电脑指令」，这边才看得到它。<div id="pairtxt"></div></div></div>`}
+function pairBlock(){return `<div class="pairrow"><div class="qr" id="qrbox">${pairShown?'':ico('qr-code')}</div><div class="pairtx"><b>用手机扫这个码配对</b><br>手机打开 OneSay，首页「连接电脑」点「扫码」（或者 设置 › 连接 › 电脑联动 › 扫码配对）。<br>这个码就是钥匙，别截图发给别人。配好以后，手机上打开「接受电脑指令」，这边才看得到它。<div id="pairtxt"></div></div></div>`}
 function homePair(){const ids=Object.keys(S.peers||{}),on=ids.length>0,ph=S.phone||'',s=S.settings||{},lanOff=!(s.lan_port>0)||s.lan_env_off;
   const warn=lanOff&&!s.relay?`<div class="warnline">${ico('info')} 局域网直连这次没开${s.lan_env_off?'（ONESAY_LAN=off）':'（配置里 lan_port=0）'}，中转也没开：手机现在连不上这台电脑。</div>`:'';
-  if(on)return `<div class="card pairhome" id="home-pair"><div class="item"><i class="dot"></i><div class="tx"><div class="tt">手机在线：${esc(ids[0])}</div><div class="st">${esc(S.peers[ids[0]])}连着。要换一台手机，点「再配一台」扫码</div></div><button class="btn ghost sm" onclick="go('phone')">${ico('smartphone')}手机页</button><button class="btn ghost sm" onclick="showPair()">${ico('qr-code')}${pairShown?'收起':'再配一台'}</button></div>${pairShown?`<div style="padding:4px 20px 16px">${pairBlock()}</div>`:''}</div>`;
+  if(on)return `<div class="card pairhome" id="home-pair"><div class="item"><i class="dot"></i><div class="tx"><div class="tt">手机在线：${esc(ids[0])}</div><div class="st">${esc(S.peers[ids[0]])}连着。要再配一台手机，点「再配一台」（扫码或者输配对码）</div></div><button class="btn ghost sm" onclick="go('phone')">${ico('smartphone')}手机页</button><button class="btn ghost sm" onclick="togglePairPanel()">${ico('qr-code')}${nbShown?'收起':'再配一台'}</button></div>${nbShown?`<div style="padding:0 20px 16px">${pairPanel()}</div>`:''}</div>`;
   return `<div class="card pairhome" id="home-pair" style="padding:18px 20px"><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><span class="pic">${ico('smartphone')}</span>
-  <div style="flex:1;min-width:220px"><div class="tt">连接手机</div><div class="st">${ph?'手机现在没连着（上次是 '+esc(ph)+'）。手机上打开「接受电脑指令」就会自己连回来；换了手机就点「配对」重新扫码。':'还没配对过手机。点「配对」出二维码，用手机 OneSay 扫一下就连上。'}</div>${warn}</div>
-  <button class="btn" onclick="showPair()">${ico('qr-code')}${pairShown?'收起':'配对'}</button></div>${pairShown?`<div style="margin-top:14px">${pairBlock()}</div>`:''}
+  <div style="flex:1;min-width:220px"><div class="tt">连接手机</div><div class="st">${S.phone_why&&S.phone_why.text?esc(S.phone_why.text):ph?'手机现在没连着（上次是 '+esc(ph)+'）。手机上打开「接受电脑指令」就会自己连回来；换了手机就点「配对」重新扫码。':'还没配对过手机。点「配对」出二维码，用手机 OneSay 扫一下就连上。'}</div>${warn}${pv().invite?`<div class="note" style="margin:6px 0 0">${ico('link')} 免扫码配对开着：手机上点「找附近的电脑」，选「${esc(pv().name||'')}」，输配对码。</div>`:''}</div>
+  <button class="btn" onclick="togglePairPanel()">${ico('qr-code')}${nbShown?'收起':'配对新手机'}</button></div>${nbShown?pairPanel():''}
   <p class="note" style="margin:10px 0 0">两边要在同一个 Wi-Fi 下（或者都开着 Tailscale）。首次运行 Windows 防火墙问的时候，勾「专用网络」。</p></div>`}
-function devchipGo(){const on=S&&Object.keys(S.peers||{}).length>0;if(on){go('phone');return}go('today');if(!pairShown)showPair();setTimeout(()=>flashTo('home-pair'),60)}
+// [rel-1123 合并] 免扫码配对（重点功能）：先设 4 位配对码才能打开；手机上选这台电脑、输对码就配上。码只以哈希存在 Windows 凭据管理器里，界面上不再显示
+let PCODE={a:'',b:'',open:false,err:''},nbShown=false;
+const PAIRST={running:['wait','正在配对'],ok:['green','配好了'],code:['warn','码不对'],locked:['red','锁住了'],fail:['','没配上']};
+function pv(){return (S&&S.pair)||{}}
+function codeForm(on){return `<div class="codeform" style="margin:10px 0 0"><div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:8px">设一个 4 位数字配对码。手机上选这台电脑以后输这 4 位就能配上，不用扫码。别用 0000、1234 这种好猜的；码只存在这台电脑里（加密），设好后这里也不再显示。</div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><input class="field codein" type="password" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="4 位数字" value="${esc(PCODE.a)}" oninput="PCODE.a=this.value.replace(/\D/g,'').slice(0,4);this.value=PCODE.a">
+  <input class="field codein" type="password" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="再输一次" value="${esc(PCODE.b)}" oninput="PCODE.b=this.value.replace(/\D/g,'').slice(0,4);this.value=PCODE.b" onkeydown="if(event.key==='Enter')pairSetCode(${!!on})">
+  <button class="btn" onclick="pairSetCode(${!!on})">${ico('check')}${on?'设好并打开':'保存配对码'}</button>${pv().code_set?`<button class="btn ghost sm" onclick="PCODE={a:'',b:'',open:false,err:''};render()">取消</button>`:''}</div>${PCODE.err?`<div class="warnline" style="margin-top:8px">${ico('info')} ${esc(PCODE.err)}</div>`:''}</div>`}
+async function pairSetCode(on){const a=PCODE.a,b=PCODE.b;if(!/^\d{4}$/.test(a)){PCODE.err='要正好 4 位数字';render();return}if(a!==b){PCODE.err='两次输的不一样，再输一次';PCODE.b='';render();return}
+  if(!LIVE){S.pair=Object.assign({},pv(),{code_set:true,invite:on||pv().invite});S.pair_invite=S.pair.invite;PCODE={a:'',b:'',open:false,err:''};render();return}
+  const r=await api('pairing',{op:'code',code:a,on:!!on});if(!r.ok){PCODE.err=r.text;PCODE.b='';render();return}PCODE={a:'',b:'',open:false,err:''};snack(r.text);await refresh()}
+async function pairInvite(on){if(!LIVE){if(on&&!pv().code_set){PCODE.open=true;nbShown=true;render();return}S.pair=Object.assign({},pv(),{invite:on});S.pair_invite=on;render();return}
+  const r=await api('pairing',{op:'invite',on});if(r.need_code){PCODE.open=true;nbShown=true;snack(r.text);render();return}snack(r.text);await refresh()}
+async function pairCodeOff(){if(!await confirm('删掉配对码？\n\n删掉以后「允许新手机配对」也会关上，同一个网络里的手机就找不到这台电脑了。已经配好的手机不受影响，扫码配对照旧能用。'))return;const r=await api('pairing',{op:'code_off'});snack(r.text);await refresh()}
+async function pairUnlock(){const r=await api('pairing',{op:'unlock'});snack(r.text);await refresh()}
+function pairLastLine(){const l=pv().last;if(!l)return '';const st=PAIRST[l.state]||['',''];return `<div class="item" style="padding:8px 0 0"><span class="tag ${st[0]}" style="margin-right:8px">${st[1]}</span><div class="st" style="margin:0">${hm(l.at)} · ${esc(l.text)}</div></div>`}
+// 免扫码那一块：没设码 → 先设码；设了码没开 → 打开；开着 → 三步说明 + 最近一次进展 + 锁住时的解锁
+function nearbyBlock(){const p=pv(),nm=esc(p.name||'这台电脑');
+  if(p.lan===false)return `<div class="warnline">${ico('info')} 局域网直连这次没开，用不了免扫码配对（扫码配对也要局域网或中转）。</div>`;
+  if(!p.code_set||PCODE.open)return `<b>免扫码配对</b>${codeForm(true)}`;
+  const lock=p.locked_until?`<div class="warnline" style="margin-top:8px">${ico('info')} 配对码试错太多次，免扫码配对暂停到 ${hm(p.locked_until)}。是你自己输错的话可以现在解锁。<button class="btn ghost sm" onclick="pairUnlock()">解锁</button></div>`:'';
+  if(!p.invite)return `<b>免扫码配对</b><div class="st" style="margin:6px 0 8px">配对码已经设好（不显示）。「允许新手机配对」关着，同一个网络里的手机找不到这台电脑。</div><button class="btn" onclick="pairInvite(true)">${ico('link')}打开免扫码配对</button> <button class="btn ghost sm" onclick="PCODE.open=true;render()">改配对码</button>${lock}`;
+  return `<b>免扫码配对开着</b><ol class="steps" style="margin:8px 0 4px 18px;padding:0;line-height:1.9;font-size:13.5px"><li>手机 OneSay 首页「连接电脑」点「找附近的电脑」</li><li>在列表里选「<b>${nm}</b>」</li><li>输你设的 4 位配对码（输错 5 次会锁 10 分钟）</li></ol>
+  ${pairLastLine()}${lock}<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" onclick="PCODE.open=true;render()">改配对码</button><button class="btn ghost sm" onclick="pairInvite(false)">关掉免扫码配对</button></div>`}
+function pairPanel(){return `<div class="pairtwo" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:14px">
+  <div class="card" style="padding:16px 18px">${nearbyBlock()}</div>
+  <div class="card" style="padding:16px 18px"><b>扫码配对</b><div class="st" style="margin:6px 0 8px">手机离得近、开着相机就扫码，不用设码。</div>${pairShown?pairBlock():`<button class="btn ghost" onclick="showPair()">${ico('qr-code')}显示二维码</button>`}</div></div>`}
+function togglePairPanel(){nbShown=!nbShown;if(!nbShown){pairShown=false;lastPair='';PCODE={a:'',b:'',open:false,err:''}}render()}
+function devchipGo(){const on=S&&Object.keys(S.peers||{}).length>0;if(on){go('phone');return}go('today');if(!nbShown){nbShown=true;render()}setTimeout(()=>flashTo('home-pair'),60)}
 function flashTo(id){const root=$(page);const e=root&&root.querySelector('#'+CSS.escape(id));if(!e)return;e.scrollIntoView({block:'start'});e.classList.remove('navflash');void e.offsetWidth;e.classList.add('navflash')}
 async function showPair(){pairShown=!pairShown;if(!pairShown){lastPair='';render();return}
   let s='onesay://pair?key=DEMO&peer=pc-desktop&lan=192.168.1.20:47820';if(LIVE){const r=await api('pairing',{});s=r.pairing}
@@ -1426,7 +1465,7 @@ function markDanger(root){root.querySelectorAll('button.btn,button.tag').forEach
 function go(p){const prevPage=page;if(p==='settings'&&page!=='settings')THEMES=null; // [preview-1120] 进设置页重新读主题包（文件夹里新放的也能看到）
   page=p;document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('on',x.dataset.p===p));
   document.querySelectorAll('.page').forEach(x=>x.classList.toggle('on',x.id===p));$('main').classList.toggle('chatmode',p==='chat');$('main').classList.toggle('wfmode',p==='workflows');
-  if(p!==prevPage){pairShown=false;lastPair=''} // [fix-1123-a] 换页就收起配对码（主页 / 手机页 / 设置页都能显示）
+  if(p!==prevPage){pairShown=false;lastPair='';nbShown=false;if(PCODE.open&&!PCODE.a&&!PCODE.b)PCODE.open=false} // [fix-1123-a] 换页就收起配对码（主页 / 手机页 / 设置页都能显示）
   if(p==='notes'&&S&&S.notes.some(n=>!n.read))setTimeout(()=>notes('read'),1500);
   if(p==='phone'&&p!==prevPage&&!PST)phoneStatusQuiet(); // [fix-1123-a] 进「手机」页时悄悄问一次电量和音量（拉条从手机现在的音量开始）
   lastChatLen=-1;render();if(p==='chat')$('ta').focus()}

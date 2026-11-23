@@ -46,12 +46,14 @@ public final class Agent {
         // [preview-1120] 环境变量 ONESAY_LAN=off：这次不开局域网监听（真机测预览版时用，免得新路径的 exe 弹防火墙询问；手机离线时也用不上）
         if (cfg.lanEnabled() && !"off".equalsIgnoreCase(String.valueOf(System.getenv("ONESAY_LAN")))) add(l -> new LanServer(cfg, l));
         if (cfg.relayEnabled()) add(l -> new RelayClient(cfg, l));
-        // [rel-1123-b] 免扫码配对：确认框走同一套 Confirms（只认电脑本机鼠标 / 键盘；不发到任何手机上去批）
-        for (Link l : links) if (l instanceof LanServer) {
-            LanServer ls = (LanServer) l;
-            ls.log = log;
-            ls.pairAsk = (name, id, code, ip, replaces, ms) -> confirms.ask(LanPair.FROM, "pair", LanPair.detail(name, id, code, ip, replaces), ms);
-        }
+        // [rel-1123 合并] 免扫码配对改成固定配对码 + SPAKE2（不再弹电脑确认框）；配对码由 App 读进 LanServer.pairCode
+        for (Link l : links) if (l instanceof LanServer) ((LanServer) l).log = log;
+    }
+
+    /** 局域网服务（没开局域网返回 null）。 */
+    public LanServer lan() {
+        for (Link l : links) if (l instanceof LanServer) return (LanServer) l;
+        return null;
     }
 
     /** [rel-1123-b] 没有手机在线时的原因（有在线的、或没开局域网返回 null）。 */
@@ -354,7 +356,6 @@ public final class Agent {
      */
     boolean offerToPhone(PcGuard.PhoneOffer o) {
         if (o == null || o.from == null || o.from.isEmpty() || ChatAgent.FROM.equals(o.from) || !cfg.peerAllowed(o.from)) return false; // 本机对话的确认只在电脑上点
-        if (LanPair.FROM.equals(o.from)) return false; // [rel-1123-b] 新手机配对只在电脑本机上点，不发到任何手机
         Link via = route(o.from);
         if (via == null) return false;
         Map<String, Object> b = new TreeMap<>();
@@ -364,6 +365,7 @@ public final class Agent {
         b.put("cmd", o.cmd);
         b.put("detail", o.detail);
         b.put("always", o.always);
+        b.put("task_scope", o.task); // [rel-1123 合并] 手机卡上也给「允许本次任务」
         b.put("remember_kind", o.rememberKind);
         b.put("remember_zh", o.rememberKind.isEmpty() ? "" : LinkPolicy.kindZh(o.rememberKind));
         b.put("timeout_ms", Math.max(0, o.deadline - System.currentTimeMillis()));
@@ -394,7 +396,7 @@ public final class Agent {
         Object cid = body.get("cid"), shown = body.get("shown_ms");
         if (!(cid instanceof Number)) return;
         ConfirmGate.Answer a = confirms.answerPhone(from, ((Number) cid).intValue(), String.valueOf(body.get("token")), Boolean.TRUE.equals(body.get("allow")),
-                Boolean.TRUE.equals(body.get("always")), Boolean.TRUE.equals(body.get("remember")), String.valueOf(body.get("input")),
+                Boolean.TRUE.equals(body.get("always")), Boolean.TRUE.equals(body.get("remember")), "task".equals(body.get("scope")) ? "task" : "", String.valueOf(body.get("input")),
                 shown instanceof Number ? ((Number) shown).longValue() : 0L);
         boolean allow = Boolean.TRUE.equals(body.get("allow"));
         if (a == ConfirmGate.Answer.ACCEPTED) log.accept("手机 " + from + " 的确认卡上" + (allow ? "允许" : "拒绝") + "了一条请求（真人触摸）");

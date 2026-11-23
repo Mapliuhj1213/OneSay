@@ -362,7 +362,13 @@ final class HomePage extends ConsoleNav.Page {
             return;
         }
         if (PcEntry.UNPAIRED.equals(state)) {
-            k.actionRow(mPcGroup, "扫码连电脑", "电脑上打开 OneSay → 设置 → 配对手机，扫上面的二维码（要用相机）", "扫码", new Runnable() {
+            // [rel-1123 合并] 免扫码：找同一网络里的电脑，选它、输电脑上设的 4 位配对码（和「电脑联动」页同一个流程）
+            k.actionRow(mPcGroup, "找附近的电脑", "不用扫码：手机和电脑连同一个 Wi-Fi（或都开着 Tailscale），选电脑、输电脑上设的 4 位配对码", "找", new Runnable() {
+                @Override public void run() {
+                    com.onesay.assistant.v2.pclink.PcLinkUi.nearby(c, act);
+                }
+            });
+            k.actionRow(mPcGroup, "扫码连电脑", "电脑上 OneSay 主页点「配对」，扫出来的二维码（要用相机）", "扫码", new Runnable() {
                 @Override public void run() {
                     act.startActivity(new android.content.Intent(act, com.onesay.assistant.v2.pclink.PcScanActivity.class));
                 }

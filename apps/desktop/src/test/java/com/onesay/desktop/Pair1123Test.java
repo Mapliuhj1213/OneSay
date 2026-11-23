@@ -16,13 +16,17 @@ public class Pair1123Test {
 
     // ------------------------------------------------------------------ 免扫码配对（纯逻辑）
 
-    @Test public void codeAndCommitMatchPhoneAlgorithm() {
-        // 手机端 PcPairNearby.code 同一组输入也是 4053（Link1123PhoneTest 锁同一个值）
-        assertEquals("4053", LanPair.code("AAAA", "BBBB", "n-phone-123456789", "n-pc-123456789012"));
-        assertEquals("ZQSDbH5snzVBbFAWkBFPXELnxL8k6CsEKOK1qmAxVSo", LanPair.commit("abc"));
-        assertTrue(LanPair.validNonce(Protocol.nonce() + Protocol.nonce()));
-        assertFalse(LanPair.validNonce("short"));
-        assertFalse(LanPair.validNonce(42));
+    @Test public void spakeAgreesOnlyWithSameCode() {
+        // [rel-1123 合并] 电脑弹框 + 核对码 换成固定配对码 + SPAKE2；细的测试在 Merge1123Test
+        byte[] salt = Spake2.salt();
+        Spake2.Ctx c = new Spake2.Ctx("phone-1", "pc-1", "AA:BB", "cc:dd", salt, Spake2.ITER_MIN);
+        Spake2.Party a = new Spake2.Party(true, Spake2.w("4827", salt, Spake2.ITER_MIN)), b = new Spake2.Party(false, Spake2.w("4827", salt, Spake2.ITER_MIN));
+        Spake2.Keys ka = a.finish(b.message(), c), kb = b.finish(a.message(), c);
+        assertTrue(Spake2.same(ka.cA, kb.cA));
+        assertTrue(Spake2.same(ka.cB, kb.cB));
+        Spake2.Party wrong = new Spake2.Party(false, Spake2.w("4828", salt, Spake2.ITER_MIN));
+        Spake2.Party a2 = new Spake2.Party(true, Spake2.w("4827", salt, Spake2.ITER_MIN));
+        assertFalse(Spake2.same(a2.finish(wrong.message(), c).cA, wrong.finish(a2.message(), c).cA));
     }
 
     @Test public void onlyPrivateAndTailscaleAddresses() throws Exception {
@@ -35,16 +39,19 @@ public class Pair1123Test {
 
     @Test public void inviteHasNoIdentityAndOnlyWhenOpen() throws Exception {
         InetAddress lan = InetAddress.getByName("192.168.1.7"), pub = InetAddress.getByName("8.8.8.8");
-        String inv = LanPair.answerPairProbe(true, 47920, "{\"t\":\"pprobe\",\"v\":1}", lan);
+        String inv = LanPair.answerPairProbe(true, true, 47920, "DESKTOP-O1", "{\"t\":\"pprobe\",\"v\":2}", lan);
         assertNotNull(inv);
         Map<String, Object> m = Json.obj(inv);
         assertEquals("pinv", m.get("t"));
         assertEquals(47920L, ((Number) m.get("port")).longValue());
-        assertEquals("邀请只有类型 / 版本 / 端口：" + m, 3, m.size());
-        assertNull("关着配对不回", LanPair.answerPairProbe(false, 47920, "{\"t\":\"pprobe\"}", lan));
-        assertNull("公网来的不回", LanPair.answerPairProbe(true, 47920, "{\"t\":\"pprobe\"}", pub));
-        assertNull("别的探测不回", LanPair.answerPairProbe(true, 47920, "{\"t\":\"probe\"}", lan));
-        assertNull(LanPair.answerPairProbe(true, 47920, "x".repeat(600), lan));
+        assertEquals("[rel-1123 合并] 邀请带电脑名字（用户同意同网可见）", "DESKTOP-O1", m.get("name"));
+        assertEquals(Boolean.TRUE, m.get("code"));
+        assertEquals("邀请只有类型 / 版本 / 端口 / 名字 / 设没设码，不带 id、证书：" + m, 5, m.size());
+        assertEquals(Boolean.FALSE, Json.obj(LanPair.answerPairProbe(true, false, 47920, "x", "{\"t\":\"pprobe\"}", lan)).get("code"));
+        assertNull("关着配对不回", LanPair.answerPairProbe(false, true, 47920, "x", "{\"t\":\"pprobe\"}", lan));
+        assertNull("公网来的不回", LanPair.answerPairProbe(true, true, 47920, "x", "{\"t\":\"pprobe\"}", pub));
+        assertNull("别的探测不回", LanPair.answerPairProbe(true, true, 47920, "x", "{\"t\":\"probe\"}", lan));
+        assertNull(LanPair.answerPairProbe(true, true, 47920, "x", "x".repeat(600), lan));
     }
 
     @Test public void limiterOnePendingRateAndBlock() {
@@ -60,15 +67,6 @@ public class Pair1123Test {
         long t2 = t + 20_000;
         for (int i = 0; i < 4; i++) { assertNull(l.admit("10.0.0." + i, t2 + i)); l.release(); }
         assertEquals(LanPair.Limiter.TOO_FAST, l.admit("10.0.0.9", t2 + 10));
-        // 被拒 3 次 → 10 分钟不收
-        LanPair.Limiter b = new LanPair.Limiter();
-        for (int i = 0; i < 3; i++) {
-            assertNull(b.admit("192.168.1.9", t + i * 11_000L));
-            b.release();
-            b.denied("192.168.1.9", t + i * 11_000L);
-        }
-        assertEquals(LanPair.Limiter.BLOCKED, b.admit("192.168.1.9", t + 40_000));
-        assertNull("10 分钟后又收", b.admit("192.168.1.9", t + 22_000 + LanPair.Limiter.BLOCK_MS + 1));
     }
 
     @Test public void phoneNameIsCleaned() {
@@ -77,11 +75,7 @@ public class Pair1123Test {
         assertEquals("一台手机", LanPair.cleanName("  \n\t "));
         assertEquals("ab", LanPair.cleanName("a\u202Eb<>\n"));
         assertEquals(32, LanPair.cleanName("x".repeat(80)).length());
-        String d = LanPair.detail("小米 14", "phone-1", "0420", "192.168.1.5");
-        assertTrue(d, d.contains("允许这台手机连这台电脑吗") && d.contains("0420") && d.contains("小米 14"));
-        assertFalse(d.contains("以前配对过"));
-        assertTrue("同一个 id 换了证书要提醒", LanPair.detail("小米 14", "phone-1", "0420", "192.168.1.5", true).contains("以前配对过另一台手机"));
-        for (String w : new String[]{"denied", "timeout", "closed", "busy", "rate", "blocked", "addr", "tls", "bad", "?"}) {
+        for (String w : new String[]{"code", "locked", "nocode", "old", "closed", "busy", "rate", "addr", "tls", "bad", "?"}) {
             String z = LanPair.whyZh(w);
             assertFalse(z.isEmpty());
             assertFalse(z, z.contains("啥") || z.contains("咋") || z.contains("呗") || z.contains("Bixby"));
@@ -285,7 +279,7 @@ public class Pair1123Test {
         assertTrue(Humanize.goalLine("unknown", "看手机屏幕").startsWith("手机没回结果"));
         assertTrue(Agent.GOAL_STATES.contains("unknown"));
         Config c = new Config(null);
-        assertTrue("免扫码配对默认开（每次都要在电脑上点允许）", c.pairInvite);
+        assertFalse("[rel-1123 合并] 免扫码配对默认关（先设配对码才能开）", c.pairInvite);
     }
 
     @Test public void pairInviteSettingPersists() throws Exception {

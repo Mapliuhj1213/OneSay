@@ -105,10 +105,10 @@ public final class PcLinkUi {
     static void buildUnpaired(final ConsoleHost host, LinearLayout root, final Activity act) {
         LinearLayout g = host.group(root, "配对");
         // [rel-1123-b] 免扫码配对：找同一网络里的电脑，电脑上点「允许」，两边核对 4 位码
-        host.actionRow(g, "找附近的电脑", "不用扫码：手机和电脑连同一个 Wi-Fi（或都开着 Tailscale），找到后在电脑上点「允许」", "找", new Runnable() {
+        host.actionRow(g, "找附近的电脑", "不用扫码：手机和电脑连同一个 Wi-Fi（或都开着 Tailscale），选电脑、输电脑上设的 4 位配对码", "找", new Runnable() {
             @Override public void run() { nearby(host, act); }
         });
-        host.actionRow(g, "扫码配对", "扫电脑端 OneSay 设置页上的二维码（要用相机）", "扫码", new Runnable() {
+        host.actionRow(g, "扫码配对", "扫电脑上 OneSay 主页点「配对」出来的二维码（设置页里也有；要用相机）", "扫码", new Runnable() {
             @Override public void run() { act.startActivity(new Intent(act, PcScanActivity.class)); }
         });
         host.actionRow(g, "粘贴配对码", "扫不了码时：在电脑端点「复制配对串」，发到手机上，在这里粘贴", "粘贴", new Runnable() {
@@ -124,7 +124,7 @@ public final class PcLinkUi {
                     @Override public void onToggle(boolean on) { PcLink.setAllowPlainV1(act, on); }
                 });
         host.footer(root, "手机和电脑要连同一个 Wi-Fi（局域网直连，不经过任何服务器）。配对码等于钥匙，只在自己的设备之间传。"
-                + "「找附近的电脑」每次都要你在电脑上点「允许」，两边显示同一个核对码才算对。"
+                + "「找附近的电脑」要先在电脑上设一个 4 位配对码，手机上输对才配上；码不会发出去，输错 5 次电脑会锁 10 分钟。"
                 + "没配对时这个功能什么都不做、不联网。本机名：" + PcLink.me(act));
     }
 
@@ -223,26 +223,49 @@ public final class PcLinkUi {
         return m.length() == 0 ? "手机" : (m.length() > 32 ? m.substring(0, 32) : m);
     }
 
-    static void nearby(final ConsoleHost host, final Activity act) {
+    /**
+     * 「找附近的电脑」（首页「连接电脑」和「电脑联动」页共用）。[rel-1123 合并] 列表显示电脑名字；选一台 → 输电脑上设的 4 位配对码 → 核对（码不发出去，见 PcSpake2）→ 保存。
+     * 每一步都能取消；失败说清原因（码不对还能试几次 / 锁住了等多久 / 电脑还没设码 / 连不上…）。配好以后 refresh(host) 让当前页重画。
+     */
+    public static void nearby(final ConsoleHost host, final Activity act) {
         final Context app = act.getApplicationContext();
-        final AlertDialog wait = new AlertDialog.Builder(act).setTitle("找附近的电脑").setMessage("正在找同一个网络里开着 OneSay 的电脑…").setNegativeButton("关闭", null).show();
+        if (!onWifi(app)) {
+            new AlertDialog.Builder(act).setTitle("先连上 Wi-Fi").setMessage("找附近的电脑要手机和电脑连同一个 Wi-Fi（或者都开着 Tailscale）。连好再点一次。")
+                    .setPositiveButton("知道了", null).show();
+            return;
+        }
+        final java.util.concurrent.atomic.AtomicBoolean cancel = new java.util.concurrent.atomic.AtomicBoolean();
+        final AlertDialog wait = new AlertDialog.Builder(act).setTitle("找附近的电脑").setMessage("正在找同一个网络里开着 OneSay 的电脑（大约 3 秒）…")
+                .setNegativeButton("取消", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) { cancel.set(true); }
+                }).setCancelable(false).show();
         com.onesay.assistant.v2.util.Threads.start("pclink-nearby", new Runnable() {
             @Override public void run() {
-                final java.util.List<java.net.InetSocketAddress> found = PcPairNearby.discover(3000, PcLink.wifiBroadcast(app), PcPairNearby.PORTS, null);
+                final java.util.List<PcPairNearby.Found> found = PcPairNearby.discover(3000, PcLink.wifiBroadcast(app), PcPairNearby.PORTS, null);
                 host.ui(new Runnable() {
                     @Override public void run() {
                         try { wait.dismiss(); } catch (Exception ignored) { }
-                        if (act.isFinishing()) return;
+                        if (act.isFinishing() || cancel.get()) return;
                         if (found.isEmpty()) {
                             new AlertDialog.Builder(act).setTitle("没找到电脑")
-                                    .setMessage("同一个网络里没找到能配对的电脑。看看：电脑上的 OneSay 开着没有；电脑上「允许新手机配对」开着没有；手机和电脑连的是不是同一个 Wi-Fi。也可以用上面的扫码配对。")
-                                    .setPositiveButton("知道了", null).show();
+                                    .setMessage("同一个网络里没找到能配对的电脑。看看：\n· 电脑上的 OneSay 开着没有\n· 电脑上「设置 › 连接 › 允许新手机配对」开着没有（要先设一个 4 位配对码）\n· 手机和电脑连的是不是同一个 Wi-Fi\n也可以用扫码配对。")
+                                    .setPositiveButton("再找一次", new DialogInterface.OnClickListener() {
+                                        @Override public void onClick(DialogInterface d, int w) { nearby(host, act); }
+                                    }).setNegativeButton("关闭", null).show();
                             return;
                         }
                         final String[] items = new String[found.size()];
-                        for (int i = 0; i < items.length; i++) items[i] = "电脑 " + found.get(i).getAddress().getHostAddress();
+                        for (int i = 0; i < items.length; i++) items[i] = found.get(i).label();
                         new AlertDialog.Builder(act).setTitle("选要配对的电脑").setItems(items, new DialogInterface.OnClickListener() {
-                            @Override public void onClick(DialogInterface d, int w) { pairWith(host, act, found.get(w)); }
+                            @Override public void onClick(DialogInterface d, int w) {
+                                PcPairNearby.Found f = found.get(w);
+                                if (!f.codeSet) {
+                                    new AlertDialog.Builder(act).setTitle(f.name).setMessage(PcPairNearby.NO_CODE + "（电脑 OneSay › 设置 › 连接 › 允许新手机配对）。设好以后回来再点「找附近的电脑」。")
+                                            .setPositiveButton("知道了", null).show();
+                                    return;
+                                }
+                                askCode(host, act, f, "");
+                            }
                         }).setNegativeButton("取消", null).show();
                     }
                 });
@@ -250,51 +273,77 @@ public final class PcLinkUi {
         });
     }
 
-    static void pairWith(final ConsoleHost host, final Activity act, final java.net.InetSocketAddress a) {
+    /** 输 4 位配对码（大字、只收数字、不显示联想）。hint = 上一次没配上的原因（再输一次时显示）。 */
+    static void askCode(final ConsoleHost host, final Activity act, final PcPairNearby.Found f, String hint) {
+        final EditText et = new EditText(act);
+        et.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        et.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4)});
+        et.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 30);
+        et.setLetterSpacing(0.5f);
+        et.setGravity(android.view.Gravity.CENTER);
+        et.setHint("4 位数字");
+        et.setImeOptions(EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+        final AlertDialog d = new AlertDialog.Builder(act).setTitle("配对「" + f.name + "」")
+                .setMessage((hint.length() > 0 ? hint + "\n\n" : "") + "输电脑上设的 4 位配对码（电脑 OneSay › 设置 › 连接里设的）。码只在这台手机上用来核对，不会发出去。")
+                .setView(et).setNegativeButton("取消", null).setPositiveButton("配对", null).create();
+        d.setOnShowListener(new DialogInterface.OnShowListener() {
+            @Override public void onShow(DialogInterface di) {
+                d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        String code = et.getText().toString().trim();
+                        if (!PcPairNearby.validCode(code)) {
+                            et.setError("要正好 4 位数字");
+                            return;
+                        }
+                        d.dismiss();
+                        pairWith(host, act, f, code);
+                    }
+                });
+                et.requestFocus();
+                try {
+                    d.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+                } catch (Exception ignored) { }
+            }
+        });
+        d.show();
+    }
+
+    static void pairWith(final ConsoleHost host, final Activity act, final PcPairNearby.Found f, final String code) {
         final Context app = act.getApplicationContext();
-        final AlertDialog dlg = new AlertDialog.Builder(act).setTitle("在电脑上点「允许」")
-                .setMessage("正在连电脑 " + a.getAddress().getHostAddress() + "…").setNegativeButton("关闭", null).setCancelable(false).show();
+        final java.util.concurrent.atomic.AtomicBoolean cancel = new java.util.concurrent.atomic.AtomicBoolean();
+        final AlertDialog dlg = new AlertDialog.Builder(act).setTitle("配对「" + f.name + "」").setMessage("正在连电脑…")
+                .setNegativeButton("取消", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) { cancel.set(true); }
+                }).setCancelable(false).show();
         com.onesay.assistant.v2.util.Threads.start("pclink-pair", new Runnable() {
             @Override public void run() {
-                final PcPairNearby.Outcome o = PcPairNearby.request(a, PcLink.me(app), phoneName(), PcLink.myTls(app), new PcPairNearby.Ui() {
-                    @Override public void code(final String code) {
+                final PcPairNearby.Outcome o = PcPairNearby.request(f.addr, PcLink.me(app), phoneName(), PcLink.myTls(app), code, new PcPairNearby.Ui() {
+                    @Override public void step(final String text) {
                         host.ui(new Runnable() {
                             @Override public void run() {
-                                try {
-                                    dlg.setMessage("核对码：" + code + "\n\n电脑上会弹「允许这台手机连这台电脑吗」，先看电脑上的核对码和这里一样，再在电脑上点「允许」。码不一样就点「拒绝」。");
-                                } catch (Exception ignored) { }
+                                try { dlg.setMessage(text); } catch (Exception ignored) { }
                             }
                         });
                     }
-                }, PcPairNearby.ASK_WAIT_MS);
+                }, cancel);
                 host.ui(new Runnable() {
                     @Override public void run() {
                         try { dlg.dismiss(); } catch (Exception ignored) { }
+                        if (act.isFinishing() || cancel.get()) return;
                         if (!o.ok) {
-                            Toast.makeText(act, "没配上：" + o.why, Toast.LENGTH_LONG).show();
+                            if ("code".equals(o.reason) && o.left > 0) { askCode(host, act, f, o.why); return; } // 码不对：直接再输一次
+                            new AlertDialog.Builder(act).setTitle("没配上").setMessage(o.why).setPositiveButton("知道了", null).show();
                             return;
                         }
-                        if (act.isFinishing()) return;
-                        // [rel-1123-b 审计] 手机这边也核对一次再保存：同一网络里要是有别的机器冒充电脑（真电脑上根本没弹框），这里点「不一样」就不会存下它
-                        new AlertDialog.Builder(act).setTitle("电脑上的核对码也是 " + o.code + " 吗？")
-                                .setMessage("刚才电脑上点「允许」的那个确认框里，核对码和这里一样才保存。电脑上没弹过框、或者码不一样，就点「不一样」。")
-                                .setCancelable(false)
-                                .setNegativeButton("不一样，不保存", new DialogInterface.OnClickListener() {
-                                    @Override public void onClick(DialogInterface d, int w) {
-                                        Toast.makeText(act, "没保存这次配对。可以重新找一次，或者用扫码配对", Toast.LENGTH_LONG).show();
-                                    }
-                                })
-                                .setPositiveButton("一样，保存", new DialogInterface.OnClickListener() {
-                                    @Override public void onClick(DialogInterface d, int w) {
-                                        try {
-                                            PcPairing p = PcLink.pair(act, o.pairing);
-                                            Toast.makeText(act, "已配对 " + p.peer + "。要让电脑随时找得到手机，打开「接受电脑指令」", Toast.LENGTH_LONG).show();
-                                            refresh(host);
-                                        } catch (IllegalArgumentException e) {
-                                            Toast.makeText(act, "没配上：" + e.getMessage(), Toast.LENGTH_LONG).show();
-                                        }
-                                    }
-                                }).show();
+                        try {
+                            PcPairing p = PcLink.pair(act, o.pairing);
+                            new AlertDialog.Builder(act).setTitle("配好了")
+                                    .setMessage("已配对「" + f.name + "」（" + p.peer + "）。要让电脑随时找得到手机，打开「接受电脑指令」。")
+                                    .setPositiveButton("好", null).show();
+                            refresh(host);
+                        } catch (IllegalArgumentException e) {
+                            new AlertDialog.Builder(act).setTitle("没配上").setMessage(e.getMessage()).setPositiveButton("知道了", null).show();
+                        }
                     }
                 });
             }

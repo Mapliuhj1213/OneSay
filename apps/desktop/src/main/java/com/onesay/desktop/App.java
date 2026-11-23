@@ -360,11 +360,51 @@ public final class App {
         return out[0];
     }
 
+    /** [rel-1123 合并] 免扫码配对码存在哪（Windows：凭据管理器；别的系统 / 测试：内存）。 */
+    final SecretStore pairSecrets = SecretStore.system();
+    static final String PAIR_CODE_NAME = SecretStore.name("pair", "nearby-code");
+
+    void setupPairCode() {
+        LanServer ls = agent.lan();
+        if (ls == null) return;
+        ls.onPaired = (name, id) -> notify.post("app", "新手机配对好了：" + name, "手机「" + name + "」用你设的配对码连上了这台电脑。不是你配的就去「设置 › 连接」改配对码、在手机列表里删掉它。", id);
+        if (!cfg.pairCodeSet) return;
+        Thread t = new Thread(() -> { // 读凭据库要起一次 PowerShell，别卡启动
+            LanPair.Verifier v = LanPair.Verifier.parse(pairSecrets.get(PAIR_CODE_NAME));
+            if (v != null) { ls.pairCode = v; return; }
+            cfg.pairCodeSet = false;
+            boolean was = cfg.pairInvite;
+            cfg.pairInvite = false;
+            try { cfg.save(); } catch (IOException ignored) { }
+            if (was) log.accept("免扫码配对的配对码读不回来了（凭据库里没有），先关上「允许新手机配对」：请在「设置 › 连接」重新设一个");
+        }, "onesay-pair-code");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** 免扫码配对的状态（界面 / 配对接口回给界面）。 */
+    Map<String, Object> pairView() {
+        LanServer ls = agent.lan();
+        Map<String, Object> m = new TreeMap<>();
+        boolean code = ls != null && ls.pairCode != null;
+        m.put("invite", cfg.pairInvite && code);
+        m.put("code_set", code);
+        m.put("lan", ls != null);
+        m.put("name", ls == null ? LanPair.hostName() : ls.pcName);
+        long now = System.currentTimeMillis();
+        if (ls != null && ls.pairLock.locked(now)) m.put("locked_until", ls.pairLock.until());
+        if (ls != null) m.put("left", (long) ls.pairLock.left());
+        Map<String, Object> last = ls == null ? null : ls.pairLast;
+        if (last != null && now - ((Number) last.get("at")).longValue() < 15 * 60_000L) m.put("last", last);
+        return m;
+    }
+
     void start() throws Exception {
         actions = "1".equals(System.getenv("ONESAY_TEST_ACTIONS")) ? new Main.TestActions() : new DesktopActions(cfg);
         notify = new Notify(store, log);
         chat = new Chat(cfg, store, actions, this::shortcuts, log);
         agent = new Agent(cfg, actions, log);
+        setupPairCode(); // [rel-1123 合并] 免扫码配对：读回配对码（凭据库）、配好了发通知
         agent.local.put("notify", a -> {
             notify.post(str(a, "kind", "app"), str(a, "title", ""), str(a, "text", ""), str(a, "_from", ""));
             return Actions.Result.ok("已在电脑上提醒");
@@ -966,7 +1006,8 @@ public final class App {
             s.put("phone", ph == null ? "" : ph);
             OfflineWhy.Why why = agent.offlineWhy(); // [rel-1123-b] 没有手机在线时写原因（{code, text}）；有在线的不给
             if (why != null) s.put("phone_why", why.view());
-            s.put("pair_invite", cfg.pairInvite); // [rel-1123-b] 免扫码配对开没开
+            s.put("pair_invite", cfg.pairInvite && agent.lan() != null && agent.lan().pairCode != null); // [rel-1123-b] 免扫码配对开没开（[rel-1123 合并] 没设码 = 没开）
+            s.put("pair", pairView()); // [rel-1123 合并] 设没设码、锁没锁、最近一次配对的进展、电脑名字
             Agent.Goal lg = agent.lastGoal();
             if (lg != null) s.put("phone_goal", lg.view()); // [rel-1123-b] 最近一次交给手机的目标和它回传的结果
             s.put("tls_fp", Tls.shortFp(cfg.tls().fp));
@@ -1189,6 +1230,14 @@ public final class App {
             }
             if (!PhoneCmds.ALL.contains(cmd)) return fail("手机还不支持这个（" + cmd + "）");
             Actions.Result r = callPhone(cmd, args);
+            // [rel-1123 合并] 「手机」页「交给手机去做」：手机收下目标后也登记，结果回传后 state.phone_goal 里能看到（和对话交出去的同一套）
+            if (cmd.equals("operate") && r.ok && r.data != null && r.data.get("goal_id") != null) {
+                String gid = String.valueOf(r.data.get("goal_id"));
+                if (gid.matches("[A-Za-z0-9_-]{4,64}")) {
+                    String to = agent.phoneTarget("");
+                    agent.goalStarted(to == null ? "" : to, gid, str(args, "goal", ""));
+                }
+            }
             Map<String, Object> m = r.ok ? ok(cmd.equals("status") ? Chat.statusLine(r) : r.text) : fail(PhoneCmds.withReason(r));
             if (r.data != null) m.put("data", new TreeMap<String, Object>(r.data));
             return m;
@@ -1291,15 +1340,56 @@ public final class App {
         });
         ui.on("pairing", b -> {
             // [rel-1123-b] 免扫码配对：查看 / 打开 / 关上「允许同一局域网里的新手机发起配对」（配对请求本身走 confirms，在右下角确认框里点）
-            if (str(b, "op", "").equals("invite")) {
-                Object on = b.get("on");
-                if (on instanceof Boolean && (Boolean) on != cfg.pairInvite) {
-                    cfg.pairInvite = (Boolean) on;
+            // [rel-1123 合并] 免扫码配对：先设 4 位配对码才能打开；码只以 PBKDF2 结果存进凭据库，界面上不再显示
+            String pop = str(b, "op", "");
+            if (pop.equals("invite") || pop.equals("code") || pop.equals("code_off") || pop.equals("unlock")) {
+                LanServer ls = agent.lan();
+                if (ls == null) return fail("局域网直连没开（配置里 lan_port=0 或 ONESAY_LAN=off），用不了免扫码配对");
+                String text;
+                if (pop.equals("code")) {
+                    String code = str(b, "code", "").trim();
+                    String weak = LanPair.weakCode(code);
+                    if (weak != null) return fail(weak);
+                    LanPair.Verifier v = LanPair.Verifier.of(code);
+                    if (!pairSecrets.put(PAIR_CODE_NAME, v.format())) return fail("配对码没存上：" + java.util.Objects.toString(pairSecrets.lastProblem(), "凭据库写不进去"));
+                    boolean had = ls.pairCode != null;
+                    ls.pairCode = v;
+                    ls.pairUnlock();
+                    cfg.pairCodeSet = true;
+                    if (Boolean.TRUE.equals(b.get("on"))) cfg.pairInvite = true;
                     try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
-                    log.accept(cfg.pairInvite ? "已允许同一网络里的新手机发起配对（每次都要你在电脑上点允许）" : "已关上新手机配对（扫码配对照旧能用）");
+                    log.accept(had ? "免扫码配对的配对码改好了（以后的新手机用新码；已经配好的手机不受影响）" : "设好了免扫码配对的配对码");
+                    text = (had ? "配对码改好了。" : "配对码设好了。") + (cfg.pairInvite ? "手机上点「找附近的电脑」，选「" + ls.pcName + "」，输这 4 位就能配对" : "");
+                } else if (pop.equals("code_off")) {
+                    pairSecrets.delete(PAIR_CODE_NAME);
+                    ls.pairCode = null;
+                    ls.pairUnlock();
+                    cfg.pairCodeSet = false;
+                    cfg.pairInvite = false;
+                    try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+                    log.accept("删掉了免扫码配对的配对码，「允许新手机配对」也关上了（扫码配对照旧能用）");
+                    text = "配对码删掉了，「允许新手机配对」也关上了（扫码配对照旧能用）";
+                } else if (pop.equals("unlock")) {
+                    ls.pairUnlock();
+                    log.accept("在电脑上解锁了免扫码配对（输错次数清零）");
+                    text = "解锁了，输错次数清零";
+                } else {
+                    Object on = b.get("on");
+                    if (Boolean.TRUE.equals(on) && ls.pairCode == null) {
+                        Map<String, Object> m = fail("先设一个 4 位配对码，才能打开「允许新手机配对」");
+                        m.put("need_code", true);
+                        m.putAll(pairView());
+                        return m;
+                    }
+                    if (on instanceof Boolean && (Boolean) on != cfg.pairInvite) {
+                        cfg.pairInvite = (Boolean) on;
+                        try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+                        log.accept(cfg.pairInvite ? "打开了「允许新手机配对」（手机要输对你设的配对码）" : "关上了「允许新手机配对」（扫码配对照旧能用）");
+                    }
+                    text = cfg.pairInvite ? "同一个网络里的手机点「找附近的电脑」就能找到「" + ls.pcName + "」，输对你设的配对码就配上" : "「允许新手机配对」关着：同一个网络里的手机找不到这台电脑（扫码配对照旧能用）";
                 }
-                Map<String, Object> m = ok(cfg.pairInvite ? "同一个网络里的手机可以找到这台电脑、发起配对，每次都要你在电脑上点「允许」" : "新手机配对关着：同一个网络里的手机找不到这台电脑（扫码配对照旧能用）");
-                m.put("invite", cfg.pairInvite);
+                Map<String, Object> m = ok(text);
+                m.putAll(pairView());
                 m.put("lan_ips", new ArrayList<Object>(LanClient.localAddresses()));
                 m.put("port", (long) cfg.lanPort);
                 return m;

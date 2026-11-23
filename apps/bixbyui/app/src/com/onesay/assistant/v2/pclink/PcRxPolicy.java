@@ -44,7 +44,7 @@ public final class PcRxPolicy {
 
     /**
      * [rel-1123-b] 看手机上装了哪些 App：电脑问「手机上有哪些 App」时用（桌面上能打开的 App 的名字和包名，最多 {@link #APP_LIST_MAX} 个，不带图标）。
-     * 只读，单独一个开关；默认值照开源版现有规则（{@link #defaultOn}：不是危险项、不是加回来的 8 项 → 开），总开关「接受电脑指令」照旧默认关。
+     * 只读，单独一个开关；[rel-1123 合并] 用户定默认关（{@link #defaultOn}），要用户自己在手机上打开；总开关「接受电脑指令」照旧默认关。
      */
     public static final String APP_LIST = "app_list";
     public static final String[] INFO = {APP_LIST};
@@ -100,6 +100,7 @@ public final class PcRxPolicy {
     /** 各项默认开关（开源版：危险项和加回来的 8 项默认关）。 */
     public static boolean defaultOn(String cmd) {
         String t = toggleOf(cmd);
+        if (APP_LIST.equals(t)) return false; // [rel-1123 合并] 用户定：看手机装了哪些 App 默认关，要自己在手机上打开
         return known(t) && !dangerous(t) && !extra(t);
     }
 

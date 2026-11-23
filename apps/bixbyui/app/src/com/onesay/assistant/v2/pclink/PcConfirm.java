@@ -65,6 +65,10 @@ public final class PcConfirm {
         public final int id;
         public final String kind, title, detail, rememberKind, rememberZh;
         public final boolean always;
+        /** [rel-1123 合并] 电脑给了「允许本次任务」（只有普通步骤才给；危险项电脑那边不给）。 */
+        public volatile boolean task;
+        /** 这次回答是「允许本次任务」（answerFrame 带 scope=task 回电脑）。 */
+        public volatile boolean answeredTask;
         public final long deadline;
         /** 电脑卡：电脑那边的编号和一次性 token（原样带回）。 */
         public final long pcId;
@@ -162,12 +166,18 @@ public final class PcConfirm {
 
     /** 电脑卡：显示，不阻塞；点了之后经 reply 回电脑。返回卡（没有界面返回 null）。 */
     public static Card offer(String from, long pcId, String token, String detail, String rememberKind, boolean always, long timeoutMs, Reply reply) {
+        return offer(from, pcId, token, detail, rememberKind, always, false, timeoutMs, reply);
+    }
+
+    /** [rel-1123 合并] 同上；task = 电脑给了「允许本次任务」，卡上多一个按钮。 */
+    public static Card offer(String from, long pcId, String token, String detail, String rememberKind, boolean always, boolean task, long timeoutMs, Reply reply) {
         Ui u = ui;
         if (u == null || reply == null || token == null || token.length() < 16) return null;
         for (Card old : CARDS.values()) if (KIND_PC.equals(old.kind) && old.pcId == pcId && old.pcFrom.equals(from)) return old; // 重复发来的同一张
         long t = Math.max(0, Math.min(timeoutMs, LinkPolicy.CONFIRM_TIMEOUT_MS));
         Card c = new Card(SEQ.getAndIncrement(), KIND_PC, "电脑上的请求，需要你确认", detail, rememberKind, always, now() + t, pcId, token, from);
         c.reply = reply;
+        c.task = task;
         CARDS.put(c.id, c);
         try {
             u.open(c);
@@ -239,6 +249,14 @@ public final class PcConfirm {
      * 没收的回答不改变卡：它照旧等真人点击（等不到就拒）。
      */
     public static Answer answer(int id, boolean allow, boolean always, boolean remember, Input in) {
+        return answer(id, allow, always, remember, false, in);
+    }
+
+    /**
+     * [rel-1123 合并] task = 点的是「允许本次任务」：只在电脑卡给了这个按钮时算数（否则按「允许一次」）；
+     * 和「允许」一样只认真人手指（语音 / 无障碍代点 / 机器人注入 / 遮挡下的触摸都不算）。
+     */
+    public static Answer answer(int id, boolean allow, boolean always, boolean remember, boolean task, Input in) {
         Card c = CARDS.get(id);
         if (c == null) return Answer.GONE;
         long t = now();
@@ -250,6 +268,7 @@ public final class PcConfirm {
         }
         int v = !allow ? DENY : always && c.always ? ALWAYS : remember && c.rememberKind.length() > 0 ? REMEMBER : ALLOW;
         if (!c.res.compareAndSet(Integer.MIN_VALUE, v)) return Answer.GONE;
+        c.answeredTask = allow && task && c.task && KIND_PC.equals(c.kind);
         long shownMs = c.shownFor(t);
         if (KIND_PC.equals(c.kind) && c.reply != null) {
             try {

@@ -426,8 +426,15 @@ public final class ChatAgent {
 
     // ------------------------------------------------------------------ 提示词
 
-    /** [fix-1123-a] 认不全的下载命令第三次起的话：明说不会执行。 */
-    static final String DL_FINAL = "（这类混着别的语句的下载命令不管发几次都不会执行：把下载拆成一步 download，其余的再用 run_command；实在拆不开就停下，告诉用户需要他自己下载哪个文件。）";
+    /** [rel-1123 合并] 认不全的下载命令：不执行，问用户。给模型的那句（下一轮用户答了以后怎么接着做）。 */
+    static final String DL_ASK_TOOL = "没执行：这条命令里混着下载和别的语句，认不全。已经停下问用户：要下的是什么、从哪个网址下、存到哪。"
+            + "用户答清楚以后，先用 download 工具（url + path）单独下载，再用 run_command 一条一条做后面的步骤（解压、安装…），不要再把下载和别的语句写在一条命令里；用户答不清就别猜，停下说明。";
+
+    /** [rel-1123 合并] 认不全的下载命令：问用户的话（大白话）。 */
+    static String dlQuestion(String cmd) {
+        return "这一步要下载东西，但那条命令里混着别的语句，我认不全，没执行（" + cmd + "）。\n"
+                + "麻烦你说清楚三样：要下的是什么、从哪个网址下、存到哪个文件夹。说清楚了我就用下载工具单独下好（任务卡上有进度条），后面的步骤再一条一条接着做；说不清的话我就先停在这里。";
+    }
 
     /** 模型把活推回给用户（「我无法直接操作电脑」「需要你手动」）：第一轮这样说就确定性地打回一次。 */
     static final Pattern PUNT = Pattern.compile("(无法|不能|没法|没有办法)(直接)?(操作|控制|访问|在)(你的|您的|这台)?(电脑|计算机|系统)|需要你(自己)?手动|请你手动|你可以按(下面|以下|这个)(的)?(顺序|步骤)");
@@ -549,7 +556,6 @@ public final class ChatAgent {
         int hedgeBlocks = 0;
         boolean uiRead = false;   // [overnight-1119 第 7 条] 这次任务读过安卓界面没有（android_ui）
         int coordBlocks = 0;
-        int dlHints = 0; // [preview-1120] 命令里下载文件 → 提示改用下载工具的次数（[fix-1123-a] 不再有「第三次照原样执行」）
         boolean schedHinted = false; // [fix-1120 晚] 建 Windows 计划任务 → 提示改用提醒工具（一次）
         String lastKey = "";
         List<String> okDescs = new ArrayList<>(); // [fix-1123-c] 这个任务里已经做成的步骤（停在批准上时说清前面做好了什么）
@@ -698,18 +704,13 @@ public final class ChatAgent {
                     continue;
                 }
                 if ("sys_exec".equals(cmd) && DownloadRewrite.mentions(String.valueOf(args.get("command")))) {
-                    // [preview-1120] 命令里混着下载、认不全：先不执行，提示模型改用下载工具。
-                    // [fix-1123-a] 以前提示两次后第三次照原命令执行（绕过「认得出的下载默认断网」）；现在一直不执行，第三次起明说不会执行，
-                    // 让模型拆成「下载工具 + 别的命令」或者如实告诉用户（卡住时由「没有进展」收尾）
-                    dlHints++;
-                    if (dlHints > 4) { // 拆了四次还是混着下载：别再空转，停下如实说
-                        msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "use_download", "text", "不执行。" + DL_FINAL))));
-                        return wrapUp(msgs, brain, new Outcome("下载那一步一直是混着别的语句的命令，我认不全、不会照原样执行，先停下。你可以告诉我要下载的网址和存到哪，我用下载工具单独下；或者你自己下好再让我接着做。", "no_progress", done));
-                    }
-                    msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "use_download", "text", dlHints <= 2 ? DownloadRewrite.hint() : DownloadRewrite.hint() + DL_FINAL))));
-                    // [preview-1120 真机] 卡上带出被拦下的原命令（以前看不到是哪条，没法判断该不该认）
-                    steps.step(Map.of("phase", "note", "desc", "下载文件改用下载工具（任务卡上有进度条），这条命令先不执行：" + clip(LinkPolicy.oneLine(String.valueOf(args.get("command"))), 160)));
-                    continue;
+                    // [preview-1120] 命令里混着下载、认不全：不执行。
+                    // [rel-1123 合并] 用户定：不再让模型自己反复拆，直接停下问用户——要下什么、从哪下、存哪；
+                    // 用户说清楚了，下一轮按「download 工具下载 + run_command 做后面的步骤」拆开继续（认得出的下载照旧默认断网等规则）；说不清就停在这里。
+                    String shown = clip(LinkPolicy.oneLine(String.valueOf(args.get("command"))), 160);
+                    steps.step(Map.of("phase", "note", "desc", "下载那条命令混着别的语句，我认不全，没执行，先问你：" + shown));
+                    msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "ask_user_download", "text", DL_ASK_TOOL))));
+                    return new Outcome(dlQuestion(shown), Outcomes.NEEDS_USER, done);
                 }
                 if ("android_ui".equals(cmd)) uiRead = true;
                 steps.step(stepEv("start", done + 1, desc, cmd, args, true, "", "", ""));

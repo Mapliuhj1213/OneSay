@@ -328,7 +328,7 @@ public final class PcRx {
             if (out == null) return null;
             Object to = body.get("timeout_ms");
             PcConfirm.offer(from, ((Number) cid).longValue(), PcRxPolicy.str(body, "token"), PcRxPolicy.str(body, "detail"), PcRxPolicy.str(body, "remember_kind"),
-                    Boolean.TRUE.equals(body.get("always")), to instanceof Number ? ((Number) to).longValue() : LinkPolicy.CONFIRM_TIMEOUT_MS, new PcConfirm.Reply() {
+                    Boolean.TRUE.equals(body.get("always")), Boolean.TRUE.equals(body.get("task_scope")), to instanceof Number ? ((Number) to).longValue() : LinkPolicy.CONFIRM_TIMEOUT_MS, new PcConfirm.Reply() {
                         @Override public void send(PcConfirm.Card c, boolean allow, boolean always, boolean remember, long shownMs) {
                             try {
                                 out.send(answerFrame(p, c, allow, always, remember, shownMs, System.currentTimeMillis()));
@@ -376,6 +376,7 @@ public final class PcRx {
         b.put("allow", Boolean.valueOf(allow));
         b.put("always", Boolean.valueOf(always));
         b.put("remember", Boolean.valueOf(remember));
+        if (allow && c.answeredTask) b.put("scope", "task"); // [rel-1123 合并] 手机卡上点的是「允许本次任务」
         b.put("input", allow ? "touch" : "card");
         b.put("shown_ms", Long.valueOf(shownMs));
         String rid = PcProtocol.newId();

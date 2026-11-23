@@ -62,8 +62,16 @@ public final class LanServer implements Link {
     private volatile boolean running;
     private ServerSocket ss;
     private DatagramSocket ds;
-    /** [rel-1123-b] 免扫码配对：电脑上弹确认框的那一下（Agent 接上 PcGuard.Confirms）；没接 = 不收配对请求。 */
-    public volatile LanPair.Asker pairAsk;
+    /** [rel-1123 合并] 免扫码配对的配对码（只有 PBKDF2 结果，App 从凭据库读进来）；null = 没设码，不收免扫码配对。 */
+    public volatile LanPair.Verifier pairCode;
+    /** 输错限次（计数存进配置）。 */
+    public final LanPair.Lock pairLock;
+    /** 电脑名字（邀请里给同一网络的手机看）。 */
+    public volatile String pcName = LanPair.hostName();
+    /** 最近一次免扫码配对的进展（给界面看）：{at, name, ip, state, text}；state = running / ok / code / locked / fail。 */
+    public volatile Map<String, Object> pairLast;
+    /** 配对好了（App 接上：发一条电脑通知）。参数：手机名字、手机 id。 */
+    public volatile java.util.function.BiConsumer<String, String> onPaired = (n, id) -> { };
     /** 配对过程写进电脑日志（Agent 接上）。 */
     public volatile java.util.function.Consumer<String> log = x -> { };
     final LanPair.Limiter pairLimit = new LanPair.Limiter();
@@ -73,6 +81,7 @@ public final class LanServer implements Link {
 
     public LanServer(Config cfg, Link.Listener listener) {
         this.cfg = cfg;
+        this.pairLock = new LanPair.Lock(cfg.pairFails, cfg.pairLockUntil);
         this.listener = listener;
     }
 
@@ -174,7 +183,7 @@ public final class LanServer implements Link {
                 ds.receive(p);
                 String text = new String(p.getData(), p.getOffset(), p.getLength(), StandardCharsets.UTF_8);
                 String reply = answerProbe(cfg, text);
-                if (reply == null) reply = LanPair.answerPairProbe(cfg.pairInvite && pairAsk != null, cfg.lanPort, text, p.getAddress()); // [rel-1123-b] 没配对的手机找可配对的电脑
+                if (reply == null) reply = LanPair.answerPairProbe(cfg.pairInvite, pairCode != null, cfg.lanPort, pcName, text, p.getAddress()); // [rel-1123-b] 没配对的手机找可配对的电脑（[rel-1123 合并] 带电脑名字和设没设码）
                 if (reply != null) {
                     byte[] r = reply.getBytes(StandardCharsets.UTF_8);
                     ds.send(new DatagramPacket(r, r.length, p.getSocketAddress()));
@@ -228,9 +237,9 @@ public final class LanServer implements Link {
         for (InetAddress a : to) {
             try { d.send(new DatagramPacket(b, b.length, a, dport)); } catch (Exception ignored) { }
         }
-        // [rel-1123-b] 允许新手机配对时，顺带发一条不带身份的邀请（{"t":"pinv","v":1,"port"}），没配对的手机打开「找附近的电脑」就能看到
-        if (cfg.pairInvite && pairAsk != null) {
-            byte[] inv = LanPair.inviteText(cfg.lanPort).getBytes(StandardCharsets.UTF_8);
+        // [rel-1123-b] 允许新手机配对时，顺带发一条不带身份的邀请（{"t":"pinv","v":2,"port","name","code"}；[rel-1123 合并] 要设了配对码才发），没配对的手机打开「找附近的电脑」就能看到
+        if (cfg.pairInvite && pairCode != null) {
+            byte[] inv = LanPair.inviteText(cfg.lanPort, pcName, true).getBytes(StandardCharsets.UTF_8);
             for (InetAddress a : to) {
                 try { d.send(new DatagramPacket(inv, inv.length, a, dport)); } catch (Exception ignored) { }
             }
@@ -380,56 +389,72 @@ public final class LanServer implements Link {
 
     // ---- [rel-1123-b] 免扫码配对 ----
 
+    /** [rel-1123 合并] 免扫码配对：固定配对码 + SPAKE2（流程见 {@link LanPair}）。 */
     private void pair(Conn c, Socket s, InputStream in, String first, String tlsFp, InetAddress remote) throws IOException {
         String ip = remote == null ? "?" : remote.getHostAddress();
-        LanPair.Asker ask = pairAsk;
-        if (!cfg.pairInvite || ask == null) { pairNo(c, "closed"); return; }
+        if (!cfg.pairInvite) { pairNo(c, "closed"); return; }
+        LanPair.Verifier v = pairCode;
+        if (v == null) { pairNo(c, "nocode"); return; }
         if (!LanPair.privateAddr(remote)) { pairNo(c, "addr"); return; }
         if (tlsFp == null) { pairNo(c, "tls"); return; }
         Map<String, Object> f;
         try { f = Json.obj(first); } catch (Exception e) { pairNo(c, "bad"); return; }
+        if (!"pair_req".equals(f.get("type"))) { pairNo(c, "bad"); return; }
+        if (!(f.get("v") instanceof Number) || ((Number) f.get("v")).intValue() != 2) { pairNo(c, "old"); return; }
         String from = String.valueOf(f.get("from"));
-        Object commit = f.get("commit");
-        if (!"pair_req".equals(f.get("type")) || !from.matches("[A-Za-z0-9._-]{1,64}") || from.equals(cfg.deviceId)
-                || !(commit instanceof String) || !((String) commit).matches("[A-Za-z0-9_-]{43}")) { pairNo(c, "bad"); return; }
+        if (!from.matches("[A-Za-z0-9._-]{1,64}") || from.equals(cfg.deviceId)) { pairNo(c, "bad"); return; }
         String name = LanPair.cleanName(f.get("name"));
-        String adm = pairLimit.admit(ip, System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        if (pairLock.locked(now)) { pairLocked(c, now); return; }
+        String adm = pairLimit.admit(ip, now);
         if (adm != null) { pairNo(c, adm); return; }
+        boolean counted = false, done = false;
         try {
-            String nPc = Protocol.nonce() + Protocol.nonce();
-            Map<String, Object> chal = new TreeMap<>();
-            chal.put("type", "pair_chal");
-            chal.put("v", 1L);
-            chal.put("n", nPc);
-            c.sendText(Json.stringify(chal));
-            s.setSoTimeout(LanPair.REVEAL_MS);
-            String rv = readMessage(in, c);
-            Map<String, Object> r;
-            try { r = rv == null ? null : Json.obj(rv); } catch (Exception e) { r = null; }
-            Object nPhone = r == null ? null : r.get("n");
-            if (r == null || !"pair_reveal".equals(r.get("type")) || !LanPair.validNonce(nPhone) || !LanPair.commit((String) nPhone).equals(commit)) { pairNo(c, "bad"); return; }
-            String code = LanPair.code(tlsFp, cfg.tls().fp, (String) nPhone, nPc);
-            Map<String, Object> w = new TreeMap<>();
-            w.put("type", "pair_wait");
-            w.put("timeout_ms", LanPair.ASK_MS);
-            c.sendText(Json.stringify(w));
-            s.setSoTimeout((int) (LanPair.ASK_MS + 15_000));
-            log.accept("手机「" + name + "」（" + from + "，" + ip + "）想配对，等你在电脑上确认");
-            int ans;
-            String pinned = cfg.pinOf(from);
-            boolean replaces = pinned != null && !Tls.fpEquals(pinned, tlsFp);
-            try { ans = ask.ask(name, from, code, ip, replaces, LanPair.ASK_MS); } catch (RuntimeException e) { ans = PcGuard.DENY; }
-            if (ans != PcGuard.ALLOW && ans != PcGuard.ALWAYS && ans != PcGuard.REMEMBER) {
-                pairLimit.denied(ip, System.currentTimeMillis());
-                pairNo(c, ans == PcGuard.TIMEOUT ? "timeout" : "denied");
-                log.accept("手机「" + name + "」的配对" + (ans == PcGuard.TIMEOUT ? "没人确认，没配上" : "被你拒绝了"));
+            pairLast(name, ip, "running", "手机「" + name + "」正在用配对码配对…");
+            Map<String, Object> salt = new TreeMap<>();
+            salt.put("type", "pair_salt");
+            salt.put("v", 2L);
+            salt.put("salt", b64(v.salt));
+            salt.put("iter", (long) v.iter);
+            salt.put("id", cfg.deviceId);
+            salt.put("name", pcName);
+            c.sendText(Json.stringify(salt));
+            s.setSoTimeout(LanPair.STEP_MS);
+            Map<String, Object> x = obj(readMessage(in, c));
+            byte[] xa = x == null || !"pair_x".equals(x.get("type")) ? null : unb64(x.get("x"));
+            if (xa == null || xa.length != Spake2.ELEM_BYTES) { pairNo(c, "bad"); pairLast(name, ip, "fail", "手机「" + name + "」的配对请求不完整"); return; }
+            Spake2.Party me = new Spake2.Party(false, v.w);
+            Spake2.Keys k = me.finish(xa, new Spake2.Ctx(from, cfg.deviceId, tlsFp, cfg.tls().fp, v.salt, v.iter));
+            if (k == null) { pairNo(c, "bad"); pairLast(name, ip, "fail", "手机「" + name + "」发来的数据不对"); return; }
+            pairFail(System.currentTimeMillis()); // 先记一次错：对方拿到了猜一次的机会（成功再清零）
+            counted = true;
+            Map<String, Object> y = new TreeMap<>();
+            y.put("type", "pair_y");
+            y.put("y", b64(me.message()));
+            c.sendText(Json.stringify(y));
+            Map<String, Object> cf = obj(readMessage(in, c));
+            byte[] ca = cf == null || !"pair_confirm".equals(cf.get("type")) ? null : unb64(cf.get("c"));
+            if (!Spake2.same(ca, k.cA)) {
+                long t = System.currentTimeMillis();
+                if (pairLock.locked(t)) {
+                    pairLocked(c, t);
+                    log.accept("手机「" + name + "」（" + ip + "）配对码输错太多次，免扫码配对锁到 " + java.time.Instant.ofEpochMilli(pairLock.until()));
+                } else {
+                    try { c.sendText("{\"left\":" + pairLock.left() + ",\"type\":\"pair_no\",\"why\":\"code\"}"); } catch (IOException ignored) { }
+                    c.close(4005, "code");
+                    pairLast(name, ip, "code", "手机「" + name + "」输的配对码不对（还能试 " + pairLock.left() + " 次）");
+                    log.accept("手机「" + name + "」（" + ip + "）输的配对码不对");
+                }
                 return;
             }
             String before = cfg.pinOf(from);
             cfg.pin(from, tlsFp); // 记住这台手机的证书：之后它的签名 hello 必须是这张证书
-            try { cfg.save(); } catch (IOException ignored) { }
+            pairLock.ok();
+            persistLock();
+            done = true;
             Map<String, Object> ok = new TreeMap<>();
             ok.put("type", "pair_ok");
+            ok.put("c", b64(k.cB));
             ok.put("pairing", cfg.pairingString());
             try {
                 c.sendText(Json.stringify(ok));
@@ -439,11 +464,63 @@ public final class LanServer implements Link {
                 throw e;
             }
             seen.paired(from, System.currentTimeMillis());
-            log.accept("手机「" + name + "」（" + from + "）配对好了");
+            pairLast(name, ip, "ok", "手机「" + name + "」配对好了");
+            log.accept("手机「" + name + "」（" + from + "，" + ip + "）用配对码配对好了");
+            try { onPaired.accept(name, from); } catch (RuntimeException ignored) { }
             c.close(1000, "paired");
+        } catch (java.net.SocketTimeoutException e) {
+            pairNo(c, "bad");
+            if (!done) pairLast(name, ip, counted ? "code" : "fail", "手机「" + name + "」没把配对做完（中途停了），" + (counted ? "按输错一次算" : "没配上"));
         } finally {
             pairLimit.release();
         }
+    }
+
+    private void pairFail(long now) {
+        pairLock.fail(now);
+        persistLock();
+    }
+
+    private void persistLock() {
+        cfg.pairFails = pairLock.fails();
+        cfg.pairLockUntil = pairLock.until();
+        try { cfg.save(); } catch (IOException ignored) { }
+    }
+
+    /** 在电脑上解锁（界面的「解锁」）：清零。 */
+    public void pairUnlock() {
+        pairLock.reset();
+        persistLock();
+    }
+
+    private void pairLocked(Conn c, long now) {
+        long min = Math.max(1, (pairLock.until() - now + 59_999) / 60_000);
+        try { c.sendText("{\"type\":\"pair_no\",\"wait_min\":" + min + ",\"why\":\"locked\"}"); } catch (IOException ignored) { }
+        c.close(4005, "locked");
+        Map<String, Object> l = pairLast;
+        pairLast("", "", "locked", "配对码试错太多次，免扫码配对暂停到 " + java.time.LocalTime.ofInstant(java.time.Instant.ofEpochMilli(pairLock.until()), java.time.ZoneId.systemDefault()).withNano(0).withSecond(0)
+                + (l != null && l.get("name") != null && !"".equals(l.get("name")) ? "（最近一次是手机「" + l.get("name") + "」）" : ""));
+    }
+
+    private void pairLast(String name, String ip, String state, String text) {
+        Map<String, Object> m = new TreeMap<>();
+        m.put("at", System.currentTimeMillis());
+        m.put("name", name);
+        m.put("ip", ip);
+        m.put("state", state);
+        m.put("text", text);
+        pairLast = m;
+    }
+
+    private static Map<String, Object> obj(String t) {
+        try { return t == null ? null : Json.obj(t); } catch (Exception e) { return null; }
+    }
+
+    private static String b64(byte[] b) { return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b); }
+
+    private static byte[] unb64(Object o) {
+        if (!(o instanceof String) || ((String) o).length() > 1024) return null;
+        try { return java.util.Base64.getUrlDecoder().decode((String) o); } catch (IllegalArgumentException e) { return null; }
     }
 
     private static void pairNo(Conn c, String why) {

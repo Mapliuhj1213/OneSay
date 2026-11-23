@@ -28,9 +28,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
 
@@ -154,7 +154,8 @@ public class Pair1123InteropTest {
         cfgFile = dir.resolve("desktop.properties").toAbsolutePath();
         String props = "lan_port=" + port + "\ndevice_id=" + PC + "\nkind=pc\nptt=off\npair_key=" + PcB64.encodeUrl(KEY)
                 + "\nworkspace_dir=" + dir.resolve("ws").toString().replace("\\", "/")
-                + "\nllm_provider=custom\nllm_base=http://127.0.0.1:" + llm.getAddress().getPort() + "/v1\nllm_key=mock-not-a-real-key\nllm_model=mock\n";
+                + "\nllm_provider=custom\nllm_base=http://127.0.0.1:" + llm.getAddress().getPort() + "/v1\nllm_key=mock-not-a-real-key\nllm_model=mock\n"
+                + "lan_pair_invite=on\n"; // [rel-1123 合并] 开关开着但还没设配对码（比如码丢了）：手机要看到「这台电脑还没设配对码」
         Files.write(cfgFile, props.getBytes(StandardCharsets.UTF_8));
         tls = PcTls.generate(ME);
         startDesktop();
@@ -385,30 +386,55 @@ public class Pair1123InteropTest {
         }
     }
 
+    /** [rel-1123 合并] 电脑「手机」页「交给手机去做」（直接发 operate，不经对话）：手机收下后也登记，回传结果在 state.phone_goal 里。 */
+    @Test public void b3_phonePageOperateResultShowsInState() throws Exception {
+        waitChatIdle(10000);
+        env.sw.put(PcRxPolicy.OPERATE, Boolean.TRUE);
+        try {
+            Map<String, Object> r = api("phone", m("cmd", "operate", "args", m("goal", "打开设置看看安卓版本 B3")));
+            assertEquals(String.valueOf(r), Boolean.TRUE, r.get("ok"));
+            @SuppressWarnings("unchecked") Map<String, Object> d = (Map<String, Object>) r.get("data");
+            final String gid = String.valueOf(d.get("goal_id"));
+            @SuppressWarnings("unchecked") Map<String, Object> g = waitFor(() -> {
+                Object o = api("state", null).get("phone_goal");
+                if (!(o instanceof Map)) return null;
+                Map<String, Object> x = (Map<String, Object>) o;
+                return gid.equals(x.get("id")) && "done".equals(x.get("state")) ? x : null;
+            }, 20000);
+            assertNotNull("手机页交的目标，结果要回到 state.phone_goal：" + out(), g);
+            assertEquals("安卓版本是 8.0.0", g.get("text"));
+            assertEquals("打开设置看看安卓版本 B3", g.get("goal"));
+        } finally {
+            env.sw.remove(PcRxPolicy.OPERATE);
+        }
+    }
+
     // ================================================================== 3 看已装 App
 
-    @Test public void c1_appListDefaultOnFilterAndToggle() throws Exception {
-        assertTrue("看已装 App：按开源版现有规则默认开（只读、不是危险项）", PcRxPolicy.defaultOn(PcRxPolicy.APP_LIST));
+    @Test public void c1_appListDefaultOffFilterAndToggle() throws Exception {
+        assertFalse("[rel-1123 合并] 看已装 App 默认关（用户定）", PcRxPolicy.defaultOn(PcRxPolicy.APP_LIST));
+        Map<String, Object> dflt = Link1119InteropTest.phone("app_list", null);
+        assertEquals("默认关着就被拒：" + dflt, Boolean.FALSE, dflt.get("ok"));
+        assertTrue(String.valueOf(dflt.get("text")), String.valueOf(dflt.get("text")).contains("没开"));
+        env.sw.put(PcRxPolicy.APP_LIST, Boolean.TRUE); // 用户手动打开
+        try {
         Map<String, Object> all = Link1119InteropTest.phone("app_list", null);
         assertEquals(String.valueOf(all), Boolean.TRUE, all.get("ok"));
         assertTrue(String.valueOf(all.get("text")), String.valueOf(all.get("text")).contains("4 个"));
         Map<String, Object> q = Link1119InteropTest.phone("app_list", m("query", "地图"));
         assertTrue(String.valueOf(q), String.valueOf(q.get("text")).contains("百度地图") && String.valueOf(q.get("text")).contains("高德地图"));
         assertFalse(String.valueOf(q.get("text")).contains("京东"));
-        env.sw.put(PcRxPolicy.APP_LIST, Boolean.FALSE);
-        try {
-            Map<String, Object> off = Link1119InteropTest.phone("app_list", null);
-            assertEquals(Boolean.FALSE, off.get("ok"));
-            assertTrue(String.valueOf(off.get("text")), String.valueOf(off.get("text")).contains("没开"));
-        } finally {
-            env.sw.remove(PcRxPolicy.APP_LIST);
-        }
         // 电脑对话里问「手机上有哪些地图」直接走它
         waitChatIdle(10000);
         llmSeen.clear();
         api("chat", m("text", "B23APPS 手机上有哪些地图 App"));
         waitChatIdle(20000);
         assertTrue("对话里的工具结果带 App 名：" + llmSeen, llmSeen.toString().contains("高德地图"));
+        } finally {
+            env.sw.remove(PcRxPolicy.APP_LIST);
+        }
+        Map<String, Object> off = Link1119InteropTest.phone("app_list", null);
+        assertEquals("关回默认 = 关：" + off, Boolean.FALSE, off.get("ok"));
     }
 
     // ================================================================== 4 免扫码配对
@@ -416,123 +442,98 @@ public class Pair1123InteropTest {
     static final String ME2 = "phone-new23";
     static PcTls tls2;
 
-    @SuppressWarnings("unchecked")
-    static Map<String, Object> pairConfirm(long ms) throws Exception {
-        long end = System.currentTimeMillis() + ms;
-        while (System.currentTimeMillis() < end) {
-            Object c = api("state", null).get("confirms");
-            if (c instanceof List) for (Object o : (List<Object>) c) {
-                Map<String, Object> x = (Map<String, Object>) o;
-                if ("新手机配对".equals(x.get("from"))) return x;
-            }
-            Thread.sleep(100);
-        }
-        return null;
-    }
-
-    static String codeIn(String detail) {
-        Matcher mm = Pattern.compile("核对码：(\\d{4})").matcher(detail);
-        return mm.find() ? mm.group(1) : null;
-    }
-
-    static List<InetSocketAddress> discover() {
+    static List<PcPairNearby.Found> discover() {
         List<InetSocketAddress> t = new ArrayList<InetSocketAddress>();
         t.add(new InetSocketAddress(InetAddress.getLoopbackAddress(), port + 1));
         return PcPairNearby.discover(1500, null, new int[]{port}, t);
     }
 
-    static Thread pairAsync(final AtomicReference<PcPairNearby.Outcome> out, final AtomicReference<String> code) {
-        Thread t = new Thread(new Runnable() {
-            @Override public void run() {
-                out.set(PcPairNearby.request(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), ME2, "测试手机", tls2, new PcPairNearby.Ui() {
-                    @Override public void code(String c) { code.set(c); }
-                }, PcPairNearby.ASK_WAIT_MS));
-            }
-        }, "pair-req");
-        t.setDaemon(true);
-        t.start();
-        return t;
+    static final List<String> steps = new CopyOnWriteArrayList<String>();
+
+    static PcPairNearby.Outcome pair(String code) {
+        return PcPairNearby.request(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), ME2, "测试手机", tls2, code, new PcPairNearby.Ui() {
+            @Override public void step(String t) { steps.add(t); }
+        }, null);
     }
 
-    @Test public void d1_pairNearbyWithCodeAndLocalClickOnly() throws Exception {
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> pairState() throws Exception {
+        return (Map<String, Object>) api("state", null).get("pair");
+    }
+
+    /** [rel-1123 合并] 免扫码配对 = 电脑上先设 4 位配对码，手机选电脑、输码（SPAKE2 核对，码不发出去），不再要电脑上点允许。 */
+    @Test public void d1_pairNearbyNeedsCodeThenPairs() throws Exception {
         tls2 = PcTls.generate(ME2);
-        // 发现：邀请里只有端口，不带电脑的 id / 证书
-        List<InetSocketAddress> found = discover();
-        assertFalse("局域网里应该找得到可配对的电脑", found.isEmpty());
-        assertEquals(port, found.get(0).getPort());
-        // 发起配对
-        AtomicReference<PcPairNearby.Outcome> out = new AtomicReference<PcPairNearby.Outcome>();
-        AtomicReference<String> code = new AtomicReference<String>();
-        Thread t = pairAsync(out, code);
-        Map<String, Object> c = pairConfirm(10000);
-        assertNotNull("电脑上要弹配对确认框：" + out(), c);
-        String detail = String.valueOf(c.get("detail"));
-        assertTrue(detail, detail.contains("测试手机") && detail.contains(ME2));
-        assertNotNull("手机上要显示核对码", waitFor(() -> code.get(), 5000));
-        assertEquals("两边核对码一样：" + detail, code.get(), codeIn(detail));
-        assertNotEquals("配对确认框不能带「以后不用问」", Boolean.TRUE, c.get("always"));
-        assertEquals("", String.valueOf(c.get("remember_kind")));
-        assertNotEquals("配对确认框不发到任何手机上去批", Boolean.TRUE, c.get("phone"));
-        Object id = c.get("id");
-        api("confirm", m("op", "seen", "id", id, "focused", Boolean.TRUE));
-        // 0.7 秒内点允许不算
-        Map<String, Object> early = api("confirm", m("id", id, "allow", Boolean.TRUE, "input", "mouse", "trusted", Boolean.TRUE));
-        assertEquals(String.valueOf(early), Boolean.FALSE, early.get("ok"));
-        Thread.sleep(900);
-        api("state", null); // 界面还活着
-        // 语音 / 没说来源的批准不算
-        Map<String, Object> v = api("confirm", m("id", id, "allow", Boolean.TRUE, "input", "voice", "trusted", Boolean.TRUE));
-        assertEquals(String.valueOf(v), Boolean.FALSE, v.get("ok"));
-        Map<String, Object> rm = api("confirm", m("id", id, "allow", Boolean.TRUE));
-        assertEquals(String.valueOf(rm), Boolean.FALSE, rm.get("ok"));
-        assertNotNull("语音 / 远程批准不算，照旧在等", pairConfirm(500));
-        // 本机鼠标点允许
-        Map<String, Object> ok = api("confirm", m("id", id, "allow", Boolean.TRUE, "input", "mouse", "trusted", Boolean.TRUE));
-        assertEquals(String.valueOf(ok), Boolean.TRUE, ok.get("ok"));
-        t.join(15000);
-        assertNotNull(out.get());
-        assertTrue("配对应该成功：" + out.get() + "\n" + out(), out.get().ok);
-        PcPairing pp = PcPairing.parse(out.get().pairing);
+        // 开关开着但没设码：找得到（带名字），配对被拒并说「还没设配对码」
+        List<PcPairNearby.Found> found = discover();
+        assertFalse("局域网里应该找得到电脑", found.isEmpty());
+        assertEquals(port, found.get(0).addr.getPort());
+        assertFalse(found.get(0).codeSet);
+        assertTrue("列表里带电脑名字", found.get(0).name.length() > 0);
+        PcPairNearby.Outcome o = pair("4827");
+        assertFalse(o.ok);
+        assertEquals("nocode", o.reason);
+        assertEquals("这台电脑还没设配对码，请在电脑上先设一个", o.why);
+        assertEquals("没设码时界面上算没开", Boolean.FALSE, pairState().get("invite"));
+        // 没码不能打开
+        api("pairing", m("op", "invite", "on", Boolean.FALSE));
+        Map<String, Object> need = api("pairing", m("op", "invite", "on", Boolean.TRUE));
+        assertEquals(Boolean.FALSE, need.get("ok"));
+        assertEquals(Boolean.TRUE, need.get("need_code"));
+        assertTrue("关着时找不到", discover().isEmpty());
+        // 好猜的码不让设
+        assertEquals(Boolean.FALSE, api("pairing", m("op", "code", "code", "1234", "on", Boolean.TRUE)).get("ok"));
+        // 设码并打开
+        Map<String, Object> set = api("pairing", m("op", "code", "code", "4827", "on", Boolean.TRUE));
+        assertEquals(String.valueOf(set), Boolean.TRUE, set.get("ok"));
+        assertEquals(Boolean.TRUE, pairState().get("invite"));
+        assertEquals(Boolean.TRUE, pairState().get("code_set"));
+        String cfgText = new String(Files.readAllBytes(cfgFile), StandardCharsets.UTF_8);
+        assertFalse("配置文件里没有码", cfgText.contains("4827"));
+        assertFalse("状态里没有码", String.valueOf(api("state", null)).contains("4827"));
+        found = discover();
+        assertTrue(found.get(0).codeSet);
+        // 输错：还能试 4 次
+        o = pair("4828");
+        assertFalse(o.ok);
+        assertEquals("code", o.reason);
+        assertEquals(4, o.left);
+        assertTrue(o.why.contains("还能试 4 次"));
+        assertEquals("code", pairState().get("last") instanceof Map ? ((Map<?, ?>) pairState().get("last")).get("state") : null);
+        Thread.sleep(10500); // 同一地址 10 秒一次
+        // 输对：配好（电脑的确认码、配对串里的证书和 id 都核过）
+        steps.clear();
+        o = pair("4827");
+        assertTrue("配对应该成功：" + o + "\n" + out(), o.ok);
+        assertTrue("有进展提示：" + steps, steps.contains("正在核对配对码…"));
+        PcPairing pp = PcPairing.parse(o.pairing);
         assertEquals(PC, pp.peer);
-        // 新配对直接能连（电脑记住了这台手机的证书；签名照旧）
+        assertEquals("ok", ((Map<?, ?>) pairState().get("last")).get("state"));
+        assertEquals("成功后清零", 5L, ((Number) pairState().get("left")).longValue());
         PcLanClient.Peer p2 = new PcLanClient.Peer(ME2, pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, tls2);
         PcLanClient.Result r = PcLanClient.once(p2, "ping", null, 2000, 5000, null, null);
         assertTrue("新配对的手机能直接连：" + r, r.ok);
-        // 签名 announce 照旧（新配对拿到的钥匙能认电脑的 announce）
         assertTrue(PcLanClient.locate(p2, 3000, null) != null);
-        // 换一张证书冒充这台手机：被拒（配对时记住的是 tls2）
         PcLanClient.Peer fake = new PcLanClient.Peer(ME2, pp.peer, pp.key, "127.0.0.1:" + port, pp.lanPort, "", pp.fp, PcTls.generate("fake"));
         assertFalse("换了证书的同名手机不能连", PcLanClient.once(fake, "ping", null, 2000, 5000, null, null).ok);
+        assertNull("不再弹电脑确认框", api("state", null).get("confirms") instanceof List && !((List<?>) api("state", null).get("confirms")).isEmpty() ? "有" : null);
     }
 
-    @Test public void d2_tooFastDenyAndClosed() throws Exception {
-        // 同一地址 10 秒内再来：太快
-        AtomicReference<PcPairNearby.Outcome> out = new AtomicReference<PcPairNearby.Outcome>();
-        AtomicReference<String> code = new AtomicReference<String>();
-        pairAsync(out, code).join(10000);
-        assertNotNull(out.get());
-        assertFalse(out.get().ok);
-        assertTrue(out.get().why, out.get().why.contains("太快"));
-        Thread.sleep(10500);
-        // 电脑上点拒绝（键盘）
-        out.set(null);
-        Thread t = pairAsync(out, code);
-        Map<String, Object> c = pairConfirm(10000);
-        assertNotNull(c);
-        assertEquals(Boolean.TRUE, api("confirm", m("id", c.get("id"), "allow", Boolean.FALSE, "input", "keyboard", "trusted", Boolean.TRUE)).get("ok"));
-        t.join(10000);
-        assertFalse(out.get().ok);
-        assertTrue(out.get().why, out.get().why.contains("拒绝"));
-        // 电脑上关掉「允许新手机配对」：发现不到，直接请求也说关着
+    @Test public void d2_tooFastClosedAndCodeOff() throws Exception {
+        PcPairNearby.Outcome o = pair("4827");
+        assertFalse(o.ok);
+        assertTrue(o.why, o.why.contains("太快"));
         Map<String, Object> off = api("pairing", m("op", "invite", "on", Boolean.FALSE));
         assertEquals(Boolean.FALSE, off.get("invite"));
-        assertTrue("关掉后广播里找不到", discover().isEmpty());
-        out.set(null);
-        pairAsync(out, code).join(10000);
-        assertFalse(out.get().ok);
-        assertTrue(out.get().why, out.get().why.contains("关着"));
-        assertNull("关着时不弹确认框", pairConfirm(300));
-        api("pairing", m("op", "invite", "on", Boolean.TRUE));
+        assertTrue("关掉后找不到", discover().isEmpty());
+        o = pair("4827");
+        assertFalse(o.ok);
+        assertTrue(o.why, o.why.contains("关着"));
+        assertEquals(Boolean.TRUE, api("pairing", m("op", "unlock")).get("ok"));
+        Map<String, Object> del = api("pairing", m("op", "code_off"));
+        assertEquals(Boolean.TRUE, del.get("ok"));
+        assertEquals(Boolean.FALSE, pairState().get("code_set"));
+        assertEquals("删码后打开要先设码", Boolean.TRUE, api("pairing", m("op", "invite", "on", Boolean.TRUE)).get("need_code"));
         // 扫码配对照旧在
         assertTrue(String.valueOf(api("pairing", null).get("pairing")).startsWith("onesay://pair?"));
     }

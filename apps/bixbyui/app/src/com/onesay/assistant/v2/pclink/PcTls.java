@@ -126,7 +126,7 @@ public final class PcTls {
 
     /**
      * [rel-1123-b] 免扫码配对用的客户端：出示自己的证书，先接受对方任何证书（还不认识电脑）。看到的指纹记在 {@link PcWs#peerFp}，
-     * 之后电脑回的配对串里的指纹必须就是它；两边屏幕上的核对码也是用这两张证书的指纹算的。
+     * 之后电脑回的配对串里的指纹必须就是它；[rel-1123 合并] 免扫码配对时这两张证书的指纹也进 SPAKE2 的核对内容（中间人对不上）。
      */
     public SSLContext firstContactContext() { return context(null); }
 

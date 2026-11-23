@@ -458,9 +458,36 @@ public class Fix1123ATest {
             @Override public void step(Map<String, Object> ev) { }
         });
         assertTrue("一次都没照原样执行：" + ran, ran.isEmpty());
-        assertEquals("拆了四次还是混着下载就停下", "no_progress", o.status);
-        assertTrue(o.text.contains("不会照原样执行"));
-        assertTrue("第三次起明说不会执行", toolText.stream().anyMatch(t -> t.contains("不管发几次都不会执行")));
+        // [rel-1123 合并] 用户定：不执行、停下问用户
+        assertEquals(Outcomes.NEEDS_USER, o.status);
+        for (String must : new String[]{"没执行", "要下的是什么", "从哪个网址下", "存到哪个文件夹", "说不清的话我就先停在这里"}) assertTrue(must + "：" + o.text, o.text.contains(must));
+        assertEquals("第一次就问，不再让模型反复拆", 1, i.get());
+    }
+
+    /** [rel-1123 合并] 用户答清楚以后：下一轮按 download 工具 + 单独命令继续（下载工具被调用、后面的命令单独执行）。 */
+    @Test public void mixedDownloadContinuesAfterUserAnswers() {
+        List<Llm.Turn> turns = new ArrayList<>();
+        Map<String, Object> dl = new java.util.TreeMap<>();
+        dl.put("description", "下载 a.zip");
+        dl.put("url", "https://example.com/a.zip");
+        dl.put("path", "C:\\Users\\me\\Downloads\\a.zip");
+        turns.add(Overnight1119Test.call("1", "download", Json.stringify(dl)));
+        turns.add(Overnight1119Test.call("2", "run_command", Approvals1118Test.rc("解压", "Expand-Archive C:\\Users\\me\\Downloads\\a.zip")));
+        turns.add(Overnight1119Test.say("【完成】\n下好也解压了。"));
+        AtomicInteger i = new AtomicInteger();
+        List<String> ran = new ArrayList<>();
+        ChatAgent ag = new ChatAgent();
+        ag.wrapUpOnStop = false;
+        List<Map<String, Object>> ctx = new ArrayList<>(List.of(Llm.msg("user", "下载并解压"), Llm.msg("assistant", ChatAgent.dlQuestion("Invoke-WebRequest …; Expand-Archive …")),
+                Llm.msg("user", "从 https://example.com/a.zip 下，存到下载文件夹")));
+        ChatAgent.Outcome o = ag.run(ctx, (m, t) -> turns.get(Math.min(i.getAndIncrement(), turns.size() - 1)),
+                (cmd, a) -> { ran.add(cmd); return Actions.Result.ok("ok"); }, new ChatAgent.Steps() {
+                    @Override public void add(String text) { }
+                    @Override public void step(Map<String, Object> ev) { }
+                });
+        assertEquals("done", o.status);
+        assertTrue("下载走下载工具：" + ran, ran.contains("net_download") || ran.contains("download"));
+        assertTrue("后面的命令单独执行：" + ran, ran.contains("sys_exec"));
     }
 
     // ------------------------------------------------------------------ 界面
@@ -480,7 +507,8 @@ public class Fix1123ATest {
         String h = html();
         assertTrue("主页最上面有连接手机", h.contains("`<button class=\"btn\" onclick=\"go('chat')\">问 OneSay</button>`)+homePair()+"));
         assertTrue(h.contains("id=\"home-pair\""));
-        assertTrue("「手机」页离线卡上有配对", h.contains("<span class=\"tag\">离线</span><button class=\"btn\" onclick=\"showPair()\">"));
+        assertTrue("「手机」页离线卡上有配对", h.contains("<span class=\"tag\">离线</span><button class=\"btn\" onclick=\"togglePairPanel()\">")); // [rel-1123 合并] 点开是「扫码 / 输配对码」两种
+        assertTrue("配对面板里还有扫码", fn(h, "pairPanel").contains("showPair()"));
         assertTrue("侧栏的手机状态能点去配对", h.contains("onclick=\"devchipGo()\""));
         assertTrue("设置页的配对还在（跟正式版一样）", h.contains("grp('set-connect','连接'"));
         assertTrue("二维码只画在当前页", fn(h, "drawQr").contains("root.querySelector('#qrbox')"));

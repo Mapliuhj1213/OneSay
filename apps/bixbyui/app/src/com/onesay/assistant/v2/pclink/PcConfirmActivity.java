@@ -45,7 +45,7 @@ public class PcConfirmActivity extends Activity {
 
     private int mId;
     private boolean mAnswered;
-    private Button mAllow;
+    private Button mAllow, mAllowTask;
     private CheckBox mRemember;
     private TextView mHint;
     private final Handler mMain = new Handler(Looper.getMainLooper());
@@ -137,10 +137,17 @@ public class PcConfirmActivity extends Activity {
         deny.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { done(false, PcConfirm.Input.UNKNOWN); } // 拒绝从哪来都收
         });
-        mAllow = new HumanButton(this);
+        mAllow = new HumanButton(this, false);
         mAllow.setText(c.always ? "允许" : "允许一次");
         mAllow.setEnabled(false);
         row.addView(deny);
+        if (c.task) { // [rel-1123 合并] 电脑给了「允许本次任务」：点一次管到这个任务做完（删除 / 卸载 / 改设置 / 关机 / 付款 / 隐私外发照旧每次问）
+            mAllowTask = new HumanButton(this, true);
+            mAllowTask.setText("允许本次任务");
+            mAllowTask.setEnabled(false);
+            row.addView(mAllowTask);
+            root.addView(text("「允许本次任务」：这个任务里后面的普通步骤不再问；删除、卸载、改系统设置、关机、付款、把隐私发出去，照旧每次问。新任务要重新批。", 12, "#B8C4B2", false));
+        }
         row.addView(mAllow);
         root.addView(row);
         ScrollView sv = new ScrollView(this);
@@ -161,6 +168,7 @@ public class PcConfirmActivity extends Activity {
         PcConfirm.shown(mId, f); // 第一次 = 显示出来；之后 = 焦点变化（拿回焦点重新等 0.7 秒）
         PcConfirm.focus(mId, f);
         if (!f && mAllow != null) mAllow.setEnabled(false);
+        if (!f && mAllowTask != null) mAllowTask.setEnabled(false);
     }
 
     private void tick() {
@@ -175,14 +183,19 @@ public class PcConfirmActivity extends Activity {
                     return;
                 }
                 if (mAllow != null) mAllow.setEnabled(c.armed(System.currentTimeMillis()));
+                if (mAllowTask != null) mAllowTask.setEnabled(c.armed(System.currentTimeMillis()));
                 tick();
             }
         }, 200);
     }
 
     void done(boolean allow, PcConfirm.Input in) {
-        boolean remember = allow && mRemember != null && mRemember.isChecked();
-        PcConfirm.Answer a = PcConfirm.answer(mId, allow, false, remember, in);
+        done(allow, false, in);
+    }
+
+    void done(boolean allow, boolean task, PcConfirm.Input in) {
+        boolean remember = allow && !task && mRemember != null && mRemember.isChecked();
+        PcConfirm.Answer a = PcConfirm.answer(mId, allow, false, remember, task, in);
         if (a == PcConfirm.Answer.ACCEPTED || a == PcConfirm.Answer.GONE) {
             mAnswered = true;
             finish();
@@ -205,9 +218,11 @@ public class PcConfirmActivity extends Activity {
     /** 只认真人手指的按钮：无障碍代点 / performClick 不算，遮挡下的触摸不算。 */
     final class HumanButton extends Button {
         private boolean down;
+        private final boolean task;
 
-        HumanButton(Context c) {
+        HumanButton(Context c, boolean task) {
             super(c);
+            this.task = task;
             setFilterTouchesWhenObscured(true);
             setAccessibilityDelegate(new View.AccessibilityDelegate() {
                 @Override public boolean performAccessibilityAction(View host, int action, Bundle args) {
@@ -239,7 +254,7 @@ public class PcConfirmActivity extends Activity {
                     else if ((f & FLAG_IS_ACCESSIBILITY_EVENT) != 0) in = PcConfirm.Input.ACCESSIBILITY;
                     else if (ev.getToolType(0) != MotionEvent.TOOL_TYPE_FINGER && ev.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) in = PcConfirm.Input.UNKNOWN;
                     else in = PcConfirm.Input.TOUCH;
-                    done(true, in);
+                    done(true, task, in);
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL:

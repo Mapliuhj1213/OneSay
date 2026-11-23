@@ -3,8 +3,6 @@ package com.onesay.desktop;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.Deque;
@@ -13,42 +11,29 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * [rel-1123-b] 免扫码配对（电脑一侧的纯逻辑，{@link LanServer} 用它；JVM 可测）。
+ * 免扫码配对（电脑一侧的纯逻辑，{@link LanServer} 用它；JVM 可测）。[rel-1123-b] 起头，[rel-1123 合并] 按用户定改成「固定配对码 + SPAKE2」：
  *
- * <p>流程（都在局域网 TLS 连接里，和平常的常连同一个端口）：
  * <ol>
- *   <li>手机在局域网里广播 {@code {"t":"pprobe","v":1}}（端口 = 局域网端口 + 1），电脑开着「允许新手机配对」时回 {@code {"t":"pinv","v":1,"port"}}；
- *       电脑每分钟也往组播 / 广播发一条同样的 {@code pinv}。<b>都不带电脑的名字、id、证书</b>，只说「这里有台 OneSay 电脑可以配对」。</li>
- *   <li>手机 TLS 连上（这时还不认识电脑证书：先记下看到的指纹），首帧 {@code pair_req}：本机 id、手机名字、
- *       {@code commit = H(nPhone)}（先承诺自己的随机数，不先给出来）；</li>
- *   <li>电脑回 {@code pair_chal}（电脑的随机数 nPc）；手机再给出 nPhone（{@code pair_reveal}），电脑核对承诺；</li>
- *   <li>两边各自用「手机证书指纹 + 电脑证书指纹 + nPhone + nPc」算出同一个 4 位核对码（{@link #code}）：手机屏幕上显示，
- *       电脑确认框里也显示。中间要是有人冒充（两边看到的证书不一样），两边的码就对不上；因为手机先承诺随机数，冒充的一方也没法凑出一样的码。</li>
- *   <li>电脑弹「允许这台手机连接吗」：只认电脑本机鼠标 / 键盘（{@link PcGuard.Confirms} + {@link ConfirmGate}：0.7 秒防误点、焦点默认在拒绝、
- *       关窗 / Esc / 超时 / 失焦都算拒绝，语音 / 远程 / 手机上点都不算批准）；</li>
- *   <li>允许 → 电脑记住这台手机的证书指纹，回 {@code pair_ok}（带平常二维码里的那串配对串，在 TLS 里）；手机核对配对串里的证书指纹就是刚才 TLS 看到的那张，
- *       存下配对，之后照旧走签名的 announce 自动重连。拒绝 / 超时 → {@code pair_no}。</li>
+ *   <li>用户先在电脑设置里设一个 4 位配对码，才能打开「允许新手机配对」（没设码就打不开；码只以 PBKDF2 哈希存进 Windows 凭据管理器，见 {@link Verifier}）。</li>
+ *   <li>手机广播 {@code {"t":"pprobe","v":2}}（端口 = 局域网端口 + 1）。电脑开着「允许新手机配对」时回 {@code {"t":"pinv","v":2,"port","name","code"}}：
+ *       name = 电脑名字（用户同意同一网络里看得到），code = 设没设配对码（开关开着但码丢了时 false，手机提示「这台电脑还没设配对码」）。
+ *       不带电脑 id、证书。关着就不回。</li>
+ *   <li>手机 TLS 连上（先记下看到的电脑证书指纹）→ {@code pair_req}（v=2、本机 id、名字）→ 电脑回 {@code pair_salt}（盐、轮数、电脑名字和 id）
+ *       → 手机算 w、发 {@code pair_x} → 电脑记一次尝试、回 {@code pair_y} → 手机发确认码 {@code pair_confirm}
+ *       → 电脑核对：对 → 记住手机证书、回 {@code pair_ok}（电脑的确认码 + 平常二维码里那串配对串）；不对 → {@code pair_no why=code}（还能试几次）。
+ *       手机核对电脑的确认码（冒充的电脑算不出）和配对串里的证书就是 TLS 看到的那张，才保存。算法见 {@link Spake2}。</li>
  * </ol>
- * 防刷：只收私有局域网 / Tailscale 地址（{@link #privateAddr}）；同一时间只弹一个配对框；同一地址 10 秒内只收一次；一分钟最多 6 次；
- * 同一地址被拒 3 次后 10 分钟不收（{@link Limiter}）。扫码配对照旧保留。
+ * 防刷照旧：只收私有局域网 / Tailscale 地址；同一时间只一个；同一地址 10 秒一次；一分钟最多 6 次（{@link Limiter}）。
+ * 输错限次（{@link Lock}）：连错 5 次锁 10 分钟，再错 5 次锁 1 小时，之后每错 5 次锁 24 小时；配对成功、在电脑上解锁或改码清零。
+ * 扫码配对不受影响。
  */
 public final class LanPair {
 
     private LanPair() {}
 
     public static final int CODE_DIGITS = 4;
-    /** 电脑确认框等多久（和别的确认框一样 60 秒）。 */
-    public static final long ASK_MS = LinkPolicy.CONFIRM_TIMEOUT_MS;
-    /** 手机给出随机数最多等多久。 */
-    public static final int REVEAL_MS = 15_000;
-    /** 确认框标题里的「来源」：不是合法设备 id（有中文），手机冒充不了，也不会被发到哪台手机上去批。 */
-    public static final String FROM = "新手机配对";
-
-    /** 电脑上弹确认框（阻塞）：返回 {@link PcGuard#ALLOW} / {@link PcGuard#DENY} / {@link PcGuard#TIMEOUT}。 */
-    public interface Asker {
-        /** replaces = 这个设备 id 以前配对过、证书和这次不一样（允许的话旧的那台要重新配对）。 */
-        int ask(String phoneName, String phoneId, String code, String ip, boolean replaces, long timeoutMs);
-    }
+    /** 配对每一步最多等多久。 */
+    public static final int STEP_MS = 15_000;
 
     // ------------------------------------------------------------------ 地址
 
@@ -79,47 +64,39 @@ public final class LanPair {
 
     // ------------------------------------------------------------------ 发现
 
-    /** 手机的配对探测 → 电脑回的邀请；不是探测 / 关着配对 / 不是私有地址返回 null。 */
-    public static String answerPairProbe(boolean open, int port, String text, InetAddress from) {
+    /** 手机的配对探测 → 电脑回的邀请；不是探测 / 关着配对 / 不是私有地址返回 null。codeSet = 设了配对码。 */
+    public static String answerPairProbe(boolean open, boolean codeSet, int port, String name, String text, InetAddress from) {
         if (!open || !privateAddr(from) || text == null || text.length() > 512) return null;
         Map<String, Object> m;
         try { m = Json.obj(text); } catch (Exception e) { return null; }
         if (!"pprobe".equals(m.get("t"))) return null;
-        return inviteText(port);
+        return inviteText(port, name, codeSet);
     }
 
-    /** 电脑的配对邀请：只有类型、版本、端口。 */
-    public static String inviteText(int port) {
+    /** 电脑的配对邀请：类型、版本、端口、电脑名字、设没设码。 */
+    public static String inviteText(int port, String name, boolean codeSet) {
         Map<String, Object> r = new TreeMap<>();
         r.put("t", "pinv");
-        r.put("v", 1L);
+        r.put("v", 2L);
         r.put("port", (long) port);
+        r.put("name", pcName(name));
+        r.put("code", codeSet);
         return Json.stringify(r);
     }
 
-    // ------------------------------------------------------------------ 核对码
-
-    static byte[] sha(String s) {
-        try { return MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8)); } catch (Exception e) { throw new IllegalStateException(e); }
+    /** 电脑名字（给同一网络里的手机看）：去掉控制字符，最多 32 字；空的叫「OneSay 电脑」。 */
+    public static String pcName(String raw) {
+        String s = cleanName(raw);
+        return "一台手机".equals(s) ? "OneSay 电脑" : s;
     }
 
-    /** 手机对自己随机数的承诺：base64url(SHA-256("onesay-pair-commit\n" + n))。 */
-    public static String commit(String n) {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(sha("onesay-pair-commit\n" + n));
-    }
-
-    /** 4 位核对码：SHA-256(版本、手机证书指纹、电脑证书指纹、两边随机数) 的前 4 字节 mod 10000，左补零。两边算法一样。 */
-    public static String code(String phoneFp, String pcFp, String nPhone, String nPc) {
-        byte[] h = sha("onesay-pair-v1\n" + phoneFp + "\n" + pcFp + "\n" + nPhone + "\n" + nPc);
-        long v = ((h[0] & 0xFFL) << 24) | ((h[1] & 0xFFL) << 16) | ((h[2] & 0xFFL) << 8) | (h[3] & 0xFFL);
-        String s = Long.toString(v % 10000L);
-        while (s.length() < CODE_DIGITS) s = "0" + s;
-        return s;
-    }
-
-    /** 随机数格式：base64url 16–64 位。 */
-    public static boolean validNonce(Object n) {
-        return n instanceof String && ((String) n).matches("[A-Za-z0-9_-]{16,64}");
+    /** 这台电脑的名字：Windows 的计算机名，拿不到用主机名。 */
+    public static String hostName() {
+        String n = System.getenv("COMPUTERNAME");
+        if (n == null || n.isBlank()) {
+            try { n = InetAddress.getLocalHost().getHostName(); } catch (Exception e) { n = ""; }
+        }
+        return pcName(n);
     }
 
     /** 手机名字：去掉控制字符 / 换行 / 尖括号，最多 32 字；空的叫「一台手机」。 */
@@ -135,36 +112,120 @@ public final class LanPair {
         return t.isEmpty() ? "一台手机" : t;
     }
 
-    /** 确认框里的那段话。 */
-    public static String detail(String name, String id, String code, String ip) { return detail(name, id, code, ip, false); }
+    // ------------------------------------------------------------------ 配对码
 
-    public static String detail(String name, String id, String code, String ip, boolean replaces) {
-        return "允许这台手机连这台电脑吗？\n手机：" + name + "（" + id + "，地址 " + ip + "）\n核对码：" + code
-                + (replaces ? "\n注意：这个名字以前配对过另一台手机（证书不一样）。允许的话，以前那台要重新配对。" : "")
-                + "\n先看手机屏幕上的核对码，和这里一样才点「允许」；不认识这台手机、或者码不一样，就点「拒绝」。"
-                + "\n允许以后，这台手机能给电脑发指令、电脑也能找它（手机上的各项开关照旧管着）。";
+    /** 配对码格式：正好 4 位数字。 */
+    public static boolean validCode(String c) { return c != null && c.matches("\\d{4}"); }
+
+    /** 太好猜的码（四个一样、顺着 / 倒着连号）：不让设。返回原因，没问题返回 null。 */
+    public static String weakCode(String c) {
+        if (!validCode(c)) return "配对码要正好 4 位数字";
+        boolean same = true, up = true, down = true;
+        for (int i = 1; i < 4; i++) {
+            int d = c.charAt(i) - c.charAt(i - 1);
+            if (d != 0) same = false;
+            if (d != 1) up = false;
+            if (d != -1) down = false;
+        }
+        if (same || up || down) return "这个码太好猜了（四个一样或者连号），换一个";
+        return null;
+    }
+
+    /** 电脑存的配对码：盐、轮数、w（PBKDF2 结果）。只存这个，不存码本身。 */
+    public static final class Verifier {
+        public final byte[] salt, w;
+        public final int iter;
+
+        public Verifier(byte[] salt, int iter, byte[] w) {
+            this.salt = salt.clone();
+            this.iter = iter;
+            this.w = w.clone();
+        }
+
+        /** 用户设的码 → 新盐 + w。 */
+        public static Verifier of(String code) {
+            byte[] s = Spake2.salt();
+            return new Verifier(s, Spake2.ITER_DEFAULT, Spake2.w(code, s, Spake2.ITER_DEFAULT));
+        }
+
+        /** 存进凭据库的写法：v1:轮数:盐:w（base64url）。 */
+        public String format() {
+            Base64.Encoder e = Base64.getUrlEncoder().withoutPadding();
+            return "v1:" + iter + ":" + e.encodeToString(salt) + ":" + e.encodeToString(w);
+        }
+
+        /** 读回来；坏的返回 null。 */
+        public static Verifier parse(String s) {
+            if (s == null) return null;
+            String[] p = s.trim().split(":");
+            if (p.length != 4 || !"v1".equals(p[0])) return null;
+            try {
+                int it = Integer.parseInt(p[1]);
+                byte[] salt = Base64.getUrlDecoder().decode(p[2]), w = Base64.getUrlDecoder().decode(p[3]);
+                if (it < Spake2.ITER_MIN || it > Spake2.ITER_MAX || salt.length < 16 || w.length != Spake2.W_BYTES) return null;
+                return new Verifier(salt, it, w);
+            } catch (RuntimeException e) {
+                return null;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ 输错限次
+
+    /**
+     * 输错限次（全电脑一个计数：对方可以换地址 / 换 id，所以不按地址算）。一次「尝试」= 电脑回了 pair_y（对方拿到了猜一次的机会），
+     * 没发确认码就断开也算错一次。连错 5 次锁 10 分钟；累计 10 次锁 1 小时；之后每 5 次锁 24 小时。
+     * 成功 / 在电脑上解锁 / 改码 → 清零。fails、until 存进配置（重开 OneSay 不清零）。时间由调用方传。
+     */
+    public static final class Lock {
+        public static final int PER_ROUND = 5;
+        public static final long L1 = 10 * 60_000L, L2 = 60 * 60_000L, L3 = 24 * 60 * 60_000L;
+        private int fails;
+        private long until;
+
+        public Lock(int fails, long until) {
+            this.fails = Math.max(0, fails);
+            this.until = Math.max(0, until);
+        }
+
+        public synchronized boolean locked(long now) { return now < until; }
+
+        public synchronized long until() { return until; }
+
+        public synchronized int fails() { return fails; }
+
+        /** 这一轮还能错几次。 */
+        public synchronized int left() { return PER_ROUND - (fails % PER_ROUND); }
+
+        /** 错一次；返回这次锁到什么时候（没锁返回 0）。 */
+        public synchronized long fail(long now) {
+            fails++;
+            if (fails % PER_ROUND != 0) return 0;
+            long d = fails <= PER_ROUND ? L1 : fails <= 2 * PER_ROUND ? L2 : L3;
+            until = now + d;
+            return until;
+        }
+
+        /** 刚才记的那次其实成功了（配对成功）：清零。 */
+        public synchronized void ok() { fails = 0; until = 0; }
+
+        public synchronized void reset() { fails = 0; until = 0; }
     }
 
     // ------------------------------------------------------------------ 防刷
 
-    /** 配对请求的门：同时只一个、同一地址 10 秒一次、一分钟最多 6 次、同一地址被拒 3 次后 10 分钟不收。时间由调用方传（测试用假时钟）。 */
+    /** 配对请求的门：同时只一个、同一地址 10 秒一次、一分钟最多 6 次。时间由调用方传（测试用假时钟）。 */
     public static final class Limiter {
-        public static final long PER_IP_GAP_MS = 10_000, WINDOW_MS = 60_000, BLOCK_MS = 10 * 60_000;
-        public static final int WINDOW_MAX = 6, DENY_MAX = 3;
-        public static final String BUSY = "busy", TOO_FAST = "rate", BLOCKED = "blocked";
+        public static final long PER_IP_GAP_MS = 10_000, WINDOW_MS = 60_000;
+        public static final int WINDOW_MAX = 6;
+        public static final String BUSY = "busy", TOO_FAST = "rate";
 
         private boolean pending;
         private final Map<String, Long> lastAt = new HashMap<>();
         private final Deque<Long> window = new ArrayDeque<>();
-        private final Map<String, Deque<Long>> denies = new HashMap<>();
 
         /** 能不能收这条请求：能 = null（并占住「同时只一个」），不能 = 原因码。 */
         public synchronized String admit(String ip, long now) {
-            Deque<Long> d = denies.get(ip);
-            if (d != null) {
-                while (!d.isEmpty() && now - d.peekFirst() > BLOCK_MS) d.pollFirst();
-                if (d.size() >= DENY_MAX) return BLOCKED;
-            }
             if (pending) return BUSY;
             Long last = lastAt.get(ip);
             if (last != null && now - last < PER_IP_GAP_MS) return TOO_FAST;
@@ -180,28 +241,25 @@ public final class LanPair {
         /** 这条请求结束了（不管结果）。 */
         public synchronized void release() { pending = false; }
 
-        /** 用户在电脑上点了拒绝 / 没理（超时）：记一笔，3 次后这个地址 10 分钟不收。 */
-        public synchronized void denied(String ip, long now) {
-            denies.computeIfAbsent(ip, k -> new ArrayDeque<>()).addLast(now);
-            if (denies.size() > 256) denies.clear();
-        }
-
         public synchronized boolean pending() { return pending; }
     }
 
-    /** pair_no 的原因 → 手机上给人看的话（手机端也有一份同样的说法）。 */
-    public static String whyZh(String why) {
+    /** pair_no 的原因 → 给人看的话（手机端 PcPairNearby.whyZh 有一份同样的说法；left / waitMin 只有部分原因用）。 */
+    public static String whyZh(String why, int left, long waitMin) {
         switch (why == null ? "" : why) {
-            case "denied": return "电脑上点了拒绝";
-            case "timeout": return "电脑上没人点（60 秒没确认）";
+            case "code": return left > 0 ? "配对码不对，还能试 " + left + " 次" : "配对码不对";
+            case "locked": return "试错太多次，这台电脑暂停了免扫码配对" + (waitMin > 0 ? "，" + waitMin + " 分钟后再试" : "") + "（也可以在电脑上解锁）";
+            case "nocode": return "这台电脑还没设配对码，请在电脑上先设一个";
             case "closed": return "电脑上关着「允许新手机配对」";
+            case "old": return "两边的 OneSay 版本对不上，请都更新到最新";
             case Limiter.BUSY: return "电脑正在处理另一台手机的配对，等一会再试";
             case Limiter.TOO_FAST: return "试得太快了，等 10 秒再试";
-            case Limiter.BLOCKED: return "这台手机被拒绝太多次，10 分钟后再试";
             case "addr": return "只接受同一个局域网或 Tailscale 里的手机";
             case "tls": return "要用加密连接配对，请更新手机上的 OneSay";
             case "bad": return "配对请求不完整";
             default: return "电脑没同意配对";
         }
     }
+
+    public static String whyZh(String why) { return whyZh(why, 0, 0); }
 }

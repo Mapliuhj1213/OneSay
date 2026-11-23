@@ -69,6 +69,8 @@ public final class PcGuard {
         public final String from, cmd, detail, token, rememberKind;
         public final boolean always;
         public final long deadline;
+        /** [rel-1123 合并] 这条给了「允许本次任务」（手机卡上也给这个按钮）。 */
+        public volatile boolean task;
 
         PhoneOffer(int id, String from, String cmd, String detail, String token, boolean always, String rememberKind, long deadline) {
             this.id = id;
@@ -170,6 +172,7 @@ public final class PcGuard {
             byte[] tk = new byte[18];
             RNG.nextBytes(tk);
             PhoneOffer offer = new PhoneOffer(id, from, cmd, detail, java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(tk), offerAlways, rk, t0 + timeoutMs);
+            offer.task = offerTask;
             boolean offered = false;
             try {
                 try { onNew.accept(detail); } catch (Throwable ignored) { } // 通知失败不影响：照样等真人点击，等不到就拒
@@ -250,11 +253,26 @@ public final class PcGuard {
          * 手机界面的真人触摸（input = "touch"）、显示满 0.7 秒。语音 / 机器人 / 别的来源回 NOT_LOCAL，请求照旧等。
          */
         public ConfirmGate.Answer answerPhone(String device, int id, String token, boolean allow, boolean always, boolean remember, String input, long shownMs) {
+            return answerPhone(device, id, token, allow, always, remember, "", input, shownMs);
+        }
+
+        /**
+         * [rel-1123 合并] scope = "task"：手机卡上点的是「允许本次任务」。只在这条给了「允许本次任务」时算数（危险项电脑不给），
+         * 其余照旧按「允许一次」；「这次运行都允许」(session) 手机上不给。校验规则不变：同一台手机、一次性 token、真人触摸、显示满 0.7 秒。
+         */
+        public ConfirmGate.Answer answerPhone(String device, int id, String token, boolean allow, boolean always, boolean remember, String scope, String input, long shownMs) {
             Pending p = pending.get(id);
             if (p == null) return ConfirmGate.Answer.GONE;
             ConfirmGate.Input in = "touch".equals(input) ? ConfirmGate.Input.PHONE_TOUCH : ConfirmGate.Input.of(input);
             ConfirmGate.Answer a = p.gate.checkPhone(now(), allow, device, token, in, shownMs);
             if (a != ConfirmGate.Answer.ACCEPTED) return a;
+            if (allow && "task".equals(scope) && Boolean.TRUE.equals(p.info.get("task_scope"))) {
+                p.byPhone = true;
+                if (!p.res.compareAndSet(PENDING, TASK_ALLOW)) { p.byPhone = false; return ConfirmGate.Answer.GONE; }
+                pending.remove(id);
+                p.latch.countDown();
+                return ConfirmGate.Answer.ACCEPTED;
+            }
             p.byPhone = true;
             ConfirmGate.Answer r = finish(id, p, allow, always, remember);
             if (r != ConfirmGate.Answer.ACCEPTED) p.byPhone = false;
@@ -578,7 +596,7 @@ public final class PcGuard {
                 }
                 countPerm(from, cmd, a, PermStats.field(r)); // [overnight-1119] 单次点击算一次（没人点另记）
                 if ((r == TASK_ALLOW || r == SESSION_ALLOW) && !offerTask) r = ALLOW;
-                if (r == TASK_ALLOW) { grantTask(TASK.get()); r = ALLOW; logPerm(detail(cmd, a, d.text), "允许本次任务", from); }
+                if (r == TASK_ALLOW) { grantTask(TASK.get()); r = ALLOW; logPerm(detail(cmd, a, d.text), Boolean.TRUE.equals(ANSWERED_ON_PHONE.get()) ? "在手机上允许本次任务" : "允许本次任务", from); }
                 else if (r == SESSION_ALLOW) { grantSession(); r = ALLOW; logPerm(detail(cmd, a, d.text), "这次运行都允许", from); }
                 else logPerm(detail(cmd, a, d.text), r == ALLOW ? "允许一次" : r == REMEMBER ? "允许并记住" : r == ALWAYS ? "以后直接执行" : r == TIMEOUT ? "没人确认（拒绝）" : "拒绝", from); // [overnight-1119] 手机发来的请求也记
                 if (loc && (r == ALLOW || r == REMEMBER) && approvedSame.size() < 500) approvedSame.add(sameKey(cmd, a));
@@ -735,7 +753,7 @@ public final class PcGuard {
             r = DENY; // 确认框出错 = 拒绝
         }
         if ((r == TASK_ALLOW || r == SESSION_ALLOW) && !offerTask) r = ALLOW;
-        if (r == TASK_ALLOW) { grantTask(TASK.get()); r = ALLOW; logPerm(detail, "允许本次任务", from); }
+        if (r == TASK_ALLOW) { grantTask(TASK.get()); r = ALLOW; logPerm(detail, Boolean.TRUE.equals(ANSWERED_ON_PHONE.get()) ? "在手机上允许本次任务" : "允许本次任务", from); }
         else if (r == SESSION_ALLOW) { grantSession(); r = ALLOW; logPerm(detail, "这次运行都允许", from); }
         else logPerm(detail, r == ALLOW || r == ALWAYS || r == REMEMBER ? "允许一次" : r == TIMEOUT ? "没人确认（拒绝）" : "拒绝", from);
         if (r == ALLOW || r == ALWAYS || r == REMEMBER) return null;

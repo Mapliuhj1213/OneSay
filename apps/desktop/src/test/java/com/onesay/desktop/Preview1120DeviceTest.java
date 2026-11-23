@@ -63,7 +63,9 @@ public class Preview1120DeviceTest {
 
     @Test public void heldDownloadNoteShowsTheCommand() throws Exception {
         String src = Files.readString(Path.of("src/main/java/com/onesay/desktop/ChatAgent.java"), StandardCharsets.UTF_8);
-        assertTrue(src.contains("\"下载文件改用下载工具（任务卡上有进度条），这条命令先不执行：\" + clip(LinkPolicy.oneLine(String.valueOf(args.get(\"command\"))), 160)"));
+        // [rel-1123 合并] 认不全的下载命令改成停下问用户；卡上照样带出被拦下的原命令
+        assertTrue(src.contains("String shown = clip(LinkPolicy.oneLine(String.valueOf(args.get(\"command\"))), 160);"));
+        assertTrue(src.contains("\"下载那条命令混着别的语句，我认不全，没执行，先问你：\" + shown"));
     }
 
     @Test public void failedStepSummaryDoesNotRepeatReason() {

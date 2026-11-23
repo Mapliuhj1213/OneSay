@@ -240,7 +240,7 @@ public class Link1123PhoneTest {
         assertTrue(cap.text.contains("只列了前 2 个"));
         assertTrue(PcRxPolicy.known(PcRxPolicy.APP_LIST));
         assertFalse(PcRxPolicy.dangerous(PcRxPolicy.APP_LIST));
-        assertTrue("默认值按开源版现有规则（只读、不是危险项 → 开；总开关照旧默认关）", PcRxPolicy.defaultOn(PcRxPolicy.APP_LIST));
+        assertFalse("[rel-1123 合并] 用户定：看手机装了哪些 App 默认关，要自己打开", PcRxPolicy.defaultOn(PcRxPolicy.APP_LIST));
         assertEquals(LinkPolicy.Cat.READ_PRIVATE, LinkPolicy.phoneCat("app_list"));
         assertNull(PcRxPolicy.check(PcRxPolicy.APP_LIST, new TreeMap<String, Object>()));
         Map<String, Object> big = new TreeMap<String, Object>();
@@ -264,12 +264,47 @@ public class Link1123PhoneTest {
 
     // ================================================================== 免扫码配对
 
-    @Test public void pairCodeMatchesDesktopAlgorithm() {
-        // 同一组输入在电脑端 LanPair.code 里也是 4053（Pair1123Test 里锁同一个值；两边算法一样，核对码才对得上）
-        assertEquals("4053", PcPairNearby.code("AAAA", "BBBB", "n-phone-123456789", "n-pc-123456789012"));
-        assertEquals("ZQSDbH5snzVBbFAWkBFPXELnxL8k6CsEKOK1qmAxVSo", PcPairNearby.commit("abc"));
-        assertNotEquals("证书一换码就变", PcPairNearby.code("AAAA", "CCCC", "n-phone-123456789", "n-pc-123456789012"), PcPairNearby.code("AAAA", "BBBB", "n-phone-123456789", "n-pc-123456789012"));
-        for (int i = 0; i < 50; i++) assertTrue(PcPairNearby.code("a" + i, "b", "c", "d").matches("\\d{4}"));
+    static String hex(byte[] b) {
+        StringBuilder s = new StringBuilder();
+        for (byte x : b) s.append(String.format("%02x", x));
+        return s.toString();
+    }
+
+    /** [rel-1123 合并] 固定配对码的 SPAKE2：和电脑端 Spake2 同一组已知答案（Merge1123Test 锁同一组值；也和独立的 Python 参考实现对过）。 */
+    @Test public void spakeMatchesDesktopKnownAnswer() {
+        byte[] salt = new byte[16];
+        for (int i = 0; i < 16; i++) salt[i] = (byte) i;
+        byte[] w = PcSpake2.w("4827", salt, 10000);
+        assertEquals("95432166f9f717d15e05b75adb75b0a254f606a4ffd8546a9e5aeca7af6e9a13", hex(w));
+        PcSpake2.Ctx c = new PcSpake2.Ctx("phone-kat", "pc-kat", "AA:BB:CC", "dd:ee:ff", salt, 10000);
+        PcSpake2.Party a = new PcSpake2.Party(true, w, java.math.BigInteger.valueOf(123456789L)), b = new PcSpake2.Party(false, w, java.math.BigInteger.valueOf(987654321L));
+        assertTrue(hex(a.message()).startsWith("ed14db8a0e14be497290040ab96b16a0"));
+        PcSpake2.Keys ka = a.finish(b.message(), c), kb = b.finish(a.message(), c);
+        assertEquals("3dd923849afd643952264f909bc5cf35d55158b06f9ba309e03f6bb55b465c14", hex(ka.h));
+        assertEquals("1e796d2dcf93ba5db464128c544b8310263c16139858b35dce2179c93a3d783c", hex(kb.cA));
+        assertEquals("d2519f017bed7ea51f2c025de9e35628337724a446c250e908bd7b97c5f74cc7", hex(kb.cB));
+        // 冒充的电脑（不知道码）：手机算出的电脑确认码对不上 → 不保存
+        PcSpake2.Party ph = new PcSpake2.Party(true, w), fake = new PcSpake2.Party(false, PcSpake2.w("0420", salt, 10000));
+        assertFalse(PcSpake2.same(ph.finish(fake.message(), c).cB, fake.finish(ph.message(), c).cB));
+        assertNull("不在群里的元素不收", ph.finish(new byte[PcSpake2.ELEM_BYTES], c));
+    }
+
+    @Test public void inviteShowsNameAndCodeFlag() throws Exception {
+        InetAddress lan = InetAddress.getByName("192.168.1.7");
+        PcPairNearby.Found f = PcPairNearby.invite("{\"t\":\"pinv\",\"v\":2,\"port\":47920,\"name\":\"DESKTOP-O1\\u202E\",\"code\":true}", lan);
+        assertEquals("DESKTOP-O1", f.name);
+        assertTrue(f.codeSet);
+        assertEquals("DESKTOP-O1（192.168.1.7）", f.label());
+        PcPairNearby.Found n = PcPairNearby.invite("{\"t\":\"pinv\",\"v\":2,\"port\":47920,\"name\":\"\",\"code\":false}", lan);
+        assertEquals("OneSay 电脑", n.name);
+        assertTrue(n.label().endsWith("还没设配对码"));
+        assertNull(PcPairNearby.invite("{\"t\":\"ann\",\"port\":47920}", lan));
+        assertEquals("这台电脑还没设配对码，请在电脑上先设一个", PcPairNearby.whyZh("nocode"));
+        assertEquals("配对码不对，还能试 2 次", PcPairNearby.whyZh("code", 2, 0));
+        assertTrue(PcPairNearby.whyZh("locked", 0, 10).contains("10 分钟后再试"));
+        assertTrue(PcPairNearby.validCode("0428"));
+        assertFalse(PcPairNearby.validCode("042"));
+        assertFalse(PcPairNearby.validCode("04a8"));
     }
 
     @Test public void privateAddressesOnly() throws Exception {
@@ -280,10 +315,9 @@ public class Link1123PhoneTest {
         assertEquals(47920, PcPairNearby.invitePort("{\"t\":\"pinv\",\"v\":1,\"port\":47920}"));
         assertEquals(-1, PcPairNearby.invitePort("{\"t\":\"ann\",\"port\":47920}"));
         assertEquals(-1, PcPairNearby.invitePort("not json"));
-        PcPairNearby.Outcome o = PcPairNearby.request(new java.net.InetSocketAddress("8.8.8.8", 47820), "phone-x", "x", PcTls.generate("x"), null, 1000);
+        PcPairNearby.Outcome o = PcPairNearby.request(new java.net.InetSocketAddress("8.8.8.8", 47820), "phone-x", "x", PcTls.generate("x"), "4827", null, null);
         assertFalse("公网地址不去连", o.ok);
         assertTrue(o.why.contains("局域网"));
-        assertEquals("电脑上点了拒绝", PcPairNearby.whyZh("denied"));
         assertEquals("试得太快了，等 10 秒再试", PcPairNearby.whyZh("rate"));
     }
 
