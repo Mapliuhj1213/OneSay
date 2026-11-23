@@ -159,13 +159,35 @@ public final class ChatTranscript {
         if (labels == null) return out;
         for (String s : labels) {
             if (s == null) continue;
-            String t = s.trim();
-            if (t.length() == 0 || out.contains(t)) continue;
+            String t = cleanSuggestion(s);   // ★ 1123-dui B36：去掉 ↵ / [[ ]] 标记再去重
+            if (t.length() == 0 || containsSame(out, t)) continue;
             if (t.length() > 40) t = t.substring(0, 39) + "…";
             out.add(t);
             if (out.size() >= ChatWindowPolicy.MAX_SUGGESTIONS) break;
         }
         return out;
+    }
+
+    /** ★ 1123-dui B36：建议文字去掉追问标记（↵、[[ ]]）和首尾标点空白。 */
+    static String cleanSuggestion(String s) {
+        String t = s.replace(com.onesay.assistant.v2.util.FollowupMarks.ENTER, "").replace("[[", "").replace("]]", "").trim();
+        while (t.length() > 0 && "。，,.!！?？、 ".indexOf(t.charAt(t.length() - 1)) >= 0 && !(t.endsWith("?") || t.endsWith("？"))) t = t.substring(0, t.length() - 1).trim();
+        return t;
+    }
+
+    private static String key(String t) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (Character.isLetterOrDigit(c)) b.append(Character.toLowerCase(c));
+        }
+        return b.toString();
+    }
+
+    private static boolean containsSame(List<String> out, String t) {
+        String k = key(t);
+        for (String o : out) if (key(o).equals(k)) return true;
+        return false;
     }
 
     private void trim() {

@@ -1006,6 +1006,7 @@ public final class App {
             s.put("phone", ph == null ? "" : ph);
             OfflineWhy.Why why = agent.offlineWhy(); // [rel-1123-b] 没有手机在线时写原因（{code, text}）；有在线的不给
             if (why != null) s.put("phone_why", why.view());
+            s.put("phone_paired", agent.phonePaired()); // ★ 1123-dui B1：配对过就不再提示首次配对
             s.put("pair_invite", cfg.pairInvite && agent.lan() != null && agent.lan().pairCode != null); // [rel-1123-b] 免扫码配对开没开（[rel-1123 合并] 没设码 = 没开）
             s.put("pair", pairView()); // [rel-1123 合并] 设没设码、锁没锁、最近一次配对的进展、电脑名字
             Agent.Goal lg = agent.lastGoal();

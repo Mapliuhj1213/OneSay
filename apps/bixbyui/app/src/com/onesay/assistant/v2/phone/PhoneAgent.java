@@ -1103,6 +1103,11 @@ public final class PhoneAgent {
 
     /** 名字或资源 id（不分大小写）含这个词的元素。 */
     static boolean hasEl(UiTree t, String w) {
+        for (String n : SettingsAlias.namesFor(w)) if (hasEl1(t, n)) return true;   // ★ 1123-dui B3：「关于手机」也认「我的手机」等
+        return false;
+    }
+
+    static boolean hasEl1(UiTree t, String w) {
         String k = w.toLowerCase(java.util.Locale.ROOT);
         for (UiTree.El e : t.els) {
             if (e.label.toLowerCase(java.util.Locale.ROOT).contains(k)) return true;

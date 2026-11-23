@@ -82,8 +82,13 @@ public final class ButtonNumbersHooks {
     static String showNow(Context app) {
         if (com.onesay.assistant.v2.phone.PhoneHooks.busy()) return "正在替你操作手机，做完再标号。";
         if (ScreenLease.get().holder() != null) return ScreenLease.get().busySay();
-        FastScreenDriver drv = driver(app);
-        UiTree u = drv == null ? null : drv.observe(new UiTree.Ids());
+        FastScreenDriver drv0 = new FastScreenDriver(app);
+        com.onesay.assistant.v2.phone.MikaExec m0 = com.onesay.assistant.v2.mikaplug.MikaPlugs.phoneExec(app);
+        if (m0 != null) drv0.setMika(m0);
+        com.onesay.assistant.v2.a11y.A11yState.Choice ch = drv0.chooseBackend();
+        FastScreenDriver drv = ch.backend != com.onesay.assistant.v2.a11y.A11yState.Backend.NONE ? drv0 : null;
+        if (drv == null) return noScreenSay(ch);   // ★ 1123-dui B12：说清为什么读不到
+        UiTree u = drv.observe(new UiTree.Ids());
         if (u == null) return "读不到当前界面，没法标号。";
         A11yLabeler.attach(u, null, System.currentTimeMillis());
         final ButtonNumbers.Session s = ButtonNumbers.open(u, System.currentTimeMillis());
@@ -132,6 +137,17 @@ public final class ButtonNumbersHooks {
         } finally {
             ScreenLease.get().release(lease);
         }
+    }
+
+    /** ★ 1123-dui B12：读屏后端都不可用时的提示，带原因和下一步（不露内部错误）。 */
+    static String noScreenSay(com.onesay.assistant.v2.a11y.A11yState.Choice ch) {
+        if (ch != null && ch.offerA11ySettings) {
+            if (ch.reason != null && ch.reason.indexOf("还没连上") >= 0) {
+                return "读屏助手停了，无障碍读屏也还没连上，没法标号。稍等几秒再说一遍；还不行就在无障碍设置里把 OneSay 读屏服务关掉再打开。";
+            }
+            return "读屏助手停了，没法标号。到「设置 › 无障碍」打开 OneSay 读屏服务，或者重新开启读屏助手，再说一遍。";
+        }
+        return "读屏助手停了，无障碍读屏也被关掉了，没法标号。重新开启读屏助手后再说一遍。";
     }
 
     static FastScreenDriver driver(Context app) {

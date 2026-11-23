@@ -23,7 +23,7 @@ public final class OfflineWhy {
     public static final long RECENT_MS = 10 * 60_000;
 
     public static final String RX_OFF = "rx_off", PAIR_BAD = "pair_bad", PIN = "pin", PLAIN = "plain", DROPPED = "dropped",
-            JUST_PAIRED = "just_paired", NEVER = "never", UNREACHABLE = "unreachable", PC_NO_LAN = "pc_no_lan", LAN_OFF = "lan_off";
+            JUST_PAIRED = "just_paired", NEVER = "never", PAIRED_AWAY = "paired_away", UNREACHABLE = "unreachable", PC_NO_LAN = "pc_no_lan", LAN_OFF = "lan_off";
 
     public static final class Why {
         public final String code, text;
@@ -52,6 +52,15 @@ public final class OfflineWhy {
     }
 
     public static Why of(boolean running, String bindError, boolean pcNoLan, String phoneLast, LanServer.Seen seen, long now) {
+        return of(running, bindError, pcNoLan, phoneLast, false, seen, now);
+    }
+
+    /** ★ 1123-dui B1：已配对过（记着手机证书 / 本次运行配对过）但没常连过，按「已配对、手机当前不在线」说，不再当从没配对。 */
+    public static boolean pairedBefore(String phoneLast, String pins, LanServer.Seen seen) {
+        return (phoneLast != null && !phoneLast.isEmpty()) || (pins != null && pins.trim().length() > 0) || (seen != null && !seen.paired.isEmpty());
+    }
+
+    public static Why of(boolean running, String bindError, boolean pcNoLan, String phoneLast, boolean pairedBefore, LanServer.Seen seen, long now) {
         if (!running) return new Why(LAN_OFF, bindError == null || bindError.isEmpty() ? "电脑的局域网服务没开，手机找不到电脑：重启 OneSay 试试" : bindError + "：重启 OneSay，或在设置里换个端口");
         if (pcNoLan) return new Why(PC_NO_LAN, "电脑现在没连上局域网（没有 Wi-Fi 或网线地址），手机找不到它：先把电脑连上网");
         long one = newest(seen.oneShot, phoneLast), drop = newest(seen.dropped, phoneLast), paired = newest(seen.paired, null), ref = seen.refusedAt;
@@ -80,6 +89,8 @@ public final class OfflineWhy {
             default:
                 break;
         }
+        if ((phoneLast == null || phoneLast.isEmpty()) && (pairedBefore || !seen.paired.isEmpty()))
+            return new Why(PAIRED_AWAY, "已配对，手机当前不在线：手机上打开 OneSay 的「接受电脑指令」（设置 › 连接 › 电脑联动），连同一个 Wi-Fi 就会自己连回来");
         if (phoneLast == null || phoneLast.isEmpty())
             return new Why(NEVER, "还没有手机连过这台电脑：在手机上扫电脑的二维码，或在手机上点「找附近的电脑」配对");
         return new Why(UNREACHABLE, "手机没连过来：多半不在同一个网络（手机和电脑要连同一个 Wi-Fi，或都开着 Tailscale），也可能手机上的 OneSay 没在运行、或「接受电脑指令」没开");

@@ -19,7 +19,7 @@
 html,body{height:100%}
 body{font-family:"Microsoft YaHei UI","PingFang SC","Noto Sans CJK SC","Noto Sans SC",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;-webkit-font-smoothing:antialiased;overflow:hidden}
 button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
-.app{display:flex;height:100vh}
+div.app{display:flex;height:100vh}
 
 /* ---------- 侧栏 ---------- */
 .side{width:232px;flex:none;padding:22px 14px 16px;display:flex;flex-direction:column;gap:4px;border-right:1px solid var(--line);background:var(--bg)}
@@ -256,7 +256,7 @@ button{font:inherit;border:0;background:none;color:inherit;cursor:pointer}
 #memedit textarea{width:100%;min-height:160px;box-sizing:border-box}
 .drawer textarea{flex:1;border:0;background:var(--bg);border-radius:14px;padding:14px;font:inherit;font-size:13.5px;line-height:1.7;resize:none;outline:0}
 /* ---------- 通知 ---------- */
-.nk{font-size:11.5px;padding:3px 8px;border-radius:10px;flex:none;font-weight:600}
+.nk{font-size:11.5px;padding:3px 8px;border-radius:10px;flex:none;font-weight:600;display:inline-block;height:auto;align-self:center;line-height:1.4}
 .nk.reminder{background:rgba(255,149,0,.12);color:#C66F00}.nk.auto{background:rgba(0,163,180,.12);color:var(--auto)}
 .nk.task{background:rgba(31,164,99,.12);color:var(--green)}.nk.task.st-denied,.nk.task.st-stopped,.nk.task.st-time_limit{background:var(--chip);color:var(--text2)}/* [preview-1120 真机] 完成 / 拒绝也有底色 */
 .nk.task.st-needs_user,.nk.task.st-timeout{background:rgba(255,149,0,.14);color:#B86200}.nk.task.st-failed,.nk.task.st-error,.nk.task.st-loop,.nk.task.st-no_progress{background:rgba(255,69,58,.12);color:var(--red)}.nk.task.st-warn{background:rgba(245,180,0,.16);color:#8A6A00}
@@ -1345,7 +1345,7 @@ function homePair(){const ids=Object.keys(S.peers||{}),on=ids.length>0,ph=S.phon
   const warn=lanOff&&!s.relay?`<div class="warnline">${ico('info')} 局域网直连这次没开${s.lan_env_off?'（ONESAY_LAN=off）':'（配置里 lan_port=0）'}，中转也没开：手机现在连不上这台电脑。</div>`:'';
   if(on)return `<div class="card pairhome" id="home-pair"><div class="item"><i class="dot"></i><div class="tx"><div class="tt">手机在线：${esc(ids[0])}</div><div class="st">${esc(S.peers[ids[0]])}连着。要再配一台手机，点「再配一台」（扫码或者输配对码）</div></div><button class="btn ghost sm" onclick="go('phone')">${ico('smartphone')}手机页</button><button class="btn ghost sm" onclick="togglePairPanel()">${ico('qr-code')}${nbShown?'收起':'再配一台'}</button></div>${nbShown?`<div style="padding:0 20px 16px">${pairPanel()}</div>`:''}</div>`;
   return `<div class="card pairhome" id="home-pair" style="padding:18px 20px"><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><span class="pic">${ico('smartphone')}</span>
-  <div style="flex:1;min-width:220px"><div class="tt">连接手机</div><div class="st">${S.phone_why&&S.phone_why.text?esc(S.phone_why.text):ph?'手机现在没连着（上次是 '+esc(ph)+'）。手机上打开「接受电脑指令」就会自己连回来；换了手机就点「配对」重新扫码。':'还没配对过手机。点「配对」出二维码，用手机 OneSay 扫一下就连上。'}</div>${warn}${pv().invite?`<div class="note" style="margin:6px 0 0">${ico('link')} 免扫码配对开着：手机上点「找附近的电脑」，选「${esc(pv().name||'')}」，输配对码。</div>`:''}</div>
+  <div style="flex:1;min-width:220px"><div class="tt">连接手机</div><div class="st">${S.phone_why&&S.phone_why.text?esc(S.phone_why.text):ph?'已配对，手机当前不在线（上次是 '+esc(ph)+'）。手机上打开「接受电脑指令」就会自己连回来；换了手机就点「配对」重新扫码。':S.phone_paired?'已配对，手机当前不在线。手机上打开「接受电脑指令」就会自己连回来；换了手机再点「配对新手机」。':'还没配对过手机。点「配对」出二维码，用手机 OneSay 扫一下就连上。'}</div>${warn}${pv().invite?`<div class="note" style="margin:6px 0 0">${ico('link')} 免扫码配对开着：手机上点「找附近的电脑」，选「${esc(pv().name||'')}」，输配对码。</div>`:''}</div>
   <button class="btn" onclick="togglePairPanel()">${ico('qr-code')}${nbShown?'收起':'配对新手机'}</button></div>${nbShown?pairPanel():''}
   <p class="note" style="margin:10px 0 0">两边要在同一个 Wi-Fi 下（或者都开着 Tailscale）。首次运行 Windows 防火墙问的时候，勾「专用网络」。</p></div>`}
 // [rel-1123 合并] 免扫码配对（重点功能）：先设 4 位配对码才能打开；手机上选这台电脑、输对码就配上。码只以哈希存在 Windows 凭据管理器里，界面上不再显示
@@ -1454,7 +1454,7 @@ window.addEventListener('drop',e=>{if(e.dataTransfer&&[...e.dataTransfer.types].
 function render(){if(!S)return;
   confirmBar();
   const ids=Object.keys(S.peers),on=ids.length>0;
-  $('pdot').classList.toggle('off',!on);$('pline').textContent=on?'手机在线':'手机离线';$('pline2').textContent=on?S.peers[ids[0]]+' · '+ids[0]:'等待手机连接';$('pline2').title=on?'':((S.phone_why&&S.phone_why.text)||'');$('pgo').textContent=on?'':'配对';$('devchip').title=on?'打开「手机」页':'配对 / 连接手机';
+  $('pdot').classList.toggle('off',!on);$('pline').textContent=on?'手机在线':'手机离线';$('pline2').textContent=on?S.peers[ids[0]]+' · '+ids[0]:(S.phone_paired?'已配对，手机当前不在线':'等待手机连接');$('pline2').title=on?'':((S.phone_why&&S.phone_why.text)||'');$('pgo').textContent=on||S.phone_paired?'':'配对';$('devchip').title=on?'打开「手机」页':'配对 / 连接手机';
   pttView();
   for(const k of ['events','todos','tickets','pickups']){const n=k==='todos'?S.todos.filter(t=>!t.done).length:k==='pickups'?S.pickups.filter(p=>!p.done).length:S[k].length;$('c-'+k).textContent=n||''}
   const un=S.notes.filter(n=>!n.read).length;$('nbadge').style.display=un?'':'none';$('nbadge').textContent=un;

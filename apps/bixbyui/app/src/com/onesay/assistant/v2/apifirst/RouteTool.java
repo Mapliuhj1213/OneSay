@@ -77,7 +77,7 @@ public final class RouteTool {
             putStr(props, "minutes", "计时器分钟数");
             putStr(props, "title", "日程标题 / 闹钟备注");
             putStr(props, "name", "联系人名字");
-            putStr(props, "page", "设置页：wifi / bluetooth / location / display / sound / battery / apps / notification / data，不填 = 设置首页");
+            putStr(props, "page", "设置页：wifi / bluetooth / location / display / sound / battery / apps（应用管理）/ notification / data / about（关于手机、我的手机、看系统版本），不填 = 设置首页");
             putStr(props, "app", "用户点名要用的 App（如 高德地图、京东），不填 = 自动选");
             JSONObject params = new JSONObject();
             params.put("type", "object");
@@ -122,7 +122,9 @@ public final class RouteTool {
         if (p.contains("battery") || p.contains("电池") || p.contains("省电")) return "android.settings.BATTERY_SAVER_SETTINGS";
         if (p.contains("notification") || p.contains("通知")) return "android.settings.NOTIFICATION_SETTINGS";   // 注：部分机型只有按应用的通知页
         if (p.contains("data") || p.contains("流量") || p.contains("移动网络")) return "android.settings.DATA_ROAMING_SETTINGS";
-        if (p.contains("app") || p.contains("应用")) return "android.settings.APPLICATION_SETTINGS";
+        // ★ 1123-dui B22：关于手机 / 我的手机 / 看版本 → 本机信息页（放在 apps 前，别被「app」吃掉）
+        if (p.contains("about") || p.contains("device_info") || p.contains("关于") || p.contains("我的手机") || p.contains("本机") || p.contains("版本") || p.contains("手机信息") || p.contains("设备信息")) return "android.settings.DEVICE_INFO_SETTINGS";
+        if (p.equals("apps") || p.contains("app") || p.contains("应用")) return "android.settings.APPLICATION_SETTINGS";
         return "android.settings.SETTINGS";
     }
 

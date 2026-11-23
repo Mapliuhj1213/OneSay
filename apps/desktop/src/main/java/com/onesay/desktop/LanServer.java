@@ -542,9 +542,14 @@ public final class LanServer implements Link {
     }
 
     /** 现在为什么没有手机在线（有在线的返回 null）。phoneLast = 最近常连过的手机。 */
+    /** ★ 1123-dui B1：这台电脑配对过手机没有（常连过 / 记着证书 / 本次运行配对过）。 */
+    public boolean pairedBefore(String phoneLast) {
+        return OfflineWhy.pairedBefore(phoneLast, cfg.pins, seen);
+    }
+
     public OfflineWhy.Why offlineWhy(String phoneLast, long now) {
         if (!clients().isEmpty()) return null;
-        return OfflineWhy.of(running, bindError, LanClient.localAddresses().isEmpty(), phoneLast, seen, now);
+        return OfflineWhy.of(running, bindError, LanClient.localAddresses().isEmpty(), phoneLast, OfflineWhy.pairedBefore(phoneLast, cfg.pins, seen), seen, now);   // ★ 1123-dui B1
     }
 
     static String[] protocols(String[] supported) {

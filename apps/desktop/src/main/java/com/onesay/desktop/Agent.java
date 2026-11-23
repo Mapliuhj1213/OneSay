@@ -57,6 +57,13 @@ public final class Agent {
     }
 
     /** [rel-1123-b] 没有手机在线时的原因（有在线的、或没开局域网返回 null）。 */
+    /** ★ 1123-dui B1：配对过手机没有（界面据此不再提示首次配对）。 */
+    public boolean phonePaired() {
+        if (!relayPeers.isEmpty() || !cfg.phoneLast.isEmpty()) return true;
+        for (Link l : links) if (l instanceof LanServer && ((LanServer) l).pairedBefore(cfg.phoneLast)) return true;
+        return false;
+    }
+
     public OfflineWhy.Why offlineWhy() {
         if (!relayPeers.isEmpty()) return null;
         for (Link l : links) if (l instanceof LanServer) return ((LanServer) l).offlineWhy(cfg.phoneLast, System.currentTimeMillis());

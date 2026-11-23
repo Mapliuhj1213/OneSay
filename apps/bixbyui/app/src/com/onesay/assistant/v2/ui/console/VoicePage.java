@@ -355,7 +355,7 @@ final class VoicePage extends Console.BuiltPage {
             @Override public void run() {
                 final com.onesay.assistant.v2.asr.SpeakerVerifier sv = com.onesay.assistant.v2.asr.SpeakerVerifier.get(c.act);
                 final boolean avail = sv.isAvailable();
-                final String err = avail ? "" : sv.getLoadError();
+                final String err = avail ? "" : com.onesay.assistant.v2.util.UserErrText.scrub(sv.getLoadError(), "声纹引擎没加载起来，重启 OneSay 再试");   // ★ 1123-dui B37
                 final boolean has = avail && sv.hasName("owner");
                 c.ui(new Runnable() {
                     @Override public void run() {

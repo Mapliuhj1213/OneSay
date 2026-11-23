@@ -3015,6 +3015,18 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         endSessionOnClose(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CloseReason.USER_CLOSE); // ★ 旧界面立即强制收起；新界面卡片沉下退场（会话同样立即结束）
     }
 
+    /** ★ 1123-dui B18：返回键。任务在岛上跑着 → 只收起面板（同执行模式让位，不取消、不结束会话）；否则同关掉面板。 */
+    public void onBackKey() {
+        if (com.onesay.assistant.v2.router.AgentPreemption.backKeyKeepsTask(mActiveAgent != null && !mActiveAgent.isCancelled(),
+                com.onesay.assistant.v2.s1.S1Hooks.isTaskRunning())) {
+            SafeLog.i(TAG, "[SYSKEY] 返回键：任务在岛上跑着 → 只收起面板，不取消任务");
+            WakeService.cancelCaptureFromUi();
+            s1YieldSheetForExec();
+            return;
+        }
+        onDismiss();
+    }
+
     @Override
     public void onDismiss() {
         SafeLog.i(TAG, "用户触发退出/取消，立即收起面板并重置唤醒捕获");

@@ -779,3 +779,5 @@ com/onesay/assistant/v2/phone/StateFirst.java
 com/onesay/assistant/v2/phone/ScreenReadTool.java
 com/onesay/assistant/v2/island/IslandTouchDodge.java
 com/onesay/assistant/v2/executor/backend/TimerIntentBackend.java
+com/onesay/assistant/v2/util/UserErrText.java
+com/onesay/assistant/v2/phone/SettingsAlias.java
