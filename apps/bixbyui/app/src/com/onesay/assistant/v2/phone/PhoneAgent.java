@@ -179,7 +179,48 @@ public final class PhoneAgent {
 
     /** 读一次树（labels 开时顺手贴标签）。 */
     private UiTree obs() {
-        return lab(mD.observe(mIds));
+        UiTree u = lab(mD.observe(mIds));
+        if (u != null && u.pkg != null && u.pkg.length() > 0 && RISK_GATE) {
+            if (!mFirstPkgSeen) {
+                // 开局用户本来就在这个 App 里：不是我们打开的，不问
+                mFirstPkgSeen = true;
+                if (com.onesay.assistant.v2.exec.RiskyApps.risky(u.pkg)) mRiskOk.add(u.pkg);
+            } else if (mRiskDenied == null && !riskyOk(u.pkg, u.pkg)) {
+                // [fix-1123-dexec B6] 点着点着进了聊天 / 短信 / 电话 / 支付类 App（没经过 launch）：先问；不允许就退回桌面、整任务停
+                mD.key("home");
+            }
+        }
+        return u;
+    }
+
+    /** [fix-1123-dexec B40] 「开局现状」提示开关（测试可关）。 */
+    static volatile boolean STATE_FIRST = true;
+
+    /** [fix-1123-dexec B40] 驱动可选实现：上一次 launch 因为目标已在前台而没重新拉起。 */
+    public interface LaunchInfo {
+        boolean lastLaunchSkipped();
+    }
+
+    /** [fix-1123-dexec B6] 高风险 App 打开前的确认闸（测试可关）。 */
+    static volatile boolean RISK_GATE = true;
+    /** 用户已允许打开的高风险包（本次任务内只问一次）。 */
+    private final java.util.Set<String> mRiskOk = new java.util.HashSet<String>();
+    /** 用户不允许打开的那个 App（非 null = 本次任务就此停下）。 */
+    private volatile String mRiskDenied;
+    /** 开局第一屏看过没有（开局就在的 App 不算「打开」）。 */
+    private boolean mFirstPkgSeen;
+
+    /** 要打开 / 已进到 pkg：不是高风险或用户点了允许 → true。 */
+    boolean riskyOk(String pkg, String label) {
+        String kind = com.onesay.assistant.v2.exec.RiskyApps.kind(pkg);
+        if (kind == null || mRiskOk.contains(pkg)) return true;
+        String[] ans = new String[1];
+        boolean ok = mH.confirm(com.onesay.assistant.v2.exec.RiskyApps.confirmTitle(kind),
+                com.onesay.assistant.v2.exec.RiskyApps.confirmDetail(label == null || label.equals(pkg) ? null : label, kind), ans);
+        if (ok) mRiskOk.add(pkg);
+        else mRiskDenied = pkg;
+        if (mRes != null) mRes.trace.add("risky-app " + pkg + " " + (ok ? "allowed" : "denied"));
+        return ok;
     }
 
     private UiTree lab(UiTree u) {
@@ -199,12 +240,17 @@ public final class PhoneAgent {
     }
 
     public Result run(String goal, String startPkg) {
+        mGoal = goal == null ? "" : goal;   // [fix-1123-dexec B39]
         Result res = new Result();
         mRes = res;
         long t0 = mD.now();
         TaskBudget budget = TaskBudget.forTask(unattended, t0);
         List<String> history = new ArrayList<String>();
         if (startPkg != null && startPkg.length() > 0) {
+            mFirstPkgSeen = true;   // 开局要我们打开 App：之后进到的高风险 App 都要问（startPkg 本身下面先问）
+            if (RISK_GATE && !riskyOk(startPkg, startPkg)) {   // [fix-1123-dexec B6] 开局就要开高风险 App：先过确认卡
+                return finish(res, Status.STOPPED, "", "用户没有同意：打开 " + startPkg, budget, t0);
+            }
             mH.onStep("打开应用", 0);
             mD.launch(startPkg);
             mD.waitIdle(400, 4000);
@@ -214,6 +260,24 @@ public final class PhoneAgent {
         boolean wantShot = false;
         boolean visionOff = visionKnownOff;   // ★ overnight-1119：识屏用不了（第一次拿不到描述就记下）；★ fix/1123-bug2：开局已知就直接关
         if (visionOff) res.trace.add("vision off (no key)");
+        // [fix-1123-dexec B40] 先看现状：开局这一屏写进每一轮提示（已满足的步骤跳过、从当前位置接着走、每步后判断完成没有）
+        String stateNote = STATE_FIRST ? StateFirst.note(screen, mD instanceof LaunchInfo && ((LaunchInfo) mD).lastLaunchSkipped()) : "";
+        // [fix-1123-dexec B39] 刚打开目标 App，前台却是别的包、而且读不到内容（多半是系统的「是否打开」安全框）：
+        //   能看图就让模型先看一眼；看图也用不了就请用户手动点一下，点完继续
+        if (JUMP_GATE && startPkg != null && startPkg.length() > 0 && unreadableForeign(screen, startPkg)) {
+            if (!visionOff) {
+                wantShot = true;
+                res.trace.add("jump-confirm unreadable → shot");
+            } else {
+                res.trace.add("jump-confirm unreadable → ask user");
+                String[] sup = new String[1];
+                long w0 = mD.now();
+                Resume r0 = mH.awaitResume(JumpConfirm.MANUAL, sup);
+                budget.pausedMs += mD.now() - w0;
+                if (r0 == Resume.STOP) return finish(res, Status.STOPPED, "", "用户停止", budget, t0);
+                screen = obs();
+            }
+        }
         int shotRefused = 0;
         int stepNo = 0;
         mRec = null;
@@ -241,6 +305,7 @@ public final class PhoneAgent {
         }
         while (true) {
             if (mH.stopRequested()) return finish(res, Status.STOPPED, "", "已停止", budget, t0);
+            if (mRiskDenied != null) return finish(res, Status.STOPPED, "", "用户没有同意：打开 " + mRiskDenied, budget, t0);   // [fix-1123-dexec B6]
             // ① 用户接手（批内 / 收集时先取走的接手请求在这里补上）
             String tk = drainReinjectedTakeover();
             if (tk == null) tk = mH.takeoverRequested();
@@ -291,7 +356,7 @@ public final class PhoneAgent {
             }
             wantShot = false;
             noteTaint(screen, res);
-            String user = PhonePrompt.user(goal, screen, desc, history, lastBatchReport, budget.info(mD.now()), maxElementLines);
+            String user = PhonePrompt.user(goal, screen, desc, history, lastBatchReport, budget.info(mD.now()), maxElementLines, stateNote);
             if (redactor != null) user = redactor.redact(user);   // ★ borrow-1112：手机号 / 身份证 / 银行卡 / 邮箱 / 验证码换成占位符再发
             budget.onModelCall();
             mH.onStep("思考", stepNo);
@@ -360,7 +425,7 @@ public final class PhoneAgent {
             BatchResult br = runBatch(plan, screen, budget, stepNo, res);
             stepNo = br.stepNo;
             res.batches++;
-            if (br.stopAll) return finish(res, Status.STOPPED, "", br.report, budget, t0);
+            if (br.stopAll) return finish(res, Status.STOPPED, "", mRiskDenied != null ? "用户没有同意：打开 " + mRiskDenied : br.report, budget, t0);
             if (mika != null && mika.stopReason != null) {   // ★ mika-plug：守卫阶梯叫停（StopRules）
                 res.trace.add("guard stop " + mika.stopReason);
                 return finish(res, Status.FAILED, "", mika.stopReason, budget, t0);
@@ -401,7 +466,7 @@ public final class PhoneAgent {
         int done = 0;
         for (int i = 0; i < plan.steps.size(); i++) {
             PhonePlan.Step s = plan.steps.get(i);
-            if (mH.stopRequested()) {
+            if (mH.stopRequested() || mRiskDenied != null) {   // [fix-1123-dexec B6] 不允许开高风险 App = 剩下的步作废
                 br.stopAll = true;
                 br.report = "已停止";
                 receipt(res, StepReceipt.Code.STOPPED);
@@ -640,7 +705,10 @@ public final class PhoneAgent {
         if (s.op.equals("back")) return mD.key("back") ? "已返回" : "返回失败";
         if (s.op.equals("home")) return mD.key("home") ? "已回桌面" : "失败";
         if (s.op.equals("key")) return mD.key(s.key) ? "已按 " + s.key : "按键失败";
-        if (s.op.equals("launch")) return mD.launch(s.app) ? "已打开 " + s.app : "打不开 " + s.app;
+        if (s.op.equals("launch")) {
+            if (RISK_GATE && !riskyOk(s.app, s.app)) return "没打开 " + s.app + "：用户没同意";   // [fix-1123-dexec B6]
+            return mD.launch(s.app) ? "已打开 " + s.app : "打不开 " + s.app;
+        }
         if (s.op.equals("swipe")) {
             int w = cur == null ? 1080 : cur.screenW, h = cur == null ? 2220 : cur.screenH;
             boolean ok = s.dir > 0 ? mD.swipe(w / 2, h * 70 / 100, w / 2, h * 30 / 100, 300) : mD.swipe(w / 2, h * 30 / 100, w / 2, h * 70 / 100, 300);
@@ -884,10 +952,57 @@ public final class PhoneAgent {
     /** 动作之后的读屏：settle 关 = 读一次（原行为）；开 = 等到连续两次指纹一致，最长 maxWaitMs，超时用最后一次并记 unstable。 */
     UiTree observeAfterAction(String what) {
         mLastUnstable = false;
-        if (settle == null) return obs();
+        if (settle == null) return handleJump(obs());
         StableRead.Result<UiTree> r = StableRead.await(mClock, mSource, settle);
         noteSettle(r, what, Math.max(0, r.reads - 1));
-        return r.value;
+        return handleJump(r.value);
+    }
+
+    /** [fix-1123-dexec B39] 打开 startPkg 后前台是别的包且读不到（null / 不可用）。 */
+    static boolean unreadableForeign(UiTree u, String startPkg) {
+        if (u == null || !UiTree.Q_UNUSABLE.equals(u.quality())) return false;   // 完全没读到（null）不算：可能只是读屏断了
+        return u.pkg != null && u.pkg.length() > 0 && !u.pkg.equals(startPkg);
+    }
+
+    /** [fix-1123-dexec B39] 跳转确认框处理开关（测试可关）。 */
+    static volatile boolean JUMP_GATE = true;
+    private int mJumpDepth;
+    private String mGoal = "";
+    /** 本次任务里跳转框处理了几次（报告 / 测试用）。 */
+    int jumpHandled;
+
+    /**
+     * [fix-1123-dexec B39] 动作后读到「是否打开 XX」跳转确认框：要开的是用户点名的 App → 直接点「打开 / 允许」；
+     * 别的 → 先问用户（确认卡），同意才点，不同意点「取消」并停下。处理完重新读屏。
+     */
+    UiTree handleJump(UiTree u) {
+        if (!JUMP_GATE || u == null || mJumpDepth >= 2 || mRiskDenied != null) return u;
+        java.util.List<String> labels = new java.util.ArrayList<String>(u.els.size());
+        for (UiTree.El e : u.els) labels.add(e.label);
+        JumpConfirm.Hit h = JumpConfirm.detect(labels);
+        if (h == null) return u;
+        boolean mine = JumpConfirm.isUserTarget(h.target, mGoal, null);
+        boolean ok = mine;
+        if (!ok) {
+            String[] ans = new String[1];
+            ok = mH.confirm("要打开别的应用吗", JumpConfirm.askDetail(h.target), ans);
+        }
+        jumpHandled++;
+        if (mRes != null) mRes.trace.add("jump-confirm " + h.target + " " + (mine ? "user-target" : ok ? "allowed" : "denied"));
+        if (ok) {
+            mD.tap(u.els.get(h.allowIdx));
+        } else {
+            if (h.cancelIdx >= 0) mD.tap(u.els.get(h.cancelIdx));
+            else mD.key("back");
+            mRiskDenied = h.target.length() > 0 ? h.target : "弹框里的应用";
+        }
+        mD.waitIdle(300, 2500);
+        mJumpDepth++;
+        try {
+            return handleJump(obs());
+        } finally {
+            mJumpDepth--;
+        }
     }
 
     private StableRead.Result<UiTree> settleFrom(UiTree seed, long capMs) {

@@ -731,6 +731,27 @@ public final class LinkPolicy {
             "\\bsettings\\s+put\\s+(global|secure)\\b|\\bsvc\\s+(data|nfc|usb)\\b|\\bcmd\\s+(connectivity|netpolicy|wifi)\\b|\\biptables\\b|\\bip\\s+(route|rule|addr)\\b",
             Pattern.CASE_INSENSITIVE);
     // ★ sec-1123 M1：cmd package uninstall / disable… 和 pm 是同一件事
+    /** [fix-1123-dexec B19] 对 App 动手的 shell 命令（卸载 / 停用 / 隐藏 / 清数据 / 冻结 / 强停 / 杀进程 / 撤权限）。 */
+    private static final Pattern APP_KILL_OP = Pattern.compile(
+            "\\b(pm|cmd\\s+package)\\s+(uninstall|disable|disable-user|hide|clear|suspend|revoke|reset-permissions)\\b"
+                    + "|\\b(am|cmd\\s+activity)\\s+(force-stop|kill|stop-service|crash)\\b|\\b(appops)\\s+set\\b|\\b(dpm)\\b",
+            Pattern.CASE_INSENSITIVE);
+    /** OneSay 自己的包名（com.onesay.assistant 及其所有变体：.debug / .preview / 以后的，按前缀认，不写死）。 */
+    private static final Pattern SELF_PKG = Pattern.compile("(?<![A-Za-z0-9_.])com\\.onesay\\.assistant(?![A-Za-z0-9_])(\\.[A-Za-z0-9_]+)*", Pattern.CASE_INSENSITIVE);
+
+    /** 包名是不是 OneSay 自己（com.onesay.assistant、com.onesay.assistant.debug……）。 */
+    public static boolean isSelfPackage(String pkg) {
+        if (pkg == null) return false;
+        String p = pkg.trim().toLowerCase(Locale.ROOT);
+        return p.equals("com.onesay.assistant") || p.startsWith("com.onesay.assistant.");
+    }
+
+    /** shell 命令是不是要卸载 / 停用 / 清掉 / 强停 OneSay 自己。 */
+    public static boolean touchesSelfApp(String cmd) {
+        if (cmd == null) return false;
+        return APP_KILL_OP.matcher(cmd).find() && SELF_PKG.matcher(cmd).find();
+    }
+
     private static final Pattern SYS_APP_OP = Pattern.compile("\\b(pm|cmd\\s+package)\\s+(uninstall|disable|disable-user|hide|clear|suspend)\\b", Pattern.CASE_INSENSITIVE);
 
     /**
@@ -890,6 +911,8 @@ public final class LinkPolicy {
         // 所以红线既看原文、也看去掉引号 / 反斜杠后的写法（电脑分支用 normalizeCommand，同一个道理）。
         String n = unquoteShell(s);
         if (SELF_GRANT.matcher(s).find() || SELF_GRANT.matcher(n).find()) return Cat.SELF_GRANT;
+        // [fix-1123-dexec B19] 卸载 / 停用 / 清数据 / 强停的对象是 OneSay 自己（任何 OneSay 包名，含 .debug）：硬规则拒，任何档位都不执行
+        if (touchesSelfApp(s) || touchesSelfApp(n)) return Cat.SELF_AUTHORIZE;
         if (SYS_APP_OP.matcher(s).find() || SYS_APP_OP.matcher(n).find()) return Cat.SHELL_EXEC; // 卸载 / 停用要走 uninstall_app（系统卸载界面），shell 形式按系统命令处理
         // 多条命令拼接的（; && | 反引号 $()）一律按任意命令处理，不按其中一段放宽
         if (s.matches("(?s).*(;|&&|\\|\\||\\||`|\\$\\(|\\n|>|<).*")) return Cat.SHELL_EXEC;

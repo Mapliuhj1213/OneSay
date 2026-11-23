@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit;
  *   <li>滚动优先无障碍 SCROLL_FORWARD/BACKWARD；没有可滚动节点才注入滑动（滑动路径整条开孔）。</li>
  * </ul>
  */
-public final class FastScreenDriver implements PhoneAgent.MikaDriver {
+public final class FastScreenDriver implements PhoneAgent.LaunchInfo, PhoneAgent.MikaDriver {
 
     private static final String TAG = "PhoneAgent";
 
@@ -159,12 +159,51 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         UiTree u = mx != null && mx.f.screen ? mx.build(t, ids, mW, mH) : UiTree.from(t, ids, mW, mH);   // ★ mika-plug：Mika 元素表
         SafeLog.i(TAG, "[PHONE] 读屏 " + ms + "ms（助手内 " + t.ms + "ms）pkg=" + u.pkg + " 元素=" + u.els.size() + " 质量=" + u.quality()
                 + (u.ime ? " ime" : ""));
+        // [fix-1123-dexec B7] 助手读到的不完整（被自家悬浮窗挡住、只读到最上层）且无障碍连着 → 用无障碍再读一次，更好就换
+        if (!mLastB2 && ObserveFallback.suspect(u.quality(), u.pkg, mApp.getPackageName())) {
+            try {
+                FsTree t2 = readB2();
+                if (t2 != null) {
+                    UiTree u2 = mx != null && mx.f.screen ? mx.build(t2, ids, mW, mH) : UiTree.from(t2, ids, mW, mH);
+                    if (ObserveFallback.preferA11y(u.quality(), u.pkg, u.els.size(), u2.quality(), u2.pkg, u2.els.size(), mApp.getPackageName())) {
+                        a11yRescues++;
+                        mLastB2 = true;   // 之后的动作用同一个后端的节点句柄
+                        SafeLog.i(TAG, "[PHONE] 助手读屏不完整（" + u.quality() + " pkg=" + u.pkg + "）→ 改用无障碍读屏 pkg=" + u2.pkg
+                                + " 元素=" + u2.els.size() + " 质量=" + u2.quality());
+                        return u2;
+                    }
+                }
+            } catch (Throwable e) {
+                SafeLog.w(TAG, "[PHONE] 无障碍补读失败: " + e);
+            }
+        }
         return u;
     }
 
     private FsTree readB2() {
         com.onesay.assistant.v2.a11y.A11yBackend b2 = com.onesay.assistant.v2.a11y.A11yBackend.instance();
         return b2 == null ? null : b2.readTree(1500);
+    }
+
+    /** [fix-1123-dexec B7] 助手读屏不完整、改用无障碍读屏救回来的次数。 */
+    public volatile int a11yRescues;
+
+    /** [fix-1123-dexec B9] 用户点了停止：之后这台驱动的一切动作直接作废（模型刚回来的一批步骤、点按核对里的补点都不再执行）。 */
+    private volatile boolean mAborted;
+
+    public void abort() {
+        mAborted = true;
+        SafeLog.i(TAG, "[PHONE] 用户停止：挂起的动作全部作废");
+    }
+
+    public boolean aborted() {
+        return mAborted;
+    }
+
+    private boolean dead(String op) {
+        if (!mAborted) return false;
+        SafeLog.i(TAG, "[PHONE] 已停止，作废动作 " + op);
+        return true;
     }
 
     /** ★ plan-1118：护罩孔已由外层开着（点按核对期间），内层手势不再开 / 关。 */
@@ -217,7 +256,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     }
 
     @Override public boolean tap(final UiTree.El e) {
-        if (e == null) return false;
+        if (e == null || dead("tap")) return false;
         com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();   // approve-not-block：机器人在点，这一会儿确认卡上的触摸不算真人
         if (mA11yFallback || (mk(1) && mLastB2)) return tapA11yVerified(e);   // ★ plan-1118
         if (mk(1)) {   // ★ mika-plug（mika.actchain）：节点或 ≤8 层可点祖先 ACTION_CLICK → （B1 无手势）→ 注入
@@ -240,6 +279,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
 
     /** 注入点按（护罩开孔 → 注入 → 补孔）。测试也直接调。 */
     public boolean injectTap(int x, int y) {
+        if (dead("injectTap")) return false;
         com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();
         ShieldOverlay sh = mHoleHeld ? null : mShield;   // ★ plan-1118：外层点按核对已开着孔就不再开 / 关
         Rect hole = new Rect(x - 32, y - 32, x + 32, y + 32);
@@ -261,7 +301,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     }
 
     @Override public boolean longPress(UiTree.El e, int ms) {
-        if (e == null) return false;
+        if (e == null || dead("longPress")) return false;
         ShieldOverlay sh = mShield;
         if (sh != null) sh.openHole(new Rect(e.cx() - 32, e.cy() - 32, e.cx() + 32, e.cy() + 32));
         try {
@@ -280,6 +320,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     }
 
     @Override public String type(UiTree.El e, String text) {
+        if (dead("type")) return null;
         if (mk(1)) return typeVerified(e, text);
         int x = e == null ? 0 : e.cx(), y = e == null ? 0 : e.cy();
         String r = setTextAny(x, y, text);
@@ -471,6 +512,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     static final String SENSITIVE_EXTRA = "android.content.extra.IS_SENSITIVE";
 
     @Override public boolean scroll(UiTree.El e, int dir) {
+        if (dead("scroll")) return false;
         if (mk(1)) {   // ★ mika-plug：ref 所在的可滚祖先（助手按落点找最深可滚节点）→ 屏中线滑动
             String r = com.onesay.assistant.plug.action.core.ActionChain.scroll(port(), e == null ? -1 : e.src, e == null ? null : new int[]{e.l, e.t, e.r, e.b}, dir, mW, mH);
             return com.onesay.assistant.plug.action.core.ActionChain.SCROLLED.equals(r) || com.onesay.assistant.plug.action.core.ActionChain.SWIPED.equals(r);
@@ -490,6 +532,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     }
 
     @Override public boolean swipe(int x1, int y1, int x2, int y2, int ms) {
+        if (dead("swipe")) return false;
         com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();
         ShieldOverlay sh = mShield;
         if (sh != null) sh.openHole(new Rect(Math.min(x1, x2) - 48, Math.min(y1, y2) - 48, Math.max(x1, x2) + 48, Math.max(y1, y2) + 48));
@@ -509,6 +552,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     }
 
     @Override public boolean key(String key) {
+        if (dead("key")) return false;
         if (b2Ready()) {   // ★ mika-plug（B2）：返回 / 主页走 performGlobalAction，不需要 root
             com.onesay.assistant.v2.a11y.A11yBackend b2 = com.onesay.assistant.v2.a11y.A11yBackend.instance();
             if ("back".equals(key) && b2 != null && b2.globalBack()) return true;
@@ -532,7 +576,40 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
         return mFs.key(code);
     }
 
+    /** [fix-1123-dexec B40] 上一次 launch 因为目标已在前台而没重新拉起。 */
+    private volatile boolean mLaunchSkipped;
+
+    @Override public boolean lastLaunchSkipped() {
+        return mLaunchSkipped;
+    }
+
+    /** 当前前台包名（助手 top / 无障碍读树；读不到 = null）。 */
+    String foregroundPkg() {
+        try {
+            if (!mA11yFallback) {
+                String top = mFs.top();
+                if (top != null && top.length() > 0) {
+                    String p = new org.json.JSONObject(top).optString("pkg", "");
+                    if (p.length() > 0) return p;
+                }
+            }
+            com.onesay.assistant.v2.a11y.A11yBackend b = com.onesay.assistant.v2.a11y.A11yBackend.instance();
+            FsTree t = b == null ? null : b.readTree(1200, false);
+            return t == null || t.pkg == null || t.pkg.length() == 0 ? null : t.pkg;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     @Override public boolean launch(String pkg) {
+        if (dead("launch")) return false;
+        mLaunchSkipped = false;
+        String fg = foregroundPkg();
+        if (StateFirst.skipLaunch(fg, pkg)) {   // [fix-1123-dexec B40] 已经在前台：不重新拉起（拉起可能把它带回首页），从当前页面接着做
+            mLaunchSkipped = true;
+            SafeLog.i(TAG, "[PHONE] " + pkg + " 本来就在前台，不重新打开，从当前页面接着做");
+            return true;
+        }
         try {
             Intent it = mApp.getPackageManager().getLaunchIntentForPackage(pkg);
             if (it != null) {
@@ -562,6 +639,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     private com.onesay.assistant.plug.action.core.ActionChain.ActionPort port() {
         return new com.onesay.assistant.plug.action.core.ActionChain.ActionPort() {
             @Override public boolean clickNode(int src, int[] b, String cls, int max) {
+                if (dead("clickNode")) return false;
                 com.onesay.assistant.v2.a11y.A11yBackend b2 = mLastB2 ? com.onesay.assistant.v2.a11y.A11yBackend.instance() : null;
                 if (b2 != null && b2.clickNode(src, b, max)) {
                     a11yClicks++;
@@ -590,6 +668,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
             }
 
             @Override public boolean gestureTap(int x, int y) {
+                if (dead("gestureTap")) return false;
                 com.onesay.assistant.v2.a11y.A11yBackend b2 = mA11yFallback ? fb() : b2Ready() ? com.onesay.assistant.v2.a11y.A11yBackend.instance() : null;
                 if (b2 == null) return false;   // B1 没有 dispatchGesture，只有 B2 有
                 // ★ plan-1118：dispatchGesture 走触摸管线，会被自家护罩吞掉（真机「护罩吞掉误触 @416,1663」）→ 落点开孔
@@ -628,6 +707,7 @@ public final class FastScreenDriver implements PhoneAgent.MikaDriver {
     }
 
     @Override public boolean tapXY(int x999, int y999) {
+        if (dead("tapXY")) return false;
         int x = com.onesay.assistant.plug.screen.core.UiElement.denormalize(x999, mW), y = com.onesay.assistant.plug.screen.core.UiElement.denormalize(y999, mH);
         return !com.onesay.assistant.plug.action.core.ActionChain.NONE.equals(com.onesay.assistant.plug.action.core.ActionChain.tapXY(port(), x, y));
     }

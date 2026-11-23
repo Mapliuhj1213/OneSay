@@ -134,6 +134,19 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
                         });
                     }
                 });
+                // [fix-1123-dexec B8] 手势导航：边缘往里划（返回）/ 底边上划（回桌面）同样紧急接管，不再当误触吞掉
+                try {
+                    int mode = android.provider.Settings.Secure.getInt(mApp.getContentResolver(), "navigation_mode", 0);
+                    if (EdgeGesture.gestureNav(mode)) {
+                        android.graphics.Point p = new android.graphics.Point();
+                        mWm.getDefaultDisplay().getRealSize(p);
+                        float d = mApp.getResources().getDisplayMetrics().density;
+                        mShield.setEdgeGesture(new EdgeGesture(p.x, p.y, (int) (24 * d), (int) (32 * d), (int) (40 * d)));
+                        ev("手势导航：边缘返回 / 底边上划 = 紧急接管");
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "[EXEC] 读导航方式失败: " + t);
+                }
                 mShield.show(false);
             }
         });
@@ -372,6 +385,10 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
     public void stop(String why) {
         ev("停止：" + why);
         state.stop();
+        // [fix-1123-dexec B9] 停止 = 整任务停：记下停止时刻（点界面工具据此报「整任务取消」），挂起的动作全部作废
+        ExecStopGate.userStopped(why, SystemClock.elapsedRealtime());
+        FastScreenDriver dr = mDriver;
+        if (dr != null) dr.abort();
         setWho(ControlColor.Who.STOPPED);
         synchronized (mWait) {
             mWait.notifyAll();

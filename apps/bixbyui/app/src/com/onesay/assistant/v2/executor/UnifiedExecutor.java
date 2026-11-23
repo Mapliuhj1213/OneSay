@@ -94,6 +94,7 @@ public class UnifiedExecutor implements IExecutor {
         l.add(new MailBackend());
         // [kernel] 插件的执行后端（BACKENDS 顺序）：[s2] 记忆库/习惯/记账 → [s3] 定时任务/待办 → [diag] 设置诊断的修复/撤销（白名单键）
         l.addAll(com.onesay.assistant.v2.kernel.FeatureKernel.get().executorBackends());
+        l.add(new com.onesay.assistant.v2.executor.backend.TimerIntentBackend());   // [fix-1123-dexec B32] 倒计时不走 am
         l.add(new IntentBackend());
         l.add(new ShellBackend());
         return Collections.unmodifiableList(l);

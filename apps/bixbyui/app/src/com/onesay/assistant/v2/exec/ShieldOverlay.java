@@ -56,6 +56,66 @@ public final class ShieldOverlay extends View {
     private boolean mAttached;
     private volatile boolean mThin;
     private final Rect mHole = new Rect();
+    /** [fix-1123-dexec B8/B40] 孔按引用计数叠加（里层开 / 关不再把外层的孔关掉）。 */
+    private final ShieldHoles mHoles = new ShieldHoles();
+    /** [fix-1123-dexec B8] 手势导航：边缘返回 / 底边上划 = 紧急接管；null = 三键导航。 */
+    private volatile EdgeGesture mEdge;
+    /** [fix-1123-dexec B40] 当前挂着的护罩（无障碍手势 / 助手注入统一从这里开孔）。 */
+    private static volatile ShieldOverlay sActive;
+
+    /** 当前挂着、拦触摸的护罩；没有 = null。 */
+    public static ShieldOverlay active() {
+        ShieldOverlay s = sActive;
+        return s != null && s.mAttached && !s.mThin ? s : null;
+    }
+
+    /**
+     * [fix-1123-dexec B40] 代操作注入前调用：当前护罩在注入落点开孔（阻塞到生效）；返回要不要在注入后 {@link #unholeInject}。
+     * 护罩只拦用户的手指，不能拦代操作自己注入的点按 / 手势。
+     */
+    public static boolean holeForInject(int l, int t, int r, int b) {
+        ShieldOverlay s = active();
+        if (s == null) return false;
+        // [fix-1123-dexec B38] 落点压着灵动岛：岛先让开（不接触摸），注入完恢复
+        try {
+            com.onesay.assistant.v2.s1.IslandController isl = com.onesay.assistant.v2.s1.S1Hooks.island();
+            Rect ir = isl == null ? null : isl.islandWindowRect();
+            if (ir != null && com.onesay.assistant.v2.island.IslandTouchDodge.overlaps(new int[]{l, t, r, b}, new int[]{ir.left, ir.top, ir.right, ir.bottom})) {
+                isl.yieldTouch(true);
+                s.mIslandYielded = true;
+            }
+        } catch (Throwable ignored) {
+        }
+        s.openHole(new Rect(l, t, r, b));
+        return true;
+    }
+
+    public static void unholeInject(boolean opened) {
+        if (!opened) return;
+        ShieldOverlay s = sActive;
+        if (s != null) {
+            s.closeHole();
+            final ShieldOverlay fs = s;
+            s.mMain.post(new Runnable() {   // closeHole 也是抛到主线程的：排在它后面再看孔是不是全补上了
+                @Override public void run() {
+                    if (fs.mIslandYielded && fs.mHoles.empty()) {
+                        fs.mIslandYielded = false;
+                        try {
+                            com.onesay.assistant.v2.s1.IslandController isl = com.onesay.assistant.v2.s1.S1Hooks.island();
+                            if (isl != null) isl.yieldTouch(false);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    private volatile boolean mIslandYielded;
+
+    public void setEdgeGesture(EdgeGesture g) {
+        mEdge = g;
+    }
     private final Rect mIsland = new Rect();
     private final Paint mGlow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint mLine = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -106,6 +166,7 @@ public final class ShieldOverlay extends View {
             try {
                 mWm.addView(this, mLp);
                 mAttached = true;
+                sActive = this;
                 mRegionToken = TouchRegionCompat.install(this, new TouchRegionCompat.Source() {
                     @Override public boolean touchRegion(Region out) {
                         return computeRegion(out);
@@ -134,6 +195,19 @@ public final class ShieldOverlay extends View {
         } catch (Throwable ignored) {
         }
         mAttached = false;
+        if (sActive == this) sActive = null;
+        if (mIslandYielded) {
+            mIslandYielded = false;
+            try {
+                com.onesay.assistant.v2.s1.IslandController isl = com.onesay.assistant.v2.s1.S1Hooks.island();
+                if (isl != null) isl.yieldTouch(false);
+            } catch (Throwable ignored) {
+            }
+        }
+        synchronized (this) {
+            mHoles.clear();
+            mHole.setEmpty();
+        }
         Log.i(TAG, "[SHIELD] 护罩已撤掉");
     }
 
@@ -210,13 +284,18 @@ public final class ShieldOverlay extends View {
             @Override public void run() {
                 if (mRegionToken != null) {
                     synchronized (ShieldOverlay.this) {
-                        mHole.set(rect);
+                        mHoles.open(rect.left, rect.top, rect.right, rect.bottom);
+                        int[] u = mHoles.rect();
+                        mHole.set(u[0], u[1], u[2], u[3]);
                     }
                     holes++;
                     requestLayout();
                     invalidate();
                 } else {
                     fallbacks++;
+                    synchronized (ShieldOverlay.this) {
+                        mHoles.open(rect.left, rect.top, rect.right, rect.bottom);
+                    }
                     setTouchable(false);
                 }
                 // 两帧：第一帧 traversal 把新区域经 setInsets 交给 WMS，第二帧之后 InputMonitor 已更新
@@ -242,11 +321,17 @@ public final class ShieldOverlay extends View {
         if (!mAttached) return;
         mMain.post(new Runnable() {
             @Override public void run() {
+                boolean empty;
                 synchronized (ShieldOverlay.this) {
-                    mHole.setEmpty();
+                    empty = mHoles.close() == 0;   // [fix-1123-dexec] 最后一层关掉才补孔
+                    if (empty) mHole.setEmpty();
+                    else {
+                        int[] u = mHoles.rect();
+                        mHole.set(u[0], u[1], u[2], u[3]);
+                    }
                 }
                 if (mRegionToken != null) requestLayout();
-                else if (!mThin) setTouchable(true);
+                else if (!mThin && empty) setTouchable(true);
                 invalidate();
             }
         });
@@ -255,6 +340,30 @@ public final class ShieldOverlay extends View {
     // ------------------------------------------------------------------ 触摸 / 绘制
 
     @Override public boolean onTouchEvent(MotionEvent e) {
+        EdgeGesture eg = mEdge;
+        if (eg != null) {   // [fix-1123-dexec B8] 手势导航：边缘带里的按下先不算误触，看是不是返回 / 上划
+            int a = e.getActionMasked();
+            String hit = null;
+            if (a == MotionEvent.ACTION_DOWN) {
+                if (eg.down(e.getRawX(), e.getRawY()) != 0) return true;
+            } else if (a == MotionEvent.ACTION_MOVE) {
+                hit = eg.move(e.getRawX(), e.getRawY());
+            } else if (a == MotionEvent.ACTION_CANCEL) {
+                hit = eg.cancel();
+                eg.up();
+            } else if (a == MotionEvent.ACTION_UP) {
+                boolean was = eg.inZone();
+                eg.up();
+                if (was) mEnv.onStray(e.getRawX(), e.getRawY());   // 边缘轻点一下：还是误触
+                return true;
+            }
+            NavListener nl = mNavL;
+            if (hit != null && nl != null) {
+                nl.onNavKey(hit);
+                return true;
+            }
+            if (eg.inZone()) return true;
+        }
         if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
             String nav = com.onesay.assistant.v2.fastscreen.NavKeys.hit(mNav, (int) e.getRawX(), (int) e.getRawY());
             NavListener l = mNavL;

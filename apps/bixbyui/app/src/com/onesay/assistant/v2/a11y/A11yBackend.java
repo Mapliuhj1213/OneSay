@@ -378,6 +378,15 @@ public class A11yBackend extends AccessibilityService {
 
     private boolean gesture(Path p, int durationMs, int waitMs) {
         com.onesay.assistant.v2.pclink.PcConfirm.noteRobotInput();   // approve-not-block：机器人注入手势，确认卡上这一会儿的触摸不算真人
+        // [fix-1123-dexec B8/B40] 手势走触摸管线，会被执行护罩当误触吞掉 → 不管谁调的，注入前一律在路径外框开孔，注入完补上
+        boolean holed = false;
+        try {
+            android.graphics.RectF rf = new android.graphics.RectF();
+            p.computeBounds(rf, true);
+            int[] h = com.onesay.assistant.v2.exec.ShieldHoles.around((int) rf.left, (int) rf.top, (int) rf.right, (int) rf.bottom, 40);
+            holed = com.onesay.assistant.v2.exec.ShieldOverlay.holeForInject(h[0], h[1], h[2], h[3]);
+        } catch (Throwable ignored) {
+        }
         try {
             GestureDescription g = new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, durationMs)).build();
             final CountDownLatch l = new CountDownLatch(1);
@@ -397,6 +406,8 @@ public class A11yBackend extends AccessibilityService {
             return ok[0];
         } catch (Throwable t) {
             return false;
+        } finally {
+            com.onesay.assistant.v2.exec.ShieldOverlay.unholeInject(holed);
         }
     }
 
