@@ -278,7 +278,7 @@ public class Round2Test {
     @Test public void uiCanSendExtraPhoneCommandsAndShowsAsr() throws Exception {
         String ui = new String(Round2Test.class.getResourceAsStream("/onesay/ui/index.html").readAllBytes(), StandardCharsets.UTF_8);
         for (String c : new String[]{"'flashlight'", "'setting_set'", "'file_write'", "'file_list'", "'uninstall_app'", "'script_list'", "'script_run'", "'sys_exec'"})
-            assertTrue(c, ui.contains("phone(" + c));
+            assertTrue(c, ui.contains("phone(" + c) || ui.contains("phoneQ(" + c)); // [fix-1123-a] 手机页的面板用 phoneQ（结果显示在面板里）
         assertTrue(ui.contains("seg('asr_pref'"));
         assertTrue(ui.contains("['auto','先看云端'],['cloud','仅云端'],['local','仅本机']"));
         assertTrue("显示现在用的是哪个", ui.contains("现在用的是") && ui.contains("S.asr_engine_zh"));

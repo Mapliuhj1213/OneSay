@@ -38,6 +38,8 @@ public final class Chat {
     public volatile ChatAgent.Exec pcExec;
     /** [fix-1120 晚] 对话里的提醒工具（App 接上常驻分工）。 */
     public volatile ChatReminders reminders;
+    /** [fix-1123-a] 一句话改 OneSay 自己的设置 / 跳到某一页（App 接上）。 */
+    public volatile AppControl appControl;
     /** 测试用：换掉大模型（null = 按设置连 {@link Llm}）。 */
     volatile ChatAgent.Brain brain;
     /** 正在跑的任务（界面「停止」用）。 */
@@ -329,6 +331,12 @@ public final class Chat {
         boolean tasks = modelOk && pcExec != null;
         // [chat-agent-1118] 「继续」接着上一件事（上一条助手回复是模型 / 任务的）：交给模型，不再被当成「播放 / 暂停」媒体键
         boolean cont = modelOk && Intent.isContinuation(text) && continuing();
+        // [fix-1123-a] 「把主题改成深色」「打开工作流页」：短句直接做（改设置照样弹确认卡）；手机交来的、带附件的、「继续」不走这里
+        AppControl ac = appControl;
+        if (ac != null && !cont && pa == null && !"phone".equals(via)) {
+            String said = ac.handle(text, false, modelOk);
+            if (said != null) return add("assistant", said, "cmd");
+        }
         Intent it = cont || (pa != null && modelOk) || "phone".equals(via) ? null : Intent.parse(text, cfg.appMap(), shortcuts.get(), tasks); // 带附件的、手机交来的交给模型
         // [dual-1122] 手机交来的每个任务都是新任务（新任务卡、标题是这次的目标）：以前这里一律按「继续」，
         // 第二个手机任务会接在上一个任务卡里（标题还是上一个、结果推回手机时说的也是上一个）。带附件的照旧。
@@ -511,6 +519,10 @@ public final class Chat {
             if (origin != null && !origin.isEmpty()) return Actions.Result.fail("这个任务是手机交来的：提醒请在手机上建（电脑上的批准卡手机看不到）");
             ChatReminders cr = reminders;
             return cr == null ? Actions.Result.fail("提醒功能没启动") : cr.run(args);
+        }
+        if ("app_control".equals(cmd)) { // [fix-1123-a] 手机交来的任务不能动电脑上 OneSay 的界面和设置（AppControl 里再挡一次）
+            AppControl ac = appControl;
+            return ac == null ? Actions.Result.fail("这个功能没启动") : ac.run(args, origin != null && !origin.isEmpty());
         }
         if ("open_target".equals(cmd)) return openTarget(pe, args);
         if (cmd.startsWith("phone_")) return phoneTool(cmd, args);

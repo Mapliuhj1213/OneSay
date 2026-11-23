@@ -72,7 +72,7 @@ public final class App {
     static void autoSetup(Config cfg) throws IOException {
         if (cfg.ready()) return;
         if (cfg.deviceId.isEmpty()) cfg.deviceId = Main.defaultId("pc-");
-        if (!cfg.lanEnabled() && !cfg.relayEnabled()) cfg.lanPort = LanServer.DEFAULT_PORT;
+        if (!cfg.lanEnabled() && !cfg.relayEnabled() && !cfg.lanOffByUser) cfg.lanPort = LanServer.DEFAULT_PORT; // [fix-1123-a] 自己写了 lan_port=0 的不改回去
         if (cfg.pairKey.length < 32) cfg.pairKey = Protocol.newKey();
         cfg.kind = "pc";
         cfg.save();
@@ -395,6 +395,9 @@ public final class App {
         agent.guard.notify = t -> { log.accept("权限：" + t); agent.guard.logPerm(t, "提醒", ""); };
         setupAlwaysOn(); // [always-on-1120] 要在通道启动前挂好：中转一连上就要同步任务、收排队
         chat.reminders = new ChatReminders(aon, d -> agent.guard.confirmLow(ChatAgent.FROM, "reminder", d), System::currentTimeMillis, null); // [fix-1120 晚] 对话里建提醒：存在常驻分工里，默认电脑本地
+        // [fix-1123-a] 对话里一句话改 OneSay 设置 / 跳页：改设置走同一条审批链（confirmLow），真正改用设置页同一个接口；跳页由界面轮询 state.ui_nav 时执行
+        chat.appControl = new AppControl(d -> agent.guard.confirmLow(ChatAgent.FROM, "app_setting", d), this::applySetting, this::settingsView,
+                () -> Themes.list(Config.defaultDir().resolve("themes")), this::navTo);
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
         setupLinks1119();
@@ -858,6 +861,36 @@ public final class App {
         return m;
     }
 
+    /** [fix-1123-a] 设置页的保存接口（对话改设置也走它，校验和副作用完全一样）。 */
+    volatile java.util.function.Function<Map<String, Object>, Object> settingsFn;
+    /** [fix-1123-a] 对话要界面跳到哪一页：{seq, page, anchor, at}；界面看到新的 seq 就跳。 */
+    final Map<String, Object> uiNav = new java.util.concurrent.ConcurrentHashMap<>();
+    final java.util.concurrent.atomic.AtomicLong navSeq = new java.util.concurrent.atomic.AtomicLong();
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> applySetting(String key, String value) {
+        java.util.function.Function<Map<String, Object>, Object> f = settingsFn;
+        if (f == null) return fail("设置接口还没好");
+        Map<String, Object> b = new TreeMap<>();
+        b.put(key, value);
+        Object r = f.apply(b);
+        return r instanceof Map ? (Map<String, Object>) r : fail("没有结果");
+    }
+
+    /** [fix-1123-a] 剪贴板文字是一个 http(s) 网址（一行、没有空格、≤ 2000 字）才算。 */
+    static String clipUrl(String t) {
+        if (t == null) return "";
+        String u = t.trim();
+        return u.length() <= 2000 && u.matches("(?i)https?://[^\\s<>\"]+") ? u : "";
+    }
+
+    void navTo(String[] pa) {
+        uiNav.put("page", pa[0]);
+        uiNav.put("anchor", pa.length > 1 && pa[1] != null ? pa[1] : "");
+        uiNav.put("at", System.currentTimeMillis());
+        uiNav.put("seq", navSeq.incrementAndGet());
+    }
+
     Map<String, Object> settingsView() {
         Map<String, Object> s = new TreeMap<>();
         s.put("device_id", cfg.deviceId);
@@ -953,6 +986,7 @@ public final class App {
             s.put("media", mediaState());
             s.put("mirror", mirror.view());
             s.put("aon", aonView()); // [always-on-1120] 常驻与唤醒
+            if (!uiNav.isEmpty()) s.put("ui_nav", new TreeMap<String, Object>(uiNav)); // [fix-1123-a] 对话要求跳页
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
         });
@@ -1145,6 +1179,20 @@ public final class App {
             if (r.data != null) m.put("data", new TreeMap<String, Object>(r.data));
             return m;
         });
+        // [fix-1123-a] 「手机上打开网址」预填：只在电脑剪贴板里是一个 http(s) 网址时回这个网址，别的内容不回界面
+        ui.on("clip_url", b -> {
+            try {
+                Actions.Result c = actions.run("clipboard_get", Map.of());
+                String t = c.ok && c.data != null && c.data.get("text") != null ? String.valueOf(c.data.get("text")).trim() : "";
+                Map<String, Object> m = ok("");
+                m.put("url", clipUrl(t));
+                return m;
+            } catch (Exception e) {
+                Map<String, Object> m = ok("");
+                m.put("url", "");
+                return m;
+            }
+        });
         ui.on("confirm", b -> confirmApi(agent.confirms, b, log));
         ui.on("whitelist", b -> whitelistApi(whitelist, b, log));
         ui.on("media", this::mediaApi);
@@ -1257,7 +1305,7 @@ public final class App {
         });
         ui.on("aon", this::aonApi); // [always-on-1120]
         ui.on("wf", b -> wf.handle(b)); // [workflow-1120] 工作流页
-        ui.on("settings", b -> {
+        ui.on("settings", settingsFn = b -> {
             boolean restartVoice = false, aonTouched = false;
             for (Map.Entry<String, Object> e : b.entrySet()) {
                 String v = String.valueOf(e.getValue()).trim();

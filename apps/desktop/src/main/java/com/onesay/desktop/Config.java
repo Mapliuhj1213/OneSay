@@ -22,6 +22,8 @@ import java.util.Properties;
  */
 public final class Config {
     public int lanPort = LanServer.DEFAULT_PORT; // 局域网直连端口（UDP 发现用 +1）；0 = 关闭局域网
+    /** [fix-1123-a] 配置文件里明确写了 lan_port=0（关局域网）：启动时别当成没配置过改回默认端口。 */
+    public boolean lanOffByUser;
     public String lanHosts = "";      // 对方的局域网地址提示 ip:port,...（配对串带来）
     public String lanLast = "";       // 上次连上的地址
     public boolean pttEnabled = true; // 长按空格说话（Windows，需识别 Key）
@@ -106,6 +108,8 @@ public final class Config {
         if (!Files.exists(file)) return c;
         Properties p = readProps(Files.readAllBytes(file));
         try { c.lanPort = Integer.parseInt(p.getProperty("lan_port", String.valueOf(LanServer.DEFAULT_PORT)).trim()); } catch (NumberFormatException e) { c.lanPort = LanServer.DEFAULT_PORT; }
+        // [fix-1123-a] lan_port=0 = 你自己关了局域网直连（以前启动时被当成「没配置过」改回默认端口，47920 照样在听）
+        c.lanOffByUser = c.lanPort == 0;
         c.lanHosts = p.getProperty("lan_hosts", "").trim();
         c.lanLast = p.getProperty("lan_last", "").trim();
         c.pttEnabled = !"off".equalsIgnoreCase(p.getProperty("ptt", "on").trim());

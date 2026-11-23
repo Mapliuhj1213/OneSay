@@ -61,12 +61,47 @@ public final class McpHub {
                 x.put("title", Mcp.str(t.get("title")));
                 x.put("description", ChatAgent.clip(Mcp.str(t.get("description")), 160));
                 x.put("read_only", Mcp.readOnly(t));
+                if (Mcp.readOnly(t)) x.put("schema", formSchema(t.get("inputSchema"))); // [fix-1123-a] 界面「试一个只读工具」按参数说明生成表单
                 ts.add(x);
             }
             m.put("tools", ts);
             m.put("env_keys", new ArrayList<Object>(spec.env.keySet())); // 只给名字，不给值
             return m;
         }
+    }
+
+    /** [fix-1123-a] 参数说明 → 界面表单要的那点：每个参数的类型 / 说明 / 可选值 / 默认值、哪些必填（最多 20 个参数，说明截到 160 字）。 */
+    static Map<String, Object> formSchema(Object raw) {
+        Map<String, Object> out = new TreeMap<>();
+        Map<String, Object> props = new LinkedHashMap<>();
+        List<Object> req = new ArrayList<>();
+        if (raw instanceof Map) {
+            Object ps = ((Map<?, ?>) raw).get("properties");
+            if (ps instanceof Map) for (Map.Entry<?, ?> e : ((Map<?, ?>) ps).entrySet()) {
+                if (props.size() >= 20) break;
+                String k = String.valueOf(e.getKey());
+                if (k.isEmpty() || k.length() > 64) continue;
+                Map<String, Object> f = new TreeMap<>();
+                Map<?, ?> v = e.getValue() instanceof Map ? (Map<?, ?>) e.getValue() : Map.of();
+                String type = Mcp.str(v.get("type"));
+                if (v.get("type") instanceof List && !((List<?>) v.get("type")).isEmpty()) type = String.valueOf(((List<?>) v.get("type")).get(0));
+                f.put("type", List.of("string", "number", "integer", "boolean", "array", "object").contains(type) ? type : "string");
+                f.put("description", ChatAgent.clip(Mcp.str(v.get("description")), 160));
+                if (v.get("enum") instanceof List) {
+                    List<Object> en = new ArrayList<>();
+                    for (Object o : (List<?>) v.get("enum")) if (en.size() < 30 && o != null) en.add(String.valueOf(o));
+                    if (!en.isEmpty()) f.put("enum", en);
+                }
+                Object d = v.get("default");
+                if (d instanceof String || d instanceof Number || d instanceof Boolean) f.put("default", d);
+                props.put(k, f);
+            }
+            Object rq = ((Map<?, ?>) raw).get("required");
+            if (rq instanceof List) for (Object o : (List<?>) rq) if (o != null && props.containsKey(String.valueOf(o))) req.add(String.valueOf(o));
+        }
+        out.put("properties", props);
+        out.put("required", req);
+        return out;
     }
 
     static String statusZh(String s) {
@@ -152,6 +187,9 @@ public final class McpHub {
         Path p;
         try { p = Paths.get(path == null ? "" : path.trim().replaceAll("^\"|\"$", "")).toAbsolutePath().normalize(); } catch (Exception e) { return res(false, "路径不对"); }
         if (!Files.exists(p)) return res(false, "找不到「" + p + "」");
+        // [fix-1123-a] 选的是项目清单（package.json …）= 选了它所在的文件夹：同一个来源，不再各算一条
+        if (Files.isRegularFile(p) && p.getParent() != null && Mcp.PROJECT_FILES.contains(p.getFileName().toString().toLowerCase(java.util.Locale.ROOT))) p = p.getParent();
+        final Path src = p;
         Mcp.Detected d = Mcp.detect(p);
         if (d.specs.isEmpty()) {
             out.put("ok", false);
@@ -164,9 +202,16 @@ public final class McpHub {
             Map<String, List<String>> st = sources.computeIfAbsent(p.toString(), k -> { Map<String, List<String>> m = new TreeMap<>(); m.put("disabled", new ArrayList<>()); m.put("removed", new ArrayList<>()); return m; });
             st.get("removed").clear(); // 重新选这个目录 = 之前移除的也回来
             save();
-            added = rebuild(p.toString(), d);
-            notes.removeIf(n -> n.startsWith(p + "："));
-            for (String n : d.notes) notes.add(p + "：" + n);
+            added = rebuild(src.toString(), d);
+            if (added.isEmpty()) { sources.remove(src.toString()); save(); } // 全是已经加过的：这个来源不留
+            notes.removeIf(n -> n.startsWith(src + "："));
+            for (String n : d.notes) notes.add(src + "：" + n);
+        }
+        if (added.isEmpty()) {
+            out.put("ok", false);
+            out.put("text", d.notes.isEmpty() ? "这里的服务器都已经加过了" : String.join("；", d.notes));
+            out.put("notes", new ArrayList<Object>(d.notes));
+            return out;
         }
         for (Server s : added) startAsync(s);
         out.put("ok", true);
@@ -188,6 +233,12 @@ public final class McpHub {
         List<Server> out = new ArrayList<>();
         for (Mcp.Spec sp : d.specs) {
             if (st != null && st.get("removed").contains(sp.name)) continue;
+            // [fix-1123-a] 同一个服务器（地址一样，或程序 + 参数 + 工作目录一样）已经从别的来源加过：不再加一条
+            Server same = null;
+            for (Server o : servers.values()) if (!o.source.equals(source) && o.spec.identity().equals(sp.identity())) { same = o; break; }
+            boolean twice = false;
+            for (Server o : out) if (o.spec.identity().equals(sp.identity())) twice = true;
+            if (same != null || twice) { d.notes.add("「" + sp.name + "」已经加过了" + (same == null ? "" : "（来自 " + same.source + "）") + "，没再加一条"); continue; }
             String base = Mcp.safe(sp.name, 20), id = base;
             for (int i = 2; servers.containsKey(id); i++) id = Mcp.safe(base, 17) + "_" + i;
             Server s = new Server(id, source, sp);
