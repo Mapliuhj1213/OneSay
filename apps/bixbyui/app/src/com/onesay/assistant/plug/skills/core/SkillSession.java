@@ -32,11 +32,29 @@ public final class SkillSession {
         return new ArrayList<String>(loaded);
     }
 
+    /**
+     * ★ fix/1123-longctx-phone：宿主在会话压缩 / 自动接力后交来「已加载清单」→ 下一次选技能时这几个照样加载
+     * （不因 stale / topic_switch 卸载；仍过 paths / requires / 冲突 / Top-K / 预算），并当作这一轮重新命中（计数清零）。只生效一次。
+     */
+    private final List<String> pinned = new ArrayList<String>();
+
+    public synchronized void pin(java.util.Collection<String> ids) {
+        pinned.clear();
+        if (ids != null) for (String id : ids) if (id != null && !pinned.contains(id)) pinned.add(id);
+    }
+
+    synchronized List<String> takePinned() {
+        List<String> l = new ArrayList<String>(pinned);
+        pinned.clear();
+        return l;
+    }
+
     public synchronized void reset() {
         loaded.clear();
         lastHitAt.clear();
         turnsSinceHit.clear();
         lastTurnAt = 0;
+        pinned.clear();
     }
 
     /** 这一句像不像同一话题的追问（只在本轮没有新命中时才看）。 */

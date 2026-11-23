@@ -406,6 +406,7 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
             return;
         }
         String mode = allowStream ? " | 流式=on" : "";
+        ConversationMemory.getInstance().beginTurn(query);   // ★ fix/1123-longctx-phone 第 3 条：每条用户消息记账（在做 → 记终稿时已结）
 
         // ---------- ⓪a 自测库（只在自测窗口内生效，生产查询恒为 null） ----------
         Invocation selfTest = mL1.selfTestRoute(query);

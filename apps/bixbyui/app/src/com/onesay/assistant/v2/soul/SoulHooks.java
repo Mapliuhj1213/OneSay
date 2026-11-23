@@ -428,6 +428,7 @@ public final class SoulHooks {
             out.add("会话: " + cm.size() + " 轮 摘要 " + cm.summaryChars() + " 字（已折叠 " + cm.foldedTurns() + " 轮）历史约 " + cm.historyTokens()
                     + " token / 预算 " + cm.budgetTokens() + " token 保持 " + (cm.keepMs() / 1000) + " 秒（单答 ≤" + ConversationMemory.MAX_ANSWER_TOKENS
                     + " token、轮数安全上限 " + ConversationMemory.MAX_TURNS + "）");
+            out.add(cm.longCtxStats());   // ★ fix/1123-longctx-phone
             out.add("模型窗口: " + com.onesay.assistant.v2.router.ctx.ModelWindows.table().replace('\n', ' '));
             out.add("计数: " + en.counts() + " fts=" + sFts + " session=" + sSession.size());
         } catch (Throwable t) {

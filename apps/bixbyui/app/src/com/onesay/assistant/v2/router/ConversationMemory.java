@@ -86,6 +86,41 @@ public final class ConversationMemory {
     private String mSummary = "";
     private Clock mClock = SYSTEM_CLOCK;
 
+    // ---------- ★ fix/1123-longctx-phone：长对话可靠性（总开关 LongCtx.enabled；关 = 下面这些都不参与，行为与改前一致） ----------
+    /** 第 3 条：每条用户消息记账（待答 / 在做 / 已结）。 */
+    private final com.onesay.assistant.v2.router.longctx.TurnLedger mLedger = new com.onesay.assistant.v2.router.longctx.TurnLedger();
+    /** 第 2 条：状态摘要里的「已知事实」（只摘用户原话）。 */
+    private final com.onesay.assistant.v2.router.longctx.FactNotes mFacts = new com.onesay.assistant.v2.router.longctx.FactNotes();
+    /** 第 4 条：会话外原文存档（按需检索；单例可落盘）。 */
+    private final com.onesay.assistant.v2.router.longctx.TurnArchive mArchive = new com.onesay.assistant.v2.router.longctx.TurnArchive();
+    /** 与 mTurns 一一对应：每轮在账本里的编号（0 = 总开关关时记的）。 */
+    private final List<Integer> mTurnIds = new ArrayList<Integer>();
+    /** 第 5 条：逐字历史里被精简过的重活回执（存档里有全文，按需调出时不排除）。 */
+    private final java.util.Set<Integer> mCompacted = new java.util.HashSet<Integer>();
+    /** 技能「已加载清单」（id → 名称，按最近加载排序）；压缩 / 接力后重新加载一次。 */
+    private final java.util.LinkedHashMap<String, String> mSkills = new java.util.LinkedHashMap<String, String>();
+    private boolean mSkillReload;
+    /** 接力链 id：同一条链（含自动接力开的新会话）里才按需调存档；手动新对话 / 关面板 / 超时 = 新链。 */
+    private String mChain = newChain();
+    private boolean mRelayed;
+    private int mSinceRelay, mRelays, mRetries;
+    private volatile int mRelayTurns = DEFAULT_RELAY_TURNS;
+
+    /**
+     * 自动接力（「超长会话」）：一段会话记满这么多轮，或者已经折叠进摘要的轮数达到 {@link #RELAY_FOLDED}（历史预算 32k 早被挤满过好几次），
+     * 就带接力摘要开新会话（保留最近 {@link #RELAY_KEEP} 轮原文）。普通长度的会话（含 32k 预算内几十轮）不触发，原有「预算内原样保留」不变。
+     */
+    public static final int DEFAULT_RELAY_TURNS = 100;
+    public static final int RELAY_FOLDED = 32;
+    public static final int RELAY_KEEP = 2;
+    /** 技能清单最多记几条。 */
+    static final int MAX_SKILLS = 6;
+    private static int sChainSeq;
+
+    private static synchronized String newChain() {
+        return Long.toString(System.currentTimeMillis(), 36) + "-" + (++sChainSeq);
+    }
+
     /** 时钟（单测可替换）。 */
     public interface Clock { long now(); }
 
@@ -185,10 +220,26 @@ public final class ConversationMemory {
         //   （下一轮会原样回灌给模型，也会被会话整理看到）。各调用点已剥，这里兜底。
         answer = com.onesay.assistant.v2.roles.AppChoiceSpec.stripForDisplay(answer);
         if (answer == null) answer = "";
-        String stored = com.onesay.assistant.v2.router.ctx.TokenEstimator.clipKeepTail(answer, MAX_ANSWER_TOKENS);
         String q = com.onesay.assistant.v2.router.ctx.TokenEstimator.clipKeepTail(question.trim(), MAX_QUESTION_TOKENS);
+        int id = 0;
+        String forHistory = answer;
+        if (com.onesay.assistant.v2.router.longctx.LongCtx.enabled()) {
+            // ★ fix/1123-longctx-phone：记账（已结）→ 摘事实 → 原文进存档 → 重活回执精简后才进逐字历史
+            com.onesay.assistant.v2.router.longctx.TurnLedger.Entry e = mLedger.close(q, answer, tainted);
+            id = e.id;
+            mFacts.observe(id, q);
+            mArchive.add(mChain, id, q, answer, tainted, mClock.now());
+            forHistory = com.onesay.assistant.v2.router.longctx.HeavyIsolation.compact(answer);
+            if (forHistory != answer) mCompacted.add(id);
+        }
+        String stored = com.onesay.assistant.v2.router.ctx.TokenEstimator.clipKeepTail(forHistory, MAX_ANSWER_TOKENS);
         mTurns.add(new Turn(q, stored, tainted));
+        mTurnIds.add(id);
         trim();
+        if (id > 0) {
+            mSinceRelay++;
+            if ((mSinceRelay >= mRelayTurns || mFolded >= RELAY_FOLDED) && mTurns.size() > RELAY_KEEP) relayLocked();
+        }
         Listener l = sListener;
         if (l != null) {
             try {
@@ -217,26 +268,78 @@ public final class ConversationMemory {
      */
     private void trim() {
         while (mTurns.size() > MAX_TURNS) {
-            foldIntoSummary(mTurns.remove(0));
+            foldIntoSummary(mTurns.remove(0), mTurnIds.remove(0));
         }
         if (totalTokens() > mBudgetTokens) {
             int low = (int) (mBudgetTokens * FOLD_LOW_WATER);
             while (totalTokens() > low && mTurns.size() > 1) {
-                foldIntoSummary(mTurns.remove(0));
+                foldIntoSummary(mTurns.remove(0), mTurnIds.remove(0));
             }
         }
     }
 
-    /** 一轮压成一行（见 {@link #foldLine}）。摘要超 {@link #MAX_SUMMARY_TOKENS} 时丢最早的行。 */
-    private void foldIntoSummary(Turn t) {
+    /**
+     * 一轮折出逐字历史。总开关关：压成一行流水账（见 {@link #foldLine}），摘要超 {@link #MAX_SUMMARY_TOKENS} 时丢最早的行。
+     * ★ fix/1123-longctx-phone 开：账本里标「已折叠」，摘要按<b>状态</b>重写（事实 / 已结 / 没答完 / 已加载技能，见 LongCtx.renderState）；
+     * 原文早已进存档。压缩过一次 → 技能清单下一轮重新加载。
+     */
+    private void foldIntoSummary(Turn t, int id) {
         if (t == null) return;
-        mSummary = appendSummary(mSummary, foldLine(t), MAX_SUMMARY_TOKENS);
         if (t.isTainted()) mSummaryTainted = true;
         mFolded++;
+        com.onesay.assistant.v2.router.longctx.TurnLedger.Entry e = id > 0 ? mLedger.byId(id) : null;
+        if (e == null) {
+            mSummary = appendSummary(mSummary, foldLine(t), MAX_SUMMARY_TOKENS);
+            return;
+        }
+        e.folded = true;
+        mCompacted.remove(id);
+        mSummary = renderStateLocked();
+        if (!mSkills.isEmpty()) mSkillReload = true;
+    }
+
+    private String renderStateLocked() {
+        List<com.onesay.assistant.v2.router.longctx.TurnLedger.Entry> folded = new ArrayList<com.onesay.assistant.v2.router.longctx.TurnLedger.Entry>();
+        java.util.Set<Integer> ids = new java.util.HashSet<Integer>();
+        for (com.onesay.assistant.v2.router.longctx.TurnLedger.Entry x : mLedger.entries()) {
+            if (!x.folded) continue;
+            folded.add(x);
+            ids.add(x.id);
+        }
+        return com.onesay.assistant.v2.router.longctx.LongCtx.renderState(mRelayed, mFacts.from(ids), folded,
+                new ArrayList<String>(mSkills.values()), MAX_SUMMARY_TOKENS);
+    }
+
+    /**
+     * ★ fix/1123-longctx-phone：自动接力 —— 一段会话记满 {@link #mRelayTurns} 轮：除最近 {@link #RELAY_KEEP} 轮外全部折进<b>接力摘要</b>，
+     * 当作新的一段会话继续（通知会话监听「上一段结束」，记忆整理照旧；账本编号、存档、接力链不断）；技能清单重新加载。
+     */
+    private void relayLocked() {
+        final List<Turn> old = new ArrayList<Turn>(mTurns);
+        mRelayed = true;
+        while (mTurns.size() > RELAY_KEEP) foldIntoSummary(mTurns.remove(0), mTurnIds.remove(0));
+        mSummary = renderStateLocked();
+        mFolded = 0;
+        mSinceRelay = 0;
+        mRelays++;
+        if (!mSkills.isEmpty()) mSkillReload = true;
+        final Listener l = sListener;
+        if (l != null) {
+            com.onesay.assistant.v2.util.Threads.start("conv-relay", new Runnable() {
+                @Override public void run() {
+                    try { l.onClear(old); } catch (Throwable ignored) { }
+                }
+            });
+        }
     }
 
     /** 「问：…（≤40 字）→ 答：…（≤80 字，结论优先）」；含外部内容的标注出来。ContextBudget 请求级夹紧也用它。 */
     static String foldLine(Turn t) {
+        if (com.onesay.assistant.v2.router.longctx.LongCtx.enabled()) {
+            // ★ fix/1123-longctx-phone：请求级夹紧（ContextBudget）折进来的也按状态写：标已结，不写成「问 / 答」流水账
+            return "· （已结，不要再答）" + head(t.question, 40) + " → " + head(com.onesay.assistant.v2.router.longctx.TurnLedger.conclusionOf(t.answer), 80)
+                    + (t.isTainted() ? "（含外部内容）" : "");
+        }
         return "问：" + head(t.question, 40) + " → 答：" + head(conclusionOf(t.answer), 80) + (t.isTainted() ? "（含外部内容）" : "");
     }
 
@@ -363,6 +466,15 @@ public final class ConversationMemory {
     private List<Turn> drainLocked() {
         List<Turn> old = new ArrayList<Turn>(mTurns);
         mTurns.clear();
+        mTurnIds.clear();
+        mCompacted.clear();
+        mLedger.reset();
+        mFacts.reset();
+        mSkills.clear();
+        mSkillReload = false;
+        mChain = newChain();
+        mRelayed = false;
+        mSinceRelay = 0;
         mSummary = "";
         mSummaryTainted = false;
         mFolded = 0;
@@ -395,6 +507,145 @@ public final class ConversationMemory {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    // ================= ★ fix/1123-longctx-phone：长对话可靠性对外接口 =================
+
+    /** 第 3 条：一条用户消息进来（路由入口调）→ 账本记「在做」。总开关关 / 空话 = 不记。返回编号（0 = 没记）。 */
+    public synchronized int beginTurn(String query) {
+        if (!com.onesay.assistant.v2.router.longctx.LongCtx.enabled() || query == null || query.trim().length() == 0) return 0;
+        expireIfIdleLocked();
+        com.onesay.assistant.v2.router.longctx.TurnLedger.Entry cur = mLedger.current();
+        if (cur != null && cur.text.equals(query.trim())) return cur.id;   // 同一句重复进来（重试 / 兜底链）不重复记
+        return mLedger.open(query).id;
+    }
+
+    /** 末尾账本只列最近这么多条以内没答完的。 */
+    static final int OPEN_RECENT = 6;
+
+    /** 回指时仍不重复调出的最近几轮（就在眼前，不用调）。 */
+    static final int RECENT_KEEP = 4;
+
+    /** 回指词：问到之前说过的事 → 放宽存档检索。 */
+    static final java.util.regex.Pattern BACKREF = java.util.regex.Pattern.compile(
+            "刚才|刚刚|之前|前面|上面|上次|一开始|最早|你说过|我说过|说过|跟你说|告诉过你|来着|记得|还记得|第.{1,3}(条|个|项|段|张|点|步)");
+
+    /**
+     * 第 6 条：本轮用户消息末尾的块（账本 → 按需调出的存档原文 → 守则 → [自检提示] → 最新一句）。
+     * 总开关关 / 会话里还没有历史（第一轮）= null（提示词与改前逐字一致）。
+     *
+     * @param redo 出口自检打回时的提示（{@link com.onesay.assistant.v2.router.longctx.LongCtx#redoNote}），平时 null
+     */
+    public synchronized String tailFor(String query, String redo) {
+        if (!com.onesay.assistant.v2.router.longctx.LongCtx.enabled() || query == null || query.trim().length() == 0) return null;
+        expireIfIdleLocked();
+        if (mTurns.isEmpty() && mSummary.length() == 0) return null;
+        String q = query.trim();
+        com.onesay.assistant.v2.router.longctx.TurnLedger.Entry cur = mLedger.current();
+        if (cur == null || !cur.text.equals(q)) cur = mLedger.open(q);
+        List<Integer> closed = new ArrayList<Integer>();
+        List<com.onesay.assistant.v2.router.longctx.TurnLedger.Entry> open = new ArrayList<com.onesay.assistant.v2.router.longctx.TurnLedger.Entry>();
+        for (com.onesay.assistant.v2.router.longctx.TurnLedger.Entry e : mLedger.entries()) {
+            if (e.id == cur.id) continue;
+            if (e.status == com.onesay.assistant.v2.router.longctx.TurnLedger.Status.DONE) closed.add(e.id);
+            else if (cur.id - e.id <= OPEN_RECENT) open.add(e);   // 只列最近几条没答完的（更早的写进状态摘要）
+        }
+        // 第 4 条：按需检索 —— 逐字还完整留在历史里的一般不调（重活精简过的、已折叠的才调）；
+        //   问到「之前说过的」（回指词）时，逐字历史里较早的轮次也调（夹在长历史中段的原话模型容易看漏），只排除最近 RECENT_KEEP 轮
+        boolean back = BACKREF.matcher(q).find();
+        java.util.Set<Integer> exclude = new java.util.HashSet<Integer>();
+        for (int i = 0; i < mTurnIds.size(); i++) {
+            Integer id = mTurnIds.get(i);
+            if (id == null || id <= 0 || mCompacted.contains(id)) continue;
+            if (!back || i >= mTurnIds.size() - RECENT_KEEP) exclude.add(id);
+        }
+        exclude.add(cur.id);
+        List<com.onesay.assistant.v2.router.longctx.TurnArchive.Hit> hits = mArchive.search(mChain, q, exclude, back ? 2 : 1, back ? 0.25 : 0.34);
+        return com.onesay.assistant.v2.router.longctx.LongCtx.tail(closed, open, hits, cur.id, q, redo);
+    }
+
+    /** 出口自检用：之前各轮（旧 → 新）{问句, 答复 / 结论}，含已折叠轮次的结论。 */
+    public synchronized List<String[]> priorPairs() {
+        List<String[]> out = new ArrayList<String[]>();
+        for (com.onesay.assistant.v2.router.longctx.TurnLedger.Entry e : mLedger.entries()) {
+            if (e.folded && e.status == com.onesay.assistant.v2.router.longctx.TurnLedger.Status.DONE) out.add(new String[]{e.text, e.conclusion});
+        }
+        for (Turn t : mTurns) out.add(new String[]{t.question, conclusionOf(t.answer)});
+        return out;
+    }
+
+    /** 自检重答记一次（memdump / 评测用）。 */
+    public synchronized void noteRetry() {
+        mRetries++;
+    }
+
+    public synchronized int retries() {
+        return mRetries;
+    }
+
+    public synchronized int relays() {
+        return mRelays;
+    }
+
+    /** 自动接力的轮数门槛（≤0 = 默认 {@link #DEFAULT_RELAY_TURNS}；最少 8）。折叠轮数门槛固定 {@link #RELAY_FOLDED}。 */
+    public void setRelayTurns(int n) {
+        mRelayTurns = n <= 0 ? DEFAULT_RELAY_TURNS : Math.max(8, n);
+    }
+
+    public int relayTurns() {
+        return mRelayTurns;
+    }
+
+    /** 技能：本轮实际加载了哪些（id, 名称）→ 进「已加载清单」（最近的排后面，最多 {@link #MAX_SKILLS} 个）。 */
+    public synchronized void noteSkills(List<String[]> idName) {
+        if (idName == null || !com.onesay.assistant.v2.router.longctx.LongCtx.enabled()) return;
+        for (String[] p : idName) {
+            if (p == null || p[0] == null) continue;
+            mSkills.remove(p[0]);
+            mSkills.put(p[0], p.length > 1 && p[1] != null ? p[1] : p[0]);
+        }
+        while (mSkills.size() > MAX_SKILLS) mSkills.remove(mSkills.keySet().iterator().next());
+    }
+
+    /** 技能：压缩 / 接力之后第一次取 → 返回「已加载清单」要重新加载（之后再取为空）。 */
+    public synchronized List<String> takeSkillReload() {
+        if (!mSkillReload || !com.onesay.assistant.v2.router.longctx.LongCtx.enabled()) return java.util.Collections.emptyList();
+        mSkillReload = false;
+        return new ArrayList<String>(mSkills.keySet());
+    }
+
+    public synchronized List<String> loadedSkills() {
+        return new ArrayList<String>(mSkills.keySet());
+    }
+
+    /** 账本快照（测试 / memdump）。 */
+    public synchronized List<com.onesay.assistant.v2.router.longctx.TurnLedger.Entry> ledger() {
+        return mLedger.entries();
+    }
+
+    public synchronized List<com.onesay.assistant.v2.router.longctx.FactNotes.Fact> facts() {
+        return mFacts.all();
+    }
+
+    public com.onesay.assistant.v2.router.longctx.TurnArchive archive() {
+        return mArchive;
+    }
+
+    public synchronized String chain() {
+        return mChain;
+    }
+
+    /** 手机上：存档落盘到应用私有目录（FloatingSheetService.onCreate 调）。 */
+    public void setArchiveFile(java.io.File f) {
+        mArchive.setFile(f);
+    }
+
+    /** memdump 一行。 */
+    public synchronized String longCtxStats() {
+        int open = mLedger.unfinished().size();
+        return "长对话：" + (com.onesay.assistant.v2.router.longctx.LongCtx.enabled() ? "开" : "关") + " 账本 " + mLedger.size() + " 条（没答完 " + open + "）事实 "
+                + mFacts.size() + " 条 存档 " + mArchive.size() + " 条 技能清单 " + mSkills.keySet() + " 自检重答 " + mRetries + " 次 自动接力 " + mRelays
+                + " 次（门槛 " + mRelayTurns + " 轮，本段已 " + mSinceRelay + " 轮）";
     }
 
     /** 会话立即结束（「新对话 / 换个话题 / 清掉上下文」）。 */

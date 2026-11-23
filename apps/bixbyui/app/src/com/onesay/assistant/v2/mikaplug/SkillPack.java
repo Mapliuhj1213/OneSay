@@ -130,7 +130,7 @@ public final class SkillPack {
         if (idx.size() == 0) return null;
         SkillMatcher m = new SkillMatcher(idx, CFG);
         long now = System.currentTimeMillis();
-        SkillMatcher.Selection sel = m.select(in, session, now);
+        SkillMatcher.Selection sel = selectWithReload(m, in, session, now, com.onesay.assistant.v2.router.ConversationMemory.getInstance());
         for (String l : sel.log) log(l);
         if (sel.isEmpty() && MikaPlugs.on(ctx, MikaPlugs.SKILLPACK_LLM)) {
             ModelPort model = HostModel.forContext(ctx);
@@ -144,6 +144,28 @@ public final class SkillPack {
             }
         }
         return sel.isEmpty() ? null : sel.block;
+    }
+
+    /**
+     * ★ fix/1123-longctx-phone：选技能 + 「已加载清单」—— 会话压缩 / 自动接力之后，把清单里的技能重新加载一次（SkillSession.pin）；
+     * 本轮实际加载的记回清单（状态摘要里写「已加载技能」）。无人值守（session == null）不碰会话清单。纯 Java，评测与单测直接调。
+     */
+    public static SkillMatcher.Selection selectWithReload(SkillMatcher m, SkillMatcher.Input in, SkillSession session, long now,
+                                                          com.onesay.assistant.v2.router.ConversationMemory mem) {
+        if (session != null && mem != null) {
+            List<String> re = mem.takeSkillReload();
+            if (!re.isEmpty()) {
+                session.pin(re);
+                log("[SKILL] 会话压缩 / 接力后重新加载已加载清单 " + re);
+            }
+        }
+        SkillMatcher.Selection sel = m.select(in, session, now);
+        if (session != null && mem != null && !sel.isEmpty()) {
+            List<String[]> l = new ArrayList<String[]>();
+            for (SkillMatcher.Scored sc : sel.picked) l.add(new String[]{sc.skill.id, sc.skill.name});
+            mem.noteSkills(l);
+        }
+        return sel;
     }
 
     /** LLM 兜底挑中的单个技能：走同一套预算渲染（无会话、无 Top-K 竞争）。 */

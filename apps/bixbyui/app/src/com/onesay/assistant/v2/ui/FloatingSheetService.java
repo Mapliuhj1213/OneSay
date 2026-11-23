@@ -862,6 +862,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         com.onesay.assistant.v2.timeline.TimelineNotes.add(mTimelineNotes);   // ★ borrow-1112：等待期间画面变化 / 已切换到备用模型 → 时间轴说明行
         com.onesay.assistant.v2.contacts.ContactSource.installFor(this);   // AgentLoop 的人名 → 号码（本机解析）
         com.onesay.assistant.plug.richout.host.RichOutHost.install(this);
+        try {   // ★ fix/1123-longctx-phone 第 4 条：会话原文存档落盘（应用私有目录；含密码 / 验证码等的条目不落盘）
+            com.onesay.assistant.v2.router.ConversationMemory.getInstance().setArchiveFile(new java.io.File(getFilesDir(), "conv_archive.jsonl"));
+        } catch (Throwable ignored) { }
         com.onesay.assistant.v2.router.ctx.ContextPrefs.apply(this);   // ★ int/1102：会话历史 token 预算 / 模型窗口覆盖（prefs bixby_conv）   // [richout] 富内容回答插件开关接上 prefs / kill 文件
         // ★ 前置声明前台服务：MainActivity/BootReceiver 用 startForegroundService 启动本服务，
         //   Android 8 要求 5 秒内必须调用 startForeground，否则抛 ANR 并被系统强杀

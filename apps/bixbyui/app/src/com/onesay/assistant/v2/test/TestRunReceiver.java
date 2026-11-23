@@ -226,6 +226,13 @@ public class TestRunReceiver extends BroadcastReceiver {
                     + " 多步=" + com.onesay.assistant.v2.net.ThinkingMode.enabledFor(com.onesay.assistant.v2.net.ThinkingMode.Purpose.AGENT));
             return;
         }
+        //   ★ fix/1123-longctx-phone：--ez longctx true|false  长对话可靠性总开关（缺省开）；--ei conv_relay_turns N  自动接力门槛（0 = 默认 100 轮；另外折叠满 32 轮也接力）
+        if (intent.hasExtra("longctx") || intent.hasExtra("conv_relay_turns")) {
+            if (intent.hasExtra("longctx")) com.onesay.assistant.v2.router.ctx.ContextPrefs.setLongCtx(context, intent.getBooleanExtra("longctx", true));
+            if (intent.hasExtra("conv_relay_turns")) com.onesay.assistant.v2.router.ctx.ContextPrefs.setRelayTurns(context, intent.getIntExtra("conv_relay_turns", 0));
+            Log.i(TAG, "[MEMDUMP] " + com.onesay.assistant.v2.router.ConversationMemory.getInstance().longCtxStats());
+            return;
+        }
         if (intent.hasExtra("memdump") || intent.hasExtra("conv_keep_sec") || intent.hasExtra("conv_budget_tokens") || intent.hasExtra("model_windows")
                 || intent.hasExtra("chat_model")) {
             if (intent.hasExtra("chat_model")) {

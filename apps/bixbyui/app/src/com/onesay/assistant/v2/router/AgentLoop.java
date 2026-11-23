@@ -929,6 +929,12 @@ public class AgentLoop {
             // ★ mika-plug：开一个插件 run（全关 = null）；mika.appkb 开局注入 ≤ 3 份 App 知识
             rs.plugs = com.onesay.assistant.v2.mikaplug.LoopPlugs.begin(mContext, query, cb instanceof Unattended, null);
             if (rs.plugs != null) withScreen = rs.plugs.withKnowledge(withScreen);
+            // ★ fix/1123-longctx-phone：会话里有历史 → 末尾接账本 / 按需调出的存档原文 / 每轮守则，最后一行单独标出最新一句（第一轮 / 无人值守 / 总开关关 = 原样）
+            final boolean longCtxOn = !(cb instanceof Unattended) && !history0.isEmpty();
+            if (longCtxOn) {
+                String lc = ConversationMemory.getInstance().tailFor(query, null);
+                if (lc != null) withScreen = withScreen + "\n————\n" + lc;
+            }
             userMsg.put("content", withScreen);
             messages.put(userMsg);
 
@@ -939,6 +945,7 @@ public class AgentLoop {
             boolean diagNudged = false;   // ★ device-1102：诊断类收工前没搜过 → 提醒一次
             boolean planChecked = false, planNudged = false;   // ★ trip-decompose：空洞拒绝收工校验（打回一次）
             boolean openOpNudged = false;   // ★ plan-1118：只打开没操作 → 打回过一次
+            boolean replyChecked = false, replyNudged = false;   // ★ fix/1123-longctx-phone：出口自检（复述 / 复读 / 偏题）打回一次
             boolean marketChecked = false, marketNudged = false;   // ★ 11-04：地区定性与行情数据一致性核对（打回一次）
             boolean shopEvNudged = false, shopPriceNudged = false, shopExNudged = false;   // ★ fix/shop-research：购物证据不够 / 有来源没价格 → 各提醒一次
             if (marketSnap != null && marketSnap.any()) shopPriceNudged = true;   // ★ 11-03：指数数字来自结构化源（槽位），不再催模型补数字
@@ -1126,12 +1133,33 @@ public class AgentLoop {
                         SafeLog.i(TAG, "[AGENT-LOOP] [OPEN-THEN-OP] 第 " + round + " 轮想收工，但只打开了页面、「" + openPending + "」没做 → 打回接着 phone.operate");
                         continue;
                     }
+                    // ★ fix/1123-longctx-phone 第 6 条：纯聊天收工（一步工具没调）前出口自检 —— 复述 / 复读旧答 / 答了已结的旧问题 → 打回重答一次
+                    if (longCtxOn && !replyChecked && steps.isEmpty() && tb.calls < tb.maxCalls && com.onesay.assistant.v2.router.longctx.LongCtx.selfCheck()) {
+                        replyChecked = true;
+                        com.onesay.assistant.v2.router.longctx.ReplyCheck.Result rc = com.onesay.assistant.v2.router.longctx.ReplyCheck.check(
+                                query, lastContent, ConversationMemory.getInstance().priorPairs());
+                        if (rc.bad()) {
+                            replyNudged = true;
+                            ConversationMemory.getInstance().noteRetry();
+                            JSONObject a = new JSONObject();
+                            a.put("role", "assistant");
+                            a.put("content", lastContent == null ? "" : lastContent);
+                            com.onesay.assistant.v2.net.ThinkingMode.carryReasoning(msg, a);
+                            messages.put(a);
+                            JSONObject u = new JSONObject();
+                            u.put("role", "user");
+                            u.put("content", com.onesay.assistant.v2.router.longctx.LongCtx.redoNote(rc) + "\n" + com.onesay.assistant.v2.router.longctx.LongCtx.LATEST + query);
+                            messages.put(u);
+                            SafeLog.i(TAG, "[AGENT-LOOP] [LONGCTX] 第 " + round + " 轮出口自检 " + rc + " → 打回重答一次");
+                            continue;
+                        }
+                    }
                     // ★ 没有工具调用 = 模型自己判断"做完了" → 收工
                     if (!steps.isEmpty()) emitNote(cb, com.onesay.assistant.v2.island.IslandStepText.CONCLUDE);   // ★ 11-04 ①
                     SafeLog.i(TAG, "[AGENT-LOOP] 第 " + round + " 轮收工，答复="
                             + (lastContent == null ? "空" : lastContent.length() + "字"));
                     // ★ 11-03（用户 19:45）：提醒过之后，去掉回应内部提示的开场句（「好的，」「补上具体个股的收盘价：」…）
-                    if (shopEvNudged || shopPriceNudged || shopExNudged || diagNudged || nudged || marketNudged || planNudged) {
+                    if (shopEvNudged || shopPriceNudged || shopExNudged || diagNudged || nudged || marketNudged || planNudged || replyNudged) {
                         String stripped = ResearchGate.stripMetaOpening(lastContent);
                         if (stripped != null && !stripped.equals(lastContent)) {
                             SafeLog.i(TAG, "[AGENT-LOOP] [META-OPENING] 去掉开场 " + (lastContent.length() - stripped.length()) + " 字");

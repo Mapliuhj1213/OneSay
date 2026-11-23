@@ -19,6 +19,11 @@ public final class ContextPrefs {
     public static final String PREFS = "bixby_conv", K_BUDGET = "ctx_budget_tokens", K_WINDOWS = "model_windows", K_CHAT_MODEL = "chat_model";
     /** ★ int/1102：思考模式 off / agent / all（设置 › 语音 › 思考模式；debug 广播 --es thinking off|agent|all）。缺省 off。 */
     public static final String K_THINKING = "thinking_mode";
+    /**
+     * ★ fix/1123-longctx-phone：长对话可靠性总开关（boolean，缺省开；debug 广播 {@code --ez longctx false} 关）、
+     * 自动接力门槛（int 轮，缺省 / ≤0 = 100；{@code --ei conv_relay_turns N}）。
+     */
+    public static final String K_LONGCTX = "longctx", K_RELAY_TURNS = "relay_turns";
 
     public static void apply(Context ctx) {
         if (ctx == null) return;
@@ -28,6 +33,8 @@ public final class ContextPrefs {
             ModelWindows.setOverrides(sp.getString(K_WINDOWS, ""));
             com.onesay.assistant.v2.net.LlmModels.setChat(sp.getString(K_CHAT_MODEL, ""));
             com.onesay.assistant.v2.net.ThinkingMode.setLevel(sp.getString(K_THINKING, "off"));
+            com.onesay.assistant.v2.router.longctx.LongCtx.setEnabled(sp.getBoolean(K_LONGCTX, true));
+            com.onesay.assistant.v2.router.ConversationMemory.getInstance().setRelayTurns(sp.getInt(K_RELAY_TURNS, 0));
         } catch (Throwable ignored) {
         }
     }
@@ -48,6 +55,18 @@ public final class ContextPrefs {
         ctx.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(K_THINKING, com.onesay.assistant.v2.net.ThinkingMode.key(l)).commit();
         apply(ctx);
         return l;
+    }
+
+    /** ★ fix/1123-longctx-phone */
+    public static void setLongCtx(Context ctx, boolean on) {
+        ctx.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(K_LONGCTX, on).commit();
+        apply(ctx);
+    }
+
+    /** ★ fix/1123-longctx-phone */
+    public static void setRelayTurns(Context ctx, int turns) {
+        ctx.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(K_RELAY_TURNS, Math.max(0, turns)).commit();
+        apply(ctx);
     }
 
     public static void setWindows(Context ctx, String spec) {
