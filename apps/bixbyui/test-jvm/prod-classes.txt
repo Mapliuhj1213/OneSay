@@ -757,3 +757,5 @@ com/onesay/assistant/v2/fastscreen/NavTouchParser.java
 com/onesay/assistant/v2/fastscreen/NavWatch.java
 com/onesay/assistant/v2/fastscreen/ReadBack.java
 com/onesay/assistant/v2/llm/ProviderModels.java
+com/onesay/assistant/v2/search/ParallelSearchProvider.java
+com/onesay/assistant/v2/search/WebSearchClient.java

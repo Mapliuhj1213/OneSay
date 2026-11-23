@@ -50,6 +50,7 @@ public final class WebSearchClient {
     private final TavilySearchProvider mTavily;
     private final BochaSearchProvider mBocha;
     private final BingHtmlSearchProvider mBing;
+    private final ParallelSearchProvider mParallel; // [fix-1123-misc] 可选，填了 Key 才进链
 
     private WebSearchClient(Context context) {
         Context app = context.getApplicationContext();
@@ -58,6 +59,7 @@ public final class WebSearchClient {
         mTavily = new TavilySearchProvider(mConfig);
         mBocha = new BochaSearchProvider(mConfig);
         mBing = new BingHtmlSearchProvider();
+        mParallel = new ParallelSearchProvider(mConfig);
     }
 
     public static WebSearchClient getInstance(Context context) {
@@ -160,23 +162,36 @@ public final class WebSearchClient {
         List<SearchProvider> chain = new ArrayList<SearchProvider>();
         String pref = mConfig.getProvider();
 
+        chain.addAll(chainFor(pref, mTavily, mBocha, mParallel, mBing));
+        return chain;
+    }
+
+    /**
+     * [fix-1123-misc] 候选链的排法（不碰网络，测试直接调）：点名的排第一；auto 按 Tavily → 博查 → Parallel；
+     * Parallel 只有填了 Key（isReady）才进链，不当默认；免 Key 的必应网页永远垫底（点名只用必应时只有它）。
+     */
+    static List<SearchProvider> chainFor(String pref, SearchProvider tavily, SearchProvider bocha, SearchProvider parallel, SearchProvider bing) {
+        List<SearchProvider> chain = new ArrayList<SearchProvider>();
         if (SearchConfig.PROVIDER_BING.equals(pref)) {
-            chain.add(mBing);
+            chain.add(bing);
             return chain;
         }
-
         if (SearchConfig.PROVIDER_BOCHA.equals(pref)) {
-            addIfReady(chain, mBocha);
-            addIfReady(chain, mTavily);
+            addIfReady(chain, bocha);
+            addIfReady(chain, tavily);
         } else if (SearchConfig.PROVIDER_TAVILY.equals(pref)) {
-            addIfReady(chain, mTavily);
-            addIfReady(chain, mBocha);
+            addIfReady(chain, tavily);
+            addIfReady(chain, bocha);
+        } else if (SearchConfig.PROVIDER_PARALLEL.equals(pref)) {
+            addIfReady(chain, parallel);
+            addIfReady(chain, tavily);
+            addIfReady(chain, bocha);
         } else { // auto
-            addIfReady(chain, mTavily);
-            addIfReady(chain, mBocha);
+            addIfReady(chain, tavily);
+            addIfReady(chain, bocha);
         }
-
-        chain.add(mBing); // 免 Key 兜底，永远垫底
+        if (!chain.contains(parallel)) addIfReady(chain, parallel);
+        chain.add(bing); // 免 Key 兜底，永远垫底
         return chain;
     }
 

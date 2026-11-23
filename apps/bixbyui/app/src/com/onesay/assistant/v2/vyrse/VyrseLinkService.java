@@ -153,7 +153,7 @@ public final class VyrseLinkService extends Service {
             Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CH) : new Notification.Builder(c);
             nm.notify(NID_REMOVED, b.setSmallIcon(c.getApplicationInfo().icon).setAutoCancel(true)
                     .setContentTitle("VYRSE 电脑已移除这台手机")
-                    .setContentText("要继续用，在电脑上重新点「Pair a phone」，再到 OneSay 设置里输入新配对码").build());
+                    .setContentText("要继续用，在 VYRSE 电脑端重新点配对按钮「Pair a phone」，再到 OneSay 设置里输入新配对码").build());
         } catch (Throwable ignored) {
         }
     }

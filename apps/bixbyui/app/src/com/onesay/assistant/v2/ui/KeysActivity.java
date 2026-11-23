@@ -60,9 +60,10 @@ public class KeysActivity extends Activity {
     static final String URL_BAILIAN = "https://bailian.console.aliyun.com/";
     static final String URL_TAVILY = "https://app.tavily.com/";
     static final String URL_BOCHA = "https://open.bochaai.com/";
+    static final String URL_PARALLEL = "https://platform.parallel.ai/"; // [fix-1123-misc]
     static final String URL_QWEATHER = "https://console.qweather.com/";
 
-    private static final String S_LLM = "llm", S_DS = "dashscope", S_TTS = "tts", S_TAVILY = "tavily", S_BOCHA = "bocha", S_QW = "qweather";
+    private static final String S_LLM = "llm", S_DS = "dashscope", S_TTS = "tts", S_TAVILY = "tavily", S_BOCHA = "bocha", S_QW = "qweather", S_PARALLEL = "parallel";
     private static final String S_NLS_APPKEY = "nls_appkey", S_NLS_AKID = "nls_akid", S_NLS_AKSECRET = "nls_aksecret";
     static final String URL_NLS = "https://nls-portal.console.aliyun.com/";
 
@@ -180,6 +181,16 @@ public class KeysActivity extends Activity {
         row(c, "测试连通性", "", new Runnable() { public void run() { testSearch(S_BOCHA); } });
         row(c, "去申请", "博查开放平台", new Runnable() { public void run() { open(URL_BOCHA); } });
 
+        // [fix-1123-misc] 可选搜索源：填了 Key 才启用，不当默认；用前须知照实写
+        c = card(col, "联网搜索 · Parallel", "可选", "填了 Key 才用，不填照旧走现有搜索");
+        status.put(S_PARALLEL, row(c, "API Key", new Runnable() { public void run() { editSecret(S_PARALLEL); } }));
+        row(c, "用前须知", com.onesay.assistant.v2.search.ParallelSearchProvider.NOTICE_ZH, new Runnable() { public void run() {
+            secure(new AlertDialog.Builder(KeysActivity.this).setTitle("用前须知").setMessage(com.onesay.assistant.v2.search.ParallelSearchProvider.NOTICE_ZH)
+                    .setPositiveButton("知道了", null).show());
+        } });
+        row(c, "测试连通性", "", new Runnable() { public void run() { testSearch(S_PARALLEL); } });
+        row(c, "去申请", "Parallel 控制台", new Runnable() { public void run() { open(URL_PARALLEL); } });
+
         c = card(col, "和风天气", "可选", "降雨提醒（分钟级）");
         status.put(S_QW, row(c, "API Key", new Runnable() { public void run() { editSecret(S_QW); } }));
         qwHostSub = row(c, "API Host", new Runnable() { public void run() { editQwHost(); } });
@@ -206,6 +217,7 @@ public class KeysActivity extends Activity {
             if (S_DS.equals(s) || S_TTS.equals(s)) return new AliyunAsrConfig(this).getDashScopeKey();
             if (S_TAVILY.equals(s)) return new SearchConfig(this).getTavilyKey();
             if (S_BOCHA.equals(s)) return new SearchConfig(this).getBochaKey();
+            if (S_PARALLEL.equals(s)) return new SearchConfig(this).getParallelKey();
             if (S_QW.equals(s)) return RainService.key(this);
             if (S_NLS_APPKEY.equals(s)) return new AliyunAsrConfig(this).getAppKey();
             if (S_NLS_AKID.equals(s)) return new AliyunAsrConfig(this).getAccessKeyId();
@@ -223,6 +235,7 @@ public class KeysActivity extends Activity {
         }
         else if (S_TAVILY.equals(s)) new SearchConfig(this).setTavilyKey(v);
         else if (S_BOCHA.equals(s)) new SearchConfig(this).setBochaKey(v);
+        else if (S_PARALLEL.equals(s)) new SearchConfig(this).setParallelKey(v);
         else if (S_QW.equals(s)) RainService.setKey(this, v);
         else if (S_NLS_APPKEY.equals(s)) { AliyunAsrConfig a = new AliyunAsrConfig(this); a.setAppKey(v); if (v.length() > 0) a.setEnabled(true); }
         else if (S_NLS_AKID.equals(s)) new AliyunAsrConfig(this).setAccessKeyId(v);
@@ -234,6 +247,7 @@ public class KeysActivity extends Activity {
         if (S_DS.equals(s)) return "百炼 API Key";
         if (S_TAVILY.equals(s)) return "Tavily API Key";
         if (S_BOCHA.equals(s)) return "博查 API Key";
+        if (S_PARALLEL.equals(s)) return "Parallel API Key";
         if (S_NLS_APPKEY.equals(s)) return "智能语音 NLS 项目 AppKey";
         if (S_NLS_AKID.equals(s)) return "阿里云 AccessKey ID";
         if (S_NLS_AKSECRET.equals(s)) return "阿里云 AccessKey Secret";
@@ -251,7 +265,7 @@ public class KeysActivity extends Activity {
             String k = get(s);
             setStatus(status.get(s), k.length() == 0 ? "未配置" : KeyMask.mask(k), k.length() > 0);
         }
-        for (String s : new String[]{S_LLM, S_DS, S_TAVILY, S_BOCHA, S_QW}) {
+        for (String s : new String[]{S_LLM, S_DS, S_TAVILY, S_BOCHA, S_PARALLEL, S_QW}) {
             String k = get(s), t = test.get(s);
             String txt = k.length() == 0 ? "未配置" : t != null ? t : KeyMask.mask(k);
             setStatus(status.get(s), txt, k.length() > 0 && (t == null || t.startsWith("测试通过")));
@@ -562,6 +576,12 @@ public class KeysActivity extends Activity {
             if (S_TAVILY.equals(s)) {
                 String body = new JSONObject().put("query", "OneSay").put("max_results", 1).toString();
                 return verdict(call("https://api.tavily.com/search", "POST", bearer(k), body, 15000).code);
+            }
+            if (S_PARALLEL.equals(s)) { // [fix-1123-misc] x-api-key 头；请求体同正式搜索（search_queries 必填）
+                Map<String, String> hd = new HashMap<String, String>();
+                hd.put("x-api-key", k);
+                hd.put("Content-Type", "application/json");
+                return verdict(call(com.onesay.assistant.v2.search.ParallelSearchProvider.ENDPOINT, "POST", hd, com.onesay.assistant.v2.search.ParallelSearchProvider.probeBody(), 15000).code);
             }
             String body = new JSONObject().put("query", "OneSay").put("count", 1).toString();
             return verdict(call("https://api.bochaai.com/v1/web-search", "POST", bearer(k), body, 15000).code);

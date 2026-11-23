@@ -28,7 +28,21 @@ public final class TextUtil {
     public static String truncate(String s, int max, String ellipsis) {
         if (s == null) return "";
         if (max < 0) max = 0;
-        return s.length() <= max ? s : s.substring(0, max) + (ellipsis == null ? "" : ellipsis);
+        if (s.length() <= max) return s;
+        int end = max;
+        if (end > 0 && Character.isHighSurrogate(s.charAt(end - 1)) && Character.isLowSurrogate(s.charAt(end))) end--; // [fix-1123-misc] 不切半个字（代理对）
+        return s.substring(0, end) + (ellipsis == null ? "" : ellipsis);
+    }
+
+    /**
+     * [fix-1123-misc] 按字符截：最多留 {@code max} 个字符（码点，一个表情 / 生僻字算一个），绝不切成半个字；
+     * 截了才在末尾加 {@code ellipsis}（不计入 max）。{@code null} 返回 ""。通知文字都用它。
+     */
+    public static String clipChars(String s, int max, String ellipsis) {
+        if (s == null) return "";
+        if (max < 0) max = 0;
+        if (s.length() <= max || s.codePointCount(0, s.length()) <= max) return s;
+        return s.substring(0, s.offsetByCodePoints(0, max)) + (ellipsis == null ? "" : ellipsis);
     }
 
     /** 等价于旧版 asr 里的 {@code truncate(s, max)}：超出追加 "..."。 */

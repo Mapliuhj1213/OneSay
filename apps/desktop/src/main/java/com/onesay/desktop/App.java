@@ -144,7 +144,7 @@ public final class App {
             if (card == null || from == null || from.isEmpty()) return;
             Map<String, Object> n = new TreeMap<>();
             n.put("title", "电脑任务" + Outcomes.zh(String.valueOf(card.getOrDefault("state", ""))));
-            n.put("text", Chat.phoneTaskLine(card));
+            n.put("text", TextClip.clip(Chat.phoneTaskLine(card), 1000)); // [fix-1123-misc] 推回手机的通知：按字符截到 1000 字，末尾「…」，不切半个字
             try {
                 Actions.Result r = agent.callPeer(from, "notify", n, 4000, 8000).get(14, java.util.concurrent.TimeUnit.SECONDS);
                 log.accept("手机任务结果" + (r.ok ? "已推回手机 " : "没推到手机（手机可以自己查）：" + r.text + " ") + from);

@@ -348,7 +348,7 @@ public class PcPluginTest {
             SafeExec.check(new ProcessBuilder("notepad.exe"));
             org.junit.Assert.fail("没有降权能力时应拒");
         } catch (SafeExec.Refused e) {
-            assertTrue(e.getMessage(), e.getMessage().contains("降权"));
+            assertTrue(e.getMessage(), e.getMessage().contains("降成普通权限")); // [fix-1123-misc] 说法改成大白话
         }
         // 有降权实现就用它
         SafeExec.reset(() -> true, pb -> { wrapped.add("deelevated:" + String.join(" ", pb.command())); return pb; });

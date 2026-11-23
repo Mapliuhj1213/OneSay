@@ -74,5 +74,5 @@ public final class Notify {
         return saved;
     }
 
-    static String clip(String s, int n) { return s.length() > n ? s.substring(0, n) + "…" : s; }
+    static String clip(String s, int n) { return TextClip.clip(s, n); } // [fix-1123-misc] 按字符截，不切半个字
 }
