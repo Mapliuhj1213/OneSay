@@ -87,6 +87,35 @@ public final class FollowUpQuery {
         return core + " " + prev;
     }
 
+    /**
+     * ★ 1123d B26：省略式追问（「那太阳呢」）给模型的提示：明确它接的是<b>最近一问</b>，把对象换掉再按那一问的问法回答，
+     * 别套更早几轮的话题 / 答案句式（真机：问完「月亮离地球多远」再问「那太阳呢」，模型答「太阳也不是鱼」）。
+     * 不是省略式追问 / 没有上一问 / 上一问是回执 = null。
+     *
+     * @param historyQuestions 同一面板里之前的问题，旧 → 新
+     */
+    public static String llmHint(String query, java.util.List<String> historyQuestions) {
+        if (query == null || historyQuestions == null || historyQuestions.isEmpty()) return null;
+        String q = query.trim();
+        if (q.length() == 0 || !isElliptical(q)) return null;
+        String core = core(q);
+        if (core.length() == 0) return null;
+        String prev = null;
+        for (int i = historyQuestions.size() - 1; i >= 0; i--) {
+            String h = historyQuestions.get(i);
+            if (h == null || h.trim().length() == 0) continue;
+            String t = h.trim();
+            if (t.startsWith("[")) return null;
+            if (isElliptical(t)) continue;   // 「那海豚呢」本身也是追问，再往前找真正的问法
+            prev = t;
+            break;
+        }
+        if (prev == null) return null;
+        if (prev.length() > 60) prev = prev.substring(0, 60) + "…";
+        return "【追问提示】这句接的是最近一问「" + prev + "」：把那一问里的对象换成「" + core
+                + "」再问一遍。按那一问的问法回答「" + core + "」，不要沿用更早几轮的话题或答案句式。\n";
+    }
+
     /** 短的省略式追问吗（"那明天呢""后天呢""那上海呢"）。 */
     static boolean isElliptical(String q) {
         boolean lead = LEAD.matcher(q).find();

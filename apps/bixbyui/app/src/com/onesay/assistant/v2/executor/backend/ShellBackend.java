@@ -69,7 +69,8 @@ public final class ShellBackend implements ExecutorBackend {
         String how;
         if (r.startsWith("SHIZUKU_")) {
             // ★ fix-1118：开源版没 root 的手机走 Shizuku，别说「系统特权守护」「root」
-            return what + "没有执行：OneSay 只让 Shizuku 跑少数几条固定命令，这一条不在里面（" + r + "）。"
+            // ★ 1123d：内部码不给用户看（只进日志）
+            return what + "没有执行：这台手机上 OneSay 只能跑少数几条固定命令，这一条不在里面。"
                     + "可以在系统设置里手动操作，或者换一种说法。";
         }
         if (r.startsWith("MAC_") || r.startsWith("SIG_") || r.startsWith("UID_") || r.startsWith("NO_IDENTITY")
@@ -80,7 +81,7 @@ public final class ShellBackend implements ExecutorBackend {
             why = "这条命令是旧写法，新版守护不再执行";
             how = "更新 OneSay 和特权守护到同一版本后即可";
         } else {
-            why = "这条命令不在守护的白名单里" + (r.length() > 0 ? "（" + r + "）" : "");
+            why = "这条命令不在守护的白名单里";   // ★ 1123d：内部码不给用户看
             how = "更新特权守护的白名单后即可";
         }
         return what + "被手机上的系统特权守护拦下了，没有执行：" + why + "。" + how + "。";

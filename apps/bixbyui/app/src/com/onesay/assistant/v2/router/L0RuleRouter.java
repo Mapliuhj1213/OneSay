@@ -210,6 +210,11 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
             best = c; args = a; break;
         }
         if (best == null) return null;
+        // ★ 1123d B25：「记一下车停在B2-17」这类事实陈述归长期记忆（记忆页教的就是这句），笔记 App 不抢
+        if ("notes.new.text".equals(best.capability.sign) && factForMemory(raw, args.optString("content", null))) {
+            SafeLog.i(TAG, "L0 放弃：记一下的是事实，交给记忆");
+            return null;
+        }
         // ★ rel-1118 B02 / B06：归一化删掉了负号和小数点（「-5秒」「1.5」）→ 数值类能力不在本地执行
         if (RawNumber.numeric(args) && RawNumber.suspicious(raw, RawNumber.isClock(best.capability.sign))) {
             SafeLog.i(TAG, "L0 放弃：原句数值带负号 / 小数（" + best.capability.sign + "）");
@@ -254,6 +259,18 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
      * 最后一次出现的那一段就是原文（中间的标点 / 空格 / 大小写都还在）；紧挨着、且只由被删字符组成的
      * 首尾符号（「#话题#」「$(…)」）一并带回，句末的中文语气标点不带。找不到就保持原值。
      */
+    /** ★ 1123d B25：说法是「记一下 / 记录 / 记住…」且内容是事实陈述（{@link com.onesay.assistant.v2.s2.ImplicitNote}）→ 归记忆。 */
+    static boolean factForMemory(String raw, String content) {
+        if (raw == null || content == null || content.trim().length() == 0) return false;
+        String r = raw.trim();
+        if (!(r.startsWith("记一下") || r.startsWith("记录") || r.startsWith("帮我记一下"))) return false;
+        try {
+            return com.onesay.assistant.v2.s2.ImplicitNote.detect(content.trim()) != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static JSONObject restoreRawSlots(String raw, JSONObject matched) {
         if (raw == null || matched == null || matched.length() == 0) return matched;
         StringBuilder kept = new StringBuilder(raw.length());

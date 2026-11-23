@@ -93,7 +93,7 @@ public class Fix1118ShizukuWhitelistTest {
         assertTrue(d, d.contains("Shizuku"));
         String m = ShellBackend.userDenyMessage(null, "SHIZUKU_SVC_ARGS");
         assertFalse(m, m.contains("守护") || m.contains("root"));
-        assertTrue(m, m.contains("Shizuku"));
+        assertFalse(m, m.contains("Shizuku") || m.contains("SHIZUKU_"));   // ★ 1123d：用户看到的话不带服务商名和内部码
         // 原守护拒绝文本不变
         assertTrue(ExecProtocol.describeDeny("CMD_NOT_ALLOWED").startsWith("root 守护拒绝执行"));
     }

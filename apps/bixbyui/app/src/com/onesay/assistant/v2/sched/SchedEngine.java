@@ -203,7 +203,11 @@ public final class SchedEngine {
     static final Pattern DELETE = Pattern.compile("^(删除|删掉|删了|删去|去掉|移除|取消|取消掉|不要|撤掉)(一下)?(.+?)$");
     static final Pattern DELETE2 = Pattern.compile("^(把|将)?(.+?)(删除|删掉|删了|去掉|移除|取消掉|取消了|取消|不去了|不开了|不办了|作废)(吧)?$");
     static final Pattern CLEAR = Pattern.compile("^(清空|删光|全部删掉|全删了|删除全部|删除所有)(.*)$");
-    static final Pattern YES = Pattern.compile("^(确认|确定|确认删除|确认修改|确认一下|好|好的|好啊|好吧|是|是的|对|对的|没错|可以|行|嗯|嗯嗯|没问题|删吧|删|删掉|改吧|改|就这样|ok|OK|Ok|yes)$");
+    static final String YES_W = "确认删除|确认修改|确认一下|确认|确定|好的|好啊|好吧|好|是的|是|对的|对|没错|可以|行|嗯嗯|嗯|没问题|删吧|删掉吧|删掉|删了吧|删|改吧|改|就这样|ok|OK|Ok|yes";
+    /** ★ 1123d B23：确认词可以连说（「是的，删掉」「好的删吧」），normalize 后标点已去掉。 */
+    static final Pattern YES = Pattern.compile("^(?:" + YES_W + ")(?:[，,、。！!\\s]*(?:" + YES_W + "|吧|啊|呀))*[。！!]*$");
+    /** 测试用。 */
+    public static boolean isConfirmYes(String q) { return q != null && YES.matcher(q).matches(); }
     static final Pattern NO = Pattern.compile("^(不|不要|不用|不用了|算了|取消|别|别改|别删|不了|否|no|No|先不|先不要|不删了|不改了|放弃)$");
     static final Pattern UNDO_P = Pattern.compile("^(撤销|撤回|撤销一下|撤回一下|撤销刚才的?(操作|日程|那个)?|撤回刚才的?(操作|日程|那个)?|刚才(那个|的)?不要了|刚才(那个|的)?(日程)?(删掉|删了|取消|取消掉)(吧)?|恢复刚才(删掉|删除)?的?(日程)?|还原)$");
     static final Pattern PICK = Pattern.compile("^(第)?([一二三四五六七八九1-9])(个|条|项)?$");
