@@ -59,6 +59,14 @@ public final class FsProtocol {
     public static final int SHELL_UID = 2000;
 
     /**
+     * ★ sec-1123 M3：App 连上读屏助手的抽象 socket 后，反过来核对端身份 —— 助手只会由 root 守护（uid 0）或 Shizuku（shell，uid 2000；
+     * Shizuku 用 root 起的也是 0）拉起。普通 App（uid ≥ 10000）抢先占了这个 socket 名，就拿不到我们发去的点按 / 截图请求和回来的屏幕内容。纯函数。
+     */
+    public static boolean helperPeerOk(int peerUid) {
+        return peerUid == 0 || peerUid == SHELL_UID;
+    }
+
+    /**
      * ★ a11y-1118：没有编译期固定证书时，可不可以用「启动时该包的证书」做指纹：只限经 Shizuku 以 shell 身份起的助手
      * （进程名正好是 {@link #shizukuNiceName}，uid 2000）。root 守护起的助手（bixbyui_fs:）照旧要编译期固定值。纯函数。
      */

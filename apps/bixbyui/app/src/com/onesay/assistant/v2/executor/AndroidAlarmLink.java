@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <ul>
  *   <li>时钟可用 = 装了 {@value AlarmBridge#CLOCK_PKG}、与本 App 同一证书签名（checkSignatures）、
- *       本 App 持有 signature 级权限 {@value AlarmBridge#CLOCK_PERMISSION}（两个 App 都声明它，安装先后不影响授予）。</li>
+ *       本 App 持有 signature 级权限 {@value AlarmBridge#CLOCK_PERMISSION}（★ sec-1123 L6：只有时钟声明它，OneSay 只申请；拿不到就按「时钟不可用」走系统闹钟）。</li>
  *   <li>调用时钟 = 有序广播，{@code setPackage} 锁定时钟包，结果在独立 HandlerThread 上收（调用线程阻塞等，最多 {@link #TIMEOUT_MS}）。
  *       没有接收器（时钟版本太旧）时系统直接回初始结果码 {@link AlarmBridge#RC_NONE}。</li>
  *   <li>系统闹钟 = {@link AlarmClock#ACTION_SET_ALARM} / {@link AlarmClock#ACTION_SHOW_ALARMS}；先 resolveActivity，

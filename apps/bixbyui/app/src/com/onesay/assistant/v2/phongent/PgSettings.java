@@ -37,7 +37,15 @@ public final class PgSettings {
     }
 
     public static boolean get(Context c, String key) {
-        return sp(c).getBoolean(key, false);
+        return sp(c).getBoolean(key, defaultOn(key));
+    }
+
+    /**
+     * ★ sec-1123 M5：多设备的口令走的是 HTTP 明文（主控端协议如此，改不了），所以「只允许 Tailscale」默认开 ——
+     * Tailscale 本身是加密隧道；同一 Wi‑Fi 里别人抓包就看不到口令。要走普通局域网得自己关掉这项（控制台写明了是明文）。纯函数。
+     */
+    public static boolean defaultOn(String key) {
+        return PgApprove.defaultOn(key);
     }
 
     public static void set(Context c, String key, boolean on) {

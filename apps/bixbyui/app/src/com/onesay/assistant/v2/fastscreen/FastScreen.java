@@ -113,6 +113,17 @@ public final class FastScreen {
         try {
             LocalSocket s = new LocalSocket();
             s.connect(new LocalSocketAddress(FsProtocol.socketName(mApp.getPackageName()), LocalSocketAddress.Namespace.ABSTRACT));
+            // ★ sec-1123 M3：对端必须是 root / shell 起的读屏助手；别的 App 抢了 socket 名 → 断开，不发任何请求
+            int peer = s.getPeerCredentials().getUid();
+            if (!FsProtocol.helperPeerOk(peer)) {
+                mLastError = "读屏助手的连接对端不对（不是 OneSay 自己拉起的助手），已断开";
+                Log.w(TAG, "[FS] 拒绝对端 uid=" + peer + "（不是 root / shell 起的助手）");
+                try {
+                    s.close();
+                } catch (Throwable ignored) {
+                }
+                return false;
+            }
             s.setSoTimeout(SO_TIMEOUT_MS);
             mSock = s;
             mIn = new DataInputStream(new BufferedInputStream(s.getInputStream()));

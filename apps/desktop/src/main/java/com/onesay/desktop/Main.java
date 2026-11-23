@@ -33,6 +33,8 @@ public final class Main {
         if (ci >= 0 && ci + 1 < a.size()) { cfgFile = Paths.get(a.get(ci + 1)); a.remove(ci + 1); a.remove(ci); }
         String sub = a.isEmpty() ? "run" : a.remove(0);
         Config cfg = Config.load(cfgFile);
+        // ★ sec-1123 L3：中文用户名时工作区在 ProgramData 下，启动时把本账户目录收成只有自己能访问
+        if (File.separatorChar == '\\') UserDirs.secureFallbackRoot(System.getenv("USERPROFILE"), System.getenv("ProgramData"), s -> System.err.println("[onesay] " + s));
         switch (sub) {
             case "setup": setup(cfg); break;
             case "pair": pair(cfg); break;

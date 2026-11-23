@@ -223,7 +223,7 @@ final class VyrseAbilities implements PhoneAbilities, RingController.AlarmAudio,
             Intent open = new Intent(mCtx, com.onesay.assistant.v2.ui.MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             Notification n = b.setSmallIcon(mCtx.getApplicationInfo().icon).setContentTitle(title).setContentText(text)
                     .setStyle(new Notification.BigTextStyle().bigText(text)).setAutoCancel(true)
-                    .setContentIntent(PendingIntent.getActivity(mCtx, 9402, open, PendingIntent.FLAG_UPDATE_CURRENT)).build();
+                    .setContentIntent(PendingIntent.getActivity(mCtx, 9402, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build();
             nm.notify(9410 + (int) (System.currentTimeMillis() % 50), n);
             return true;
         } catch (Throwable t) {

@@ -716,7 +716,11 @@ public final class LinkPolicy {
                     + "|(\\bdpm\\s+set-(active-admin|device-owner|profile-owner))|(\\bcmd\\s+device_policy\\b)"
                     + "|(\\bcmd\\s+package\\s+(grant|revoke|set-permission-flags|set-installer)\\b)" // [回补-1114 ← 电脑 / 手机] cmd package grant 和 pm grant 是同一件事
                     + "|(\\bshizuku\\b)|(moe\\.shizuku)|(\\bmagisk\\b.*(--sqlite\\b|\\bpolic(y|ies)\\b))|(\\bsupolicy\\b)" // [回补-1114] 原 \\b--sqlite 永远匹配不上，policies 也漏了
-                    + "|(\\bAdd-MpPreference\\b)|(\\bicacls\\b)|(\\btakeown\\b)|(\\bSet-Acl\\b)|(\\bnet\\s+localgroup\\b)",
+                    + "|(\\bAdd-MpPreference\\b)|(\\bicacls\\b)|(\\btakeown\\b)|(\\bSet-Acl\\b)|(\\bnet\\s+localgroup\\b)"
+                    // ★ sec-1123 M1：装 App 时顺手把权限全给了（pm / cmd package install -g、--grant-all-permissions）、
+                    //   改默认短信 / 拨号 / 桌面这类角色（cmd role、role add-role-holder、set-home-activity）也是给 App 授权
+                    + "|(\\b(pm|cmd\\s+package)\\s+install(-create|-multiple|-existing)?\\b[^\\n;|&]*(\\s-g\\b|\\s--grant-all-permissions\\b))"
+                    + "|(\\bcmd\\s+role\\b)|(\\brole\\s+(add|remove)-role-holder\\b)|(\\b(pm|cmd\\s+package)\\s+set-home-activity\\b)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PHONE_SIMPLE = Pattern.compile(
             "^\\s*(settings\\s+put\\s+system\\s+(screen_brightness|screen_brightness_mode|screen_off_timeout)\\s+\\S+"
@@ -726,7 +730,53 @@ public final class LinkPolicy {
     private static final Pattern PHONE_NETSEC = Pattern.compile(
             "\\bsettings\\s+put\\s+(global|secure)\\b|\\bsvc\\s+(data|nfc|usb)\\b|\\bcmd\\s+(connectivity|netpolicy|wifi)\\b|\\biptables\\b|\\bip\\s+(route|rule|addr)\\b",
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern SYS_APP_OP = Pattern.compile("\\bpm\\s+(uninstall|disable|disable-user|hide|clear|suspend)\\b", Pattern.CASE_INSENSITIVE);
+    // ★ sec-1123 M1：cmd package uninstall / disable… 和 pm 是同一件事
+    private static final Pattern SYS_APP_OP = Pattern.compile("\\b(pm|cmd\\s+package)\\s+(uninstall|disable|disable-user|hide|clear|suspend)\\b", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * ★ sec-1123 M1：间接执行 —— 真正跑的命令不在这一行字面上（xargs 把输入拼成命令、sh -c / eval / source、先写脚本再 sh 它、
+     * find -exec、管道喂给 sh、./脚本、app_process），红线按字面认不准。命中的改成不能记住的确认卡（{@link Facts#oddWriting}）。
+     */
+    private static final Pattern INDIRECT = Pattern.compile(
+            "(\\bxargs\\b)|(\\beval\\b)|(\\bsource[ \\t]+\\S)|((^|[;&|(\\n])[ \\t]*\\.[ \\t]+\\S)"
+                    + "|(\\b(sh|bash|ash|dash|mksh|zsh)\\b([ \\t]+-[A-Za-z]+)*[ \\t]+(-c\\b|[^\\s;|&<>#-]))"
+                    + "|(\\|[ \\t]*(sh|bash|ash|dash|mksh|zsh|su)\\b)|(\\bsu\\b([ \\t]+-?[A-Za-z0-9]+)*[ \\t]+-c\\b)"
+                    + "|(\\bfind\\b[^\\n]*[ \\t]-(exec|execdir|ok)\\b)|((^|[;&|( \\t\\n])\\.{0,2}/[^\\s;|&]*\\.sh\\b)|((^|[;&|(\\n])[ \\t]*\\./\\S)"
+                    + "|(\\bapp_process\\b)|(\\bdalvikvm\\b)|(\\b(busybox|toybox)[ \\t]+(sh|ash|xargs|env)\\b)|(\\benv[ \\t]+(-\\S+[ \\t]+)*\\S+=)",
+            Pattern.CASE_INSENSITIVE);
+
+    /** ★ sec-1123 M1：手机 shell 命令里有间接执行时给人看的原因（一句话）；没有返回 ""。原文和去引号后的写法都看。 */
+    public static String indirectShell(String raw) {
+        if (raw == null || raw.trim().length() == 0) return "";
+        raw = dropCommentLines(raw); // 注释行（含 #!/bin/sh）不算
+        String u = unquoteShell(raw);
+        Matcher m = INDIRECT.matcher(raw);
+        Matcher mu = INDIRECT.matcher(u);
+        String hit = m.find() ? m.group() : mu.find() ? mu.group() : null;
+        if (hit == null) return "";
+        hit = oneLine(hit).trim();
+        if (hit.length() > 24) hit = hit.substring(0, 24) + "…";
+        return "命令里有间接执行（「" + hit + "」：xargs / sh -c / eval / 先写脚本再运行这类），最后真正跑的是什么看不清";
+    }
+
+    /** 去掉整行是注释的行（行首空白后是 #，含 #!/bin/sh）。只给 {@link #indirectShell} 用。 */
+    static String dropCommentLines(String s) {
+        StringBuilder b = new StringBuilder(s.length());
+        for (String line : s.split("\\r?\\n", -1)) {
+            if (line.trim().startsWith("#")) continue;
+            if (b.length() > 0) b.append('\n');
+            b.append(line);
+        }
+        return b.toString();
+    }
+
+    /** ★ sec-1123 M1：写法可疑 + 间接执行，两条原因合成一句（都没有返回 ""）。 */
+    public static String shellDoubt(String raw) {
+        String a = raw == null ? "" : oddShellWriting(dropCommentLines(raw)), b = indirectShell(raw);
+        if (a.length() == 0) return b;
+        if (b.length() == 0) return a;
+        return a + "；" + b;
+    }
 
     /**
      * 手机 shell（sh）命令去引号 / 反斜杠：' 和 " 去掉，反斜杠去掉（它后面的字符留下），空白合成一个空格。只给红线匹配用，不拿去执行。

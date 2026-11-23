@@ -100,7 +100,7 @@ public final class Remind {
 
     static PendingIntent firePi(Context c) {
         Intent i = new Intent(c, RemindReceiver.class).setAction(ACTION_FIRE);
-        return PendingIntent.getBroadcast(c, 1, i, PendingIntent.FLAG_UPDATE_CURRENT);
+        return PendingIntent.getBroadcast(c, 1, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     /** 到点：发 (上次检查, 现在] 的通知，再排下一个。 */
@@ -167,13 +167,13 @@ public final class Remind {
                 .setColor(0xFF0381FE)
                 .setCategory(Notification.CATEGORY_REMINDER)
                 .setStyle(new Notification.BigTextStyle().bigText(it.text))
-                .setContentIntent(PendingIntent.getActivity(c, it.notifyId(), open, PendingIntent.FLAG_UPDATE_CURRENT));
+                .setContentIntent(PendingIntent.getActivity(c, it.notifyId(), open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         if (Contract.T_TODOS.equals(it.table)) {
             b.addAction(new Notification.Action.Builder(null, "完成", actionPi(c, ACTION_DONE, it)).build());
         } else if (Contract.T_TICKETS.equals(it.table)) {
             // 锁屏直接看到开场时间和取票码（票不是隐私级数据；用户可在系统通知设置里改成隐藏内容）
             b.setVisibility(Notification.VISIBILITY_PUBLIC);
-            b.addAction(new Notification.Action.Builder(null, "出示票码", PendingIntent.getActivity(c, it.notifyId() + 1, open, PendingIntent.FLAG_UPDATE_CURRENT)).build());
+            b.addAction(new Notification.Action.Builder(null, "出示票码", PendingIntent.getActivity(c, it.notifyId() + 1, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build());
         } else if (Contract.T_PICKUPS.equals(it.table)) {
             b.addAction(new Notification.Action.Builder(null, "复制取件码", actionPi(c, ACTION_COPY, it)).build());
             b.addAction(new Notification.Action.Builder(null, "已取", actionPi(c, ACTION_TAKEN, it)).build());
@@ -189,7 +189,7 @@ public final class Remind {
 
     static PendingIntent actionPi(Context c, String action, Reminders.Item it) {
         Intent i = new Intent(c, RemindReceiver.class).setAction(action).putExtra("table", it.table).putExtra("id", it.id).putExtra("nid", it.notifyId());
-        return PendingIntent.getBroadcast(c, (action + it.notifyId()).hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT);
+        return PendingIntent.getBroadcast(c, (action + it.notifyId()).hashCode(), i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     static void action(Context c, Intent i) {

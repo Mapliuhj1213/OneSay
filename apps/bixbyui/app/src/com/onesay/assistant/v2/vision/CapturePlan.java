@@ -45,6 +45,28 @@ public final class CapturePlan {
         return Collections.unmodifiableList(l);
     }
 
+    /**
+     * ★ sec-1123 L4：Android 10 及以下，外部缓存目录（Android/data/本包/cache）持存储权限的别的 App 也能读。
+     * root 能写私有目录，所以这些系统上 root 档<b>不再退到外部缓存目录</b>（私有 / 内部 cache 都失败就如实报失败）；
+     * 只有 Shizuku 时 shell 写不了私有目录，外部缓存目录照旧要用，但文件名每次随机（{@link #externalShotName}），用完即删。纯函数。
+     */
+    public static List<Step> forSdk(List<Step> steps, int sdk) {
+        if (steps == null || sdk > 29) return steps;
+        boolean shellOnlyExternal = true;
+        for (Step s : steps) if (s.dir != EXTERNAL && s.shell) shellOnlyExternal = false;
+        if (shellOnlyExternal) return steps; // 只有 Shizuku：外部缓存是唯一能 screencap 的地方
+        List<Step> l = new ArrayList<Step>();
+        for (Step s : steps) if (s.dir != EXTERNAL) l.add(s);
+        return Collections.unmodifiableList(l);
+    }
+
+    /** ★ sec-1123 L4：外部缓存目录里的截图名每次随机（别的 App 猜不到、不能提前放同名文件）；只含 Shizuku 截图白名单认的字符。 */
+    public static String externalShotName(java.util.Random r) {
+        StringBuilder b = new StringBuilder("vs_");
+        for (int i = 0; i < 16; i++) b.append(Character.forDigit((r == null ? new java.security.SecureRandom() : r).nextInt(16), 16));
+        return b.append(".png").toString();
+    }
+
     /** 一次 screencap 没出有效文件的原因（给日志和提示）。 */
     public static String describe(boolean denied, String denyReason, boolean down, boolean timeout, int rc, String output,
                                   boolean fileExists, long fileLen) {

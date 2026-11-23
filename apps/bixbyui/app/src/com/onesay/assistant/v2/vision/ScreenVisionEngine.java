@@ -280,7 +280,7 @@ public class ScreenVisionEngine {
                     }
                     captured = false;
                     shotPath = null;
-                    for (CapturePlan.Step st : CapturePlan.steps(shzOnly)) {
+                    for (CapturePlan.Step st : CapturePlan.forSdk(CapturePlan.steps(shzOnly), android.os.Build.VERSION.SDK_INT)) {   // ★ sec-1123 L4
                         if (shotPath != null) deleteQuietly(shotPath);
                         String p = shotPathFor(st.dir);
                         if (p == null) continue;
@@ -548,10 +548,13 @@ public class ScreenVisionEngine {
         return shotPath;
     }
 
+    private static final java.security.SecureRandom SHOT_RANDOM = new java.security.SecureRandom();
+
     private String shotPathExternalCache() {
         try {
             File dir = mContext.getExternalCacheDir();
-            return dir == null ? null : new File(dir, "vision_shot.png").getAbsolutePath();
+            // ★ sec-1123 L4：外部缓存目录里文件名每次随机（老系统上别的 App 能读这个目录），用完照旧在 finally 里删
+            return dir == null ? null : new File(dir, CapturePlan.externalShotName(SHOT_RANDOM)).getAbsolutePath();
         } catch (Throwable t) {
             return null;
         }

@@ -93,7 +93,7 @@ public final class PgApi {
         if ("POST".equals(m) && "/pair".equals(p)) {
             PgAuth.Result r;
             try {
-                r = mAuth.request(rq.json());
+                r = mAuth.request(rq.json(), rq.remote);
             } catch (IOException e) {
                 r = null;
             }
@@ -102,7 +102,7 @@ public final class PgApi {
             return;
         }
         if ("GET".equals(m) && p.startsWith("/pair/")) {
-            PgHttp.writeJson(out, 200, mAuth.poll(p.substring(6)));
+            PgHttp.writeJson(out, 200, mAuth.poll(p.substring(6), rq.remote));
             return;
         }
         String peer = mAuth.authorize(rq.header("authorization"));

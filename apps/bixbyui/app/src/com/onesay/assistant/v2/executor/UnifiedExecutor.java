@@ -202,6 +202,12 @@ public class UnifiedExecutor implements IExecutor {
             pkg = slash > 0 ? component.substring(0, slash) : component;
         }
 
+        // ★ sec-1123 L5：打电话 / 发短信在填模板前再核一次号码（含 * # , ; 的拨号码、不像号码的，一律不执行）
+        String commsBad = CommsRisk.execGuard(capability.sign, args);
+        if (commsBad != null) {
+            return ExecutionResult.failed(ErrorCode.SCHEMA_INVALID, "没拨：" + commsBad, "comms_exec_guard", capability, args);
+        }
+
         // 4. 替换指令与回读模板中的参数占位符
         //    ShellCommand 按 shell 上下文转义（裸槽位自动加引号、URL 查询值编码、单遍替换防二次注入）；
         //    expect 不是 shell 命令，按原值代入（否则 "50" 会变成 "'50'" 而回读失配）。

@@ -74,7 +74,7 @@ public final class PhongentPlugin extends FeaturePlugin {
         if (!PAGE.equals(page)) return;
         ConsoleRows.detailPage(host, root, "允许被主控连接", killed, mainPref(act),
                 new String[]{"只允许 Tailscale", "把微信 / QQ 通知预览转给主控", "允许主控请求查看屏幕"},
-                new String[]{"关：同一 Wi‑Fi 局域网 + Tailscale；公网地址一律拒绝",
+                new String[]{"默认开（Tailscale 是加密的）。关掉后同一 Wi‑Fi 也能连，但口令是明文传的，只在自己家的网里关；公网地址一律拒绝",
                         "只读这两个 App 的通知；正文只在内存、不落盘", "每次还要在本机点「允许本次」；有任务在跑时不能接管"},
                 new ConsoleRows.Pref[]{pref(act, PgSettings.KEY_TS_ONLY), pref(act, PgSettings.KEY_RELAY), pref(act, PgSettings.KEY_SCREEN)},
                 null, null);

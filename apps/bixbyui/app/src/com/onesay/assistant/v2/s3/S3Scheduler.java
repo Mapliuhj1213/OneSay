@@ -58,7 +58,7 @@ public final class S3Scheduler {
         Intent it = new Intent(ACTION_ALARM);
         it.setClassName(ctx.getPackageName(), "com.onesay.assistant.v2.ui.BootReceiver");
         it.putExtra(EXTRA_NONCE, nonce(ctx));
-        return PendingIntent.getBroadcast(ctx, 7301, it, PendingIntent.FLAG_UPDATE_CURRENT);
+        return PendingIntent.getBroadcast(ctx, 7301, it, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     /** 按库重排唯一的闹钟（任意线程）。 */

@@ -150,7 +150,91 @@ public final class PcProtocol {
             }
             if (seen.size() > 10000) return false;
             if (seen.containsKey(nonce)) return false;
+            if (!persistFirstSeen(nonce, nowMs)) return false; // ★ sec-1123 M6：跨会话 / 跨重启也认得
             seen.put(nonce, nowMs);
+            return true;
+        }
+    }
+
+    // ================================================================== ★ sec-1123 M6：防重放落盘
+
+    /**
+     * 一次性编号落盘的地方（Android：SharedPreferences）。以前防重放只在每条会话的内存里：断线重连、App 被杀重启后，
+     * 时间窗（{@link #MAX_SKEW_MS}）内抓到的旧报文还能再发一遍。接上之后，所有会话共用一份、写进本机，时间窗过了自动清掉。
+     * 不接（JVM 测试、电脑端）= 只有内存那份，行为和以前一样。
+     */
+    public interface NonceStore {
+        String load();
+
+        void save(String data);
+    }
+
+    private static final Object PERSIST_LOCK = new Object();
+    private static final LinkedHashMap<String, Long> PERSIST = new LinkedHashMap<String, Long>();
+    private static volatile NonceStore sStore;
+    private static boolean sLoaded;
+    static final int PERSIST_MAX = 4000;
+
+    public static void attachNonceStore(NonceStore st) {
+        synchronized (PERSIST_LOCK) {
+            sStore = st;
+            sLoaded = false;
+            PERSIST.clear();
+        }
+    }
+
+    /** 存的是编号的摘要（32 位十六进制），不存原文；格式「摘要:毫秒,摘要:毫秒」。 */
+    static String nonceKey(String nonce) {
+        try {
+            byte[] h = MessageDigest.getInstance("SHA-256").digest(nonce.getBytes("UTF-8"));
+            StringBuilder b = new StringBuilder(32);
+            for (int i = 0; i < 16; i++) b.append(String.format(java.util.Locale.ROOT, "%02x", h[i] & 0xff));
+            return b.toString();
+        } catch (Exception e) {
+            return nonce;
+        }
+    }
+
+    static boolean persistFirstSeen(String nonce, long nowMs) {
+        NonceStore st = sStore;
+        if (st == null) return true;
+        synchronized (PERSIST_LOCK) {
+            if (!sLoaded) {
+                sLoaded = true;
+                try {
+                    String d = st.load();
+                    if (d != null) for (String part : d.split(",")) {
+                        int k = part.indexOf(':');
+                        if (k != 32) continue;
+                        try {
+                            PERSIST.put(part.substring(0, k), Long.valueOf(Long.parseLong(part.substring(k + 1))));
+                        } catch (NumberFormatException ignored) {
+                            // 坏的项跳过
+                        }
+                    }
+                } catch (Throwable ignored) {
+                    // 读不了 = 从空开始（内存那份照旧防住本次会话）
+                }
+            }
+            Iterator<Map.Entry<String, Long>> it = PERSIST.entrySet().iterator();
+            while (it.hasNext()) {
+                long t = it.next().getValue().longValue();
+                if (nowMs - t > 2 * MAX_SKEW_MS || t - nowMs > 2 * MAX_SKEW_MS) it.remove();
+            }
+            String key = nonceKey(nonce);
+            if (PERSIST.containsKey(key)) return false;
+            if (PERSIST.size() >= PERSIST_MAX) return false; // 满了不收（和内存那份同样的保守做法）
+            PERSIST.put(key, Long.valueOf(nowMs));
+            StringBuilder b = new StringBuilder(PERSIST.size() * 46);
+            for (Map.Entry<String, Long> e : PERSIST.entrySet()) {
+                if (b.length() > 0) b.append(',');
+                b.append(e.getKey()).append(':').append(e.getValue().longValue());
+            }
+            try {
+                st.save(b.toString());
+            } catch (Throwable ignored) {
+                // 写不进去：内存里已记下，本进程内照样防住
+            }
             return true;
         }
     }
