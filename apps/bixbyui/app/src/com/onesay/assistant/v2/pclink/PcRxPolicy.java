@@ -244,6 +244,9 @@ public final class PcRxPolicy {
         return Math.max(5, Math.min(RING_MAX_S, v));
     }
 
+    /** [fix-1123-misc] 电脑发来的通知在手机上最多显示多少（UTF-16 单位，截在整字处；系统自己会在 1024 个单位处硬截，可能切开表情）。 */
+    public static final int NOTIFY_TITLE_SHOW = 100, NOTIFY_TEXT_SHOW = 1000;
+
     static String str(Map<String, Object> a, String k) {
         Object v = a == null ? null : a.get(k);
         return v == null ? "" : String.valueOf(v).trim();

@@ -274,6 +274,7 @@ public class DesktopActions implements Actions {
         Process p = SafeExec.start(new ProcessBuilder(cmd).redirectErrorStream(true));
         p.getOutputStream().close();
         if (!p.waitFor(15, TimeUnit.SECONDS)) { p.destroyForcibly(); return Result.fail(label + " 超时"); }
+        if (p.exitValue() == WinDeElevate.EXIT_FAILED && Boolean.TRUE.equals(SafeExec.REMOTE.get())) return Result.fail(WinDeElevate.FAIL_ZH); // [fix-1123-misc]
         return p.exitValue() == 0 ? Result.ok(label + " 完成") : Result.fail(label + " 失败（" + p.exitValue() + "）");
     }
 

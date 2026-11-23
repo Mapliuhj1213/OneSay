@@ -1280,6 +1280,6 @@ public final class ChatAgent {
 
     static String clip(String s, int n) {
         if (s == null) return "";
-        return s.length() <= n ? s : s.substring(0, n) + "…（截断）";
+        return TextClip.clip(s, n, "…（截断）"); // [fix-1123-misc] 按字符截，不切半个字
     }
 }

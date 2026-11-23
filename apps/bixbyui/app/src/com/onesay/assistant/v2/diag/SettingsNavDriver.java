@@ -43,7 +43,7 @@ public final class SettingsNavDriver {
     public static boolean hasSearchKey(Context ctx) {
         try {
             SearchConfig c = WebSearchClient.getInstance(ctx).config();
-            return c.isEnabled() && (nonEmpty(c.getTavilyKey()) || nonEmpty(c.getBochaKey()));
+            return c.isEnabled() && (nonEmpty(c.getTavilyKey()) || nonEmpty(c.getBochaKey()) || nonEmpty(c.getParallelKey())); // [fix-1123-misc] Parallel 也算
         } catch (Throwable t) {
             return false;
         }

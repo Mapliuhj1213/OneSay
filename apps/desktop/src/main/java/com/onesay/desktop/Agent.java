@@ -193,6 +193,7 @@ public final class Agent {
             } finally {
                 SafeExec.REMOTE.set(Boolean.FALSE);
             }
+            r = deElevateExplain(r); // [fix-1123-misc] 管理员身份下降权失败 → 如实说没执行
             noteRead(from, cmd, r); // [app-whitelist-1116] 读到了隐私：本次会话里后面的外发即使在白名单也要确认
             reply(via, from, id, r.ok, r.text, guard.decorate(r.data), false);
         };
@@ -313,8 +314,24 @@ public final class Agent {
         } finally {
             SafeExec.REMOTE.set(Boolean.FALSE);
         }
+        r = deElevateExplain(r); // [fix-1123-misc]
         noteRead(from, cmd, r);
         return r;
+    }
+
+    /**
+     * [fix-1123-misc] OneSay 是管理员身份、远程命令降权包装没能降成普通权限（{@link WinDeElevate}）：真正的命令没启动。
+     * 结果改成「已拦下没执行」+ 插件拒绝的原因码，不让它看起来像命令自己失败了。
+     */
+    static Actions.Result deElevateExplain(Actions.Result r) {
+        if (r == null || r.ok || r.data == null) return r;
+        Object ex = r.data.get("exit");
+        Object out = r.data.get("output");
+        if (!(ex instanceof Number) || !WinDeElevate.failed(((Number) ex).intValue(), out == null ? "" : String.valueOf(out))) return r;
+        Map<String, Object> d = new TreeMap<>();
+        d.put("reason", LinkPolicy.R_PLUGIN_BLOCKED);
+        d.put("reason_zh", LinkPolicy.reasonZh(LinkPolicy.R_PLUGIN_BLOCKED));
+        return new Actions.Result(false, WinDeElevate.FAIL_ZH, d);
     }
 
     /**

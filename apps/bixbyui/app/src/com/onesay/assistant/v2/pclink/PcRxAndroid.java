@@ -463,7 +463,9 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
         if (PcRxPolicy.SCRIPT_RUN.equals(cmd)) return scriptRun(PcRxPolicy.str(a, "name"), PcRx.checkedScript());
         if (PcRxPolicy.SYS_EXEC.equals(cmd)) return shell(PcRxPolicy.str(a, "command"));
         if (PcRxPolicy.NOTIFY.equals(cmd)) {
-            String title = PcRxPolicy.str(a, "title"), text = PcRxPolicy.str(a, "text");
+            // [fix-1123-misc] 系统会把通知文字硬截到 1024 个 UTF-16 单位（可能切开表情 / 生僻字）：自己先截到 1000 个单位以内（不切开代理对）、末尾加「…」
+            String title = com.onesay.assistant.v2.util.TextUtil.truncate(PcRxPolicy.str(a, "title"), PcRxPolicy.NOTIFY_TITLE_SHOW, "…"),
+                    text = com.onesay.assistant.v2.util.TextUtil.truncate(PcRxPolicy.str(a, "text"), PcRxPolicy.NOTIFY_TEXT_SHOW, "…");
             try {
                 NotificationManager nm = channel(app);
                 Notification n = builder(app).setSmallIcon(app.getApplicationInfo().icon)

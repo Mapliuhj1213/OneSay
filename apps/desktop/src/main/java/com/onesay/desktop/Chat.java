@@ -422,7 +422,7 @@ public final class Chat {
     public Actions.Result startPhoneTask(String goal, String from) {
         String g = goal == null ? "" : goal.trim();
         if (g.isEmpty()) return Actions.Result.fail("没说要电脑做什么");
-        if (g.length() > 1000) g = g.substring(0, 1000);
+        g = TextClip.clip(g, 1000, ""); // [fix-1123-misc] 不切半个字
         if (brain == null && !Llm.from(cfg).ready()) return Actions.Result.fail("电脑上的 OneSay 没配大模型（设置 › 模型与密钥），没法替手机做任务；单条指令（锁屏、截图、打开网址…）照常能用");
         if (peerExec == null) return Actions.Result.fail("电脑联动没接好");
         synchronized (queueLock) { if (running) return Actions.Result.fail("电脑正在做另一个任务，做完再发（或者先在电脑上点停止）"); }
@@ -1450,7 +1450,7 @@ public final class Chat {
         m.put("role", "assistant");
         m.put("via", "task");
         m.put("task", taskId);
-        m.put("title", title.length() > 60 ? title.substring(0, 60) + "…" : title);
+        m.put("title", TextClip.clip(title, 60)); // [fix-1123-misc]
         m.put("state", "running");
         if (origin != null && !origin.isEmpty()) { m.put("origin", origin); m.put("title", "来自手机：" + (title.length() > 54 ? title.substring(0, 54) + "…" : title)); } // [overnight-1119]
         m.put("steps", new ArrayList<Object>());

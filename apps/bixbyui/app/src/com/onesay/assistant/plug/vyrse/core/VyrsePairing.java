@@ -77,8 +77,8 @@ public final class VyrsePairing {
 
     static String translate(int code, String err) {
         String e = err == null ? "" : err;
-        if (e.startsWith("Wrong code")) return "配对码不对（错 5 次后要在电脑上重新点「Pair a phone」）";
-        if (e.startsWith("Pairing isn")) return "电脑端没在配对（或配对码已过 2 分钟），在电脑上重新点「Pair a phone」";
+        if (e.startsWith("Wrong code")) return "配对码不对（错 5 次后要在 VYRSE 电脑端重新点配对按钮「Pair a phone」，换个新码）";
+        if (e.startsWith("Pairing isn")) return "VYRSE 电脑端没在配对（或配对码已过 2 分钟），在 VYRSE 电脑端重新点配对按钮「Pair a phone」";
         return "配对失败（HTTP " + code + "）";
     }
 

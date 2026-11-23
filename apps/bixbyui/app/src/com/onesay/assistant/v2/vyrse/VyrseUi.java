@@ -108,11 +108,11 @@ public final class VyrseUi {
     static void buildUnpaired(final ConsoleHost host, LinearLayout root, final Activity act) {
         LinearLayout g = host.group(root, "配对");
         if (VyrseSettings.removedByPc(act)) {
-            host.valueRow(g, "电脑已移除这台手机", "在电脑上重新点「Pair a phone」后再配对", "需重配", ConsoleHost.TONE_BAD);
+            host.valueRow(g, "电脑已移除这台手机", "在 VYRSE 电脑端重新点配对按钮「Pair a phone」后再配对", "需重配", ConsoleHost.TONE_BAD);
         } else if (VyrseSettings.keyLost(act)) {
             host.valueRow(g, "配对信息解不开了", "换机还原或系统清过密钥，请重新配对", "需重配", ConsoleHost.TONE_BAD);
         }
-        host.actionRow(g, "输入电脑地址和配对码", "电脑上：VYRSE → Settings → Phone → 打开手机访问 →「Pair a phone」，会显示地址和 6 位码（2 分钟有效，错 5 次作废）",
+        host.actionRow(g, "输入电脑地址和配对码", "在 VYRSE 电脑端：Settings（设置）→ Phone（手机）→ 打开手机访问 → 点配对按钮「Pair a phone」，会显示地址和 6 位码（2 分钟有效，错 5 次作废）",
                 "配对", new Runnable() {
                     @Override public void run() { pairDialog(host, act); }
                 });

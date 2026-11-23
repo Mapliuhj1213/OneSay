@@ -21,6 +21,8 @@ public final class SearchConfig {
     private static final String K_BOCHA_KEY = "bocha_key";
     /** ★ feat/api-first：海纳开放平台（gw-openapi.zhidemai.com）商品检索的 key，与 Tavily 同一套 SecretPrefs 加密存。 */
     private static final String K_HAINA_KEY = "haina_key";
+    /** [fix-1123-misc] Parallel 搜索的 key（可选；没填 = 不参与搜索链）。 */
+    private static final String K_PARALLEL_KEY = "parallel_key";
     /** R15：天气类问句没带地点时补的城市；空 = 不补（代码不写死城市）。 */
     private static final String K_HOME_CITY = "home_city";
 
@@ -29,6 +31,8 @@ public final class SearchConfig {
     public static final String PROVIDER_TAVILY = "tavily";
     public static final String PROVIDER_BOCHA = "bocha";
     public static final String PROVIDER_BING = "bing";
+    /** [fix-1123-misc] 点名首选 Parallel（还得填了 Key 才真用）；auto 下它排在 Tavily、博查后面，不当默认。 */
+    public static final String PROVIDER_PARALLEL = "parallel";
 
     private final Context mContext;
 
@@ -99,6 +103,15 @@ public final class SearchConfig {
         { android.content.SharedPreferences.Editor e = sp().edit(); com.onesay.assistant.v2.security.SecretPrefs.put(e, K_HAINA_KEY, v == null ? "" : v.trim()); e.apply(); }
     }
 
+    /** [fix-1123-misc] Parallel 搜索 key（没填 = 跳过这个数据源）。 */
+    public String getParallelKey() {
+        return com.onesay.assistant.v2.security.SecretPrefs.get(sp(), K_PARALLEL_KEY);
+    }
+
+    public void setParallelKey(String v) {
+        { android.content.SharedPreferences.Editor e = sp().edit(); com.onesay.assistant.v2.security.SecretPrefs.put(e, K_PARALLEL_KEY, v == null ? "" : v.trim()); e.apply(); }
+    }
+
     /** 一行摘要（已脱敏），供日志与自测展示。 */
     public String describe() {
         StringBuilder sb = new StringBuilder();
@@ -107,6 +120,7 @@ public final class SearchConfig {
         sb.append(", tavily=").append(mask(getTavilyKey()));
         sb.append(", bocha=").append(mask(getBochaKey()));
         sb.append(", haina=").append(mask(getHainaKey()));
+        sb.append(", parallel=").append(mask(getParallelKey()));
         return sb.toString();
     }
 

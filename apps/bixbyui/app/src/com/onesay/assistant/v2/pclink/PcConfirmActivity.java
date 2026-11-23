@@ -63,7 +63,7 @@ public class PcConfirmActivity extends Activity {
                 try {
                     PendingIntent pi = PendingIntent.getActivity(app, card.id, i, PendingIntent.FLAG_UPDATE_CURRENT | (android.os.Build.VERSION.SDK_INT >= 23 ? 0x04000000 : 0));
                     Notification n = PcRxAndroid.builder(app).setSmallIcon(app.getApplicationInfo().icon).setContentTitle(card.title)
-                            .setContentText(card.detail).setStyle(new Notification.BigTextStyle().bigText(card.detail + "\n点开确认（60 秒不点 = 拒绝）"))
+                            .setContentText(com.onesay.assistant.v2.util.TextUtil.truncate(card.detail, 900, "…")).setStyle(new Notification.BigTextStyle().bigText(com.onesay.assistant.v2.util.TextUtil.truncate(card.detail, 900, "…") + "\n点开确认（60 秒不点 = 拒绝）")) /* [fix-1123-misc] 截在整字处，不让系统在 1024 处切半个字 */
                             .setContentIntent(pi).setFullScreenIntent(pi, true).setAutoCancel(true).setCategory(Notification.CATEGORY_CALL).build();
                     PcRxAndroid.channel(app).notify(NID_CONFIRM + card.id % 100, n);
                 } catch (Throwable t) {

@@ -51,7 +51,7 @@ public final class PcForward {
 
     static String clip(String s, int max) {
         if (s == null) return "";
-        return s.length() <= max ? s : s.substring(0, max);
+        return com.onesay.assistant.v2.util.TextUtil.clipChars(s, max, "…"); // [fix-1123-misc] 按字符截，不切半个字，末尾加省略号
     }
 
     /** 去重：同一个去重键只发一次（最近 200 个）。 */

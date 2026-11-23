@@ -580,7 +580,8 @@ public final class PcGuard {
                 if (!f.suspect.isEmpty() && !detail.contains(f.suspect)) detail += "\n⚠ " + f.suspect; // 可疑升级的确认：卡上写一句原因
                 if (o.layered != null && o.layered.verdict == ActionPolicy.Verdict.CONFIRM && !detail.contains(o.layered.text)) detail += "\n⚠ " + o.layered.text;
                 if (loc && !o.localNote.isEmpty() && !detail.contains(o.localNote)) detail += "\n⚠ " + o.localNote; // [approvals-1118] 要联网 / 改已有文件的原因
-                if (loc && SafeExec.elevated()) detail += "\n⚠ OneSay 正以管理员身份运行，这一步会带管理员权限执行，请看清再允许"; // [approvals-1118] 只写在卡上，不再因此不能记住 // [app-whitelist-1116] 白名单没放行的原因（付款 / 隐私 / 读过隐私 / 次数上限）
+                if (loc && SafeExec.elevated()) detail += "\n⚠ OneSay 正以管理员身份运行，这一步会带管理员权限执行，请看清再允许";
+                if (!loc) { String en = SafeExec.remoteElevatedNote(); if (!en.isEmpty()) detail += "\n⚠ " + en; } // [fix-1123-misc] 手机来的：管理员身份下会降权跑，卡上说清 // [approvals-1118] 只写在卡上，不再因此不能记住 // [app-whitelist-1116] 白名单没放行的原因（付款 / 隐私 / 读过隐私 / 次数上限）
                 Confirmer c = confirmer;
                 boolean offer = sc != null;
                 String rk = d.rememberable() ? d.kind : "";
