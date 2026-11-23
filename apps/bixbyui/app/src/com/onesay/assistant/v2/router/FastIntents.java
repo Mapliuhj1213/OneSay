@@ -484,7 +484,13 @@ public final class FastIntents {
             "^(?:打开|开启|开|用)nfc(?:然后|再|来|去|我要|准备)?(?:刷|坐)(?:公交卡|地铁卡|交通卡|公交|地铁|卡|门禁卡)$"
                     + "|^(?:我要|准备)?刷(?:公交卡|地铁卡|交通卡)$");
 
+    /** ★ 2026-11-23：「清空聊天存档」（只认带「存档」的说法；「清空聊天记录」可能是在说微信等应用里的，不接）。 */
+    static final Pattern ARCHIVE_CLEAR = Pattern.compile(
+            "^(?:清空|清除|清掉|清理|删除|删掉|删光|删了)(?:一下)?(?:所有|全部)?(?:的)?(?:聊天|对话)存档$"
+                    + "|^(?:把)?(?:所有|全部)?(?:的)?(?:聊天|对话)存档(?:全|都|全部)?(?:清空|清掉|清除|清了|删了|删掉|删光|删除)$");
+
     static Hit batchDevice(String c) {
+        if (ARCHIVE_CLEAR.matcher(c).matches()) return new Hit(com.onesay.assistant.v2.router.longctx.ArchiveClear.SIGN, new JSONObject(), "archive.clear");
         if (NOTIF_CLEAR_ALL.matcher(c).matches()) return new Hit(com.onesay.assistant.v2.capability.caps.FastCaps.SIGN_NOTIF_CLEAR_ALL, new JSONObject(), "notif.clear.all");
         if (MUTE_ALL.matcher(c).matches()) return new Hit(com.onesay.assistant.v2.capability.caps.FastCaps.SIGN_MUTE_ALL, new JSONObject(), "mute.all");
         if (NFC_TRANSIT.matcher(c).matches()) return new Hit(com.onesay.assistant.v2.capability.caps.FastCaps.SIGN_NFC_TRANSIT, new JSONObject(), "nfc.transit");

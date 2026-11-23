@@ -545,6 +545,7 @@ com/onesay/assistant/v2/router/longctx/TurnArchive.java
 com/onesay/assistant/v2/router/longctx/HeavyIsolation.java
 com/onesay/assistant/v2/router/longctx/ReplyCheck.java
 com/onesay/assistant/v2/router/longctx/TextSim.java
+com/onesay/assistant/v2/router/longctx/ArchiveClear.java
 com/onesay/assistant/v2/router/FollowupEdit.java
 com/onesay/assistant/v2/net/LlmModels.java
 com/onesay/assistant/v2/net/ThinkingMode.java

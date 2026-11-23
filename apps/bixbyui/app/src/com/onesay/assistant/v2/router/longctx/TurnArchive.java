@@ -24,6 +24,9 @@ import java.util.regex.Pattern;
  *   <li>检索只在<b>同一条接力链</b>（chain）里做：用户关面板 / 说「新对话」后开的新会话，不会把上一段的原文调回来（「下次唤醒像第一次」）。</li>
  *   <li>可选落盘（{@link #setFile}，手机上是应用私有目录 conv_archive.jsonl）：留原文可查；含密码 / 验证码 / 证件 / 卡号的条目不落盘。
  *       落盘只追加，超过 2×{@link #MAX_ENTRIES} 行时重写成最近 {@link #MAX_ENTRIES} 条。</li>
+ *   <li>★ 2026-11-23 用户定：存档就是单纯的聊天记录，和长期记忆分开。
+ *       {@link #MAX_AGE_MS 30 天}前的条目自动删（{@link #setFile 启动}和每次{@link #add 写入}时按条目的<b>墙上时间</b>清，
+ *       不用单调时钟 —— 关机重启后单调时钟会归零）；{@link #wipe} = 设置里 / 语音「清空聊天存档」确认后删光，不碰长期记忆。</li>
  * </ul>
  * 线程安全（方法加锁）。
  */
@@ -32,6 +35,15 @@ public final class TurnArchive {
     public static final int MAX_ENTRIES = 500;
     /** 单条存档上限（字）；超长保留头尾。 */
     public static final int MAX_CHARS = 20000;
+    /** 存档保留天数：条目写入时刻（墙上时间）早于「现在 − 30 天」就删。 */
+    public static final long MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000;
+
+    /** 墙上时钟（毫秒）；测试可换。 */
+    public interface WallClock { long now(); }
+
+    static final WallClock SYSTEM_WALL = new WallClock() {
+        @Override public long now() { return System.currentTimeMillis(); }
+    };
 
     public static final class Entry {
         public final String chain;
@@ -39,14 +51,17 @@ public final class TurnArchive {
         public final String question, answer;
         public final boolean tainted;
         public final long at;
+        /** 写入时的墙上时间（毫秒），30 天清理按这个算。 */
+        public final long wall;
 
-        Entry(String chain, int id, String q, String a, boolean tainted, long at) {
+        Entry(String chain, int id, String q, String a, boolean tainted, long at, long wall) {
             this.chain = chain;
             this.id = id;
             this.question = q;
             this.answer = a;
             this.tainted = tainted;
             this.at = at;
+            this.wall = wall;
         }
     }
 
@@ -65,28 +80,46 @@ public final class TurnArchive {
     private final List<Entry> entries = new ArrayList<Entry>();
     private File file;
     private int fileLines;
+    /** 文件里最早一条的墙上时间（Long.MAX_VALUE = 文件空 / 没有带时间的行）；早于 30 天线就重写文件。 */
+    private long fileOldest = Long.MAX_VALUE;
+    private WallClock wallClock = SYSTEM_WALL;
 
+    /** 测试用：换墙上时钟。 */
+    public synchronized void setWallClock(WallClock c) {
+        wallClock = c == null ? SYSTEM_WALL : c;
+    }
+
+    /** 启动时调：接上落盘文件，顺手把 30 天前的条目和超出 {@link #MAX_ENTRIES} 的旧条目从文件里删掉。 */
     public synchronized void setFile(File f) {
         file = f;
         fileLines = 0;
+        fileOldest = Long.MAX_VALUE;
         if (f == null || !f.exists()) return;
         try {
-            BufferedReader r = new BufferedReader(new InputStreamReader(new FileInputStream(f), "UTF-8"));
-            try {
-                while (r.readLine() != null) fileLines++;
-            } finally {
-                r.close();
-            }
+            pruneFile(f, true);
         } catch (Throwable ignored) {
         }
     }
 
     public synchronized Entry add(String chain, int id, String q, String a, boolean tainted, long at) {
-        Entry e = new Entry(chain, id, clip(q), clip(a), tainted, at);
+        long now = wallClock.now();
+        Entry e = new Entry(chain, id, clip(q), clip(a), tainted, at, now);
         entries.add(e);
+        pruneMemory(now);
         while (entries.size() > MAX_ENTRIES) entries.remove(0);
-        persist(e);
+        persist(e, now);
         return e;
+    }
+
+    /** 内存里删 30 天前的（按写入顺序，最早的在前）。 */
+    private void pruneMemory(long now) {
+        long cut = now - MAX_AGE_MS;
+        while (!entries.isEmpty() && entries.get(0).wall < cut) entries.remove(0);
+    }
+
+    /** 测试 / memdump：现在落盘文件里有几行。 */
+    public synchronized int fileLines() {
+        return fileLines;
     }
 
     static String clip(String s) {
@@ -96,12 +129,12 @@ public final class TurnArchive {
         return s.substring(0, MAX_CHARS - tail - 1) + "…" + s.substring(s.length() - tail);
     }
 
-    private void persist(Entry e) {
+    private void persist(Entry e, long now) {
         File f = file;
         if (f == null) return;
         try {
+            if (fileOldest < now - MAX_AGE_MS || fileLines >= 2 * MAX_ENTRIES) pruneFile(f, false);
             if (SENSITIVE.matcher(e.question).find() || SENSITIVE.matcher(e.answer).find()) return;
-            if (fileLines >= 2 * MAX_ENTRIES) rewrite(f);
             Writer w = new OutputStreamWriter(new FileOutputStream(f, true), "UTF-8");
             try {
                 w.write(line(e));
@@ -110,25 +143,61 @@ public final class TurnArchive {
                 w.close();
             }
             fileLines++;
+            if (e.wall < fileOldest) fileOldest = e.wall;
         } catch (Throwable ignored) {
         }
     }
 
-    private void rewrite(File f) throws Exception {
-        List<Entry> keep = new ArrayList<Entry>(entries);
-        Writer w = new OutputStreamWriter(new FileOutputStream(f, false), "UTF-8");
-        int n = 0;
+    /**
+     * 按文件里的行清理（不靠内存 —— 重启后内存是空的，旧做法按内存重写会把上次进程的条目一起丢掉）：
+     * 删 30 天前的、删读不出的坏行，只留最近 {@link #MAX_ENTRIES} 条。没有墙上时间（"t"）的行是本分支早期格式，算不出天数，先留着，靠 500 条上限挤掉。
+     * onlyIfChanged = 启动时用：没有要删的就不重写文件。
+     */
+    private void pruneFile(File f, boolean onlyIfChanged) throws Exception {
+        long cut = wallClock.now() - MAX_AGE_MS;
+        List<String> keep = new ArrayList<String>();
+        List<Long> times = new ArrayList<Long>();
+        int total = 0;
+        BufferedReader r = new BufferedReader(new InputStreamReader(new FileInputStream(f), "UTF-8"));
         try {
-            for (Entry e : keep) {
-                if (SENSITIVE.matcher(e.question).find() || SENSITIVE.matcher(e.answer).find()) continue;
-                w.write(line(e));
+            String s;
+            while ((s = r.readLine()) != null) {
+                total++;
+                if (s.trim().length() == 0) continue;
+                long t;
+                try {
+                    t = new JSONObject(s).optLong("t", -1L);
+                } catch (Throwable bad) {
+                    continue;
+                }
+                if (t >= 0 && t < cut) continue;
+                keep.add(s);
+                times.add(t);
+            }
+        } finally {
+            r.close();
+        }
+        int from = Math.max(0, keep.size() - MAX_ENTRIES);
+        long oldest = Long.MAX_VALUE;
+        for (int i = from; i < times.size(); i++) {
+            long t = times.get(i);
+            if (t >= 0 && t < oldest) oldest = t;
+        }
+        fileOldest = oldest;
+        if (onlyIfChanged && from == 0 && keep.size() == total) {
+            fileLines = total;
+            return;
+        }
+        Writer w = new OutputStreamWriter(new FileOutputStream(f, false), "UTF-8");
+        try {
+            for (int i = from; i < keep.size(); i++) {
+                w.write(keep.get(i));
                 w.write('\n');
-                n++;
             }
         } finally {
             w.close();
         }
-        fileLines = n;
+        fileLines = keep.size() - from;
     }
 
     static String line(Entry e) throws Exception {
@@ -136,6 +205,7 @@ public final class TurnArchive {
         o.put("chain", e.chain);
         o.put("id", e.id);
         o.put("at", e.at);
+        o.put("t", e.wall);
         o.put("q", e.question);
         o.put("a", e.answer);
         if (e.tainted) o.put("tainted", true);
@@ -177,8 +247,12 @@ public final class TurnArchive {
         return entries.size();
     }
 
-    /** 测试 / 控制台「清空存档」用。 */
-    public synchronized void wipe() {
+    /**
+     * 「清空聊天存档」（设置按钮 / 语音，都先确认）：删光内存里和落盘文件里的存档。只动存档，长期记忆、本段会话的账本和事实都不碰。
+     * @return 删掉了多少条（内存条数和文件行数取大的；只用来回话）
+     */
+    public synchronized int wipe() {
+        int n = Math.max(entries.size(), fileLines);
         entries.clear();
         File f = file;
         if (f != null && f.exists()) {
@@ -186,5 +260,7 @@ public final class TurnArchive {
             f.delete();
         }
         fileLines = 0;
+        fileOldest = Long.MAX_VALUE;
+        return n;
     }
 }

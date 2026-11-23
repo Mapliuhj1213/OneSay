@@ -68,6 +68,16 @@ public final class FastCaps {
                 .reply("勿扰模式已关闭")
                 .build());
 
+        // ★ 2026-11-23：「清空聊天存档」—— 只删聊天存档（不碰长期记忆）；删了找不回 → 红色确认卡（签名带 clear，没有「始终允许」）
+        reg.register(new Capability.Builder(com.onesay.assistant.v2.router.longctx.ArchiveClear.SIGN, "清空聊天存档（只删聊天记录，长期记忆不动）")
+                .domain("settings").category("sys")
+                .verbs("清空", "删除").entities("setting").examples("清空聊天存档")
+                .sideEffect(SideEffect.DESTRUCTIVE).risk(2, true)
+                .executor("custom")
+                .say("清空聊天存档", "清空对话存档", "删掉聊天存档", "把聊天存档清空")
+                .reply("聊天存档清空了")
+                .build());
+
         // ★ int/1102 审计：「清除所有通知」—— 通知使用权（EventNotificationListener）在就 cancelAllNotifications()；
         //   没授权时守护 v4.4 拒 cmd notification（CMD_SVC），不能 root 代开 → 打开「通知使用权」页 + 明确话术（不硬拒、不进 AgentLoop）。
         reg.register(new Capability.Builder(SIGN_NOTIF_CLEAR_ALL, "清除通知栏里所有可清除的通知")
