@@ -73,6 +73,8 @@ public final class CnTime {
         public int lunarMonth, lunarDay;
         /** 提前量（分钟）；{@link SchedEvent#LEAD_DEFAULT} = 没说；{@link #LEAD_NONE} = 不用提醒。 */
         public int leadMin = SchedEvent.LEAD_DEFAULT;
+        /** ★ fix/1123-bug1：说的钟点（当天第几分钟）；-1 = 没说钟点 / 全天。见 {@link SchedEvent#wallMin}。 */
+        public int wallMin = -1;
         /** 只说了「下周 / 这周」没说哪天：这一周的周一 0 点（查询用 [weekStart, +7 天)）。 */
         public long weekStart = -1L;
         /** 「最近 / 接下来 / 这几天」。 */
@@ -927,6 +929,11 @@ public final class CnTime {
             tmp.allDay = r.allDay;
             long base = c.day >= 0 ? c.day : today;
             tmp.startAt = at(base, use, c.tz);
+            if (!r.allDay && (use.length < 3 || use[2] == 0)) {
+                // ★ fix/1123-bug1：记住说的钟点，base 那天正好是夏令时跳过的钟点时，以后几天不跟着晚一小时
+                tmp.wallMin = use[0] * 60 + use[1];
+                r.wallMin = tmp.wallMin;
+            }
             if (r.repeat == SchedEvent.REPEAT_YEARLY && !r.lunar && c.day >= 0) {
                 Calendar k = Calendar.getInstance(c.tz);
                 k.setTimeInMillis(c.day);
@@ -1001,6 +1008,7 @@ public final class CnTime {
         }
         r.start = start;
         r.end = endOr0(start, hm, c);
+        if (hm.length < 3 || hm[2] == 0) r.wallMin = hm[0] * 60 + hm[1];   // ★ fix/1123-bug1
         if ("PAST".equals(c.dayKind)) {
             pastQuestion(c, r, hm);
         } else if ("WEEKDAY_BARE".equals(c.dayKind)) {

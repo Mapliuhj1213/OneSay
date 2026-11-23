@@ -1032,6 +1032,7 @@ public final class SchedEngine {
         d.lunarMonth = r.lunarMonth;
         d.lunarDay = r.lunarDay;
         d.leadMin = r.leadMin;
+        d.wallMin = d.allDay ? -1 : r.wallMin;   // ★ fix/1123-bug1 夏令时
         return d;
     }
 
@@ -1244,6 +1245,7 @@ public final class SchedEngine {
             desc = "把「" + old.title + "」改成" + SchedFormat.lead(effectiveLead(nw));
         } else if (x.shiftMs != 0) {
             nw.startAt = old.startAt + x.shiftMs;
+            nw.wallMin = -1;   // ★ fix/1123-bug1：挪了时间，按新的 startAt 钟点算
             if (old.endAt > 0) nw.endAt = old.endAt + x.shiftMs;
             long base = nextOccOf(old, now);
             desc = "把「" + old.title + "」从" + SchedFormat.when(base, old.allDay, now, mTz) + (x.shiftMs > 0 ? "推迟" : "提前") + dur(Math.abs(x.shiftMs))
@@ -1269,13 +1271,16 @@ public final class SchedEngine {
                     k.setTimeInMillis(base);
                     Calendar s = Calendar.getInstance(mTz);
                     s.setTimeInMillis(t.start);
-                    k.set(Calendar.HOUR_OF_DAY, s.get(Calendar.HOUR_OF_DAY));
-                    k.set(Calendar.MINUTE, s.get(Calendar.MINUTE));
+                    int hh = t.wallMin >= 0 ? t.wallMin / 60 : s.get(Calendar.HOUR_OF_DAY);
+                    int mm = t.wallMin >= 0 ? t.wallMin % 60 : s.get(Calendar.MINUTE);
+                    k.set(Calendar.HOUR_OF_DAY, hh);
+                    k.set(Calendar.MINUTE, mm);
                     k.set(Calendar.SECOND, 0);
                     k.set(Calendar.MILLISECOND, 0);
                     ns = k.getTimeInMillis();
                 }
                 nw.startAt = old.repeating() ? withSeriesShift(old, base, ns) : ns;
+                nw.wallMin = t.wallMin;   // ★ fix/1123-bug1：改成说的新钟点（和 startAt 对不上时展开自动不用）
                 nw.allDay = false;
                 nw.endAt = t.end > 0 ? (old.repeating() ? nw.startAt + (t.end - t.start) : t.end) : (dur > 0 ? nw.startAt + dur : 0);
             } else {

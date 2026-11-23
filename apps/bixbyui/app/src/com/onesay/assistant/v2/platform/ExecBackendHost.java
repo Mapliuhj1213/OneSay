@@ -175,6 +175,15 @@ public final class ExecBackendHost {
         return s.spawnHelper(ShizukuWhitelist.helperArgv(app.getPackageName(), apk, uid, com.onesay.assistant.v2.fastscreen.FsProtocol.MAIN_CLASS), settleMs);
     }
 
+    /** ★ fix/1123-bug1 B5：刚经 Shizuku 起的读屏助手的标准输入 / 输出（{@link com.onesay.assistant.v2.fastscreen.FsStdio}）；没有返回 null。 */
+    public static com.onesay.assistant.v2.fastscreen.FsStdio.Pipes takeFastScreenPipes() {
+        try {
+            return ShizukuBridge.takeHelperPipes();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private static SharedPreferences sp(Context ctx) {
         return ctx.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }

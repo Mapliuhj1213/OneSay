@@ -71,10 +71,13 @@ public final class SchedMigrations {
                 "CREATE INDEX IF NOT EXISTS idx_sched_ext ON " + T_EVENT + "(ext_id)"));
         l.add(new Step(3, "键值表（导入水位等）",
                 "CREATE TABLE IF NOT EXISTS " + T_KV + " (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '')"));
+        // ★ fix/1123-bug1：用户说的钟点（夏令时跳过的那一小时里建的重复日程不再以后每天晚一小时）；老数据 -1 = 没记
+        l.add(new Step(4, "重复日程记住说的钟点",
+                "ALTER TABLE " + T_EVENT + " ADD COLUMN wall_min INTEGER NOT NULL DEFAULT -1"));
         STEPS = Collections.unmodifiableList(l);
     }
 
-    public static final int LATEST = 3;
+    public static final int LATEST = 4;
 
     public static List<Step> steps() {
         return STEPS;

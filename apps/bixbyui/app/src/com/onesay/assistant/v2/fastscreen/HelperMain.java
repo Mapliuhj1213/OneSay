@@ -104,6 +104,11 @@ public final class HelperMain {
                 System.exit(2);
             }
             sPin = pin;
+            // ★ fix/1123-bug1 B5：经 Shizuku 以 shell 身份起的助手，App 连不进 shell 域的 LocalSocket（SELinux 不放行 connectto），
+            //   改在 Shizuku 交给 App 的标准输入 / 输出上服务（FsStdio）。标准输出从此只放协议帧，日志一律走标准错误。
+            final boolean stdio = FsProtocol.launchPinAllowed(proc, me, sPkg);
+            final java.io.OutputStream stdout = stdio ? new java.io.FileOutputStream(java.io.FileDescriptor.out) : null;
+            if (stdio) System.setOut(System.err);
             if (Looper.getMainLooper() == null) Looper.prepareMainLooper();
             final LocalServerSocket ss;
             try {
@@ -113,7 +118,8 @@ public final class HelperMain {
                 System.exit(3);
                 return;
             }
-            log("start pkg=" + sPkg + " uid=" + sUid + " pid=" + android.os.Process.myPid() + " myUid=" + android.os.Process.myUid());
+            log("start pkg=" + sPkg + " uid=" + sUid + " pid=" + android.os.Process.myPid() + " myUid=" + android.os.Process.myUid() + " stdio=" + stdio);
+            if (stdio) startStdio(stdout);
             Thread idle = new Thread(new Runnable() {
                 @Override public void run() {
                     while (true) {
@@ -145,6 +151,45 @@ public final class HelperMain {
             log("fatal " + t);
             shutdown();
         }
+    }
+
+    /** ★ fix/1123-bug1 B5：标准输入 / 输出通道（只给经 Shizuku 起的助手用）。EOF = App 没了 / 关了通道 → 整个退出。 */
+    static void startStdio(final java.io.OutputStream rawOut) {
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    String deny = authorize(sUid);
+                    if (deny != null) {
+                        log("stdio DENY " + deny);
+                        shutdown();
+                        return;
+                    }
+                    DataOutputStream out = new DataOutputStream(new java.io.BufferedOutputStream(rawOut, 64 * 1024));
+                    DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(java.io.FileDescriptor.in)));
+                    FsStdio.writeMagic(out);
+                    FsStdio.serve(in, out, new FsStdio.Handler() {
+                        @Override public Object handle(String[] p) throws Exception {
+                            Object r = HelperMain.handle(p);
+                            return r instanceof Err ? new FsStdio.Failure(((Err) r).msg) : r;
+                        }
+
+                        @Override public void quit() {
+                            shutdown();
+                        }
+
+                        @Override public void touched() {
+                            sLastReq = SystemClock.uptimeMillis();
+                        }
+                    }, OP_LOCK);
+                    log("stdio eof");
+                } catch (Throwable e) {
+                    log("stdio err " + e);
+                }
+                shutdown();
+            }
+        }, "fs-stdio");
+        t.setDaemon(true);
+        t.start();
     }
 
     static void log(String s) {

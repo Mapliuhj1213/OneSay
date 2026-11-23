@@ -100,14 +100,20 @@ public final class ShizukuBridge implements ShizukuExecBackend.Bridge, ShizukuEx
             p = svc.newProcess(argv.toArray(new String[0]), null, null);
             if (p == null) return ExecResult.down("Shizuku 没有起进程");
             final StringBuffer out = new StringBuffer(), err = new StringBuffer();
-            drain("shz-helper-out", p.getInputStream(), out);
+            // ★ fix/1123-bug1 B5：标准输出不再读掉 —— 它就是和助手说话的通道（FsStdio）；日志在标准错误里
+            final ParcelFileDescriptor stdout = p.getInputStream(), stdin = p.getOutputStream();
             drain("shz-helper-err", p.getErrorStream(), err);
             long end = android.os.SystemClock.elapsedRealtime() + Math.max(0L, settleMs);
             while (android.os.SystemClock.elapsedRealtime() < end && p.alive()) android.os.SystemClock.sleep(50);
             if (p.alive()) {
+                HelperPipes old = sPipes;
                 sHelper = p;
+                sPipes = new HelperPipes(p, stdout, stdin);
+                if (old != null) old.closeOnly();
                 return new ExecResult(0, "spawned", false, false);
             }
+            closeQuiet(stdout);
+            closeQuiet(stdin);
             int rc = p.exitValue();
             android.os.SystemClock.sleep(50);   // 让读线程收完最后几行
             String msg = err.length() > 0 ? err.toString() : out.toString();
@@ -116,6 +122,47 @@ public final class ShizukuBridge implements ShizukuExecBackend.Bridge, ShizukuEx
             if (p != null) { try { p.destroy(); } catch (Throwable ignored) { } }
             return ExecResult.down("Shizuku 执行失败（" + t.getClass().getSimpleName() + "）");
         }
+    }
+
+    /** ★ fix/1123-bug1 B5：最近一次起的读屏助手的标准输出 / 输入（只能取走一次）。 */
+    private static volatile HelperPipes sPipes;
+
+    public static com.onesay.assistant.v2.fastscreen.FsStdio.Pipes takeHelperPipes() {
+        HelperPipes h = sPipes;
+        sPipes = null;
+        return h;
+    }
+
+    static final class HelperPipes implements com.onesay.assistant.v2.fastscreen.FsStdio.Pipes {
+        final moe.shizuku.server.IRemoteProcess proc;
+        final ParcelFileDescriptor out, in;
+
+        HelperPipes(moe.shizuku.server.IRemoteProcess proc, ParcelFileDescriptor out, ParcelFileDescriptor in) {
+            this.proc = proc; this.out = out; this.in = in;
+        }
+
+        @Override public InputStream stdout() {
+            return new ParcelFileDescriptor.AutoCloseInputStream(out);
+        }
+
+        @Override public java.io.OutputStream stdin() {
+            return new ParcelFileDescriptor.AutoCloseOutputStream(in);
+        }
+
+        @Override public void kill() {
+            try { proc.destroy(); } catch (Throwable ignored) { }
+            closeOnly();
+        }
+
+        void closeOnly() {
+            closeQuiet(out);
+            closeQuiet(in);
+        }
+    }
+
+    private static void closeQuiet(ParcelFileDescriptor f) {
+        if (f == null) return;
+        try { f.close(); } catch (Throwable ignored) { }
     }
 
     private static void drain(String name, final ParcelFileDescriptor pfd, final StringBuffer keep) {

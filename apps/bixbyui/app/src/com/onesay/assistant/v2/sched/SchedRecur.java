@@ -164,15 +164,41 @@ public final class SchedRecur {
 
     static long withClock(long day, SchedEvent e, TimeZone tz) {
         if (e.allDay) return day;
-        Calendar s = Calendar.getInstance(tz);
-        s.setTimeInMillis(e.startAt);
+        int h, m;
+        if (wallClockValid(e, tz)) {
+            h = e.wallMin / 60;
+            m = e.wallMin % 60;
+        } else {
+            Calendar s = Calendar.getInstance(tz);
+            s.setTimeInMillis(e.startAt);
+            h = s.get(Calendar.HOUR_OF_DAY);
+            m = s.get(Calendar.MINUTE);
+        }
         Calendar k = Calendar.getInstance(tz);
         k.setTimeInMillis(day);
-        k.set(Calendar.HOUR_OF_DAY, s.get(Calendar.HOUR_OF_DAY));
-        k.set(Calendar.MINUTE, s.get(Calendar.MINUTE));
+        k.set(Calendar.HOUR_OF_DAY, h);
+        k.set(Calendar.MINUTE, m);
         k.set(Calendar.SECOND, 0);
         k.set(Calendar.MILLISECOND, 0);
         return k.getTimeInMillis();
+    }
+
+    /**
+     * ★ fix/1123-bug1 夏令时：{@link SchedEvent#wallMin} 能不能用 —— 把这个钟点放回 startAt 那天，得到的正好是 startAt（到分钟）。
+     * 对不上（后来改过时间、跨时区搬过来的数据）就不用，照旧取 startAt 的钟点。中国时区两者永远一致。
+     */
+    static boolean wallClockValid(SchedEvent e, TimeZone tz) {
+        if (e.wallMin < 0 || e.wallMin >= 24 * 60) return false;
+        Calendar k = Calendar.getInstance(tz);
+        k.setTimeInMillis(e.startAt);
+        long minute = e.startAt - (k.get(Calendar.SECOND) * 1000L + k.get(Calendar.MILLISECOND));
+        k.set(Calendar.HOUR_OF_DAY, 0);
+        k.set(Calendar.MINUTE, 0);
+        k.set(Calendar.SECOND, 0);
+        k.set(Calendar.MILLISECOND, 0);
+        k.set(Calendar.HOUR_OF_DAY, e.wallMin / 60);
+        k.set(Calendar.MINUTE, e.wallMin % 60);
+        return k.getTimeInMillis() == minute;
     }
 
     /** 「每周三」「每个工作日」「每月 15 号」「每年农历八月十五」。 */

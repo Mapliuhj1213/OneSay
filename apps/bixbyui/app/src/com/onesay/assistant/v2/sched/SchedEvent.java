@@ -27,6 +27,12 @@ public final class SchedEvent {
     public int monthDay;
     public boolean lunar;
     public int lunarMonth, lunarDay;
+    /**
+     * ★ fix/1123-bug1：用户说的钟点（当天第几分钟，0–1439）；-1 = 没记（老数据 / 全天 / 导入）。
+     * 有夏令时的时区里，重复日程第一次正好落在跳过的那一小时（洛杉矶 3 月某天的 2:30 不存在，只能存成 3:30），
+     * startAt 已经丢了原来的钟点；展开重复时按这个算（{@link SchedRecur#withClock}），和 startAt 对不上时不用。
+     */
+    public int wallMin = -1;
     /** 提前多少分钟提醒；{@link #LEAD_DEFAULT} = 用设置里的默认值；0 = 准点。 */
     public int leadMin = LEAD_DEFAULT;
     /** voice / text / console / import。 */
@@ -44,7 +50,7 @@ public final class SchedEvent {
         e.id = id; e.title = title; e.startAt = startAt; e.endAt = endAt; e.allDay = allDay; e.location = location; e.note = note;
         e.repeat = repeat; e.weekMask = weekMask; e.monthDay = monthDay; e.lunar = lunar; e.lunarMonth = lunarMonth; e.lunarDay = lunarDay;
         e.leadMin = leadMin; e.source = source; e.extId = extId; e.createdAt = createdAt; e.updatedAt = updatedAt;
-        e.deleted = deleted; e.deletedAt = deletedAt;
+        e.deleted = deleted; e.deletedAt = deletedAt; e.wallMin = wallMin;
         return e;
     }
 

@@ -70,6 +70,9 @@ public final class FastScreen {
     private final Context mApp;
     private final Object mLock = new Object();
     private LocalSocket mSock;
+    /** ★ fix/1123-bug1 B5：经 Shizuku 起的助手走它的标准输入 / 输出（{@link FsStdio}），不走 LocalSocket。 */
+    private FsStdio.Pipes mPipes;
+    private final FsStdio.Watchdog mDog = new FsStdio.Watchdog();
     private DataInputStream mIn;
     private DataOutputStream mOut;
     private long mBackoffUntil;
@@ -91,7 +94,7 @@ public final class FastScreen {
     }
 
     public String status() {
-        return "connected=" + (mSock != null) + " calls=" + calls + " fails=" + fails + " starts=" + starts + " lastStart=" + lastStartMs
+        return "connected=" + (mSock != null || mPipes != null) + (mPipes != null ? " via=stdio" : mSock != null ? " via=socket" : "") + " calls=" + calls + " fails=" + fails + " starts=" + starts + " lastStart=" + lastStartMs
                 + "ms err=" + mLastError;
     }
 
@@ -129,14 +132,69 @@ public final class FastScreen {
             if (mSock != null) mSock.close();
         } catch (Throwable ignored) {
         }
+        if (mPipes != null) {
+            // 管道上一帧读写到一半就对不齐了：直接结束助手（它读到 EOF 也会自己退），下次重新拉起
+            FsStdio.Pipes p = mPipes;
+            mPipes = null;
+            try {
+                p.kill();
+            } catch (Throwable ignored) {
+            }
+        }
         mSock = null;
         mIn = null;
         mOut = null;
     }
 
+    /**
+     * ★ fix/1123-bug1 B5：刚经 Shizuku 起的助手 → 在它的标准输入 / 输出上等魔数（最多 {@link #CONNECT_WAIT_MS}）。
+     * 成功返回 true；没有管道 / 没等到返回 false（调用方再试 LocalSocket）。调用方持锁。
+     */
+    private boolean openStdio(long t0) {
+        final FsStdio.Pipes pp = com.onesay.assistant.v2.platform.ExecBackendHost.takeFastScreenPipes();
+        if (pp == null) return false;
+        try {
+            DataInputStream in = new DataInputStream(new BufferedInputStream(pp.stdout()));
+            DataOutputStream out = new DataOutputStream(new java.io.BufferedOutputStream(pp.stdin()));
+            mDog.arm(CONNECT_WAIT_MS, killer(pp));
+            boolean ok;
+            try {
+                ok = FsStdio.readMagic(in);
+            } finally {
+                mDog.disarm();
+            }
+            if (!ok) {
+                pp.kill();
+                Log.w(TAG, "[FS] 助手的标准输出上没等到开头标记");
+                return false;
+            }
+            mPipes = pp;
+            mIn = in;
+            mOut = out;
+            lastStartMs = SystemClock.elapsedRealtime() - t0;
+            Log.i(TAG, "[FS] 助手已连上（Shizuku 标准输入输出），拉起耗时 " + lastStartMs + "ms");
+            return true;
+        } catch (Throwable t) {
+            try {
+                pp.kill();
+            } catch (Throwable ignored) {
+            }
+            Log.w(TAG, "[FS] 标准输入输出通道失败：" + t);
+            return false;
+        }
+    }
+
+    private static Runnable killer(final FsStdio.Pipes pp) {
+        return new Runnable() {
+            @Override public void run() {
+                pp.kill();
+            }
+        };
+    }
+
     /** 已连上返回 true；否则尝试连接 / 经守护拉起。调用方持锁。 */
     private boolean ensure() {
-        if (mSock != null) return true;
+        if (mSock != null || mPipes != null) return true;
         if (!enabled(mApp)) {
             mLastError = "disabled";
             return false;
@@ -165,6 +223,7 @@ public final class FastScreen {
                 Log.w(TAG, "[FS] 助手拉起失败（Shizuku），" + (v.backoffMs / 1000) + " 秒内走回退路径：" + mLastError);
                 return false;
             }
+            if (openStdio(t0)) return true;
             long end = SystemClock.elapsedRealtime() + CONNECT_WAIT_MS;
             while (SystemClock.elapsedRealtime() < end) {
                 if (connectOnce()) {
@@ -216,8 +275,15 @@ public final class FastScreen {
                     return null;
                 }
                 try {
-                    FsProtocol.writeRequest(mOut, line);
-                    FsProtocol.Resp r = FsProtocol.readResponse(mIn);
+                    FsProtocol.Resp r;
+                    final FsStdio.Pipes pp = mPipes;
+                    if (pp != null) mDog.arm(SO_TIMEOUT_MS, killer(pp));   // 管道读不能设超时：到点销毁助手，读端拿到 EOF
+                    try {
+                        FsProtocol.writeRequest(mOut, line);
+                        r = FsProtocol.readResponse(mIn);
+                    } finally {
+                        if (pp != null) mDog.disarm();
+                    }
                     if (r.status == FsProtocol.ST_DENY) {
                         mLastError = r.text();
                         Log.w(TAG, "[FS] 被拒：" + op + " " + mLastError);
@@ -361,7 +427,7 @@ public final class FastScreen {
     /** 回退到 uiautomator 前调用：让助手松开 UiAutomation（否则 uiautomator dump 失败）。没连着就什么都不做。 */
     public void releaseForFallback() {
         synchronized (mLock) {
-            if (mSock == null) return;
+            if (mSock == null && mPipes == null) return;
         }
         text(FsProtocol.OP_RELEASE);
     }

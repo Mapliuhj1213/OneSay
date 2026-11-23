@@ -51,7 +51,7 @@ public final class SqliteSchedStore extends SQLiteOpenHelper implements SchedSto
     }
 
     static final String COLS = "id,title,start_at,end_at,all_day,location,note,repeat,week_mask,month_day,lead_min,source,created_at,updated_at,"
-            + "deleted,deleted_at,lunar,lunar_month,lunar_day,ext_id";
+            + "deleted,deleted_at,lunar,lunar_month,lunar_day,ext_id,wall_min";
 
     private static SchedEvent read(Cursor c) {
         SchedEvent e = new SchedEvent();
@@ -75,6 +75,7 @@ public final class SqliteSchedStore extends SQLiteOpenHelper implements SchedSto
         e.lunarMonth = c.getInt(17);
         e.lunarDay = c.getInt(18);
         e.extId = c.getString(19);
+        e.wallMin = c.getInt(20);
         return e;
     }
 
@@ -99,6 +100,7 @@ public final class SqliteSchedStore extends SQLiteOpenHelper implements SchedSto
         v.put("lunar_month", e.lunarMonth);
         v.put("lunar_day", e.lunarDay);
         v.put("ext_id", e.extId == null ? "" : e.extId);
+        v.put("wall_min", e.wallMin);
         return v;
     }
 
