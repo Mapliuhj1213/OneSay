@@ -32,7 +32,7 @@ public class PcQrPairingTest {
     }
 
     static String v2() {
-        return PcPairing.PREFIX + "key=" + key() + "&peer=desktop-o0qh8hf&lan=192.168.1.14:47820&fp=" + FP + "&v=2";
+        return PcPairing.PREFIX + "key=" + key() + "&peer=desktop-demo01&lan=192.168.1.14:47820&fp=" + FP + "&v=2";
     }
 
     /** 和 PcScanActivity 一样：灰度（Y 平面）帧交给 MultiFormatReader，只开 QR_CODE。 */
@@ -58,7 +58,7 @@ public class PcQrPairingTest {
         assertTrue(PcPairing.looksLike(text));
         PcPairing p = PcPairing.parse(text);
         PcPairing.requireSecure(p, false);
-        assertEquals("desktop-o0qh8hf", p.peer);
+        assertEquals("desktop-demo01", p.peer);
         assertEquals(FP, p.fp);
         assertEquals(47820, p.lanPort);
         assertEquals(32, p.key.length);

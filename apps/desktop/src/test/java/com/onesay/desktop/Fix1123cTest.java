@@ -293,14 +293,14 @@ public class Fix1123cTest {
         };
         StringBuilder p = new StringBuilder(OLD);
         for (String b : bad) p.append('\n').append(b);
-        p.append("\n- 用户的电脑叫 desktop-o0qh8hf");
+        p.append("\n- 用户的电脑叫 desktop-demo01");
         p.append("\n- 用户喜欢用百度地图导航");
         List<String> dropped = new ArrayList<>();
         String mem = MemoryRules.filterNew(OLD, p.toString(), dropped);
         assertEquals(dropped.toString(), bad.length, dropped.size());
         assertTrue(mem, mem.contains("用户叫刘泓江"));
         assertTrue(mem, mem.contains("偏好简短回答"));
-        assertTrue(mem, mem.contains("desktop-o0qh8hf"));
+        assertTrue(mem, mem.contains("desktop-demo01"));
         assertTrue(mem, mem.contains("百度地图"));
         for (String b : bad) assertFalse(b, mem.contains(MemoryRules.norm(b)));
     }

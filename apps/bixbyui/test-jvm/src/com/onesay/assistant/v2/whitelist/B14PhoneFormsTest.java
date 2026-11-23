@@ -8,14 +8,14 @@ import static org.junit.Assert.*;
 public class B14PhoneFormsTest {
 
     @Test public void prefixAndDotFormsDetected() {
-        for (String t : new String[]{"008617600784870", "0086 17600784870", "0086-176-0078-4870", "176.0078.4870", "打 180.0346.5092 找我",
+        for (String t : new String[]{"008613900001234", "0086 13900001234", "0086-139-0000-1234", "139.0000.1234", "打 188.0000.5678 找我",
                 "+86 138 0013 8000", "86 13800138000", "０．０８６ １３８００１３８０００".replace("．", ""), "+86.138.0013.8000"}) {
             assertTrue(t, PrivacyScan.text(t).contains(PrivacyScan.PHONE));
         }
     }
 
     @Test public void scrubMasksPrefixAndDotForms() {
-        for (String n : new String[]{"197.6089.9615", "0086 17600784870", "008617600784870", "0086-176-0078-4870", "+86.138.0013.8000", "138 0013 8000"}) {
+        for (String n : new String[]{"199.0000.9876", "0086 13900001234", "008613900001234", "0086-139-0000-1234", "+86.138.0013.8000", "138 0013 8000"}) {
             String out = PrivacyScan.scrub("tap send to " + n);
             assertFalse(out, out.replaceAll("[^0-9]", "").contains("0013800") || out.replaceAll("[^0-9]", "").matches(".*\\d{7,}.*"));
         }

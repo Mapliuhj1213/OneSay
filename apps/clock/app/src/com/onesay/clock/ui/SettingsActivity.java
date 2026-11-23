@@ -73,9 +73,9 @@ public class SettingsActivity extends Activity {
         rowAuto = Ui.add(c2, Ui.row(this, "响铃没人管就自动停", "", null, new View.OnClickListener() { public void onClick(View v) { pickAuto(); } }));
         col.addView(c2, Ui.cardLp(this));
 
-        col.addView(Ui.section(this, "新增功能（默认关闭，叠加在三星原版之后）"));
+        col.addView(Ui.section(this, "新增功能（默认关闭，叠加在原版功能之后）"));
         LinearLayout c3 = Ui.card(this);
-        flagRow(c3, Flags.FIRST_ONLY, "每天只播报一次", "当天已有闹钟响过后，之后的智能播报闹钟只响铃（三星原版每个播报闹钟都播）");
+        flagRow(c3, Flags.FIRST_ONLY, "每天只播报一次", "当天已有闹钟响过后，之后的智能播报闹钟只响铃（原版每个播报闹钟都播）");
         flagRow(c3, Flags.X_UMBRELLA, "下雨提醒带伞", "降水概率 ≥ 50% 时多说一句");
         flagRow(c3, Flags.X_BIRTHDAY, "生日祝福", null);
         rowBirthday = Ui.add(c3, Ui.row(this, "生日日期", "", null, new View.OnClickListener() { public void onClick(View v) { editBirthday(); } }));

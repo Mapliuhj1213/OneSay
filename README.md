@@ -6,20 +6,45 @@ OneSay 是一套开源的中文语音助手：
 
 | 部分 | 做什么 |
 |---|---|
-| **OneSay 助手**（Android） | 说一句话或打一行字，它去做：开关设置、打开 App、查信息、记事、替你点屏幕跑完多步任务。也是插件宿主。 |
+| **OneSay 助手**（Android） | 打开就是对话框：说一句话或打一行字，它去做：开关设置、打开 App、查信息、记事、替你点屏幕跑完多步任务。可以设成系统默认数字助理。也是插件宿主。 |
 | **OneSay 计划**（Android） | 存「帮你记下来的东西」：待办、日程、票、取件码、快捷指令。 |
 | **OneSay 时钟**（Android） | 闹钟 + 晨间语音简报（报时、天气、降雨提醒）。 |
 | **OneSay 电脑端**（Windows） | 和手机配对后互相下指令：手机让电脑开网页、跑快捷指令、下载链接；电脑让手机响铃找手机、亮屏、发剪贴板。按住空格说话，侧栏看手机上的计划。 |
 
 三个手机 App 单独装也能用；装在一起时，助手把待办写进计划、把闹钟交给时钟。
 
+> **目前不提供安装包。** 手机端和电脑端都还没有在 Releases 里发布安装包，想用的话需要自己从源码编译，方法见下文「[从源码构建](#从源码构建)」。
+
+---
+
+## 手机首页：对话控制台
+
+打开 OneSay 助手，首页就是一个对话框，不用先进设置：
+
+- **顶上一排小标签**显示助手现在的真实状态。黄色、红色的标签能点，点了直接去处理（比如还没填语音识别 Key）。
+- **「可以这样说」**给四句例句，点一下就当你说了这句话发出去。
+- **「今天」**只放真实数据（日程、待办、取件码这类），全都没有时这块不显示。
+- **底部**是「＋」、输入框和蓝色麦克风：点一下麦克风开始说，或按住说、说完松手；输入框里有字时麦克风换成纸飞机，点了发送。
+- 你说的话是蓝色气泡，回答是灰色气泡；要你确认的事情和执行结果画成带颜色的卡片（确认的规则和以前一样）。
+- 说话时会进全屏聆听：圆球跟着音量动，边说边出字，可以重说、停止或改成打字，说完回到同一段对话。
+- 左上「☰」只显示这一次的对话（App 不保存聊天记录）；右上「⚙」是原来的设置首页，分组不变。
+- 不习惯的话，可以在「设置 › 高级」里关掉「对话控制台」，换回原来的卡片样式。
+
+## 设为系统默认数字助理
+
+OneSay 助手可以设成手机的默认数字助理，这样不打开 App 也能叫它：
+
+- 设置方法：「设置 › 高级 › 设备 › 设为默认助理」，这一行会显示现在是不是默认。点了会按顺序试：直接弹系统的确认框 → 系统的「助理和语音输入」设置页 → 「默认应用」页 → 应用信息页，在系统页面里选 OneSay 就行。「权限配置」里的可选项「默认数字助理」也能直达。
+- 设好以后，可以用**长按电源键 / 长按 Home 键**、**从屏幕下方角落往上滑**（手势导航时）、或在锁屏上召唤，弹出来的就是平时的唤醒卡片，只弹一次。
+- **注意：**部分厂商系统（比如 Flyme）的长按电源键不交给第三方助理，设了默认也叫不出 OneSay。这种手机请用**角落上滑**，或者用快捷开关、桌面小部件、语音唤醒词。
+
 ---
 
 ## 安装
 
-### Windows 电脑端　`测试中`
+### Windows 电脑端 0.5.1　`测试中`
 
-电脑端源码在 `apps/desktop`。**安装包还没有发布到 Releases**，现在可以自己从源码打包（见下文「从源码构建」）；以后发布时会附同名的 `.sha256` 文件。
+电脑端源码在 `apps/desktop`，当前版本 0.5.1。**目前不提供安装包**，需要自己从源码打包（见下文「从源码构建」），打出来的就是 `OneSay-Setup-0.5.1-x64.exe`。以后在 Releases 发布时会附同名的 `.sha256` 文件。下面是安装包的安装说明：
 
 1. **核对文件没被改过**（推荐）。拿到 `OneSay-Setup-<版本>-x64.exe` 后，在它所在的目录打开 PowerShell：
    ```powershell
@@ -38,16 +63,22 @@ OneSay 是一套开源的中文语音助手：
 ### Android 手机端
 
 - 需要 Android 7.0 及以上（时钟支持 Android 6.0 起）。
-- **签名安装包还没发布。** 发布前请自己编译（见下文「从源码构建」）。三个 App 之间的通道只认同一把签名，所以三个都要用**你自己的同一把密钥**签名（签名不一致时，后装的那个会安装失败）。
+- **目前不提供安装包，需要自己编译**（见下文「从源码构建」）。三个 App 之间的通道只认同一把签名，所以三个都要用**你自己的同一把密钥**签名（签名不一致时，后装的那个会安装失败）。
 - 第一次打开后，在手机上手动打开这些权限：麦克风、悬浮窗、相机（扫码配对用）、存储；如果要稳定在后台唤醒，再把助手加进电池优化白名单。
 - 必填：**主模型 Key**（默认 DeepSeek，也可以换成任何 OpenAI 兼容服务）和**语音识别 / 朗读 Key**（阿里云百炼）。OneSay 不内置任何 Key。
 
-### 手机和电脑配对　`测试中`
+### 手机和电脑互联（配对）　`测试中`
+
+手机和电脑配对以后可以互相下指令：手机让电脑开网页、跑快捷指令、下载链接；电脑让手机响铃找手机、亮屏、调音量、写剪贴板、弹通知。
+
+**扫码配对：**
 
 1. 电脑和手机连同一个 Wi-Fi（同一个路由器）。
-2. 电脑端打开「设置 › 连接」，在「配对手机」那里点「显示」，生成一个二维码。
-3. 手机打开 OneSay 助手「设置 › 连接 › 电脑联动」，扫这个二维码（需要相机权限）。
-4. 电脑端「已连接」里出现这台手机、显示「在线」就好了。之后手机说「让电脑打开 xx 网页」、电脑上点「找手机」都可以用。
+2. 电脑端主页最上面有「连接手机」卡，点「配对」出二维码（「设置 › 连接 › 配对手机」里也有）。
+3. 手机打开 OneSay 助手「设置 › 连接 › 电脑联动」，点「扫码配对」扫这个二维码（需要相机权限）。
+4. 电脑端显示这台手机「在线」就好了。之后手机说「让电脑打开 xx 网页」、电脑上点「找手机」都可以用。
+
+**不扫码也行：**在手机的「电脑联动」页让它找同一网络里的电脑，电脑上点「允许」，再核对两边显示的 4 位码一样就配好了。
 
 说明：
 
@@ -120,11 +151,11 @@ OneSay 是一套开源的中文语音助手：
 | **插件设置（灵动岛）** | **高级** | **唤起面板** | **对话** |
 | ![灵动岛设置](docs/screenshots/05-plugin-island-settings.png) | ![高级](docs/screenshots/06-advanced.png) | ![唤起面板](docs/screenshots/07-panel-listening.png) | ![对话](docs/screenshots/08-chat.png) |
 
-截图来自 debug 包（魅族 21 Pro · Android 16 · 无 root，执行通道走 Shizuku），状态栏已裁掉。
+截图来自 debug 包（Android 16 · 无 root，执行通道走 Shizuku），状态栏已裁掉。这组截图是对话控制台上线前拍的：第一张「控制台首页」现在是首页右上「⚙」打开的设置首页，新的对话首页还没补截图。
 
 ## 设置在哪里
 
-手机控制台首页只回答三件事：**助手好不好用**（顶部状态卡 + 至多一条提醒）、**你要的东西**（记一记 · 记忆 · 计划）、**去哪改**（4 行设置）。
+手机首页是对话控制台（见上文）；右上「⚙」打开的设置首页只回答三件事：**助手好不好用**（顶部状态卡 + 至多一条提醒）、**你要的东西**（记一记 · 记忆 · 计划）、**去哪改**（4 行设置）。
 
 | 设置 | 里面有什么 |
 |---|---|
@@ -139,9 +170,26 @@ OneSay 是一套开源的中文语音助手：
 
 ## 从源码构建
 
-仓库结构：`apps/` 下是三个手机 App（助手、`plan` 计划、`clock` 时钟）和 `desktop` 电脑端；`libs/` 是插件接口和执行后端插件。
+目前不提供安装包，手机端、电脑端都要自己编译。仓库结构：`apps/` 下是三个手机 App（`bixbyui` 助手、`plan` 计划、`clock` 时钟）和 `desktop` 电脑端；`libs/` 是插件接口和执行后端插件。
 
-**手机端**不用 Gradle：aapt2 → javac → d8 → zipalign → apksigner。需要 JDK 17、Android SDK platform 28、build-tools 30.0.3。每个 App 目录下有 `build_linux.sh`（打包）和测试脚本（助手 `run_unit_tests.sh`，计划 / 时钟 `test/run_linux.sh`）。签名口令从 `<keystore>.pass` 文件或环境变量读；keystore 和口令文件都在 `.gitignore` 里，**永远不要提交**。三个 App 请用同一把密钥签名。
+**准备工具**：JDK 17；手机端另要 Android SDK 的 `platforms;android-28` 和 `build-tools;30.0.3`。脚本默认在 `$HOME/onesay-tools` 下找 `jdk`、`android-sdk`，也可以用 `TOOLS`、`JAVA_HOME`、`SDK` 环境变量指过去。不用 Gradle，流程是 aapt2 → javac → d8 → zipalign → apksigner，在 Linux、WSL 或 Git Bash 里跑。
+
+**手机端**（clone 下来就能编 debug 包，不需要任何私有文件）：
+
+```sh
+# 助手：第一次会在 KS 指的位置生成一把本机自用的 debug 签名（在源码树外）
+cd apps/bixbyui
+DEBUG=1 GEN_DEBUG_KEYSTORE=1 KS=/tmp/onesay-debug.keystore OUT=/tmp/onesay-debug bash build_linux.sh
+# → /tmp/onesay-debug/bixbyui-debug.apk
+
+# 计划、时钟
+cd ../plan  && BUILD_TYPE=debug bash build_linux.sh
+cd ../clock && bash build_linux.sh
+```
+
+- 三个 App 之间的通道只认**同一把签名**：想让它们互通，三个都用你自己的同一把密钥签（各 App 目录下的 `README.md` 写了怎么指定签名）。
+- 签名口令只从环境变量或 `<keystore>.pass` 文件读；keystore 和口令文件都在 `.gitignore` 里，**永远不要提交**。
+- 跑单元测试：助手 `bash run_unit_tests.sh`，计划 / 时钟 `bash test/run_linux.sh`（测试依赖用助手目录的 `tools/ci/fetch_test_deps.sh`、计划目录的 `tools/fetch_test_libs.sh` 从 Maven Central 下载并按 SHA-256 校验）。
 
 **电脑端**（`apps/desktop`）只要 JDK 17，没有第三方依赖：
 
@@ -151,7 +199,8 @@ sh build.sh          # 产物 build/onesay-desktop.jar
 sh build.sh test     # 跑全部单元测试
 ```
 
-Windows 安装包用 NSIS 打，在 Linux 上也能打，步骤见 `apps/desktop/installer/README.md`。
+- 不打安装包也能直接用：装好 Java 17 后在 Windows 上用 `onesay.bat`（命令行用法见 `apps/desktop/README.md`）。
+- 想打成 `OneSay-Setup-0.5.1-x64.exe` 安装包：用 NSIS 打，在 Linux 上也能打，需要一份精简过的 Java 17 运行时目录，步骤见 `apps/desktop/installer/README.md`。
 
 ## 隐私
 
@@ -183,11 +232,11 @@ OneSay 以 **Apache License 2.0** 发布（见 `LICENSE`、`NOTICE`），免费�
 
 ## English
 
-**OneSay** is an open-source, Chinese-first voice assistant suite: an Android assistant, a planner and an alarm clock, plus a Windows companion that pairs with your phone so each can send commands to the other. You bring your own LLM key (DeepSeek by default, any OpenAI-compatible endpoint works). Personal data such as phone and ID numbers is masked on-device before anything goes to the cloud.
+**OneSay** is an open-source, Chinese-first voice assistant suite: an Android assistant, a planner and an alarm clock, plus a Windows companion that pairs with your phone so each can send commands to the other. **No prebuilt installers are provided yet: build everything from source** (see 从源码构建). The assistant opens straight into a chat console and can be set as the system default digital assistant (some vendor systems, e.g. Flyme, keep the long-press power key for themselves; use the corner swipe instead). You bring your own LLM key (DeepSeek by default, any OpenAI-compatible endpoint works). Personal data such as phone and ID numbers is masked on-device before anything goes to the cloud.
 
 **Safety model, "ask, don't block":** apart from three hard rules, sensitive actions show a confirmation card instead of being refused. The three hard rules: you tap the final pay button yourself; the robot and remote commands can never change OneSay's own permissions or approve themselves (voice cannot approve either); the PC app never elevates, and anything that needs admin is written out as a `.ps1` script for you to run. Approvals can be remembered per action type and revoked at any time.
 
-**Install (Windows, beta):** the Windows app lives in `apps/desktop`; no installer has been published to Releases yet, so build it from source for now (`sh build.sh`, then `installer/build-installer.sh`). Check an installer with `Get-FileHash … -Algorithm SHA256` against its `.sha256`. The installer is unsigned, so SmartScreen will warn: click **More info → Run anyway**. Per-user install, no admin rights needed. On first launch Windows Firewall asks whether to allow OneSay: tick **Private networks**, otherwise your phone cannot reach the PC on the LAN.
+**Install (Windows 0.5.1, beta):** the Windows app lives in `apps/desktop`; no installer has been published to Releases yet, so build it from source for now (`sh build.sh`, then `installer/build-installer.sh`). Check an installer with `Get-FileHash … -Algorithm SHA256` against its `.sha256`. The installer is unsigned, so SmartScreen will warn: click **More info → Run anyway**. Per-user install, no admin rights needed. On first launch Windows Firewall asks whether to allow OneSay: tick **Private networks**, otherwise your phone cannot reach the PC on the LAN.
 
 **Pairing:** put the phone and PC on the same Wi-Fi, open *Settings › Connection* on the PC and click *Show* under *Pair phone* to get a QR code, and scan it from the phone app under *Settings › Connection › PC link*. The QR code is the key; don't share it. Android builds: build from source and sign all three apps with the same key; signed releases are not published yet.
 

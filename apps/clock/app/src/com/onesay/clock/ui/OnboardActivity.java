@@ -38,7 +38,7 @@ public class OnboardActivity extends Activity {
         col.addView(Ui.header(this, "欢迎使用 OneSay Clock", "几项设置能让闹钟准时、播报完整"));
         card = Ui.card(this);
         col.addView(card, Ui.cardLp(this));
-        TextView note = Ui.text(this, "闹钟本身不需要 root。三星天气读取是可选功能，在设置里打开。", 13, Ui.T2, Ui.regular());
+        TextView note = Ui.text(this, "闹钟本身不需要 root。系统天气读取是可选功能（部分机型支持），在设置里打开。", 13, Ui.T2, Ui.regular());
         note.setPadding(dp(28), dp(4), dp(28), dp(16));
         col.addView(note);
         sv.addView(col);
