@@ -59,6 +59,17 @@ final class EventPickData {
         }
     }
 
+    /** ★ 1123d B35：Android 12 以上有没有「附近的设备」（BLUETOOTH_CONNECT）权限；低版本恒为 true。 */
+    static boolean bluetoothConnectOk(Context c) {
+        try {
+            boolean granted = android.os.Build.VERSION.SDK_INT < EventPickHint.SDK_BT_CONNECT
+                    || c.checkSelfPermission(EventPickHint.PERM_BT_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            return !EventPickHint.needBtConnect(android.os.Build.VERSION.SDK_INT, granted);
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     static List<String> bluetoothNames(Context c) {
         List<String> out = new ArrayList<String>();
         try {

@@ -66,6 +66,8 @@
     <uses-permission android:name="android.permission.NFC" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- ★ 1123d B35：Android 12 起读已配对蓝牙设备（事件任务「选蓝牙设备」）要「附近的设备」权限；只在点选蓝牙设备时请求，低版本不受影响 -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- 音量 / 系统设置：volume.* 与 settings.* 能力族 -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />

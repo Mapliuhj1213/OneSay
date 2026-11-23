@@ -135,11 +135,17 @@ public final class EventConsole {
                 // ★ 1123d B34/B35：列表空时说清为什么（Wi‑Fi 缺定位权限就顺手弹系统授权；蓝牙关着就叫开蓝牙）
                 boolean isWifi = s == EventTask.Source.WIFI;
                 boolean locOk = !isWifi || EventPickData.locationOk(act);
-                String hint = EventPickHint.emptyHint(isWifi, names, isWifi || EventPickData.bluetoothOn(), locOk);
+                boolean btOn = isWifi || EventPickData.bluetoothOn();
+                boolean btPermOk = isWifi || EventPickData.bluetoothConnectOk(act);
+                String hint = EventPickHint.emptyHint(isWifi, names, btOn, locOk, btPermOk);
                 if (hint != null) {
                     host.toast(hint);
                     if (isWifi && !locOk && android.os.Build.VERSION.SDK_INT >= 23) {
                         try { act.requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, 4711); } catch (Throwable ignored) { }
+                    }
+                    // ★ 1123d B35：Android 12 以上缺「附近的设备」就顺手弹系统授权（蓝牙关着时先让用户开蓝牙，不弹）
+                    if (!isWifi && btOn && !btPermOk) {
+                        try { act.requestPermissions(new String[]{EventPickHint.PERM_BT_CONNECT}, 4712); } catch (Throwable ignored) { }
                     }
                 }
                 Pickers.one(act, s == EventTask.Source.WIFI ? "选 Wi‑Fi（已保存 / 附近的）" : "选蓝牙设备（已配对的）", FormChoices.targetChoices(names),

@@ -115,7 +115,7 @@ public class IslandGeometryTest {
         // ★ link-v2：+1 条 CHANGE_WIFI_MULTICAST_STATE（普通权限，电脑联动常连等电脑上线时收组播 announce 要拿 MulticastLock）
         // ★ [ci-1114] priv-llm（d0832e5）：+1 条 moe.shizuku.manager.permission.API_V23（Shizuku 特权插件调 Shizuku API 必需，由用户在 Shizuku 里授权）
         assertTrue("新增的那条就是 Shizuku API 权限", m.contains("<uses-permission android:name=\"moe.shizuku.manager.permission.API_V23\""));
-        assertEquals("uses-permission 不变（52 条，含 fix/triage-fast 的 ACCESS_NOTIFICATION_POLICY、planner-link 的 bixbyplan ACCESS、时钟 ALARM_CONTROL、link-v2 的 CHANGE_WIFI_MULTICAST_STATE、priv-llm 的 Shizuku API_V23）", 52, perms);
+        assertEquals("uses-permission 不变（53 条，含 fix/triage-fast 的 ACCESS_NOTIFICATION_POLICY、planner-link 的 bixbyplan ACCESS、时钟 ALARM_CONTROL、link-v2 的 CHANGE_WIFI_MULTICAST_STATE、priv-llm 的 Shizuku API_V23、1123d B35 的 BLUETOOTH_CONNECT）", 53, perms);
         String ctl = file("app/src/com/onesay/assistant/v2/s1/IslandController.java");
         assertFalse(ctl.contains("TYPE_ACCESSIBILITY_OVERLAY"));
         // ★ island-cutout-1118：岛从挖孔长出来 → 读 DisplayCutout、窗口允许进短边挖孔区，且只在 API 28+ 设
