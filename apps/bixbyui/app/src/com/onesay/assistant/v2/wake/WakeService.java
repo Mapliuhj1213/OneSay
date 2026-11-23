@@ -3925,7 +3925,7 @@ public class WakeService extends Service {
                     mAckAbort = false;
                     // ★ r2/sysux：焦点已在 armCaptureWindow → focusListen() 申请（GAIN_TRANSIENT）
                     playAssetSync("start_tone.ogg");
-                    if (!mAckAbort) playAssetSync(alt ? "wake_ack2.wav" : "wake_ack1.wav");
+                    if (!mAckAbort) playWakeAckSync(alt);
                     if (!mAckAbort) SystemClock.sleep(120); // 留存余音物理衰减期
                 } finally {
                     // ★//   抑制解除的这一瞬间，才是指令音频真正开始被采集的起点。
@@ -3954,6 +3954,7 @@ public class WakeService extends Service {
         if (mp != null) {
             try { mp.stop(); } catch (Throwable ignore) {}
         }
+        try { com.onesay.assistant.v2.ui.TtsSpeaker.get(this).stopCueCloud(); } catch (Throwable ignore) {}   // ★ fix/1123-bug2：云端念的「我在」也停
         Log.i(TAG, "[ACK-AUDIO] 长按：掐断唤醒应答音（守护 v7 兜底）");
     }
 
@@ -4009,7 +4010,7 @@ public class WakeService extends Service {
                     SystemClock.sleep(Earcon.durationMs(pcm, Earcon.SAMPLE_RATE) + 80);
                     // ★ r2/sysux：「我在」可选项（息屏 + 语音唤醒）——边说边听：捕获窗起点不等它（+300 ms 起照收，AEC 开着，
                     //   识别文本里的回读由 WakeWordStripper.stripAckEcho 剥掉）；只是能量门 / 断句 / 续期在它播完前不认人声。
-                    if (ackVoice && !mAckAbort) playAssetSync(alt ? "wake_ack2.wav" : "wake_ack1.wav");
+                    if (ackVoice && !mAckAbort) playWakeAckSync(alt);
                 } catch (Throwable t) {
                     Log.w(TAG, "[ACK-AUDIO] 短提示音播放异常（不影响开窗）: " + t.getMessage());
                 } finally {
@@ -4026,6 +4027,70 @@ public class WakeService extends Service {
                 }
             }
         });
+    }
+
+    /** ★ fix/1123-bug2：「我在」最多等云端念多久（建连 + 首包 + 约 0.8 s 的短句）。 */
+    static final long WAKE_ACK_CLOUD_MAX_MS = 2500;
+
+    /**
+     * ★ fix/1123-bug2：说「我在」/「在呢」。以前只认预录的 wake_ack1/2.wav —— OneSay 不随包带预录音频，
+     * 播放直接抛异常进日志，开关开着也一声不响。现在：有音频播音频；没有就用云端语音念这句（不进回答状态机、不触发续听）；
+     * 都不行日志写明「这次不说」。阻塞到念完（或被长按掐断 / 超时），与原来的同步播放语义一致。
+     */
+    private void playWakeAckSync(boolean alt) {
+        String asset = alt ? "wake_ack2.wav" : "wake_ack1.wav";
+        boolean present = assetPresent(asset);
+        if (present) {
+            playAssetSync(asset);
+            return;
+        }
+        com.onesay.assistant.v2.tts.VoiceTemplate t = alt ? com.onesay.assistant.v2.tts.VoiceTemplate.WAKE_2 : com.onesay.assistant.v2.tts.VoiceTemplate.WAKE;
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        boolean started;
+        try {
+            started = com.onesay.assistant.v2.ui.TtsSpeaker.get(this).speakCue(t, new Runnable() {
+                @Override public void run() { latch.countDown(); }
+            });
+        } catch (Throwable e) {
+            started = false;
+        }
+        com.onesay.assistant.v2.tts.VoiceTemplate.CueSource src = com.onesay.assistant.v2.tts.VoiceTemplate.cueSource(false, started);
+        if (src == com.onesay.assistant.v2.tts.VoiceTemplate.CueSource.NONE) {
+            Log.i(TAG, "[ACK-AUDIO] 没有「" + t.text + "」的预录音频，云端语音也没配好，这次不说");
+            return;
+        }
+        Log.i(TAG, "[ACK-AUDIO] 「" + t.text + "」走云端语音念");
+        long until = SystemClock.elapsedRealtime() + WAKE_ACK_CLOUD_MAX_MS;
+        try {
+            while (!mAckAbort && SystemClock.elapsedRealtime() < until) {
+                if (latch.await(20, java.util.concurrent.TimeUnit.MILLISECONDS)) break;
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        if (mAckAbort || latch.getCount() > 0) {
+            try { com.onesay.assistant.v2.ui.TtsSpeaker.get(this).stopCueCloud(); } catch (Throwable ignore) {}
+        }
+    }
+
+    /** assets 里有没有这个文件（只查一次就缓存）。 */
+    private final java.util.Map<String, Boolean> mAssetPresent = new java.util.concurrent.ConcurrentHashMap<String, Boolean>();
+
+    private boolean assetPresent(String name) {
+        Boolean b = mAssetPresent.get(name);
+        if (b != null) return b;
+        boolean ok;
+        AssetFileDescriptor afd = null;
+        try {
+            afd = getAssets().openFd(name);
+            ok = true;
+        } catch (Throwable t) {
+            ok = false;
+        } finally {
+            if (afd != null) try { afd.close(); } catch (Throwable ignore) {}
+        }
+        mAssetPresent.put(name, ok);
+        return ok;
     }
 
     private void playAssetAsync(final String assetName) {
