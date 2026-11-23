@@ -351,7 +351,7 @@ select.field{appearance:auto;padding-right:8px}
 
   <main class="main" id="main">
     <section class="page" id="chat">
-      <div class="chatbar"><h1>对话</h1><div class="sp" style="flex:1"></div><span class="chip" id="memchip" onclick="memOpen()">记忆</span><span class="chip danger" onclick="chatClear()">清空对话</span></div>
+      <div class="chatbar"><h1>对话</h1><div class="sp" style="flex:1"></div><span class="chip" id="memchip" onclick="memOpen()">记忆</span><span class="chip" onclick="chatNew()">新对话</span><span class="chip danger" onclick="chatClear()">清空对话</span></div>
       <div class="msgs" id="msgs"><div class="in" id="msgin"></div></div>
       <div id="attrow" class="attrow" style="display:none"></div>
       <div class="compose" id="compose"><button class="attbtn" title="添加图片或文件（也可以直接粘贴截图、拖进来）" onclick="$('attfile').click()"><svg class="i"><use href="#i-paperclip"/></svg></button><input type="file" id="attfile" multiple style="display:none" onchange="attFiles(this.files);this.value=''"><textarea id="ta" rows="1" placeholder="说点什么，或者直接下指令；截图可以直接粘贴（Ctrl+V）或拖进来"></textarea><button class="send" id="sendbtn" onclick="chatSend()" title="发送"><svg class="i"><use href="#i-arrow-up"/></svg></button></div>
@@ -971,6 +971,7 @@ function renderChat(){const c=S.chat, box=$('msgin');
     if(x.via==='task'){const sep=prevTask&&prevTask!==x.task?'':'';prevTask=x.task;return sep+taskCard(x)}
     if(x.via==='compact')return `<div class="newtask">${esc(x.text||'已整理较早的对话')}</div>`;
     if(x.via==='newtask')return `<div class="newtask">${esc(x.text||'新任务')}</div>`;
+    if(x.via==='session')return `<div class="newtask">${esc(x.text||'新对话')}</div>`; /* [longctx-1123] 换段分隔线 */
     return `<div class="m ${x.role==='user'?'u':'a'} ${x.via==='cmd'?'cmd':''} ${x.via==='step'?'step':''} ${x.via==='error'?'error':''}">${x.role==='user'?esc(x.text):'<span class="md">'+md(x.text)+'</span>'}${(x.images||[]).length?`<div class="uimg">${x.images.map(p=>`<img data-art="${esc(p)}" alt="图片" onclick="viewArt(this.dataset.art)">`).join('')}</div>`:''}${(x.files||[]).length?`<div class="uimg">${x.files.map(p=>`<button class="tag" data-art="${esc(p)}" onclick="viewArt(this.dataset.art)">${esc(String(p).split(/[\\/]/).pop())}</button>`).join('')}</div>`:''}${x.via==='voice'&&x.role==='user'?'<span class="via">语音</span>':''}${x.queued?'<span class="qd">已收到，下一步处理</span>':''}</div>`}).join(''):
    `<div class="welcome"><h2>想让电脑做什么？</h2><div>直接说指令（锁屏、截图、打开B站），或者随便聊。<br>${S.settings.llm_key_set?'':'在「设置 › 模型与密钥」填上 API Key 才能聊天，指令不需要 Key。'}</div></div>`)+(inflight&&!S.chat_running?'<div class="m a typing">思考中…</div>':'');
   // [approvals-1118] 只有本来就在底部（或刚自己发了消息）才跟到底；在往上看就不动，给一个「↓ 有新消息」
@@ -1027,6 +1028,8 @@ async function chatSend(){const ta=$('ta');let t=ta.value.trim();if(ATT.some(a=>
   inflight++;justSent=true;S.chat.push({role:'user',text:t||('（发来 '+att.length+' 个附件）'),at:Date.now(),queued:!!S.chat_running});renderChat();setTimeout(refresh,300);
   try{await api('chat',{text:t,attachments:att})}catch(e){snack('发送失败')}inflight=Math.max(0,inflight-1);await refresh()}
 async function chatStop(){const r=await api('chat_stop',{});snack(r.text)}
+// [longctx-1123] 新对话：前面的消息留着，模型从这里重新开始（长期记忆照旧）
+async function chatNew(){const r=await api('chat_new',{});if(r&&!r.ok)snack(r.text);lastChatLen=-1;refresh()}
 async function chatClear(){if(!await confirm('清空对话？\n\n记忆会保留。'))return;await api('chat_clear',{});lastChatLen=-1;refresh()}
 function fit(){const ta=$('ta');ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,180)+'px'}
 $('ta').addEventListener('input',fit);

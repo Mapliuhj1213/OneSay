@@ -60,6 +60,17 @@ public final class ChatAgent {
     volatile java.util.function.LongSupplier clock = System::currentTimeMillis;
     /** 给模型的输出上限（字符）：和本机执行收的上限一样，界面上折叠但模型看全（[approvals-1118] 6000 → 16000）。 */
     public static final int OUTPUT_TO_MODEL = 16000;
+    /**
+     * [longctx-1123] 出口自检：模型给出最终答复时调一次（去掉结果标记后的正文）；返回打回提示 = 复读了用户原话 / 答偏了，重答一次；null = 没问题。
+     * 一个任务最多打回一次。
+     */
+    public volatile java.util.function.Function<String, String> selfCheck;
+    /** [longctx-1123] 这次任务出口自检打回过几次（日志、评测用）。 */
+    public volatile int selfRetries;
+    /** [longctx-1123] 用到某一步时要补的准则（参数：内部动作名、命令）；返回 null = 不用补 / 已经加载过。 */
+    public volatile java.util.function.BiFunction<String, String, String> guideFor;
+    /** [longctx-1123] 一个任务循环里同时留在上下文里的工具输出超过这么多字，就只留最近 2 个原样（重活的中间输出别把上下文灌满）。 */
+    static final int TOOL_BUDGET = 24000;
 
     /** 模型：给消息和工具，回一轮。 */
     public interface Brain {
@@ -232,6 +243,11 @@ public final class ChatAgent {
         opt.put("items", item);
         ac.put("options", opt);
         l.add(fn("ask_choice", "在任务卡上弹选择卡让用户挑一个（自动附「都不是，我来补充」）。目标有歧义（同名的仓库 / 软件不止一个）、或者你只能判断「最可能是」时，下载、安装、付款这类有副作用的步骤之前必须先用它；只读查询（搜索、查版本）可以先做。", ac, List.of("description", "question", "options")));
+        // [longctx-1123] 长期记忆和以前对话的原文放在会话外，按需查
+        Map<String, Object> rq = new TreeMap<>();
+        rq.put("description", prop("string", DESC));
+        rq.put("query", prop("string", "要找什么：几个关键词（如「蓝牙 报错码」「出差 城市」「显示器 尺寸」）"));
+        l.add(fn("recall", "查长期记忆和以前对话的原文（按关键词找，返回原话和时间）：话题早就切走了、上下文里没有、或者你记不清用户以前说过什么时用，别凭印象编。只读，不用批准。", rq, List.of("description", "query")));
         l.add(fn("show_file", "把你生成或找到的图片 / 文本文件显示在任务卡里给用户看（不要用 open_url 打开 file: 地址）。", sf, List.of("description", "path")));
         // [preview-1120] MCP 连接器：用户在「设置 › MCP 连接器」里加的服务器的工具（名字 mcp__服务器__工具）
         try { List<Map<String, Object>> ex = extraTools.get(); if (ex != null) l.addAll(ex); } catch (RuntimeException ignored) { }
@@ -348,6 +364,12 @@ public final class ChatAgent {
                 out.put("question", clip(String.valueOf(q).trim(), 200));
                 out.put("options", opts);
                 return new Object[] {"ask_choice", out};
+            }
+            case "recall": { // [longctx-1123]
+                Object q = a.get("query");
+                if (q == null || String.valueOf(q).isBlank()) return null;
+                out.put("query", String.valueOf(q).trim());
+                return new Object[] {"recall", out};
             }
             case "show_file": {
                 Object p = a.get("path");
@@ -477,46 +499,46 @@ public final class ChatAgent {
     }
 
     static String systemPrompt(String now, String workspace, String home, String memory, String policy) {
+        return systemPrompt(now, workspace, home, memory, policy, null);
+    }
+
+    /**
+     * [longctx-1123] guides = 这一段对话已加载的准则（{@link ChatGuides}）；null = 全部（老的几个重载都走这里，行为不变）。
+     * 核心（身份、工具清单、权限、安全、结果标记、怎么接着做）每次都在；准则按需拼进来，没加载的只留一句索引。
+     */
+    static String systemPrompt(String now, String workspace, String home, String memory, String policy, java.util.Collection<String> guides) {
+        java.util.Collection<String> g = guides;
         return "你是 OneSay，运行在用户这台 Windows 电脑上的助手（和用户手机上的 OneSay 共用记忆），能真正操作这台电脑。用简体中文回答，先给结论，简短直接。现在是 " + now + "。\n"
                 + "可用工具（run_command 能做下载文件、安装 / 启动程序、查文件和设置、调用 adb 等命令行工具）：\n" + toolLines()
                 + policy + "\n"
                 + "每次调用工具都要填 description：用一句简短中文说这一步在做什么（给用户看的进度）。\n"
                 + "用户给你一个目标时：自己规划，一步步调用工具把它做完，每步看结果再决定下一步；能由你完成的步骤不要推给用户手动做，也不要只给教程。"
                 + "缺信息先自己用命令查（比如程序装在哪、版本号、文件在不在）；只有真正需要用户拍板的事（花钱、多个选择差别很大、要账号密码）才问。\n"
-                // [preview-1120 真机综合测试 3] 出行 / 活动 / 政策类：先查后问、时效信息核验、日期对照今天
-                + "问到会变的公开信息（活动 / 展会 / 比赛 / 考试的日期和地点、签证与入境政策、开放时间、票价、最新版本）时，先联网查官方或权威来源再答，答案里写明来源和查到的日期；查不到就明说「没查到 / 未核实」，不要凭印象给具体日期。"
-                + "拿用户说的日期和现在的日期对照：已经过去、星期对不上、活动查不到或地名对不上，先指出来再往下做。"
-                + "规划类请求缺偏好时，按常见情况假设并写明，先给一版能用的方案，最后最多问 1–2 个关键问题，不要一上来列一串问题。"
-                + "你自己要看网页内容时用 run_command 的 Invoke-WebRequest（-UseBasicParsing）读出文字；open_url 只是在用户的浏览器里打开页面，你看不到，不要靠打开后截图来读网页。\n"
-                // [fix-1120 晚] 推测的日期不能当事实写进计划
-                + "日期没查到官方来源时：计划里写「日期待确认」，不要写一个具体的推测日期当安排的依据（可以说「往年一般在几月上 / 中旬」，并注明是往年情况）；"
-                + "按它排的安排写成相对的（如「比赛日（待确认）前一天领物」），并给出核实入口（官网 / 官方公众号 / 官方 App 的名字或网址）。\n"
-                // [fix-1120 晚] 电脑本机的提醒
-                + "提醒 / 日程用 reminder 工具：提醒建在这台电脑上，到点由 OneSay 在电脑上弹通知，不需要手机，手机没连不是不建提醒的理由；不要用 schtasks / Register-ScheduledTask 建 Windows 计划任务来提醒。"
-                + "用户说「提醒我」就直接建（时间按今天的日期算准，写进 at）；规划有明确时间的事（考试、出差、比赛、预约、体检、车次、航班）收尾时，主动建关键时间点的提醒（如前一晚、出发前），或在答复里一句话提议要不要建。"
-                + "日期是推测的（没查到官方）时，date_verified 填 false：提醒会标「待确认」；也可以建成「去核实 XX 日期」的提醒。"
-                + "把东西发到手机是另一件事（phone_* 工具）：手机没连就如实说「没发到手机」，但电脑上的提醒照样建，答复里两件事分开说。\n"
+                + ChatGuides.text(g == null ? null : pick(g, "timely", "web", "reminder"))
                 + "安全：要批准的步骤 OneSay 会在任务卡上请用户点（用户可以一次批准整个任务）；"
                 + "被拒绝或没人确认就停下说明，不要换个写法绕过。不要提权（runas / UAC），不要关闭或绕过杀毒软件、防火墙，不要改 OneSay 自己的设置，不要输出或保存密码和 Key。"
                 + "只从官方或可信来源下载软件。\n"
-                + "下载文件用 download 工具（任务卡上有进度条，用户能取消），不要用 Invoke-WebRequest / curl 下载大文件。"
+                + ChatGuides.text(g == null ? null : pick(g, "download"))
                 + "只读查询写成简单命令（Get-* / Test-Path，可以 | 接 Select-Object、Where-Object、Sort-Object，不要变量赋值）；写文件、下载用字面的完整路径（不要用变量拼路径），放在桌面 / 下载 / 文档 / 工作区里，这样能直接执行、少打扰用户。"
-                + "用户要「打开某个程序 / 网站」（如打开 B 站、微信）用 open_target：先用本地应用、没有再用网页，用户说了网页 / 网站就填 prefer=web；打开某个具体网址（搜索结果、下载页）用 open_url。\n"
+                + ChatGuides.text(g == null ? null : pick(g, "open"))
                 + "环境：Windows PowerShell 5.1，非交互；单条命令默认最长 60 秒（run_command 的 timeout_sec 最多 900）；命令的工作目录是 OneSay 工作区 " + workspace
                 + "；用户目录 " + home + "，桌面通常是 " + home + "\\Desktop。\n"
-                + "手机：用户的手机通过 OneSay 手机联动和这台电脑配对，phone_status / phone_open_app / phone_operate 就是通过这条链路操作手机的。"
-                + "不要说你没法控制手机：先看下面的「运行环境」里有没有连着的手机，没有就照那里的说法告诉用户怎么连上；phone_operate 被手机拒（没打开这一项）时告诉用户在手机上打开。"
-                + "模拟器或开了 USB / 无线调试的手机也可以用 adb（run_command）。\n"
-                + "看屏幕（这台电脑，或 adb 连着的模拟器 / 手机）用 screenshot：结果写明是看图模型的描述还是 OCR 读出的文字；OCR 只有文字，看不出图标、颜色和布局，拿不准就如实说。"
-                + "安卓界面上的按钮 / 复选框（如 root 授权弹窗）用 android_ui：先 dump 看有哪些，再按文字 tap_text / check_text，不要硬编码 input tap 坐标；"
-                + "要「记住选择」的弹窗先 check_text 勾上再点允许（then_tap）。点完再 dump 或截图确认。"
-                + "不要用截图文件的大小、修改时间去猜屏幕上是什么。截图和你生成的文件会显示在任务卡里；要给用户看某个文件用 show_file，不要用 open_url 打开 file: 地址。\n"
-                + "截图结果里写着「截到的不是目标画面」或「没法确认」时，不能说「这张就是…」，要先把目标画面调出来重截，或如实说没截到。\n"
+                + ChatGuides.text(g == null ? null : pick(g, "phone", "screen"))
+                + (g == null ? "" : ChatGuides.indexLine(g))
                 + "目标有歧义（同名的仓库 / 软件不止一个）或你只能判断「最可能是」时：可以先做只读查询（搜索、看版本），但下载、安装、付款之前必须用 ask_choice 列 2–3 个候选让用户选，用户选了再做。\n"
                 + "给用户看的话里不要写工具名或能力名（如 phone_operate、caps、find_phone、screen_on），用中文说法；不要用 markdown 符号（** # 之类）。\n"
                 + "任务结束时答复的第一行只写结果标记，按目标有没有真正达成来标：【完成】目标达成；【有警告】达成了但中间有报错 / 截图没核对上 / 有没确认的地方；【没做成】目标没达成；【需要你操作】被挡下（开关没开、要用户点、要用户补充信息）。第二行起用一两句话说结果和下一步。\n"
                 + "用户说「继续」「接着做」时，接着最近一个没做完的任务：看「当前任务」的程序记录（做过哪些步骤、最近的输出）从最后一步往下做，不要把做过的步骤原样再做一遍。更早的任务只有摘要。做完后用一两句话汇报结果（做了什么、现在是什么状态）。"
+                // [longctx-1123] 长期记忆不再整份塞进来：只给和这句话相关的几条，其余用 recall 查
+                + "\n上下文里没有、话题早就切走了、或者你记不清用户以前说过什么时，用 recall 查长期记忆和以前对话的原文，别凭印象编。"
                 + (memory == null || memory.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准；里面不记任务进度和开关状态——某件事做没做、某个开关开没开，要用时现查，别拿以前对话里的说法下结论）：\n" + memory);
+    }
+
+    /** 已加载清单里属于这几条的。 */
+    static java.util.Set<String> pick(java.util.Collection<String> loaded, String... ids) {
+        java.util.Set<String> s = new java.util.LinkedHashSet<>();
+        for (String id : ids) if (loaded.contains(id)) s.add(id);
+        return s;
     }
 
     // ------------------------------------------------------------------ 循环
@@ -542,6 +564,8 @@ public final class ChatAgent {
         long t0 = clock.getAsLong();
         boolean dateNudged = false; // [fix-1120 晚] 推测日期当事实写进计划：打回一次
         boolean claimNudged = false; // [fix-1120 晚 真机] 一个工具没调就说「已建好提醒 / 已发送」：打回一次
+        boolean selfChecked = false; // [longctx-1123] 出口自检：复读 / 答偏打回一次
+        selfRetries = 0;
         while (true) {
             // 任务进行中用户发来的话：下一步之前交给模型（「停」就停）
             for (String in; (in = inbox.poll()) != null; ) {
@@ -559,6 +583,7 @@ public final class ChatAgent {
             if (clock.getAsLong() - t0 > timeoutMs)
                 return new Outcome("这个任务已经做了 " + ((clock.getAsLong() - t0) / 60000) + " 分钟，到了设置里的时长上限，先停下。说「继续」我接着做。", "time_limit", done);
             compactToolResults(msgs, KEEP_FULL_RESULTS, OLD_RESULT_CHARS);
+            if (toolChars(msgs) > TOOL_BUDGET) compactToolResults(msgs, 2, OLD_RESULT_CHARS); // [longctx-1123] 重活隔离
             Llm.Turn t;
             try {
                 t = wrapUpOnStop ? nextAbortable(brain, msgs, tools) : nextWithRetry(brain, msgs, tools);
@@ -622,6 +647,19 @@ public final class ChatAgent {
                     continue;
                 }
                 if (!inbox.isEmpty()) { msgs.add(t.message); continue; } // 收工前用户又说了话：再给模型看一眼
+                java.util.function.Function<String, String> sc = selfCheck;
+                if (sc != null && !selfChecked && !text.isEmpty()) {
+                    // [longctx-1123] 出口自检：答复是在复读用户原话、答的是前面已经答过的问题、或者把程序提示念出来了 → 重答一次（这段不进对话）
+                    String nudge = null;
+                    try { nudge = sc.apply(Outcomes.stripTag(text)); } catch (RuntimeException ignored) { }
+                    if (nudge != null) {
+                        selfChecked = true;
+                        selfRetries++;
+                        msgs.add(t.message);
+                        msgs.add(Llm.msg("user", nudge));
+                        continue;
+                    }
+                }
                 return new Outcome(text.isEmpty() ? "做完了。" : text, "done", done);
             }
             msgs.add(t.message);
@@ -707,6 +745,13 @@ public final class ChatAgent {
                 if (r.ok && r.data != null && r.data.get("warn") != null && !String.valueOf(r.data.get("warn")).isBlank()) ev.put("warn", String.valueOf(r.data.get("warn"))); // [overnight-1119] 黄色「有警告」
                 steps.step(ev);
                 String rj = resultJson(r);
+                java.util.function.BiFunction<String, String, String> gf = guideFor;
+                if (gf != null) {
+                    // [longctx-1123] 第一次用到某类工具：把那条做法准则跟着结果送过去，并记进这段对话的已加载清单
+                    String gn = null;
+                    try { gn = gf.apply(cmd, String.valueOf(args.getOrDefault("command", ""))); } catch (RuntimeException ignored) { }
+                    if (gn != null && !gn.isBlank()) rj = withNote(rj, "OneSay 准则（第一次用到，以后照这个做）：" + gn.trim());
+                }
                 String staleStop = null;
                 if (progressGuard && !LinkPolicy.R_CONFIRM_DENIED.equals(reason) && !LinkPolicy.R_CONFIRM_TIMEOUT.equals(reason)) {
                     String fam = family(cmd, args);
@@ -998,6 +1043,13 @@ public final class ChatAgent {
     /** [taskctx-1118] 一个任务里最近这么多个工具结果原样给模型；更早的输出压到 OLD_RESULT_CHARS 字（完整的在任务卡「详情」里）。 */
     static final int KEEP_FULL_RESULTS = 6, OLD_RESULT_CHARS = 1200;
 
+    /** [longctx-1123] 上下文里工具结果一共多少字。 */
+    static long toolChars(List<Map<String, Object>> msgs) {
+        long n = 0;
+        for (Map<String, Object> m : msgs) if ("tool".equals(m.get("role"))) n += String.valueOf(m.get("content")).length();
+        return n;
+    }
+
     static void compactToolResults(List<Map<String, Object>> msgs, int keep, int clipTo) {
         int seen = 0;
         for (int i = msgs.size() - 1; i >= 0; i--) {
@@ -1132,6 +1184,7 @@ public final class ChatAgent {
 
     /** 后加的工具缺哪个字段（badArgs 用）。 */
     static final Map<String, String> NEED = new TreeMap<>(Map.of("android_ui", "action", "show_file", "path", "screenshot", "description", "ask_choice", "question / options", "phone_send_file", "path", "phone_run_shortcut", "name", "download", "url / path", "reminder", "action（add 还要 title、at；update / delete 要 id）"));
+    static { NEED.put("recall", "query"); }
 
     static Map<String, Object> toolMsg(String id, String content) {
         Map<String, Object> m = new TreeMap<>();
@@ -1159,6 +1212,7 @@ public final class ChatAgent {
             }
             case "screen_look": return "截屏：" + ("pc".equals(a.get("target")) ? "这台电脑" : clip(String.valueOf(a.get("target")), 60)) + (a.get("question") != null ? "（看：" + clip(String.valueOf(a.get("question")), 80) + "）" : "");
             case "show_file": return "显示文件：" + clip(String.valueOf(a.get("path")), 200);
+            case "recall": return "查以前的对话：" + clip(String.valueOf(a.get("query")), 80);
             case "ask_choice": return "请你选：" + clip(String.valueOf(a.get("question")), 120);
             case "android_ui": {
                 String act = String.valueOf(a.get("action"));

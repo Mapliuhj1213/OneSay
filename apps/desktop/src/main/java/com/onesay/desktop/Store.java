@@ -61,10 +61,22 @@ public final class Store {
         m.put("updated_at", System.currentTimeMillis());
         List<Map<String, Object>> l = raw(k);
         l.add(m);
-        while (max > 0 && l.size() > max) l.remove(0);
+        List<Map<String, Object>> dropped = null;
+        while (max > 0 && l.size() > max) {
+            Map<String, Object> d = l.remove(0);
+            if ("chat".equals(k)) { if (dropped == null) dropped = new ArrayList<>(); dropped.add(d); }
+        }
         save();
+        java.util.function.Consumer<List<Map<String, Object>>> od = onDrop;
+        if (dropped != null && od != null) try { od.accept(dropped); } catch (RuntimeException ignored) { } // [longctx-1123] 挤出去的对话进存档，recall 还查得到原文
         return m;
     }
+
+    /** [longctx-1123] 对话超过 MAX_CHAT 被挤掉的那几条（只管 chat）。 */
+    public volatile java.util.function.Consumer<List<Map<String, Object>>> onDrop;
+
+    /** [longctx-1123] 状态文件的位置（对话存档放在旁边）。 */
+    public Path file() { return file; }
 
     public synchronized Map<String, Object> find(String k, String id) {
         for (Map<String, Object> m : raw(k)) if (id.equals(m.get("id"))) return m;
