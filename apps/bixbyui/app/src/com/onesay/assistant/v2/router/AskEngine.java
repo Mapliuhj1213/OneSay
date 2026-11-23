@@ -25,11 +25,28 @@ public class AskEngine {
      * @param query 用户输入的转写或文本
      * @return 答案文本；若不属于问答则返回 null
      */
+    /** ★ 1123d B30：「清空聊天记录 / 删掉对话记录 / 把聊天记录清了」（没点名哪个应用）。 */
+    static final Pattern BARE_CHAT_RECORD_CLEAR = Pattern.compile(
+            "^(?:帮我)?(?:清空|清除|清掉|清理|删除|删掉|删光|删了)(?:一下)?(?:所有|全部)?(?:的)?(?:聊天|对话)记录(?:吧)?$"
+                    + "|^(?:帮我)?(?:把)?(?:所有|全部)?(?:的)?(?:聊天|对话)记录(?:全|都|全部)?(?:清空|清掉|清除|清了|删了|删掉|删光|删除)(?:吧)?$");
+    public static final String CHAT_RECORD_CLARIFY = "我还没动。你是说 OneSay 里存的聊天记录吗？要删就说「清空聊天存档」，我会先让你确认一下；"
+            + "长期记忆不受影响。要是想清别的应用里的聊天记录，告诉我是哪个应用。";
+
+    /** 分诊用：这句是不是没点名应用的「清空聊天记录」。 */
+    public static boolean isBareChatRecordClear(String utterance) {
+        if (utterance == null) return false;
+        String q = utterance.trim().replaceAll("[\\s\\p{Punct}，。？！、：；“”‘’\"'`]", "").toLowerCase();
+        return BARE_CHAT_RECORD_CLEAR.matcher(q).matches();
+    }
+
     public static String tryAnswer(String query) {
         if (query == null) return null;
         String raw = query.trim();
         String q = raw.replaceAll("[\\s\\p{Punct}，。？！、：；“”‘’\"'`]", "").toLowerCase();
         if (q.length() == 0) return null;
+
+        // 0. ★ 1123d B30：没点名应用的「清空聊天记录」—— 问清楚，不动手、不假装清了
+        if (BARE_CHAT_RECORD_CLEAR.matcher(q).matches()) return CHAT_RECORD_CLARIFY;
 
         // 1. 本地简易四则运算计算器（毫秒算毕直出）
         String mathRes = tryMathCalculate(raw);

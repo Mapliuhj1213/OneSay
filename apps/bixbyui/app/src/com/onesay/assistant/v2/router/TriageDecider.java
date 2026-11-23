@@ -330,6 +330,10 @@ public final class TriageDecider {
     public static final String RULE_TRIP_PLAN = "2p-trip-plan";
 
     /** 规则层决策（纯函数）。设置诊断按开着处理（与产品默认一致）。 */
+    /** ★ 1123d 12.3：回忆型问句（「…来着」「我刚才 / 之前说的…」）。 */
+    static final java.util.regex.Pattern RECALL_Q = java.util.regex.Pattern.compile(
+            "来着[吗呢吧啊呀？?。！!\\s]*$|我(刚才|刚刚|之前|前面|上次|早先)(跟你|和你|对你)?(说|讲|提|告诉你)(过|的)");
+
     public static Decision decide(String utterance, Signals s) {
         return decide(utterance, s, true);
     }
@@ -421,6 +425,11 @@ public final class TriageDecider {
         //   判定与 L0 / 面板同源（SummaryIntent，用原句）；「总结我的记忆」「总结今天的邮件」、知识问句不命中，照旧。
         if (allowSummary && com.onesay.assistant.v2.summary.SummaryIntent.isTrigger(utterance)) {
             return new Decision(Label.DO_READ, false, 0.9, "5s-screen-summary", core, false, false, "rule");
+        }
+        // ★ 1123d B30：没点名应用的「清空聊天记录」不直接清（可能说的是别的应用），也不能交给模型（原先没调工具就回「清空了」）→
+        //   本地问答问清楚（AskEngine.chatRecordClarify），零副作用。「清空聊天存档」快路径照旧走红色确认卡。
+        if (AskEngine.isBareChatRecordClear(utterance)) {
+            return new Decision(Label.ASK, false, 0.9, "3c-chat-record-clarify", core, false, false, "rule");
         }
         // ★ int/1102 [sched] 日程（日历 + 提醒）：带日期 / 钟点的事件句、「今天有什么安排」、「加个日程」= 单步，本地日程接管（SchedulePlugin 290），
         //   永不进 AgentLoop、永不归记一记 / 记忆（用户 2026-11-02：「让它记日程它直接说我记住了」）。判定与 SchedEngine.plan 同源。
@@ -586,6 +595,11 @@ public final class TriageDecider {
             return build(Label.CLARIFY, 0.85, "4-missing-slot", core, false, false, "rule", s);
         }
 
+        // 3r. ★ 1123d 12.3：「我航班几点起飞来着」「我刚才说的会是几点」= 问我前面跟它说过的事 → 问答（带会话历史答），
+        //     不当读设备进智能体循环（原先 5-device-read → AgentLoop 去翻手机）。
+        if (!hasImperativeAct(q, core) && RECALL_Q.matcher(q).find()) {
+            return build(Label.ASK, 0.85, "3r-recall", core, false, false, "rule", s);
+        }
         // 5. DO_READ：读取谓词 + 设备/个人对象，且没有祈使动作（"打开"等）
         boolean deviceObj = containsAny(core, DEVICE_OBJECTS) || containsAny(q, DEVICE_OBJECTS);
         boolean readPred = containsAny(q, READ_PREDICATES);

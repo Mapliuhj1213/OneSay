@@ -93,6 +93,11 @@ public class ScreenVisionEngine {
     }
 
     /** ★ R12 控制台「模型与密钥 › 视觉模型」只读显示：当前生效的视觉模型名。 */
+    /** ★ 1123d B31：截屏前的检查；缺 Key 返回给用户的话，否则 null。纯函数。 */
+    static String preflightError(String apiKey) {
+        return VisionAvailability.keyMissing(apiKey) ? VisionAvailability.NO_KEY_USER : null;
+    }
+
     public static String effectiveModel(Context ctx) {
         try {
             return pickModel(ctx.getSharedPreferences("bixby_asr_cfg", Context.MODE_PRIVATE).getString(PREF_VISION_MODEL, ""));
@@ -246,6 +251,13 @@ public class ScreenVisionEngine {
                 try {
                     boolean captured;
                     File shotFile;
+                    // ★ 1123d B31：没 Key 先说，不白截一张图（原先截完屏才发现缺 Key）
+                    String preErr = preflightError(mAsrConfig.getDashScopeKey());
+                    if (preErr != null) {
+                        Log.w(TAG, "[VISION] 没配识屏 Key：不截屏，直接告诉用户");
+                        if (callback != null) callback.onError(preErr);
+                        return;
+                    }
                     if (existingImage != null) {   // ★ feat/suggest：已有图片，跳过截屏；shotPath 保持 null → finally 不删用户的文件
                         captured = true;
                         shotFile = new File(existingImage);
@@ -411,8 +423,7 @@ public class ScreenVisionEngine {
                     if (apiKey == null || apiKey.trim().length() == 0) {
                         Log.w(TAG, "[VISION] 未配置 DashScope Key，识屏无法进行");
                         if (callback != null) {
-                            callback.onError("还没有配置阿里云百炼（DashScope）的 API Key，"
-                                    + "识屏需要它 —— 填好与语音识别共用的那个 Key 即可。");
+                            callback.onError(VisionAvailability.NO_KEY_USER);   // ★ 1123d B31：文案去服务商名
                         }
                         return;
                     }

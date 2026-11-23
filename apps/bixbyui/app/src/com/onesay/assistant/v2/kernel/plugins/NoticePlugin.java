@@ -186,7 +186,7 @@ public final class NoticePlugin extends FeaturePlugin {
     /** [fix-1123-c] 提前多少分钟：档位单选（不提前 / 5 / 10 / 15 / 30 / 60…），不再手打数字。 */
     static void editMinutes(final Activity act, final android.content.SharedPreferences sp, final String key, final int lo, final int hi,
                             final ConsoleHost.Row row) {
-        int cur = sp.getInt(key, lo);
+        int cur = sp.getInt(key, NoticeSettings.leadDefault(key));   // ★ 1123d B33：没存过 = 在用的默认值（日程 10 分钟），不是 lo
         com.onesay.assistant.v2.ui.console.Pickers.minutes(act, "提前多少", lo, hi, cur, new com.onesay.assistant.v2.ui.console.Pickers.OnInt() {
             @Override public void pick(int v) {
                 if (v < lo || v > hi) return;

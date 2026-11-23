@@ -715,6 +715,21 @@ public final class IslandModel {
         return mEnabled && mMode != Mode.NONE && mRunning && !mConfirmPending && mSheet == Sheet.EXPANDED;
     }
 
+    /**
+     * ★ 1123d B4：岛上「等你」的那个字。卡住 / 到预算自动停下来问「还要继续吗」的不是授权确认 → 「已暂停」，
+     * 不叫「待确认」（用户在魅族上以为是等权限授权）。纯函数。
+     */
+    public static String waitWord(String askId, String confirmTitle) {
+        if (askId != null) return "待你选择";
+        if (confirmTitle != null) {
+            String t = confirmTitle.trim();
+            // 卡住 / 到预算时问「继续执行这个任务（…）」（FloatingSheetService.askContinue，签名 agent.budget.continue）
+            if (t.startsWith("继续执行这个任务") || t.equals("agent.budget.continue")
+                    || t.startsWith("好像卡住了") || t.endsWith("还要继续吗？") || t.endsWith("还要继续吗")) return "已暂停";
+        }
+        return "待确认";
+    }
+
     /** 需要确认：岛 → 立即展开确认卡（不再等 1 s）；无浮层 → 立即挂回面板。面板展开着 → 无动作。 */
     public synchronized List<Effect> confirmRequired(String title, String detail) {
         mConfirmPending = true;

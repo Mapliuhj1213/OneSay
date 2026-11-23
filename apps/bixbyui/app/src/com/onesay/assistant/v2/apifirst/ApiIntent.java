@@ -13,6 +13,10 @@ import java.util.Map;
  * hour / minute、title / begin / end（日历）、name（联系人）、page（设置页）、app（用户点名的 App，可空）。
  */
 public final class ApiIntent {
+    /** ★ 1123d B37 后半：只是打开了新建页，还没保存 —— 写明，免得回答说成「已建好日程」又叫用户点保存。 */
+    public static final String CAL_INSERT_OPENED = "已打开日历的新建日程页，标题和时间已填好，但还没保存：用户点「保存」才算建好。"
+            + "回答时说「新建页已经填好，点一下保存就建好了」，不要说已经建好";
+
 
     // ---- 系统接口类 ----
     public static final String ALARM_SET = "alarm.set";

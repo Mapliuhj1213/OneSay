@@ -35,6 +35,7 @@ import java.util.TimeZone;
  */
 public final class ApiFirstAndroid implements ApiFirstRouter.Env, ApiFirstRouter.Runner {
 
+
     private static final String TAG = "ApiFirst";
 
     private final Context mCtx;
@@ -156,7 +157,7 @@ public final class ApiFirstAndroid implements ApiFirstRouter.Env, ApiFirstRouter
                     long end = RouteTool.epochMillis(in.slot("date"), in.slot("end_time"), tz, now);
                     i.putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end > begin ? end : begin + 3600000L);
                 }
-                return start(i, "已打开日历的新建日程页（标题和时间已填好，点保存就行）");
+                return start(i, ApiIntent.CAL_INSERT_OPENED);   // ★ 1123d B37 后半
             }
             if (ApiIntent.CONTACT_FIND.equals(k)) {
                 if (!in.has("name")) return ApiFirstRouter.Attempt.fail("缺少名字");

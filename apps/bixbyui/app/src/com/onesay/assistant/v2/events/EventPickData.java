@@ -34,6 +34,31 @@ final class EventPickData {
         return out;
     }
 
+    /** ★ 1123d B34：有定位权限且定位开着（Android 10 起读 Wi‑Fi 名的前提）。读不到当没有。 */
+    static boolean locationOk(Context c) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 23
+                    && c.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) return false;
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                android.location.LocationManager lm = (android.location.LocationManager) c.getSystemService(Context.LOCATION_SERVICE);
+                return lm == null || lm.isLocationEnabled();
+            }
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** ★ 1123d B35：蓝牙开着没。读不到当开着（只影响提示用词）。 */
+    static boolean bluetoothOn() {
+        try {
+            android.bluetooth.BluetoothAdapter a = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+            return a == null || a.isEnabled();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     static List<String> bluetoothNames(Context c) {
         List<String> out = new ArrayList<String>();
         try {

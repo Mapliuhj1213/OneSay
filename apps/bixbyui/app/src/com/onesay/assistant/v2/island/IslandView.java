@@ -1045,7 +1045,7 @@ public class IslandView extends View {
         if (s.kind == IslandModel.Kind.COMPACT_REMIND) return "提醒";
         if (s.exec && s.paused) return "已暂停";
         switch (s.status) {
-            case WAIT: return s.askId != null ? "待你选择" : "待确认";
+            case WAIT: return IslandModel.waitWord(s.askId, s.confirmTitle);   // ★ 1123d B4
             case DONE: return "已完成";
             case FAIL: return "没完成";
             default:

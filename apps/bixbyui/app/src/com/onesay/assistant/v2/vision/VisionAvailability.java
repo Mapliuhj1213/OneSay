@@ -26,6 +26,9 @@ public final class VisionAvailability {
     /** 给用户 / 模型看的一句话（大白话，不出现内部 ID）。 */
     public static final String NO_KEY_TEXT = "识屏还没配好（缺识屏用的 Key），这次看不了屏幕图像";
 
+    /** ★ 1123d B31：识屏引擎没 Key 时给用户的话（截屏前就说，不出现服务商名）。 */
+    public static final String NO_KEY_USER = "识屏要先在设置里填好识屏用的 Key，这次看不了屏幕图像。";
+
     /** 给模型的处理提示：别再要识屏。 */
     public static final String NO_KEY_HINT = "识屏用不了：不要再调用识屏；改用读屏文字结果，或如实告诉用户要先在设置里填好识屏用的 Key";
 

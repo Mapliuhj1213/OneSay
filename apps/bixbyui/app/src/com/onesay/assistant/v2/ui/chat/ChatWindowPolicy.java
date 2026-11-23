@@ -28,7 +28,22 @@ public final class ChatWindowPolicy {
      * 服务侧用 {@link #routeLabel} 拼路由（详情 i 里也能看到「本地规则」）。
      */
     public static final String LOCAL_RULE = "本地规则";
-    public static final String HINT_IDLE = "尽管问…";   // ★ fix-1118：底栏输入框窄（左图标 + 右「+」麦克风），原「有问题尽管问我…」被截成「有问题尽管讠」
+/** ★ 1123d B24：输入框超过 3 行出「展开」，展开后在框里多给行数（同一个输入框，不丢字、不丢光标）。 */
+    public static final int EXPAND_AFTER_LINES = 3;
+    public static final int EXPANDED_LINES = 14;
+    public static final String EXPAND_LABEL = "展开", COLLAPSE_LABEL = "收起";
+
+    /** 「展开 / 收起」小按钮要不要露出来：展开着一直露（好收起），没展开时超过 3 行才露。 */
+    public static boolean showExpandToggle(int lineCount, boolean expanded) {
+        return expanded || lineCount > EXPAND_AFTER_LINES;
+    }
+
+    /** 输入框最多几行：平时 normalMax，展开后 EXPANDED_LINES。 */
+    public static int maxLines(boolean expanded, int normalMax) {
+        return expanded ? Math.max(EXPANDED_LINES, normalMax) : normalMax;
+    }
+
+        public static final String HINT_IDLE = "尽管问…";   // ★ fix-1118：底栏输入框窄（左图标 + 右「+」麦克风），原「有问题尽管问我…」被截成「有问题尽管讠」
     public static final String HINT_LISTENING = "聆听中…";
     /** 追问建议胶囊最多几个。 */
     public static final int MAX_SUGGESTIONS = 4;

@@ -106,6 +106,8 @@ public final class S3Parser {
         if (s == null) return "";
         String t = s.trim().replaceAll("[。！!？?~～\\s]+$", "").replaceAll("^(请|麻烦)?(你)?(帮我)?(设(置)?(一)?个?)?", "");
         t = t.replaceAll("^(小比|bixby|Bixby)[，, ]*", "");
+        // ★ 1123d B14/B21：语音转文字常带空格（「每天 6 点 50 叫我吃药」），钟点 / 正文里的空格去掉，否则认不出钟点 → 落到智能体建成无标签闹钟
+        t = t.replaceAll("(?<=[0-9\\u4e00-\\u9fa5])\\s+(?=[0-9\\u4e00-\\u9fa5])", "");
         return t.trim();
     }
 

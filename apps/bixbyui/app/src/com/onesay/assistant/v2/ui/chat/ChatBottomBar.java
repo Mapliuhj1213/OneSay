@@ -52,6 +52,8 @@ public final class ChatBottomBar extends LinearLayout {
     private final FrameLayout mAttach;
     private final ImageView mAttachThumb;
     private final EditText mEdit;
+    private android.widget.TextView mExpand;   // ★ 1123d B24
+    private boolean mExpanded;
     private final ImageView mPlus;
     private final ImageView mMic;
     private final WaveDots mDots;
@@ -210,6 +212,24 @@ public final class ChatBottomBar extends LinearLayout {
             }
         });
         pill.addView(mEdit, new LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        // ★ 1123d B24：超过 3 行出「展开」，点了输入框长到 14 行好改长文；「收起」回 5 行。同一个输入框，字和光标都不动
+        mExpand = new android.widget.TextView(c);
+        mExpand.setText(ChatWindowPolicy.EXPAND_LABEL);
+        mExpand.setTextColor(HINT);
+        mExpand.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        mExpand.setPadding(dp(6), dp(8), dp(6), dp(14));
+        mExpand.setVisibility(GONE);
+        mExpand.setOnClickListener(new OnClickListener() {
+            @Override public void onClick(View v) {
+                mExpanded = !mExpanded;
+                int sel = mEdit.getSelectionEnd();
+                mEdit.setMaxLines(ChatWindowPolicy.maxLines(mExpanded, MAX_LINES));
+                mEdit.setMinLines(mExpanded ? ChatWindowPolicy.EXPANDED_LINES : 1);
+                if (sel >= 0 && sel <= mEdit.length()) mEdit.setSelection(sel);
+                refreshExpand();
+            }
+        });
+        pill.addView(mExpand, new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         mPlus = iconButton(c, ChatIcons.PLUS, "添加图片");
         mPlus.setOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
@@ -243,7 +263,10 @@ public final class ChatBottomBar extends LinearLayout {
         mEdit.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int n) { }
             @Override public void onTextChanged(CharSequence s, int a, int b, int n) { }
-            @Override public void afterTextChanged(android.text.Editable e) { refreshSendMic(); }
+            @Override public void afterTextChanged(android.text.Editable e) {
+                refreshSendMic();
+                mEdit.post(new Runnable() { @Override public void run() { refreshExpand(); } });   // 行数要等排版完才准
+            }
         });
         micSlot.addView(mMic, new FrameLayout.LayoutParams(dp(38), dp(38), Gravity.CENTER));
         mDots = new WaveDots(c);
@@ -441,6 +464,19 @@ public final class ChatBottomBar extends LinearLayout {
         iv.setPadding(dp(8), dp(8), dp(8), dp(8));
         iv.setContentDescription(desc);
         return iv;
+    }
+
+    /** ★ 1123d B24：按行数露 / 藏「展开」；字删到 3 行以内且已展开 → 自动收回 5 行。 */
+    private void refreshExpand() {
+        if (mExpand == null) return;
+        int lines = mEdit.getLineCount();
+        if (mExpanded && lines <= ChatWindowPolicy.EXPAND_AFTER_LINES && mEdit.length() == 0) {
+            mExpanded = false;
+            mEdit.setMinLines(1);
+            mEdit.setMaxLines(MAX_LINES);
+        }
+        mExpand.setText(mExpanded ? ChatWindowPolicy.COLLAPSE_LABEL : ChatWindowPolicy.EXPAND_LABEL);
+        mExpand.setVisibility(ChatWindowPolicy.showExpandToggle(lines, mExpanded) ? VISIBLE : GONE);
     }
 
     private int dp(float v) {

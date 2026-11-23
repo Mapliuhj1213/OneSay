@@ -86,6 +86,11 @@ public final class NoticeSettings {
         return clamp(prefs(ctx).getInt(K_CAL_LEAD, CalendarNotices.DEFAULT_LEAD_MIN), 0, 120);
     }
 
+    /** ★ 1123d B33：没存过时在用的提前量（档位选择器首次打开要勾上它，不是勾 0 / 1）。 */
+    public static int leadDefault(String key) {
+        return K_MAIL_LEAD.equals(key) ? ScheduledMailNotices.DEFAULT_LEAD_MIN : CalendarNotices.DEFAULT_LEAD_MIN;
+    }
+
     public static int mailLead(Context ctx) {
         return clamp(prefs(ctx).getInt(K_MAIL_LEAD, ScheduledMailNotices.DEFAULT_LEAD_MIN), 1, 60);
     }

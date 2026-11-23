@@ -132,6 +132,16 @@ public final class EventConsole {
             @Override public void onClick(android.view.View v) {
                 final EventTask.Source s = sources[Math.max(0, src.getSelectedItemPosition())];
                 List<String> names = s == EventTask.Source.WIFI ? EventPickData.wifiNames(act) : EventPickData.bluetoothNames(act);
+                // ★ 1123d B34/B35：列表空时说清为什么（Wi‑Fi 缺定位权限就顺手弹系统授权；蓝牙关着就叫开蓝牙）
+                boolean isWifi = s == EventTask.Source.WIFI;
+                boolean locOk = !isWifi || EventPickData.locationOk(act);
+                String hint = EventPickHint.emptyHint(isWifi, names, isWifi || EventPickData.bluetoothOn(), locOk);
+                if (hint != null) {
+                    host.toast(hint);
+                    if (isWifi && !locOk && android.os.Build.VERSION.SDK_INT >= 23) {
+                        try { act.requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, 4711); } catch (Throwable ignored) { }
+                    }
+                }
                 Pickers.one(act, s == EventTask.Source.WIFI ? "选 Wi‑Fi（已保存 / 附近的）" : "选蓝牙设备（已配对的）", FormChoices.targetChoices(names),
                         target[0].length() == 0 ? FormChoices.ANY : target[0],
                         s == EventTask.Source.WIFI ? "Wi‑Fi 名称" : "蓝牙设备名或 MAC 地址", new Pickers.OnText() {
