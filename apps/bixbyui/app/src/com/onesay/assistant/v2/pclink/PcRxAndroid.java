@@ -72,6 +72,24 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
         PcConfirmActivity.install(app); // 手机屏幕上的确认卡（本机卡 + 电脑发来的卡）
     }
 
+    private static boolean sNonceAttached;
+
+    /** ★ sec-1123 M6：电脑发来的报文的一次性编号记进本机（只存摘要，时间窗过了就清），断线重连、App 重启后旧报文也不能重放。 */
+    static synchronized void attachNonceStore(Context app) {
+        if (sNonceAttached) return;
+        sNonceAttached = true;
+        final android.content.SharedPreferences sp = app.getSharedPreferences("pclink_nonce", Context.MODE_PRIVATE);
+        PcProtocol.attachNonceStore(new PcProtocol.NonceStore() {
+            @Override public String load() {
+                return sp.getString("seen", "");
+            }
+
+            @Override public void save(String data) {
+                sp.edit().putString("seen", data).commit();
+            }
+        });
+    }
+
     // ================================================================== 生命周期
 
     /** 进程起来 / 配对 / 开关变了时调用：该跑就起（已在跑就叫它马上重试）。 */
@@ -82,6 +100,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
             return;
         }
         PcRxAndroid env = new PcRxAndroid(app);
+        attachNonceStore(app); // ★ sec-1123 M6：防重放的一次性编号落盘（跨会话 / 重启）
         // ★ app-whitelist-1116：常连会话里电脑推来的白名单要能合并（状态先初始化，提醒走通知）
         com.onesay.assistant.v2.whitelist.WhitelistAndroid.state(app);
         final Context fa = app;
@@ -441,7 +460,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
             d.put("scripts", new java.util.ArrayList<Object>(LinkPolicy.listScripts(workspace())));
             return ok("工作区脚本", d);
         }
-        if (PcRxPolicy.SCRIPT_RUN.equals(cmd)) return scriptRun(PcRxPolicy.str(a, "name"));
+        if (PcRxPolicy.SCRIPT_RUN.equals(cmd)) return scriptRun(PcRxPolicy.str(a, "name"), PcRx.checkedScript());
         if (PcRxPolicy.SYS_EXEC.equals(cmd)) return shell(PcRxPolicy.str(a, "command"));
         if (PcRxPolicy.NOTIFY.equals(cmd)) {
             String title = PcRxPolicy.str(a, "title"), text = PcRxPolicy.str(a, "text");
@@ -818,11 +837,32 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
         }
     }
 
-    PcLanClient.Result scriptRun(String name) {
-        java.io.File f = LinkPolicy.resolveInside(workspace(), "scripts/" + name);
-        if (f == null || !f.isFile()) return fail("工作区 scripts/ 里没有这个脚本");
+    /**
+     * ★ sec-1123 M2：跑的是 {@link PcRx#handle} 检查过的那份字节（{@link PcRx#checkedScript}）：先写进 App 私有目录（别的 App 读写不了），
+     * 再让特权通道 sh 这份私有副本，跑完删掉。不再按文件名回外部存储重读（老系统上查完到运行之间可能被换掉）。
+     */
+    PcLanClient.Result scriptRun(String name, byte[] checked) {
         if (!name.toLowerCase(Locale.ROOT).endsWith(".sh")) return fail("手机上只能运行 .sh 脚本");
-        return shell("sh '" + f.getPath().replace("'", "'\\''") + "'");
+        if (checked == null) return fail("工作区 scripts/ 里没有这个脚本"); // 没查过的字节一律不跑（文件不在时 PcRx 不给字节）
+        java.io.File dir = com.onesay.assistant.v2.util.PrivateScratch.dir(app, "pcrun");
+        if (dir == null) return fail("手机上没有可用的私有目录，脚本没运行");
+        java.io.File copy = new java.io.File(dir, "run_" + Long.toHexString(System.nanoTime()) + ".sh");
+        try {
+            java.io.FileOutputStream out = new java.io.FileOutputStream(copy);
+            try {
+                out.write(checked);
+            } finally {
+                out.close();
+            }
+            return shell("sh " + com.onesay.assistant.v2.util.PrivateScratch.quote(copy.getPath()));
+        } catch (Exception e) {
+            return fail("脚本没运行：写不进私有目录（" + e.getClass().getSimpleName() + "）");
+        } finally {
+            try {
+                copy.delete();
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /** 走特权通道执行（判定 / 确认已做完）；没有特权通道就说清楚。输出最多回 2000 字。 */
@@ -950,7 +990,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
                     };
                     app.registerReceiver(stopRx, new IntentFilter(ACTION_STOP));
                 }
-                PendingIntent pi = PendingIntent.getBroadcast(app, 0, new Intent(ACTION_STOP).setPackage(app.getPackageName()), PendingIntent.FLAG_UPDATE_CURRENT);
+                PendingIntent pi = PendingIntent.getBroadcast(app, 0, new Intent(ACTION_STOP).setPackage(app.getPackageName()), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                 Notification n = builder(app).setSmallIcon(app.getApplicationInfo().icon).setContentTitle("电脑在找这台手机")
                         .setContentText("点这里停止响铃").setContentIntent(pi).setDeleteIntent(pi).setOngoing(true)
                         .setCategory(Notification.CATEGORY_ALARM).build();

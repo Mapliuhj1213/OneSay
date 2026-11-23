@@ -88,15 +88,13 @@
     <!-- 读写「OneSay Plan」（com.onesay.plan）的后门，signature 级，计划 App 与 release 同证书 -->
     <uses-permission android:name="com.onesay.plan.permission.ACCESS" />
     <!-- OneSay 时钟对外闹钟接口（AlarmApiReceiver）：signature 级，只有与时钟同一证书签名才授予。
-         这里也同名声明一次（时钟清单里同样声明；同证书可重复声明），这样先装哪个 App 都能授予。 -->
+         ★ sec-1123 L6：权限只由时钟自己声明，这里只申请、不再同名声明 —— 别的 App 抢先声明了这个名字时，
+         以前连 OneSay 都装不上（重复声明被系统拒绝）；现在最多是时钟装不上，OneSay 照常装、照常用（闹钟走系统闹钟兜底）。
+         先装 OneSay、后装时钟时，老系统可能要重装一次 OneSay 才拿到这个权限（AlarmBridge 拿不到会如实说）。 -->
     <uses-permission android:name="com.onesay.clock.permission.ALARM_CONTROL" />
     <!-- priv-llm：「Shizuku 特权」插件（默认关）。Shizuku 官方 API 库（MIT，RikkaW）要求的权限声明；
          没装 / 没开 Shizuku 时不起任何作用。 -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
-    <permission
-        android:name="com.onesay.clock.permission.ALARM_CONTROL"
-        android:label="设置、开关、删除 OneSay 时钟的闹钟"
-        android:protectionLevel="signature" />
 
     <!--
       签名级自定义权限。只有同一把 keystore 签名的 App（以及 root / system，

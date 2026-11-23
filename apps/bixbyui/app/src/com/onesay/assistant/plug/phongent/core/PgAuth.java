@@ -49,6 +49,8 @@ public final class PgAuth {
         final String id;
         final String name;
         final long deadline;
+        /** ★ sec-1123 M5：发起申请的地址；口令只交给同一地址来取（null = 不绑，测试 / 旧调用口）。 */
+        String remote;
         String status = "pending";
         String token;
 
@@ -113,8 +115,13 @@ public final class PgAuth {
         }
     }
 
-    /** POST /pair。 */
+    /** POST /pair（不绑地址的旧调用口）。 */
     public synchronized Result request(JSONObject body) {
+        return request(body, null);
+    }
+
+    /** POST /pair。remote = 发起申请的地址：批准后的口令只交给同一地址（同网段的人抢先来取拿不到）。 */
+    public synchronized Result request(JSONObject body, String remote) {
         String id = body == null ? null : body.optString("requestId", null);
         if (!validRequestId(id)) return new Result(400, PgHttp.err("invalid_request"));
         String name = cleanName(body.optString("name", ""));
@@ -127,6 +134,7 @@ public final class PgAuth {
         if (!mPrompt.canPrompt()) return new Result(409, PgHttp.err("enable_android_notifications"));
         mLastRequest = now;
         Offer o = new Offer(id, name, now + OFFER_TTL_MS);
+        o.remote = remote;
         mOffers.put(id, o);
         mPrompt.askPair(id, name);
         return new Result(202, status("pending"));
@@ -135,6 +143,13 @@ public final class PgAuth {
     private boolean hasPending() {
         for (Offer o : mOffers.values()) if ("pending".equals(o.status)) return true;
         return false;
+    }
+
+    /** ★ sec-1123 M5：待批申请的来源地址（确认卡上给人看；没有 / 已处理返回 null）。 */
+    public synchronized String pendingRemote(String id) {
+        expire();
+        Offer o = mOffers.get(id);
+        return o != null && "pending".equals(o.status) ? o.remote : null;
     }
 
     /** 待批申请的主控名（通知 / 对话框用）；过期或已处理返回 null。 */
@@ -164,11 +179,17 @@ public final class PgAuth {
         return true;
     }
 
-    /** GET /pair/&lt;id&gt;。token 只交付一次。 */
+    /** GET /pair/&lt;id&gt;（不看地址的旧调用口）。 */
     public synchronized JSONObject poll(String id) {
+        return poll(id, null);
+    }
+
+    /** GET /pair/&lt;id&gt;。token 只交付一次；★ sec-1123 M5：申请时记了地址的，只交给同一地址（别的地址来问一律回 pending，不泄露状态）。 */
+    public synchronized JSONObject poll(String id, String remote) {
         expire();
         Offer o = validRequestId(id) ? mOffers.get(id) : null;
         if (o == null) return status("expired");
+        if (o.remote != null && !o.remote.equals(remote)) return status("pending");
         JSONObject r = status(o.status);
         if ("approved".equals(o.status) && o.token != null) {
             try {

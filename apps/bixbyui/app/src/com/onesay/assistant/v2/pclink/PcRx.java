@@ -129,18 +129,32 @@ public final class PcRx {
         Map<String, Object> a = new TreeMap<String, Object>();
         if (args != null) for (Map.Entry<String, Object> e : args.entrySet()) if (!e.getKey().startsWith("_")) a.put(e.getKey(), e.getValue()); // 下划线开头的是手机内部标记，电脑不能带
         Guard g = h instanceof Guard ? (Guard) h : null;
+        // ★ sec-1123 M2：工作区脚本只读一次 —— 检查的就是要跑的这份字节（交给执行端的是 _script，不再按文件名回去重读，
+        //   老系统上外部存储里的脚本在「查完」和「运行」之间可能被别的 App 换掉）。字节经 {@link #checkedScript} 交给执行端（同一线程），不放进参数表。
+        byte[] scriptBytes = null;
+        if (PcRxPolicy.SCRIPT_RUN.equals(cmd) && g != null) {
+            java.io.File ws = g.workspace();
+            java.io.File sf = ws == null ? null : LinkPolicy.resolveInside(ws, "scripts/" + PcRxPolicy.str(a, "name"));
+            if (sf != null && sf.isFile()) { // 没有这个文件：交给执行端照旧回「没有这个脚本」（执行端拿不到查过的字节就不跑）
+                scriptBytes = readOnce(sf, PcRxPolicy.FILE_MAX);
+                if (scriptBytes == null) return withReason(false, "脚本太大（超过 256 KB）或读不了，不检查就不跑", "", null);
+            }
+        }
         LinkPolicy.Cat cat = category(g, cmd, a);
         LinkPolicy.Facts f = facts(g, cmd, a);
+        if (scriptBytes != null) f.oddWriting = LinkPolicy.shellDoubt(LinkPolicy.decodeScript(scriptBytes)); // ★ sec-1123 M1：脚本内容同系统命令一样认
         // 规则（LinkPolicy.phoneLegacy）：不分档；硬规则拒 / 只生成脚本，原来拒的改成手机上确认
         Asker k = h instanceof Asker ? (Asker) h : null;
         LinkPolicy.Decision d = remembered(k, LinkPolicy.decide(LinkPolicy.Target.PHONE, LinkPolicy.Mode.DEFAULT, cat, f));
         if (d.verdict == LinkPolicy.Verdict.DENY) return withReason(false, d.text, d.reason, null);
         List<LinkPolicy.Decision> asks = new ArrayList<LinkPolicy.Decision>();
         if (d.verdict == LinkPolicy.Verdict.CONFIRM) asks.add(d);
-        if (PcRxPolicy.SYS_EXEC.equals(cmd) && d.verdict != LinkPolicy.Verdict.SCRIPT) {
+        String shellText = PcRxPolicy.SYS_EXEC.equals(cmd) ? PcRxPolicy.str(a, "command") : scriptBytes != null ? LinkPolicy.decodeScript(scriptBytes) : null;
+        if (shellText != null && d.verdict != LinkPolicy.Verdict.SCRIPT) {
             // 系统命令里用 pm 卸载 / 停用 / 清数据某个 App：OneSay 自己不行（硬规则），系统 App 和支付 / 银行 / 钱包类先问你
             // 先去掉引号 / 反斜杠再认（pm 'uninstall' com.x、pm clear 'com.x' 执行的就是 pm uninstall / pm clear）
-            java.util.regex.Matcher pm = PM_APP_OP.matcher(LinkPolicy.unquoteShell(PcRxPolicy.str(a, "command")));
+            // ★ sec-1123 M1：cmd package uninstall 同 pm；工作区脚本的内容也一样认
+            java.util.regex.Matcher pm = PM_APP_OP.matcher(LinkPolicy.unquoteShell(shellText));
             while (pm.find()) {
                 Map<String, Object> pa = new TreeMap<String, Object>();
                 pa.put("package", pm.group(3));
@@ -157,12 +171,9 @@ public final class PcRx {
             x.put("path", path);
             return withReason(false, "涉及授予权限，已生成脚本，需你自己执行：" + path, LinkPolicy.R_SCRIPT_GENERATED, x);
         }
-        if (PcRxPolicy.SCRIPT_RUN.equals(cmd) && g != null) {
-            // 工作区脚本：内容里有给 App 授权的命令就不替你运行（和系统命令同一条红线）
-            java.io.File ws = g.workspace();
-            java.io.File sf = ws == null ? null : LinkPolicy.resolveInside(ws, "scripts/" + PcRxPolicy.str(a, "name"));
-            if (sf != null && sf.isFile() && sf.length() > PcRxPolicy.FILE_MAX) return withReason(false, "脚本太大（超过 256 KB），不检查就不跑", "", null);
-            if (sf != null && sf.isFile() && LinkPolicy.classifyShell(LinkPolicy.Target.PHONE, readText(sf)) == LinkPolicy.Cat.SELF_GRANT) {
+        if (scriptBytes != null) {
+            // 工作区脚本：内容里有给 App 授权的命令就不替你运行（和系统命令同一条红线）；查的是上面读到的同一份字节
+            if (LinkPolicy.classifyShell(LinkPolicy.Target.PHONE, LinkPolicy.decodeScript(scriptBytes)) == LinkPolicy.Cat.SELF_GRANT) {
                 Map<String, Object> x = new TreeMap<String, Object>();
                 x.put("path", "scripts/" + PcRxPolicy.str(a, "name"));
                 return withReason(false, "脚本里有给 App 授权的命令，OneSay 不替你运行，需你自己执行：scripts/" + PcRxPolicy.str(a, "name"), LinkPolicy.R_SCRIPT_GENERATED, x);
@@ -187,10 +198,13 @@ public final class PcRx {
         }
         if (cat == LinkPolicy.Cat.OUTSIDE_WRITE) a.put("_outside", Boolean.TRUE);
         try {
+            CHECKED_SCRIPT.set(scriptBytes);
             PcLanClient.Result r = h.run(cmd, a);
             return r == null ? new PcLanClient.Result(false, "没有结果", null, "") : r;
         } catch (Throwable t) {
             return new PcLanClient.Result(false, "手机上出错：" + t.getClass().getSimpleName(), null, "");
+        } finally {
+            CHECKED_SCRIPT.remove();
         }
     }
 
@@ -206,7 +220,7 @@ public final class PcRx {
 
     /** 系统命令里的 pm 卸载 / 停用 / 隐藏 / 清数据 / 挂起：第 2 组是包名（跳过 --user 0、-k 之类选项）。 */
     static final java.util.regex.Pattern PM_APP_OP = java.util.regex.Pattern.compile(
-            "\\bpm\\s+(uninstall|disable|disable-user|hide|clear|suspend)((?:\\s+--?[A-Za-z-]+(?:\\s+\\d+)?)*)\\s+([A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)+)");
+            "\\b(?:pm|cmd\\s+package)\\s+(uninstall|disable|disable-user|hide|clear|suspend)((?:\\s+--?[A-Za-z-]+(?:\\s+\\d+)?)*)\\s+([A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)+)"); // ★ sec-1123 M1：cmd package 同 pm
 
     static PcLanClient.Result withReason(boolean ok, String text, String reason, Map<String, Object> extra) {
         Map<String, Object> d = new TreeMap<String, Object>();
@@ -239,7 +253,7 @@ public final class PcRx {
             f.url = LinkPolicy.checkUrl(u == null ? raw : u, java.util.Collections.<String>emptyList());
         } else if (PcRxPolicy.SYS_EXEC.equals(cmd)) {
             // 写法可疑（引号拆分、同形字、全角、零宽、变量展开…）：守卫认不准，改成不能记住的确认卡
-            f.oddWriting = LinkPolicy.oddShellWriting(PcRxPolicy.str(a, "command"));
+            f.oddWriting = LinkPolicy.shellDoubt(PcRxPolicy.str(a, "command")); // ★ sec-1123 M1：再加间接执行（xargs / sh -c / 先写脚本再 sh…）
         } else if (PcRxPolicy.CLIPBOARD.equals(cmd)) {
             f.clip = LinkPolicy.checkClip(a.get("text") == null ? "" : String.valueOf(a.get("text")));
         } else if (PcRxPolicy.OPEN_APP.equals(cmd) || PcRxPolicy.UNINSTALL.equals(cmd)) {
@@ -253,6 +267,35 @@ public final class PcRx {
             }
         }
         return f;
+    }
+
+    /** ★ sec-1123 M2：这次 script_run 检查过的脚本字节（只在 {@link Handler#run} 调用期间、同一线程上有值）。 */
+    private static final ThreadLocal<byte[]> CHECKED_SCRIPT = new ThreadLocal<byte[]>();
+
+    /** 执行端（{@link Handler#run} 里）取这次检查过的脚本字节；没有返回 null。 */
+    public static byte[] checkedScript() {
+        return CHECKED_SCRIPT.get();
+    }
+
+    /** ★ sec-1123 M2：一次读完（超过 max 字节或读不了返回 null）；读的过程中文件变长也只收 max 以内。 */
+    static byte[] readOnce(java.io.File f, int max) {
+        try {
+            java.io.InputStream in = new java.io.FileInputStream(f);
+            try {
+                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                byte[] b = new byte[8192];
+                int n;
+                while ((n = in.read(b)) > 0) {
+                    bo.write(b, 0, n);
+                    if (bo.size() > max) return null;
+                }
+                return bo.toByteArray();
+            } finally {
+                in.close();
+            }
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     static String readText(java.io.File f) {

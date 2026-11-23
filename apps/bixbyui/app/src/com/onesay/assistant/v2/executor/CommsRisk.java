@@ -66,6 +66,17 @@ public final class CommsRisk {
         return ("phone.call".equals(sign) ? "呼叫：" : "短信发给：") + who;
     }
 
+    /**
+     * ★ sec-1123 L5：执行层再核一次（纵深防御）。门禁（ToolGate）已经按 {@link #assess} 拒了 MMI / USSD 码，但模板填参本身
+     * 照样会把 {@code **21*…#} 填进 {@code tel:} —— 不经门禁的调用路径（自检、快捷指令、以后新加的入口）也不能拨这种码。
+     * 通信类且判成拒绝 → 返回给人看的原因；其余返回 null。纯函数。
+     */
+    public static String execGuard(String sign, JSONObject args) {
+        if (!isComms(sign)) return null;
+        Assessment a = assess(sign, args);
+        return a.level == Level.DENY ? a.reason : null;
+    }
+
     public static Assessment assess(String sign, JSONObject args) {
         if (!isComms(sign)) return new Assessment(Level.NOT_COMMS, "", "");
         String raw = args == null ? "" : args.optString("number", "");

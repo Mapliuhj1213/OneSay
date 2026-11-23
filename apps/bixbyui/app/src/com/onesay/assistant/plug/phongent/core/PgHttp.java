@@ -55,6 +55,8 @@ public final class PgHttp {
         /** 头名一律小写。 */
         public final Map<String, String> headers;
         public final byte[] body;
+        /** ★ sec-1123 M5：对方地址（PgServer 填；测试里可以不填 = 不绑地址）。 */
+        public String remote;
 
         Request(String method, String target, Map<String, String> headers, byte[] body) {
             this.method = method;

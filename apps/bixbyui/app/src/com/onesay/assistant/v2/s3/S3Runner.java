@@ -547,7 +547,7 @@ public final class S3Runner implements com.onesay.assistant.v2.kernel.IslandHost
             if (nm == null) return;
             Intent it = new Intent(mCtx, com.onesay.assistant.v2.ui.MainActivity.class).putExtra("page", "s3")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            PendingIntent pi = PendingIntent.getActivity(mCtx, 7302, it, PendingIntent.FLAG_UPDATE_CURRENT);
+            PendingIntent pi = PendingIntent.getActivity(mCtx, 7302, it, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             Notification.Builder b;
             if (Build.VERSION.SDK_INT >= 26) {
                 nm.createNotificationChannel(new NotificationChannel(CHANNEL, "OneSay 定时任务", NotificationManager.IMPORTANCE_DEFAULT));

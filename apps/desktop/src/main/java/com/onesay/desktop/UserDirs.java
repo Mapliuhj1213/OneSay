@@ -93,6 +93,65 @@ public final class UserDirs {
         return fallbackRoot(up, programData) + "\\tools";
     }
 
+    /**
+     * ★ sec-1123 L3：用户名是中文等非 ASCII 时，工作区 / 工具目录落在 %ProgramData%\OneSay\accounts\&lt;账户&gt;\ 下，
+     * 而 ProgramData 默认让本机所有用户都能读（工作区里有电脑发来的文件、生成的脚本）。启动时把本账户这个目录收紧成
+     * 「只有自己 + SYSTEM + 管理员组」（子目录 / 文件继承）；非 Windows 收成 700。用户目录是 ASCII 时不碰（本来就在自己的用户目录里）。
+     * 返回收紧了的目录，没做（不需要 / 做不了）返回 null；出错只记日志，不影响启动。
+     */
+    public static Path secureFallbackRoot(String userProfile, String programData, java.util.function.Consumer<String> log) {
+        String up = userProfile == null ? "" : userProfile.trim();
+        if (up.isEmpty() || isAscii(up)) return null;
+        Path root = Paths.get(fallbackRoot(up, programData));
+        try {
+            java.nio.file.Files.createDirectories(root);
+            return restrictToOwner(root) ? root : null;
+        } catch (Exception e) {
+            if (log != null) log.accept("[dirs] 收紧 ProgramData 下本账户目录的权限没成功：" + e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    /** 把目录收成只有当前用户（+ SYSTEM / 管理员组，Windows）能访问。做到了返回 true。 */
+    public static boolean restrictToOwner(Path dir) throws java.io.IOException {
+        java.nio.file.attribute.AclFileAttributeView acl = java.nio.file.Files.getFileAttributeView(dir, java.nio.file.attribute.AclFileAttributeView.class);
+        if (acl != null) {
+            java.nio.file.attribute.UserPrincipalLookupService look = dir.getFileSystem().getUserPrincipalLookupService();
+            java.util.List<java.nio.file.attribute.AclEntry> list = new java.util.ArrayList<>();
+            java.nio.file.attribute.UserPrincipal me;
+            try {
+                me = look.lookupPrincipalByName(System.getProperty("user.name"));
+            } catch (Exception e) {
+                me = acl.getOwner();
+            }
+            list.add(fullEntry(me));
+            for (String n : new String[]{"SYSTEM", "Administrators"}) {
+                try {
+                    list.add(fullEntry(look.lookupPrincipalByName(n)));
+                } catch (Exception ignored) {
+                    // 本地化系统上组名可能不同：少一条管理员项不影响「别的普通用户读不了」
+                }
+            }
+            acl.setAcl(list);
+            return true;
+        }
+        java.nio.file.attribute.PosixFileAttributeView px = java.nio.file.Files.getFileAttributeView(dir, java.nio.file.attribute.PosixFileAttributeView.class);
+        if (px != null) {
+            px.setPermissions(java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+            return true;
+        }
+        return false;
+    }
+
+    static java.nio.file.attribute.AclEntry fullEntry(java.nio.file.attribute.UserPrincipal who) {
+        return java.nio.file.attribute.AclEntry.newBuilder()
+                .setType(java.nio.file.attribute.AclEntryType.ALLOW)
+                .setPrincipal(who)
+                .setPermissions(java.util.EnumSet.allOf(java.nio.file.attribute.AclEntryPermission.class))
+                .setFlags(java.nio.file.attribute.AclEntryFlag.FILE_INHERIT, java.nio.file.attribute.AclEntryFlag.DIRECTORY_INHERIT)
+                .build();
+    }
+
     /** 链接下载的输出目录：设置里的 media_dir；否则 %USERPROFILE%\OneSay\Downloads（不回退）；没有 USERPROFILE 时 ~/OneSay/Downloads。 */
     public static Path downloadsDir(String configured, String userProfile, String userHome) {
         if (configured != null && !configured.isBlank()) return Paths.get(configured.trim());

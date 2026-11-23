@@ -156,7 +156,7 @@ public final class StrongRingService extends Service {
         StrongAlert.Entry first = l.get(0);
         Intent full = new Intent(this, StrongAlertActivity.class).putExtra(X_ID, first.todoId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent fullPi = PendingIntent.getActivity(this, 0, full, PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent fullPi = PendingIntent.getActivity(this, 0, full, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder nb = new Notification.Builder(this, CH).setSmallIcon(R.drawable.ic_stat).setContentTitle(StrongAlert.ringTitle(l))
                 .setContentText(StrongAlert.ringText(l)).setCategory(Notification.CATEGORY_ALARM).setOngoing(true).setOnlyAlertOnce(true)
                 .setVisibility(Notification.VISIBILITY_PUBLIC).setFullScreenIntent(fullPi, true).setContentIntent(fullPi);
@@ -188,7 +188,7 @@ public final class StrongRingService extends Service {
     }
 
     PendingIntent svc(String a, long id, int k) {
-        return PendingIntent.getService(this, (int) (id * 8 + k), action(this, a, id), PendingIntent.FLAG_UPDATE_CURRENT);
+        return PendingIntent.getService(this, (int) (id * 8 + k), action(this, a, id), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     int snoozeMin() { return StrongAlert.snoozeMin(Settings.strongSnoozeMin(this)); }
@@ -325,7 +325,7 @@ public final class StrongRingService extends Service {
         Notification n = new Notification.Builder(this, Remind.CH).setSmallIcon(R.drawable.ic_stat).setContentTitle(r.s("title"))
                 .setContentText("强提醒响了几次都没人处理，已经停了").setAutoCancel(true).setShowWhen(true)
                 .setContentIntent(PendingIntent.getActivity(this, (int) id, new Intent(this, com.onesay.plan.ui.MainActivity.class)
-                        .putExtra(com.onesay.plan.core.TabNav.EXTRA_TAB, Contract.T_TODOS).putExtra("id", id), PendingIntent.FLAG_UPDATE_CURRENT))
+                        .putExtra(com.onesay.plan.core.TabNav.EXTRA_TAB, Contract.T_TODOS).putExtra("id", id), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE))
                 .build();
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(NOTI_MISSED + (int) (id & 0xFFF), n);
     }

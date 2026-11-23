@@ -17,7 +17,7 @@ public class SummonWidgetProvider extends AppWidgetProvider {
         Intent i = new Intent(c, EntryLaunchActivity.class)
                 .putExtra(EntryLaunchActivity.EXTRA_ENTRY, BuiltinEntries.WIDGET)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
-        PendingIntent pi = PendingIntent.getActivity(c, 0x0E17, i, PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent pi = PendingIntent.getActivity(c, 0x0E17, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         for (int id : ids) {
             RemoteViews v = new RemoteViews(c.getPackageName(), layout);
             if (btn != 0) v.setOnClickPendingIntent(btn, pi);

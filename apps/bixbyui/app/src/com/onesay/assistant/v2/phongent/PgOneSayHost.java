@@ -185,7 +185,7 @@ final class PgOneSayHost implements Storage, HostInfo, Approver, TaskExecutor, P
 
     private PendingIntent action(String act, String id, int req) {
         Intent it = new Intent(mCtx, PhongentService.class).setAction(act).putExtra("id", id == null ? "" : id);
-        return PendingIntent.getService(mCtx, req, it, PendingIntent.FLAG_UPDATE_CURRENT);
+        return PendingIntent.getService(mCtx, req, it, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     @SuppressWarnings("deprecation")

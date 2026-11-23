@@ -84,11 +84,11 @@ public final class VyrseLinkService extends Service {
         }
         Intent open = new Intent(this, com.onesay.assistant.v2.ui.MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         PendingIntent stop = PendingIntent.getService(this, 9403, new Intent(this, VyrseLinkService.class).setAction(ACT_STOP),
-                PendingIntent.FLAG_UPDATE_CURRENT);
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         startForeground(NID, b.setSmallIcon(getApplicationInfo().icon).setOngoing(true)
                 .setContentTitle("VYRSE 电脑可以联系这台手机")
                 .setContentText("响铃 / 手电筒 / 读通知 / 打开 App；局域网明文传输")
-                .setContentIntent(PendingIntent.getActivity(this, 9404, open, PendingIntent.FLAG_UPDATE_CURRENT))
+                .setContentIntent(PendingIntent.getActivity(this, 9404, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE))
                 .addAction(new Notification.Action.Builder(0, "停止", stop).build()).build());
         sRunning = this;
     }

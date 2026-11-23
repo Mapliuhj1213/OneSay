@@ -100,7 +100,7 @@ public class RingService extends Service {
         mode = RingPlan.start(snooze, brief, v);
         Intent ui = new Intent(this, RingActivity.class).putExtra("id", id).putExtra("at", at).putExtra("mode", mode.name())
                 .putExtra("preview", preview).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_USER_ACTION);
-        PendingIntent full = PendingIntent.getActivity(this, 1, ui, PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent full = PendingIntent.getActivity(this, 1, ui, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, App.CH_ALARM) : new Notification.Builder(this);
         b.setSmallIcon(com.onesay.clock.R.drawable.ic_stat_alarm).setContentTitle(alarm != null && alarm.label.length() > 0 ? alarm.label : "闹钟")
                 .setContentText(preview ? "响铃页预览（静音）" : "点按打开").setCategory(Notification.CATEGORY_ALARM).setOngoing(true).setOnlyAlertOnce(true).setSound(null).setVibrate(null)

@@ -100,7 +100,7 @@ public final class PhongentService extends Service {
         Intent open = new Intent(this, com.onesay.assistant.v2.ui.MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startForeground(NID_SERVICE, b.setSmallIcon(getApplicationInfo().icon).setOngoing(true)
                 .setContentTitle("多设备执行端已开启").setContentText("已授权的主控可以连接；发消息 / 付款仍在本机确认")
-                .setContentIntent(PendingIntent.getActivity(this, 9204, open, PendingIntent.FLAG_UPDATE_CURRENT)).build());
+                .setContentIntent(PendingIntent.getActivity(this, 9204, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build());
         if (!PgSettings.enabled(this)) {
             stopSelf();
             return;
@@ -140,13 +140,38 @@ public final class PhongentService extends Service {
         PhongentPlug p = sPlug;
         if (act != null && p != null) {
             String id = intent.getStringExtra("id");
-            if (ACT_PAIR_ALLOW.equals(act)) p.decidePair(id, true);
+            // ★ sec-1123 M5：通知上的「允许」只是打开本机确认卡 —— 能读通知的别的 App 代点通知按钮也批准不了，必须真人在卡上点
+            if (ACT_PAIR_ALLOW.equals(act)) confirmThenAllow(p, id, false);
             else if (ACT_PAIR_DENY.equals(act)) p.decidePair(id, false);
-            else if (ACT_SCREEN_ALLOW.equals(act)) p.decideScreen(true);
+            else if (ACT_SCREEN_ALLOW.equals(act)) confirmThenAllow(p, null, true);
             else if (ACT_SCREEN_DENY.equals(act)) p.decideScreen(false);
             else if (ACT_SCREEN_STOP.equals(act)) p.stopScreen();
         }
         return START_STICKY;
+    }
+
+    /** ★ sec-1123 M5：在手机屏幕上弹确认卡（只认真人触摸、700 毫秒防误点、60 秒没人点 = 不允许），点了「允许」才算数。 */
+    private void confirmThenAllow(final PhongentPlug p, final String id, final boolean screen) {
+        final String what = screen ? null : p.pendingPairName(id);
+        if (!screen && what == null) return; // 已过期 / 已处理
+        final String detail = screen ? PgApprove.screenDetail()
+                : PgApprove.pairDetail(what, p.pendingPairRemote(id));
+        com.onesay.assistant.v2.pclink.PcConfirmActivity.install(getApplicationContext());
+        com.onesay.assistant.v2.util.Threads.start("phongent-confirm", new Runnable() {
+            @Override public void run() {
+                int r = com.onesay.assistant.v2.pclink.PcConfirm.ask(screen ? "允许主控查看屏幕？" : "允许这个设备连接 OneSay？", detail, "",
+                        com.onesay.assistant.v2.pclink.LinkPolicy.CONFIRM_TIMEOUT_MS);
+                boolean ok = PgApprove.allowed(r);
+                Log.i(TAG, "[PG] 本机确认卡 " + (screen ? "查看屏幕" : "配对") + " → " + (ok ? "允许" : "没允许"));
+                if (screen) {
+                    p.decideScreen(ok);
+                } else if (ok) {
+                    p.decidePair(id, true);
+                } else if (r == com.onesay.assistant.v2.pclink.PcConfirm.DENY) {
+                    p.decidePair(id, false);
+                }
+            }
+        });
     }
 
     private void register(final int port) {

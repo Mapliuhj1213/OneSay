@@ -48,11 +48,11 @@ public final class Sched {
 
     static PendingIntent pi(Context c, String act, int rc, int id, long at, boolean snooze) {
         Intent i = new Intent(c, AlarmReceiver.class).setAction(act).putExtra("id", id).putExtra("at", at).putExtra("snooze", snooze);
-        return PendingIntent.getBroadcast(c, rc, i, PendingIntent.FLAG_UPDATE_CURRENT);
+        return PendingIntent.getBroadcast(c, rc, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     static PendingIntent show(Context c) {
-        return PendingIntent.getActivity(c, 0, new Intent(c, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT);
+        return PendingIntent.getActivity(c, 0, new Intent(c, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     /** 立即重排（同步）。返回排上的事件（null = 没有闹钟）。 */

@@ -145,6 +145,7 @@ public final class PgServer {
             s.setTcpNoDelay(true);
             s.setKeepAlive(true);
             PgHttp.Request rq = PgHttp.read(new BufferedInputStream(s.getInputStream()), PgHttp.MAX_BODY);
+            rq.remote = s.getInetAddress() == null ? null : s.getInetAddress().getHostAddress(); // ★ sec-1123 M5：配对口令只交给发起申请的那个地址
             stream = "GET".equals(rq.method) && ("/events".equals(rq.path) || "/video".equals(rq.path));
             OutputStream out = s.getOutputStream();
             if (stream) {

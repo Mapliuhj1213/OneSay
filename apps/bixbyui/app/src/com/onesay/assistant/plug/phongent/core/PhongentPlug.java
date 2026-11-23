@@ -127,6 +127,11 @@ public final class PhongentPlug {
         return mAuth.pendingName(requestId);
     }
 
+    /** ★ sec-1123 M5：待批申请的来源地址。 */
+    public String pendingPairRemote(String requestId) {
+        return mAuth.pendingRemote(requestId);
+    }
+
     public void decideScreen(boolean allow) {
         if (mScreen != null) mScreen.decide(allow);
     }
