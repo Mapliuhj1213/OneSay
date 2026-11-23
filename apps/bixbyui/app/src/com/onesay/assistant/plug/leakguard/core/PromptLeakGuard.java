@@ -304,7 +304,9 @@ public final class PromptLeakGuard {
         if (v.leak()) return v;
         v = hotwordRun(t, RUN_MIN);
         if (v.leak()) return v;
-        v = dense(n);
+        // ★ fix/1123-bug1 B17：用户自己用顿号 / 逗号 / 「和」列几个词（「备忘录、360搜索、微博、计算器、NFC」）是正常说法，
+        //   占比判据以前 5 个就整句丢掉。句子里本来有分隔符时门槛跟连串判据一样（≥RUN_MIN）；连成一串没分隔符的回吐仍是 5 个就拦。
+        v = dense(n, tokens(t).size() > 1 ? RUN_MIN : DENSE_MIN_WORDS);
         if (v.leak()) return v;
         return systemPrompt(n);
     }
@@ -433,6 +435,10 @@ public final class PromptLeakGuard {
 
     // ---- 占比：归一化串里贪心最长匹配热词，覆盖率 ≥85% 且 ≥5 个不同热词且够长
     private Verdict dense(String n) {
+        return dense(n, DENSE_MIN_WORDS);
+    }
+
+    private Verdict dense(String n, int minWords) {
         if (n.length() < DENSE_MIN_LEN) return Verdict.PASS;
         synchronized (this) {
             if (mHotNorm.isEmpty()) return Verdict.PASS;
@@ -457,7 +463,7 @@ public final class PromptLeakGuard {
                     i++;
                 }
             }
-            if (distinct.size() >= DENSE_MIN_WORDS && covered >= n.length() * DENSE_RATIO) {
+            if (distinct.size() >= minWords && covered >= n.length() * DENSE_RATIO) {
                 return new Verdict(Reason.HOTWORD_DENSE, "words=" + distinct.size() + ",cover=" + (covered * 100 / n.length()) + "%");
             }
         }
