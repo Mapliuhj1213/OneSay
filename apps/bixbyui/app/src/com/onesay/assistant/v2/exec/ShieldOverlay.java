@@ -62,6 +62,20 @@ public final class ShieldOverlay extends View {
     private final float mD;
     /** ★ borrow-1112：控屏状态颜色（0xRRGGBB；-1 = 原配色）。 */
     private volatile int mTint = -1;
+    /** [fix-1123-c] 导航键区域（{@link com.onesay.assistant.v2.fastscreen.NavKeys#compute} 的 8 个数）和按到时的回调。 */
+    public interface NavListener {
+        void onNavKey(String which);
+    }
+
+    private volatile int[] mNav;
+    private volatile NavListener mNavL;
+
+    /** 护罩盖着导航栏时，按到返回 / 主页 / 多任务键 = 紧急接管（不再当误触吞掉）。 */
+    public void setNavKeys(int[] rects, NavListener l) {
+        mNav = rects;
+        mNavL = l;
+    }
+
     /** 统计：孔开了几次 / 退回整窗不可触摸几次。 */
     public volatile int holes, fallbacks;
 
@@ -241,7 +255,15 @@ public final class ShieldOverlay extends View {
     // ------------------------------------------------------------------ 触摸 / 绘制
 
     @Override public boolean onTouchEvent(MotionEvent e) {
-        if (e.getActionMasked() == MotionEvent.ACTION_DOWN) mEnv.onStray(e.getRawX(), e.getRawY());
+        if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            String nav = com.onesay.assistant.v2.fastscreen.NavKeys.hit(mNav, (int) e.getRawX(), (int) e.getRawY());
+            NavListener l = mNavL;
+            if (nav != null && l != null) {
+                l.onNavKey(nav);   // [fix-1123-c] 紧急接管：这一下不漏进 App（护罩随即变细边框，再按就是系统的返回 / 主页）
+                return true;
+            }
+            mEnv.onStray(e.getRawX(), e.getRawY());
+        }
         return true;   // 吞掉：误触不漏进 App
     }
 

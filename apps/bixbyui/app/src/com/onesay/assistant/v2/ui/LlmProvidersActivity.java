@@ -165,11 +165,31 @@ public class LlmProvidersActivity extends Activity {
                 });
     }
 
+    /** [fix-1123-c] 模型：从列表选（在用的 + 预置 + 从服务商拉回来的），最后一项「自己填一个…」。 */
     private void editModel(final ProviderPreset p) {
-        field(p.title + " · 模型", "模型名以服务商控制台为准；留空保存 = 恢复预置（没有预置的要自己填）。",
-                p.defaultModel, ProviderStore.model(this, p), new Saver() {
-                    public String save(String v) { return ProviderStore.saveModel(LlmProvidersActivity.this, p, v); }
+        final String key = ProviderStore.key(this, p), base = ProviderStore.base(this, p), cur = ProviderStore.model(this, p);
+        toast(key.length() == 0 ? "还没填 Key：先列出预置的，填了 Key 能拉服务商的完整列表" : "正在拉模型列表…");
+        com.onesay.assistant.v2.util.Threads.start("llm-models", new Runnable() {
+            @Override public void run() {
+                final java.util.List<String> got = key.length() == 0 ? new java.util.ArrayList<String>()
+                        : com.onesay.assistant.v2.llm.ProviderModels.list(p.kind, base, key, null);
+                h.post(new Runnable() {
+                    @Override public void run() {
+                        if (isFinishing()) return;
+                        if (key.length() > 0 && got.isEmpty()) toast("没拉到服务商的列表，先给你预置的；列表最后可以自己填");
+                        com.onesay.assistant.v2.ui.console.Pickers.one(LlmProvidersActivity.this, p.title + " · 模型",
+                                com.onesay.assistant.v2.ui.console.FormChoices.modelChoices(cur, p.defaultModel, got), cur,
+                                "模型名以服务商控制台为准", new com.onesay.assistant.v2.ui.console.Pickers.OnText() {
+                                    @Override public void pick(String v) {
+                                        String why = ProviderStore.saveModel(LlmProvidersActivity.this, p, v);
+                                        if (why != null) toast("没保存：" + why);
+                                        build();
+                                    }
+                                });
+                    }
                 });
+            }
+        });
     }
 
     interface Saver { String save(String v); }

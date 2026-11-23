@@ -13,6 +13,8 @@ import android.widget.TextView;
 
 import com.onesay.assistant.v2.jobs.PermissionCards;
 import com.onesay.assistant.v2.kernel.ConsoleHost;
+import com.onesay.assistant.v2.ui.console.FormChoices;
+import com.onesay.assistant.v2.ui.console.Pickers;
 
 import java.util.List;
 
@@ -60,6 +62,10 @@ public final class EventConsole {
                 + "需要在系统「通知使用权」里打开 OneSay。每条任务默认防抖 10 分钟、每天最多 5 次、连续失败 3 次自动暂停。");
     }
 
+    /**
+     * [fix-1123-c] 新建事件任务：Wi‑Fi 从已保存 / 附近的网络里选，蓝牙从已配对设备里选，通知白名单从已装 App 里勾，关键词是能增删的小标签。
+     * 只有「要做的事」和「名称」还是自己写（本来就是一句话）。列表里没有的 Wi‑Fi / 蓝牙放在列表最后「自己填」。
+     */
     static void showCreate(final ConsoleHost host) {
         final Activity act = host.activity();
         LinearLayout box = new LinearLayout(act);
@@ -77,11 +83,80 @@ public final class EventConsole {
         on.setText("连上 / 插上 / 收到时（不勾 = 断开 / 拔掉时）");
         on.setChecked(true);
         box.addView(on);
-        final EditText target = field(act, box, "Wi‑Fi 名称 或 蓝牙设备名 / MAC（空 = 任意）");
-        final EditText apps = field(act, box, "通知：白名单 App 包名，逗号分隔");
-        final EditText kws = field(act, box, "通知：白名单关键词，逗号分隔");
+
+        final String[] target = {""};
+        final java.util.Set<String> apps = new java.util.LinkedHashSet<String>();
+        final List<String>[] kws = new List[] {new java.util.ArrayList<String>()};
+
+        final TextView targetLbl = label(act, "");
+        final android.widget.Button targetBtn = new android.widget.Button(act);
+        final TextView appsLbl = label(act, "通知：哪些 App 的通知");
+        final android.widget.Button appsBtn = new android.widget.Button(act);
+        final TextView kwLbl = label(act, "通知：通知里要有这些词（点一个词删掉）");
+        final LinearLayout kwRow = new LinearLayout(act);
+        kwRow.setOrientation(LinearLayout.VERTICAL);
+        box.addView(targetLbl);
+        box.addView(targetBtn);
+        box.addView(appsLbl);
+        box.addView(appsBtn);
+        box.addView(kwLbl);
+        box.addView(kwRow);
+
+        final Runnable sync = new Runnable() {
+            @Override public void run() {
+                EventTask.Source s = sources[Math.max(0, src.getSelectedItemPosition())];
+                boolean net = s == EventTask.Source.WIFI || s == EventTask.Source.BLUETOOTH, nt = s == EventTask.Source.NOTIFICATION;
+                targetLbl.setText(s == EventTask.Source.WIFI ? "哪个 Wi‑Fi" : "哪个蓝牙设备");
+                targetBtn.setText(target[0].length() == 0 ? FormChoices.ANY : target[0]);
+                int v = net ? android.view.View.VISIBLE : android.view.View.GONE, w = nt ? android.view.View.VISIBLE : android.view.View.GONE;
+                targetLbl.setVisibility(v);
+                targetBtn.setVisibility(v);
+                on.setVisibility(nt ? android.view.View.GONE : android.view.View.VISIBLE);
+                appsLbl.setVisibility(w);
+                appsBtn.setVisibility(w);
+                kwLbl.setVisibility(w);
+                kwRow.setVisibility(w);
+                appsBtn.setText(apps.isEmpty() ? "选 App（还没选）" : "已选 " + apps.size() + " 个，点这里改");
+                fillTags(act, kwRow, kws, this);
+            }
+        };
+        src.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> p, android.view.View v, int pos, long id) {
+                target[0] = "";
+                sync.run();
+            }
+
+            @Override public void onNothingSelected(android.widget.AdapterView<?> p) { }
+        });
+        targetBtn.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                final EventTask.Source s = sources[Math.max(0, src.getSelectedItemPosition())];
+                List<String> names = s == EventTask.Source.WIFI ? EventPickData.wifiNames(act) : EventPickData.bluetoothNames(act);
+                Pickers.one(act, s == EventTask.Source.WIFI ? "选 Wi‑Fi（已保存 / 附近的）" : "选蓝牙设备（已配对的）", FormChoices.targetChoices(names),
+                        target[0].length() == 0 ? FormChoices.ANY : target[0],
+                        s == EventTask.Source.WIFI ? "Wi‑Fi 名称" : "蓝牙设备名或 MAC 地址", new Pickers.OnText() {
+                            @Override public void pick(String c) {
+                                String t = FormChoices.targetOf(c);
+                                target[0] = t == null ? c : t;
+                                sync.run();
+                            }
+                        });
+            }
+        });
+        appsBtn.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                Pickers.apps(act, "哪些 App 的通知", apps, new Pickers.OnPkgs() {
+                    @Override public void pick(java.util.Set<String> p) {
+                        apps.clear();
+                        apps.addAll(p);
+                        sync.run();
+                    }
+                });
+            }
+        });
         final EditText cmd = field(act, box, "要做的事（例：播报今天的待办）");
         final EditText title = field(act, box, "名称（可空）");
+        sync.run();
         android.widget.ScrollView sv = new android.widget.ScrollView(act);
         sv.addView(box);
         new AlertDialog.Builder(act).setTitle("新建事件任务").setView(sv)
@@ -90,9 +165,9 @@ public final class EventConsole {
                         EventTask t = new EventTask();
                         t.source = sources[Math.max(0, src.getSelectedItemPosition())];
                         t.onConnect = t.source == EventTask.Source.NOTIFICATION || on.isChecked();
-                        t.target = target.getText().toString().trim();
-                        t.apps = EventTask.splitList(apps.getText().toString());
-                        t.keywords = EventTask.splitList(kws.getText().toString());
+                        t.target = t.source == EventTask.Source.WIFI || t.source == EventTask.Source.BLUETOOTH ? target[0] : "";
+                        t.apps = new java.util.ArrayList<String>(apps);
+                        t.keywords = new java.util.ArrayList<String>(kws[0]);
                         t.command = cmd.getText().toString().trim();
                         t.title = title.getText().toString().trim();
                         String bad = EventEngine.invalidReason(t);
@@ -104,6 +179,38 @@ public final class EventConsole {
                         PermissionCards.show(act, PermissionCards.forNewEvent(p, System.currentTimeMillis()));
                     }
                 }).setNegativeButton("取消", null).show();
+    }
+
+    /** 关键词小标签：每个词一个按钮（点了删掉），最后一个「＋ 加关键词」。 */
+    static void fillTags(final Activity act, final LinearLayout row, final List<String>[] kws, final Runnable sync) {
+        row.removeAllViews();
+        for (final String k : kws[0]) {
+            android.widget.Button b = new android.widget.Button(act);
+            b.setText(k + "  ✕");
+            b.setAllCaps(false);
+            b.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    kws[0] = FormChoices.removeTag(kws[0], k);
+                    sync.run();
+                }
+            });
+            row.addView(b);
+        }
+        if (kws[0].size() < FormChoices.MAX_TAGS) {
+            android.widget.Button add = new android.widget.Button(act);
+            add.setText("＋ 加关键词");
+            add.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    Pickers.manual(act, "例如：快递、取件码（可以一次写几个，用逗号分开）", new Pickers.OnText() {
+                        @Override public void pick(String t) {
+                            kws[0] = FormChoices.addTags(kws[0], t);
+                            sync.run();
+                        }
+                    });
+                }
+            });
+            row.addView(add);
+        }
     }
 
     static TextView label(Activity act, String s) {

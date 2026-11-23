@@ -111,6 +111,8 @@ public final class PcGuard {
             final AtomicInteger res = new AtomicInteger(PENDING);
             final Map<String, Object> info;
             final ConfirmGate gate;
+            /** [fix-1123-c] 回答来自手机确认卡。 */
+            volatile boolean byPhone;
 
             Pending(Map<String, Object> info, ConfirmGate gate) {
                 this.info = info;
@@ -196,6 +198,7 @@ public final class PcGuard {
                 p.res.compareAndSet(PENDING, DENY); // 出错 = 拒绝
             } finally {
                 p.res.compareAndSet(PENDING, TIMEOUT);
+                ANSWERED_ON_PHONE.set(p.byPhone);
                 p.gate.close();
                 pending.remove(id);
                 if (offered) try { phoneClose.accept(offer); } catch (Throwable ignored) { }
@@ -252,7 +255,10 @@ public final class PcGuard {
             ConfirmGate.Input in = "touch".equals(input) ? ConfirmGate.Input.PHONE_TOUCH : ConfirmGate.Input.of(input);
             ConfirmGate.Answer a = p.gate.checkPhone(now(), allow, device, token, in, shownMs);
             if (a != ConfirmGate.Answer.ACCEPTED) return a;
-            return finish(id, p, allow, always, remember);
+            p.byPhone = true;
+            ConfirmGate.Answer r = finish(id, p, allow, always, remember);
+            if (r != ConfirmGate.Answer.ACCEPTED) p.byPhone = false;
+            return r;
         }
 
         private ConfirmGate.Answer finish(int id, Pending p, boolean allow, boolean always, boolean remember) {
@@ -449,6 +455,11 @@ public final class PcGuard {
         File ws = workspace();
         LinkPolicy.Cat cat = category(cmd, a, ws);
         if (local() && "sys_exec".equals(cmd) && cat == LinkPolicy.Cat.SHELL_EXEC && LocalReadOnly.ok(str(a, "command"))) cat = LinkPolicy.Cat.QUERY; // [chat-agent-1118] 本机对话里的只读查询
+        // [fix-1123-c] 手机交来的任务（pc_task）里模型自己发起的只读检查（Test-Path、Get-ChildItem…）：和本机对话一样按查询直接做，不再单独弹卡。
+        // 不比手机直接下令大：读文件 / 列目录手机本来就能直接要（READ_PRIVATE 直接放行）；安全插件、可疑写法照旧在后面查。
+        // 读文件内容的（Get-Content / cat / type / Select-String…）不算：那是读隐私，照旧走确认（之后外发也按「读过隐私」判）。
+        if (phoneTask() && "sys_exec".equals(cmd) && cat == LinkPolicy.Cat.SHELL_EXEC && LocalReadOnly.ok(str(a, "command"))
+                && !READS_CONTENT.matcher(LocalReadOnly.literalsBlanked(str(a, "command"))).find()) cat = LinkPolicy.Cat.QUERY;
         o.cat = cat;
         LinkPolicy.Facts f = new LinkPolicy.Facts();
         if ("open_url".equals(cmd)) f.url = LinkPolicy.checkUrl(str(a, "url"), LinkPolicy.parseDomains(cfg.trusted));
@@ -517,6 +528,14 @@ public final class PcGuard {
         if (d.remembered) o.rememberedKind = d.kind;
         if (loc) d = localRefine(preset, cmd, a, cat, f, d, plan, ruleHit, netNote, o);
         d = layered(from, cmd, a, cat, f, d, o); // [app-whitelist-1116] 分层策略：硬拒 → 支付 / 隐私外发 → 读过隐私后外发 → 认不准 → 白名单 → 原结论
+        // [fix-1123-c] 手机交来的任务：任务是最小单位。这个任务里点过「允许本次任务」，后面同类的普通步骤直接做；
+        // 删除 / 卸载 / 改设置 / 可疑写法 / 分层策略要确认的（付款、隐私外发、读过隐私后外发）照旧每次问。
+        boolean phoneTask = phoneTask();
+        if (phoneTask && granted() && phoneTaskGrantable(cmd, a, cat, d, o)) {
+            d = viaGrant(d);
+            logPerm(detail(cmd, a, d.text), "自动放行", d.text);
+            countPerm(from, cmd, a, PermStats.AUTO);
+        }
         switch (d.verdict) {
             case DENY:
                 o.reply = result(false, d.text, d.reason, null);
@@ -547,7 +566,9 @@ public final class PcGuard {
                 Confirmer c = confirmer;
                 boolean offer = sc != null;
                 String rk = d.rememberable() ? d.kind : "";
-                boolean offerTask = loc && preset == ChatPolicy.Preset.DEFAULT && !TASK.get().isEmpty() && taskGrantable(cmd, a, cat, d, plan);
+                boolean offerTask = loc ? preset == ChatPolicy.Preset.DEFAULT && !TASK.get().isEmpty() && taskGrantable(cmd, a, cat, d, plan)
+                        : phoneTask && phoneTaskGrantable(cmd, a, cat, d, o); // [fix-1123-c] 手机交来的任务也给「允许本次任务」（只在电脑上能点；手机卡上照旧是允许一次）
+                ANSWERED_ON_PHONE.set(Boolean.FALSE);
                 int r;
                 try {
                     r = c == null ? TIMEOUT : offerTask ? c.ask(from, cmd, detail, CONFIRM_MS, offer, rk, true)
@@ -574,13 +595,13 @@ public final class PcGuard {
                         o.reply = result(false, "电脑上没人确认，没执行快捷指令「" + sc.name + "」", d.reason, x);
                     } else if (r != ALLOW) {
                         x.put("confirm_result", LinkPolicy.R_CONFIRM_DENIED);
-                        o.reply = result(false, "电脑上拒绝了快捷指令「" + sc.name + "」", d.reason, x);
+                        o.reply = result(false, (Boolean.TRUE.equals(ANSWERED_ON_PHONE.get()) ? "你在手机上拒绝了快捷指令「" : "电脑上拒绝了快捷指令「") + sc.name + "」", d.reason, x);
                     }
                     if (o.reply == null) o.pass = new Pass(cmd, a);
                     return o;
                 }
                 if (r == TIMEOUT) o.reply = result(false, "没人确认（60 秒到了，或确认框被切走 / 界面没响应），已拒绝", LinkPolicy.R_CONFIRM_TIMEOUT, null);
-                else if (r != ALLOW && r != ALWAYS && r != REMEMBER) o.reply = result(false, "电脑上拒绝了", LinkPolicy.R_CONFIRM_DENIED, null);
+                else if (r != ALLOW && r != ALWAYS && r != REMEMBER) o.reply = result(false, deniedText(), LinkPolicy.R_CONFIRM_DENIED, null);
                 else {
                     if (r == REMEMBER) {
                         remember(rk);
@@ -719,7 +740,28 @@ public final class PcGuard {
         else logPerm(detail, r == ALLOW || r == ALWAYS || r == REMEMBER ? "允许一次" : r == TIMEOUT ? "没人确认（拒绝）" : "拒绝", from);
         if (r == ALLOW || r == ALWAYS || r == REMEMBER) return null;
         return r == TIMEOUT ? result(false, "没人确认（60 秒到了，或确认框被切走 / 界面没响应），已拒绝", LinkPolicy.R_CONFIRM_TIMEOUT, null)
-                : result(false, "电脑上拒绝了", LinkPolicy.R_CONFIRM_DENIED, null);
+                : result(false, deniedText(), LinkPolicy.R_CONFIRM_DENIED, null);
+    }
+
+    /** [fix-1123-c] 只读命令里会把文件 / 剪贴板内容读出来的（手机任务里不按查询直接放行）。 */
+    static final java.util.regex.Pattern READS_CONTENT = java.util.regex.Pattern.compile(
+            "(?i)(?<![\\w-])(get-content|gc|cat|type|select-string|sls|import-csv|import-clixml|get-clipboard|format-hex|fhx|convertfrom-json|convertfrom-csv)(?![\\w-])");
+
+    /** [fix-1123-c] 这条线程上一次确认是不是在手机上答的（拒绝文案说清在哪一端拒的）。 */
+    static final ThreadLocal<Boolean> ANSWERED_ON_PHONE = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    static String deniedText() { return Boolean.TRUE.equals(ANSWERED_ON_PHONE.get()) ? "你在手机上拒绝了" : "电脑上拒绝了"; }
+
+    /** [fix-1123-c] 这一步是手机交来的任务（pc_task）里电脑自己的模型发起的（不是手机直接下的单条指令）。 */
+    static boolean phoneTask() {
+        String t = TASK.get();
+        return !local() && t != null && !t.isEmpty();
+    }
+
+    /** [fix-1123-c] 手机任务里「允许本次任务」能不能覆盖这一步：同本机的规则，另外分层策略要确认的（付款 / 隐私外发…）不覆盖。 */
+    static boolean phoneTaskGrantable(String cmd, Map<String, Object> a, LinkPolicy.Cat cat, LinkPolicy.Decision d, Outcome o) {
+        if (o != null && o.layered != null && o.layered.verdict == ActionPolicy.Verdict.CONFIRM) return false;
+        return taskGrantable(cmd, a, cat, d, null);
     }
 
     /** 现在这一步能不能按「允许本次任务 / 这次运行都允许」直接做。 */

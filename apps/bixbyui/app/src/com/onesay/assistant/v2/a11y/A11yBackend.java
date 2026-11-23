@@ -487,7 +487,17 @@ public class A11yBackend extends AccessibilityService {
         if (!n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, a)) return null;
         n.refresh();
         CharSequence now = n.getText();
-        return "set:" + (now == null ? "" : now.toString());
+        String old = now == null ? "" : now.toString();
+        if (com.onesay.assistant.v2.fastscreen.ReadBack.has(old, text)) return "set:" + old;
+        // [fix-1123-c] 界面换了新输入框时旧节点读回的还是旧提示：重新取有输入焦点的框再读
+        AccessibilityNodeInfo f = focusedInput();
+        String fresh = null;
+        if (f != null && !f.isPassword()) {
+            f.refresh();
+            CharSequence g = f.getText();
+            fresh = g == null ? "" : g.toString();
+        }
+        return com.onesay.assistant.v2.fastscreen.ReadBack.pick(text, old, fresh);
     }
 
     /** 有焦点的输入框 ACTION_PASTE。 */

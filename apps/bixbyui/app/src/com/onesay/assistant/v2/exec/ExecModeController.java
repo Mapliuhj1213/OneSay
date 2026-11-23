@@ -126,6 +126,14 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
                         }
                     }
                 });
+                // [fix-1123-c] 护罩盖着导航栏：按返回 / 主页 / 多任务键直接紧急接管（以前被当误触吞掉，按返回「没有任何反应」）
+                mShield.setNavKeys(com.onesay.assistant.v2.fastscreen.NavKeys.rects(mApp), new ShieldOverlay.NavListener() {
+                    @Override public void onNavKey(final String which) {
+                        com.onesay.assistant.v2.util.Threads.start("ExecNavKey", new Runnable() {
+                            @Override public void run() { navTakeover(which, "护罩"); }
+                        });
+                    }
+                });
                 mShield.show(false);
             }
         });
@@ -151,15 +159,25 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
                     if (b > 0 || h > 0) {
                         navBack += b;
                         navHome += h;
-                        String which = b > 0 ? "按了返回键" : "按了主页键";
-                        if (state.navKey(which)) {
-                            ev("导航键紧急接管：" + which);
-                            applyPaused(which, true);
-                        } else ev("导航键（" + which + "）：当前状态 " + state.state() + "，不叠加接手");
+                        navTakeover(b > 0 ? "按了返回键" : "按了主页键", "触摸观察");
                     }
                 }
             }
         });
+    }
+
+    /** 导航键紧急接管（护罩上按到导航栏，或助手的触摸观察计到）：只在执行中生效，接手 / 补充时不叠加。 */
+    void navTakeover(String which, String via) {
+        if (state.navKey(which)) {
+            ev("导航键紧急接管（" + via + "）：" + which);
+            applyPaused(which, true);
+            final String w = which;
+            mMain.post(new Runnable() {
+                @Override public void run() {
+                    Toast.makeText(mApp, ExecState.navTakeoverToast(w), Toast.LENGTH_SHORT).show();
+                }
+            });
+        } else ev("导航键（" + which + "，" + via + "）：当前状态 " + state.state() + "，不叠加接手");
     }
 
     static int num(String s, String key) {

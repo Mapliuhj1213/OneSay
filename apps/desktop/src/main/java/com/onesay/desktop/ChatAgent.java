@@ -516,7 +516,7 @@ public final class ChatAgent {
                 + "给用户看的话里不要写工具名或能力名（如 phone_operate、caps、find_phone、screen_on），用中文说法；不要用 markdown 符号（** # 之类）。\n"
                 + "任务结束时答复的第一行只写结果标记，按目标有没有真正达成来标：【完成】目标达成；【有警告】达成了但中间有报错 / 截图没核对上 / 有没确认的地方；【没做成】目标没达成；【需要你操作】被挡下（开关没开、要用户点、要用户补充信息）。第二行起用一两句话说结果和下一步。\n"
                 + "用户说「继续」「接着做」时，接着最近一个没做完的任务：看「当前任务」的程序记录（做过哪些步骤、最近的输出）从最后一步往下做，不要把做过的步骤原样再做一遍。更早的任务只有摘要。做完后用一两句话汇报结果（做了什么、现在是什么状态）。"
-                + (memory == null || memory.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准）：\n" + memory);
+                + (memory == null || memory.isBlank() ? "" : "\n\n关于用户的长期记忆（可能过时，以用户最新说法为准；里面不记任务进度和开关状态——某件事做没做、某个开关开没开，要用时现查，别拿以前对话里的说法下结论）：\n" + memory);
     }
 
     // ------------------------------------------------------------------ 循环
@@ -534,6 +534,7 @@ public final class ChatAgent {
         int dlHints = 0; // [preview-1120] 命令里下载文件 → 提示改用下载工具的次数
         boolean schedHinted = false; // [fix-1120 晚] 建 Windows 计划任务 → 提示改用提醒工具（一次）
         String lastKey = "";
+        List<String> okDescs = new ArrayList<>(); // [fix-1123-c] 这个任务里已经做成的步骤（停在批准上时说清前面做好了什么）
         int repeat = 0;
         Map<String, Integer> famCount = new HashMap<>(), sameOut = new HashMap<>();
         cancel.set(false);
@@ -737,12 +738,13 @@ public final class ChatAgent {
                     else if ("choice_timeout".equals(reason))
                         return new Outcome("选择卡没人选（10 分钟到了），我先停在这里。选好了说「继续」，或者直接告诉我是哪个。", Outcomes.NEEDS_USER, done);
                 }
-                if (LinkPolicy.R_CONFIRM_DENIED.equals(reason)) {
+                if (LinkPolicy.R_CONFIRM_DENIED.equals(reason) || LinkPolicy.R_CONFIRM_TIMEOUT.equals(reason)) {
+                    // [fix-1123-c] 停在批准上：前面做成的步骤要说出来（以前整张卡只写「没人批准」，其实文件夹已经建好了）
                     skipRest(msgs, t.calls, ci);
-                    return wrapUp(msgs, brain, new Outcome("你在确认框里拒绝了这一步（" + desc + "），我停在这里，没有换别的办法去做。要换个做法或继续，直接告诉我。", "denied", done));
+                    Outcome stop = approvalStop(LinkPolicy.R_CONFIRM_DENIED.equals(reason), desc, readOnlyStep(cmd, args), okDescs, done);
+                    return "denied".equals(stop.status) ? wrapUp(msgs, brain, stop) : stop;
                 }
-                if (LinkPolicy.R_CONFIRM_TIMEOUT.equals(reason))
-                    return new Outcome("批准没人点（60 秒到了，或窗口被切走），这一步没执行：" + desc + "。说「继续」我会重新请求，到时在任务卡上点「允许」。", "timeout", done);
+                if (r.ok && !okDescs.contains(desc)) okDescs.add(desc);
                 fails = r.ok ? 0 : fails + 1;
                 if (fails >= MAX_FAILS) {
                     skipRest(msgs, t.calls, ci);
@@ -750,6 +752,28 @@ public final class ChatAgent {
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------------ [fix-1123-c] 停在批准上时的收尾
+
+    /** 只读的检查步骤（看文件在不在、列目录、查进程…）：没批下来也不影响前面已经做好的事。 */
+    static boolean readOnlyStep(String cmd, Map<String, Object> a) {
+        if ("sys_exec".equals(cmd)) return LocalReadOnly.ok(a == null || a.get("command") == null ? "" : String.valueOf(a.get("command")));
+        return cmd != null && java.util.Set.of("file_list", "file_get", "pc_task_status", "info", "caps", "ping").contains(cmd);
+    }
+
+    /**
+     * 拒绝 / 没人批准时的结果。前面有做成的步骤就先说做好了什么；停住的只是一步只读检查时，按「完成（有警告）」收（事情已经做了）。
+     */
+    static Outcome approvalStop(boolean denied, String desc, boolean readOnly, List<String> okDescs, int done) {
+        String head = okDescs == null || okDescs.isEmpty() ? "" : "已经做好了：" + String.join("；", okDescs.subList(Math.max(0, okDescs.size() - 5), okDescs.size())) + "。";
+        if (!head.isEmpty() && readOnly) {
+            String why = denied ? "你拒绝了" : "没人批准（60 秒到了）";
+            return new Outcome(head + "最后核对那一步（" + desc + "）" + why + "，没核对；要核对可以说「继续」。", Outcomes.WARN, done);
+        }
+        if (denied)
+            return new Outcome(head + (head.isEmpty() ? "" : "后面") + "你在确认框里拒绝了这一步（" + desc + "），我停在这里，没有换别的办法去做。要换个做法或继续，直接告诉我。", "denied", done);
+        return new Outcome(head + (head.isEmpty() ? "" : "后面") + "这一步没人批准（60 秒到了，或窗口被切走），没执行：" + desc + "。说「继续」我会重新请求，到时在任务卡上点「允许」。", "timeout", done);
     }
 
     // ------------------------------------------------------------------ [preview-1120 真机综合测试 2] 空转防护 / 停下时收尾

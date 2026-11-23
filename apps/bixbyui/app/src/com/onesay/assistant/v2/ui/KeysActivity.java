@@ -309,15 +309,15 @@ public class KeysActivity extends Activity {
                 }).setNegativeButton("取消", null).show());
     }
 
+    /** [fix-1123-c] 朗读模型：从列表选（服务商文档里的 CosyVoice 模型），最后一项「自己填一个…」。音色必须属于这个模型。 */
     void editTtsModel() {
         final CloudTtsConfig cfg = new CloudTtsConfig(this);
-        final EditText e = new EditText(this);
-        e.setSingleLine(true);
-        e.setText(cfg.getModel());
-        secure(new AlertDialog.Builder(this).setTitle("模型").setMessage("音色必须属于这个模型（预置音色见服务商文档）。留空 = 默认。")
-                .setView(e).setPositiveButton("保存", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int w) { cfg.setModel(e.getText().toString()); test.remove(S_TTS); refresh(); }
-                }).setNegativeButton("取消", null).show());
+        com.onesay.assistant.v2.ui.console.Pickers.one(this, "朗读模型（音色要属于这个模型）",
+                com.onesay.assistant.v2.ui.console.FormChoices.modelChoices(cfg.getModel(), CloudTtsConfig.DEFAULT_MODEL,
+                        java.util.Arrays.asList(com.onesay.assistant.v2.ui.console.FormChoices.TTS_MODELS)), cfg.getModel(),
+                "模型名（见服务商文档）", new com.onesay.assistant.v2.ui.console.Pickers.OnText() {
+                    @Override public void pick(String v) { cfg.setModel(v); test.remove(S_TTS); refresh(); }
+                });
     }
 
     /** 大模型 Base URL：只接受 https；留空 = 恢复预置。Key 只会发往这里填的主机。 */
@@ -355,11 +355,12 @@ public class KeysActivity extends Activity {
     }
 
     void pickVoice() {
-        final String[] it = {"拉取音色列表", "手动填写音色 ID", "清除"};
+        // [fix-1123-c] 列表为主：直接拉音色列表；手动填写放到「高级」（最后一项）
+        final String[] it = {"从音色列表里选", "不用音色（清除）", "高级：手动填写音色 ID"};
         secure(new AlertDialog.Builder(this).setTitle("音色").setItems(it, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 if (w == 0) fetchVoices();
-                else if (w == 1) manualVoice();
+                else if (w == 2) manualVoice();
                 else { new CloudTtsConfig(KeysActivity.this).setVoice(""); test.remove(S_TTS); refresh(); }
             }
         }).show());
@@ -512,7 +513,7 @@ public class KeysActivity extends Activity {
                     public void run() {
                         if (isFinishing()) return;
                         if (fe != null) { toast("拉取失败：" + fe); return; }
-                        if (fv == null || fv.isEmpty()) { toast("账号里没有自定义音色；预置音色请手动填写"); manualVoice(); return; }
+                        if (fv == null || fv.isEmpty()) { toast("账号里没有自己的音色。用服务商的预置音色的话，在「音色 › 高级」里填它的 ID"); return; }
                         final String[] arr = fv.toArray(new String[0]);
                         secure(new AlertDialog.Builder(KeysActivity.this).setTitle("选择音色").setItems(arr, new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface d, int w) { new CloudTtsConfig(KeysActivity.this).setVoice(arr[w]); test.remove(S_TTS); refresh(); }

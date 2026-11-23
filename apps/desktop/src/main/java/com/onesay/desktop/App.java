@@ -1079,6 +1079,7 @@ public final class App {
         ui.on("dl_cancel", b -> chat.cancelTransfer() ? ok("已取消，任务会接着往下") : ok("现在没有在下载 / 传的")); // [overnight-1119]
         ui.on("artifact", b -> chat.artifact(str(b, "path", ""))); // [devtools-1118] 任务卡里的截图 / 文件（只给对话里登记过的路径）
         ui.on("memory", b -> { store.setMemory(str(b, "text", ""), System.currentTimeMillis()); return ok("记忆已保存"); });
+        ui.on("memory_del", b -> { Actions.Result r = chat.deleteMemoryLine(str(b, "line", "")); return r.ok ? ok(r.text) : fail(r.text); }); // [fix-1123-c] 记忆页删一条
         ui.on("todo", b -> {
             String op = str(b, "op", "");
             String id = str(b, "id", "");

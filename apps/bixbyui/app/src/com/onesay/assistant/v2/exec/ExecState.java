@@ -88,6 +88,12 @@ public final class ExecState {
         return ch;
     }
 
+    /** [fix-1123-c] 导航键紧急接管后的一句提示：说清停了、下一下按键做什么、怎么让它接着做。 */
+    public static String navTakeoverToast(String which) {
+        String again = which != null && which.contains("返回") ? "再按一次返回就是返回" : which != null && which.contains("主页") ? "再按一次主页键就回桌面" : "再按一次就是系统的按键";
+        return "我先停下，交给你来操作。" + again + "；想让我接着做，点灵动岛上的「继续」。";
+    }
+
     public synchronized boolean supplement() {
         if (mS != S.RUNNING && mS != S.TAKEOVER) return false;
         mS = S.SUPPLEMENT;
