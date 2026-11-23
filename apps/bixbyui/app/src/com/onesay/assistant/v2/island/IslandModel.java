@@ -1245,6 +1245,15 @@ public final class IslandModel {
         return list(Effect.RENDER);
     }
 
+    /**
+     * [fix-1123-c] 岛上确认卡的抬头。执行模式（你当面让我在手机上做的、有人看着）是「正在替你操作 · 等你确认」；
+     * 真正的后台定时任务才写「定时任务 · 等你确认」（以前执行模式也被写成「定时任务」）。
+     */
+    public static String confirmHeader(boolean bg, boolean exec) {
+        if (exec) return "正在替你操作 · 等你确认";
+        return bg ? "定时任务 · 等你确认" : "等你确认";
+    }
+
     /** 后台任务需要确认：立即展开确认卡（召回暂避），宿主最多等 {@link #BG_CONFIRM_TIMEOUT_MS}。 */
     public synchronized List<Effect> bgConfirm(String id, String title, String detail) {
         Bg b = mBgs.get(id);

@@ -1875,7 +1875,7 @@ public class IslandView extends View {
 
     private float renderConfirm(Canvas c, IslandModel.Snapshot s, float x, float y, float w, int alpha, boolean hits, long now) {
         boolean bg = s.act == IslandModel.Act.AGENT;
-        if (c != null) header(c, x, y, w, alpha, IslandModel.Status.WAIT, null, bg ? "定时任务 · 等你确认" : "等你确认",
+        if (c != null) header(c, x, y, w, alpha, IslandModel.Status.WAIT, null, IslandModel.confirmHeader(bg, s.exec),   // [fix-1123-c] 执行模式（你让我做的）不写「定时任务」
                 s.progressText, now);   // ★ arch/island-progress：右上角 =「第 i/n 项」（没有账本就不写）
         float pad = IslandGeometry.EXP_PAD_DP * d;
         float bx = x + pad, bw = w - 2f * pad;

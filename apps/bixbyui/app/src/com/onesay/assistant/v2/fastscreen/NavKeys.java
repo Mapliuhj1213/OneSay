@@ -22,6 +22,23 @@ public final class NavKeys {
         return new int[]{bl, t, br, screenH, third, t, screenW - third, screenH};
     }
 
+    /**
+     * [fix-1123-c] 护罩上的一次按下落在导航栏哪儿：「按了返回键」/「按了主页键」/「按了多任务键」（导航栏里别的位置）；不在导航栏 = null。
+     * 执行模式下护罩盖住了导航栏，以前这些按下被当误触吞掉（返回键「没有任何反应」）；现在一按就紧急接管。
+     */
+    public static String hit(int[] r, int x, int y) {
+        if (r == null || r.length < 8) return null;
+        if (in(r, 0, x, y)) return "按了返回键";
+        if (in(r, 4, x, y)) return "按了主页键";
+        int top = Math.min(r[1], r[5]), bottom = Math.max(r[3], r[7]);
+        if (r[3] > r[1] && y >= top && y < bottom) return "按了多任务键";
+        return null;
+    }
+
+    static boolean in(int[] r, int o, int x, int y) {
+        return r[o + 2] > r[o] && r[o + 3] > r[o + 1] && x >= r[o] && x < r[o + 2] && y >= r[o + 1] && y < r[o + 3];
+    }
+
     public static int[] rects(Context ctx) {
         try {
             Resources r = ctx.getResources();

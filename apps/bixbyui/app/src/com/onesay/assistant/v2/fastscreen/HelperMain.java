@@ -692,7 +692,25 @@ public final class HelperMain {
             if (got != null && got.toString().contains(text)) break;
             Thread.sleep(50);
         }
-        return "set:" + (got == null ? "" : got.toString());
+        String old = got == null ? null : got.toString();
+        if (ReadBack.has(old, text)) return ReadBack.pick(text, old, null);
+        // [fix-1123-c] 旧节点读回的还是旧提示：界面可能换了一个新输入框。重新取当前有输入焦点的框再读（最多等 ~300 ms）
+        String fresh = null;
+        for (int k = 0; k < 6; k++) {
+            try {
+                AccessibilityNodeInfo r2 = targetRoot(ua());
+                AccessibilityNodeInfo f = r2 == null ? null : r2.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+                if (f != null && f.isEditable() && !f.isPassword()) {
+                    f.refresh();
+                    CharSequence g = f.getText();
+                    fresh = g == null ? "" : g.toString();
+                    if (ReadBack.has(fresh, text)) break;
+                }
+            } catch (Throwable ignored) {
+            }
+            Thread.sleep(50);
+        }
+        return ReadBack.pick(text, old, fresh);
     }
 
     static Object scroll(int x, int y, int dir) throws Exception {
@@ -918,10 +936,10 @@ public final class HelperMain {
 
     // ------------------------------------------------------------------ 导航键观察（执行模式的「返回键紧急接管」）
 
-    static volatile Thread sWatch;
     static volatile int sBacks, sHomes;
-    static volatile boolean sWatchOn;
     static Rect sBackR, sHomeR;
+    /** [fix-1123-c] 每次观察自己一个令牌：停的时候关掉它的输入流（以前一个全局开关停不掉卡在读上的旧线程，一个任务漏一个）。 */
+    static final NavWatch sNav = new NavWatch();
 
     /**
      * 读触摸屏原始事件（/dev/input，只有真人手指才会出现在这里；注入事件不经过它），落在导航栏「返回 / 主页」键区域的按下计数。
@@ -958,31 +976,48 @@ public final class HelperMain {
         final Point sz = screenSize();
         sBacks = 0;
         sHomes = 0;
-        sWatchOn = true;
-        Thread t = new Thread(new Runnable() {
-            @Override public void run() {
-                readTouches(dev, max, sz);
+        // [fix-1123-c] 事件长度按本进程位数（32 位进程读到的是 16 字节一条的兼容格式，原来固定按 24 切会全错位）
+        final NavTouchParser parser = new NavTouchParser(NavTouchParser.sizeFor(is64()), max[0], max[1], sz.x, sz.y);
+        sNav.start(new NavWatch.Opener() {
+            // 走 FileChannel（可中断通道）：停的时候 interrupt 会关通道、叫醒卡在读上的线程（普通 FileInputStream 关了也叫不醒）
+            @Override public java.io.InputStream open() throws java.io.IOException {
+                return java.nio.channels.Channels.newInputStream(new FileInputStream(dev).getChannel());
             }
-        }, "fs-backwatch");
-        t.setDaemon(true);
-        sWatch = t;
-        t.start();
+        }, parser, new NavTouchParser.Sink() {
+            @Override public void onDown(int sx, int sy) {
+                if (sBackR != null && sBackR.contains(sx, sy)) {
+                    sBacks++;
+                    log("nav back touch " + sx + "," + sy);
+                } else if (sHomeR != null && sHomeR.contains(sx, sy)) {
+                    sHomes++;
+                    log("nav home touch " + sx + "," + sy);
+                }
+            }
+        }, new NavWatch.Log() {
+            @Override public void log(String s) { HelperMain.log(s); }
+        });
         return "watching back=" + sBackR.toShortString() + " home=" + (sHomeR == null ? "-" : sHomeR.toShortString()) + " dev=" + dev
-                + " max=" + max[0] + "x" + max[1];
+                + " max=" + max[0] + "x" + max[1] + " ev=" + parser.eventSize() + " live=" + sNav.live.get();
+    }
+
+    static boolean is64() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 23) return android.os.Process.is64Bit();
+        } catch (Throwable ignored) {
+        }
+        String a = System.getProperty("os.arch", "");
+        return a.contains("64");
     }
 
     static void stopBackWatch() {
-        sWatchOn = false;
-        Thread t = sWatch;
-        sWatch = null;
-        if (t != null) t.interrupt();
+        sNav.stop();
     }
 
     static Object takeBacks() {
         int b = sBacks, h = sHomes;
         sBacks = 0;
         sHomes = 0;
-        return "back=" + b + " home=" + h + " on=" + sWatchOn;
+        return "back=" + b + " home=" + h + " on=" + sNav.on() + " live=" + sNav.live.get();
     }
 
     static String touchDevice() {
@@ -1037,54 +1072,6 @@ public final class HelperMain {
         } catch (Throwable ignored) {
         }
         return m;
-    }
-
-    static void readTouches(String dev, int[] max, Point sz) {
-        FileInputStream in = null;
-        try {
-            in = new FileInputStream(dev);
-            byte[] ev = new byte[24];   // 64 位 input_event：timeval(16) type(2) code(2) value(4)
-            int x = -1, y = -1;
-            boolean down = false, pendingDown = false;
-            while (sWatchOn) {
-                int n = 0;
-                while (n < 24) {
-                    int k = in.read(ev, n, 24 - n);
-                    if (k < 0) return;
-                    n += k;
-                }
-                ByteBuffer bb = ByteBuffer.wrap(ev).order(ByteOrder.LITTLE_ENDIAN);
-                int type = bb.getShort(16) & 0xffff, code = bb.getShort(18) & 0xffff, val = bb.getInt(20);
-                if (type == 3 && code == 0x35) x = val;
-                else if (type == 3 && code == 0x36) y = val;
-                else if (type == 3 && code == 0x39) {   // ABS_MT_TRACKING_ID：-1 = 抬起
-                    if (val >= 0 && !down) pendingDown = true;
-                    if (val < 0) down = false;
-                } else if (type == 1 && code == 0x14a) {   // BTN_TOUCH
-                    if (val == 1 && !down) pendingDown = true;
-                    if (val == 0) down = false;
-                } else if (type == 0 && code == 0 && pendingDown && x >= 0 && y >= 0) {   // SYN_REPORT
-                    pendingDown = false;
-                    down = true;
-                    int sx = max[0] > 0 ? Math.round(x * (sz.x / (float) (max[0] + 1))) : x;
-                    int sy = max[1] > 0 ? Math.round(y * (sz.y / (float) (max[1] + 1))) : y;
-                    if (sBackR != null && sBackR.contains(sx, sy)) {
-                        sBacks++;
-                        log("nav back touch " + sx + "," + sy);
-                    } else if (sHomeR != null && sHomeR.contains(sx, sy)) {
-                        sHomes++;
-                        log("nav home touch " + sx + "," + sy);
-                    }
-                }
-            }
-        } catch (Throwable t) {
-            log("backwatch end " + t);
-        } finally {
-            try {
-                if (in != null) in.close();
-            } catch (Throwable ignored) {
-            }
-        }
     }
 
     /**

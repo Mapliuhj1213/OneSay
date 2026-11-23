@@ -268,10 +268,10 @@ public final class CallbackPlugin extends FeaturePlugin {
                     @Override public void onToggle(boolean on) { sp.edit().putBoolean("quiet_on", on).apply(); }
                 });
         final ConsoleHost.Row[] q = new ConsoleHost.Row[2];
-        q[0] = host.actionRow(g, "开始", sp.getString("quiet_start", "23:00"), "修改", new Runnable() {
+        q[0] = host.actionRow(g, "开始", sp.getString("quiet_start", "23:00"), "选时间", new Runnable() {
             @Override public void run() { editTime(act, sp, "quiet_start", "23:00", q[0]); }
         });
-        q[1] = host.actionRow(g, "结束", sp.getString("quiet_end", "07:00"), "修改", new Runnable() {
+        q[1] = host.actionRow(g, "结束", sp.getString("quiet_end", "07:00"), "选时间", new Runnable() {
             @Override public void run() { editTime(act, sp, "quiet_end", "07:00", q[1]); }
         });
 
@@ -407,19 +407,17 @@ public final class CallbackPlugin extends FeaturePlugin {
         });
     }
 
+    /** [fix-1123-c] 免打扰开始 / 结束：系统时间选择器，不再手打 HH:MM。 */
     static void editTime(Activity act, final android.content.SharedPreferences sp, final String key, final String def, final ConsoleHost.Row row) {
-        final EditText et = new EditText(act);
-        et.setText(sp.getString(key, def));
-        new AlertDialog.Builder(act).setTitle("时间（HH:MM）").setView(et)
-                .setPositiveButton("保存", new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int w) {
-                        int m = DeliveryPolicy.parseHm(et.getText().toString(), -1);
-                        if (m < 0) return;
-                        String v = DeliveryPolicy.formatHm(m);
-                        sp.edit().putString(key, v).apply();
-                        row.setSub(v);
-                    }
-                }).setNegativeButton("取消", null).show();
+        com.onesay.assistant.v2.ui.console.Pickers.time(act, sp.getString(key, def), def, new com.onesay.assistant.v2.ui.console.Pickers.OnText() {
+            @Override public void pick(String v) {
+                int m = DeliveryPolicy.parseHm(v, -1);
+                if (m < 0) return;
+                String hm = DeliveryPolicy.formatHm(m);
+                sp.edit().putString(key, hm).apply();
+                row.setSub(hm);
+            }
+        });
     }
 
     @Override public String debugStatus(Context ctx) {

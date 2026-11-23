@@ -1475,24 +1475,36 @@ public final class Chat {
     }
 
     void updateMemory(Llm llm, List<Map<String, Object>> chat) throws Exception {
+        // [fix-1123-c] 只给模型看用户自己说的话：助手的回答、任务结果（「周末文件夹还没建」）、命令输出都不算用户说的长期事实
         StringBuilder convo = new StringBuilder();
         int start = Math.max(0, chat.size() - 30);
         for (Map<String, Object> m : chat.subList(start, chat.size())) {
-            if ("cmd".equals(m.get("via")) || "error".equals(m.get("via")) || "step".equals(m.get("via"))) continue; // 任务步骤（命令和输出）不进记忆
-            if ("task".equals(m.get("via"))) { Object a = m.get("answer"); if (a == null || String.valueOf(a).isBlank()) continue; convo.append("助手：").append(a).append('\n'); continue; }
-            convo.append("assistant".equals(m.get("role")) ? "助手：" : "用户：").append(m.get("text")).append('\n');
+            if (!MemoryRules.userLine(m)) continue;
+            convo.append("用户：").append(m.get("text")).append('\n');
         }
         String old = String.valueOf(store.memory().getOrDefault("text", ""));
+        if (convo.length() == 0) return; // 这段时间用户没说话（只有任务结果）：不动记忆
         List<Map<String, Object>> msgs = List.of(
-                Llm.msg("system", "你负责维护一份关于用户的长期记忆。只记以后还用得上的事实：身份、偏好、习惯、在做的事和决定、重要的人和日期。"
-                        + "不记一次性的闲聊、不记密码和 Key。旧记忆里被新对话推翻的要改掉，过时的删掉。"
-                        + "输出新的完整记忆，每行一条，以「- 」开头，总共不超过 " + MEMORY_CHARS + " 字；没有值得记的就原样输出旧记忆。只输出记忆本身。"),
-                Llm.msg("user", "旧记忆：\n" + (old.isBlank() ? "（空）" : old) + "\n\n最近对话：\n" + convo));
+                Llm.msg("system", MemoryRules.prompt(MEMORY_CHARS)),
+                Llm.msg("user", "旧记忆：\n" + (old.isBlank() ? "（空）" : old) + "\n\n用户说的话：\n" + convo));
         String mem = llm.chat(msgs, 0.2, 60).trim();
         if (mem.length() > MEMORY_CHARS * 2) mem = mem.substring(0, MEMORY_CHARS * 2);
+        List<String> dropped = new ArrayList<>();
+        mem = MemoryRules.filterNew(old, mem, dropped); // 新加的像进度 / 开关状态 / 这次结果的行丢掉
+        if (!dropped.isEmpty()) log.accept("记忆没收 " + dropped.size() + " 条（像任务进度或开关状态，不当长期记忆）");
         if (!mem.isEmpty() && !mem.equals(old)) {
             store.setMemory(mem, System.currentTimeMillis());
             log.accept("记忆已更新（" + mem.length() + " 字）");
         }
+    }
+
+    /** [fix-1123-c] 记忆页删一条（和手机同步时这次修改更新，会带过去）。 */
+    public Actions.Result deleteMemoryLine(String line) {
+        String old = String.valueOf(store.memory().getOrDefault("text", ""));
+        String next = MemoryRules.deleteLine(old, line);
+        if (next == null) return Actions.Result.fail("这条记忆已经不在了");
+        store.setMemory(next, System.currentTimeMillis());
+        log.accept("删了一条记忆");
+        return Actions.Result.ok("删掉了这条记忆", null);
     }
 }

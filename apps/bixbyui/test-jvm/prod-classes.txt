@@ -749,3 +749,10 @@ com/onesay/assistant/v2/vision/CapturePlan.java
 com/onesay/assistant/v2/fastscreen/FastScreen.java
 com/onesay/assistant/v2/util/RegexCompat.java
 com/onesay/assistant/v2/util/CommandGuard.java
+# [fix-1123-c] 表单改选择 / 返回键接管 / 识屏读回
+com/onesay/assistant/v2/ui/console/FormChoices.java
+com/onesay/assistant/v2/ui/console/PcEntry.java
+com/onesay/assistant/v2/fastscreen/NavTouchParser.java
+com/onesay/assistant/v2/fastscreen/NavWatch.java
+com/onesay/assistant/v2/fastscreen/ReadBack.java
+com/onesay/assistant/v2/llm/ProviderModels.java

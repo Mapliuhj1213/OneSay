@@ -171,41 +171,30 @@ public final class NoticePlugin extends FeaturePlugin {
         });
     }
 
-    /** 白名单 App：逗号分隔的包名（只收合法包名）。 */
+    /** 白名单 App：[fix-1123-c] 从已装 App 列表里勾（可搜索），不再手打包名。只收合法包名。 */
     static void editWhitelist(final Activity act, final android.content.SharedPreferences sp, final ConsoleHost.Row row) {
-        final EditText et = new EditText(act);
-        et.setHint("com.tencent.mm, com.tencent.mobileqq");
-        et.setText(sp.getString(NoticeSettings.K_N_WHITELIST, ""));
-        new AlertDialog.Builder(act).setTitle("这些 App 的通知上岛（包名，逗号分隔）").setView(et)
-                .setPositiveButton("确定", new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int w) {
-                        java.util.Set<String> s = NoticeSettings.parseWhitelist(et.getText().toString());
-                        StringBuilder b = new StringBuilder();
-                        for (String p : s) b.append(b.length() > 0 ? "," : "").append(p);
-                        sp.edit().putString(NoticeSettings.K_N_WHITELIST, b.toString()).apply();
-                        row.setSub(s.isEmpty() ? "没有" : s.size() + " 个");
-                    }
-                }).setNegativeButton("取消", null).show();
+        java.util.Set<String> cur = NoticeSettings.parseWhitelist(sp.getString(NoticeSettings.K_N_WHITELIST, ""));
+        com.onesay.assistant.v2.ui.console.Pickers.apps(act, "这些 App 的通知上岛", cur, new com.onesay.assistant.v2.ui.console.Pickers.OnPkgs() {
+            @Override public void pick(java.util.Set<String> pkgs) {
+                java.util.Set<String> s = NoticeSettings.parseWhitelist(com.onesay.assistant.v2.ui.console.FormChoices.joinPkgs(pkgs));
+                sp.edit().putString(NoticeSettings.K_N_WHITELIST, com.onesay.assistant.v2.ui.console.FormChoices.joinPkgs(s)).apply();
+                row.setSub(s.isEmpty() ? "没有" : s.size() + " 个");
+            }
+        });
     }
 
+    /** [fix-1123-c] 提前多少分钟：档位单选（不提前 / 5 / 10 / 15 / 30 / 60…），不再手打数字。 */
     static void editMinutes(final Activity act, final android.content.SharedPreferences sp, final String key, final int lo, final int hi,
                             final ConsoleHost.Row row) {
-        final EditText et = new EditText(act);
-        et.setInputType(InputType.TYPE_CLASS_NUMBER);
-        et.setHint(lo + "–" + hi);
-        new AlertDialog.Builder(act).setTitle("提前多少分钟").setView(et)
-                .setPositiveButton("确定", new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int w) {
-                        try {
-                            int v = Integer.parseInt(et.getText().toString().trim());
-                            if (v < lo || v > hi) return;
-                            sp.edit().putInt(key, v).apply();
-                            row.setSub(v + " 分钟");
-                            refresh(act);
-                        } catch (NumberFormatException ignored) {
-                        }
-                    }
-                }).setNegativeButton("取消", null).show();
+        int cur = sp.getInt(key, lo);
+        com.onesay.assistant.v2.ui.console.Pickers.minutes(act, "提前多少", lo, hi, cur, new com.onesay.assistant.v2.ui.console.Pickers.OnInt() {
+            @Override public void pick(int v) {
+                if (v < lo || v > hi) return;
+                sp.edit().putInt(key, v).apply();
+                row.setSub(v + " 分钟");
+                refresh(act);
+            }
+        });
     }
 
     @Override public String debugStatus(Context ctx) { return NoticeSettings.dump(ctx); }
