@@ -73,20 +73,20 @@ public class ConsoleR12Test {
         s.overlayOk = false;
         s.batteryWhitelisted = false;
         s.voiceprint = false;
+        // ★ design-1118（mz21-perm）：首页最多 1 条，各项合并成「权限未就绪 / 待确认」→ 权限配置；唤醒服务没在跑时优先「启动」
         List<ConsoleStatus.Banner> b = ConsoleStatus.banners(s);
-        assertEquals(ConsoleStatus.MAX_BANNERS, b.size());
-        assertEquals(ConsoleStatus.Banner.ACT_KEY, b.get(0).actionId);
-        assertEquals(ConsoleStatus.Banner.ACT_OVERLAY, b.get(1).actionId);
+        assertEquals(1, ConsoleStatus.MAX_BANNERS);
+        assertEquals(1, b.size());
+        assertEquals(ConsoleStatus.Banner.ACT_PERM, b.get(0).actionId);
+        assertTrue(b.get(0).text.contains("主模型 Key 未配置"));
         assertEquals(4, ConsoleStatus.allProblems(s).size());
-        s.islandEnabled = false;
-        assertEquals("岛关着就不催悬浮窗", ConsoleStatus.Banner.ACT_BATTERY, ConsoleStatus.banners(s).get(1).actionId);
-        // [ci-1114] 开源版 root 可选（ConsoleStatus.ROOT_OPTIONAL，priv-llm）：没 root / Shizuku 只是灰色提示，不进提醒条
         s.rootOk = false;
         s.shizukuOk = false;
         assertEquals(ConsoleStatus.Level.WARN, ConsoleStatus.root(s).level);
-        assertEquals("没 root 不抢提醒条", ConsoleStatus.Banner.ACT_KEY, ConsoleStatus.banners(s).get(0).actionId);
+        assertEquals("没 root 也只是同一条入口", ConsoleStatus.Banner.ACT_PERM, ConsoleStatus.banners(s).get(0).actionId);
         s.wakeRunning = false;
         assertEquals("唤醒服务最先", ConsoleStatus.Banner.ACT_WAKE, ConsoleStatus.banners(s).get(0).actionId);
+        assertEquals(1, ConsoleStatus.banners(s).size());
     }
 
     @Test public void heroRunning() {
@@ -147,10 +147,10 @@ public class ConsoleR12Test {
         assertTrue(src("app/src-release/com/onesay/assistant/v2/test/V2SelfTest.java").contains("AVAILABLE = false"));
         assertTrue(src("app/src/com/onesay/assistant/v2/test/V2SelfTest.java").contains("AVAILABLE = true"));
         // 控制台整理第二步：「调试工具」（原开发者页入口）搬到首页「开发者」分组，仍只在开发者模式开着时出现
-        String home = src(CON + "HomePage.java");
-        int gate = home.indexOf("if (mDevBuiltFor)");
-        assertTrue("开发者入口只在开发者模式出现", home.contains("mDevBuiltFor = c.devMode();") && gate > 0
-                && home.indexOf("new DeveloperPage(c)", gate) > gate);
+        // ★ design-1118：「调试工具」在「高级 › 开发者」里，仍只在开发者模式开着时出现
+        String hub = src(CON + "DesignPages.java");
+        int gate = hub.indexOf("if (c.devMode())");
+        assertTrue("开发者入口只在开发者模式出现", gate > 0 && hub.indexOf("new DeveloperPage(c)", gate) > gate);
         assertTrue("连点 7 次", src(CON + "AboutPage.java").contains("devGate.tap("));
     }
 
@@ -231,7 +231,7 @@ public class ConsoleR12Test {
         assertTrue(AssistantPause.blocks(true, "key-file"));
         assertFalse(AssistantPause.blocks(false, "key-file"));
         assertTrue(AssistantPause.notificationText(true, true).contains("已暂停"));
-        assertEquals("语音与 Bixby 按键监听中", AssistantPause.notificationText(false, true));
+        assertEquals("语音与按键监听中", AssistantPause.notificationText(false, true));
         String w = src("app/src/com/onesay/assistant/v2/wake/WakeService.java");
         int gate = w.indexOf("private synchronized void requestWakeInternal(");
         assertTrue("唤醒总闸门先看暂停", w.indexOf("if (pausedBlocks(source)) return;", gate) > gate

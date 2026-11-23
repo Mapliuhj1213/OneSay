@@ -76,6 +76,11 @@ public final class StatusProbe {
                 } catch (Throwable t) {
                     s.shizukuOk = null;
                 }
+                try {   // ★ design-1118：后台读剪贴板只能经 Shizuku 查（appops get，白名单内只读）
+                    s.clipboardAllowed = clipboardAllowed(app);
+                } catch (Throwable t) {
+                    s.clipboardAllowed = null;
+                }
                 post(h, l, s, finished);
                 // 服务可能刚被 MainActivity 拉起：再读一次
                 s.wakeRunning = com.onesay.assistant.v2.wake.WakeService.isServiceRunning();
@@ -159,6 +164,94 @@ public final class StatusProbe {
         } catch (Throwable t) {
             s.voiceprint = null;
         }
+        perms(app, s);
+    }
+
+    /** ★ design-1118（移植 mz21-perm-1118）：「权限配置」页要的本机状态（都只读，不执行命令）。 */
+    static void perms(Context app, ConsoleStatus.Snapshot s) {
+        try {
+            try {
+                app.getPackageManager().getPackageInfo("moe.shizuku.privileged.api", 0);
+                s.shizukuInstalled = Boolean.TRUE;
+            } catch (PackageManager.NameNotFoundException e) {
+                s.shizukuInstalled = Boolean.FALSE;
+            }
+            com.onesay.assistant.v2.platform.ShizukuBridge br = new com.onesay.assistant.v2.platform.ShizukuBridge();
+            s.shizukuRunning = br.running();
+            s.shizukuGranted = Boolean.TRUE.equals(s.shizukuRunning) && br.granted();
+            s.shizukuEnabled = com.onesay.assistant.v2.platform.ExecBackendHost.shizukuEnabled(app);
+        } catch (Throwable ignored) {
+        }
+        try {   // 开源版：targetSdk 28 不受包可见性限制；读到的第三方应用很少 = ROM 的「获取应用列表」没给
+            java.util.List<android.content.pm.PackageInfo> all = app.getPackageManager().getInstalledPackages(0);
+            int third = 0;
+            for (android.content.pm.PackageInfo pi : all) {
+                if (pi.applicationInfo != null && (pi.applicationInfo.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0) third++;
+            }
+            s.appListPermMissing = Boolean.valueOf(third <= 1);
+            s.appListLimited = Boolean.valueOf(third > 1 && third < 4);
+        } catch (Throwable t) {
+            s.appListPermMissing = null;
+        }
+        String pkg = app.getPackageName();
+        try {
+            app.getPackageManager().getServiceInfo(new android.content.ComponentName(pkg, A11Y_SERVICE), 0);
+            s.a11yAvailable = true;
+        } catch (Throwable t) {
+            s.a11yAvailable = false;
+        }
+        s.a11yOn = secureContains(app, "enabled_accessibility_services", pkg + "/");
+        s.notifListenerOn = secureContains(app, "enabled_notification_listeners", pkg + "/");
+        s.defaultAssistant = secureContains(app, "voice_interaction_service", pkg + "/");
+        if (s.clipboardAllowed == null) s.clipboardAllowed = lastClipboard(app);
+        try {
+            s.cloudTtsOn = new com.onesay.assistant.v2.tts.CloudTtsConfig(app).isEnabled();
+            s.cloudTtsKey = new com.onesay.assistant.v2.asr.AliyunAsrConfig(app).hasDashScopeKey();
+        } catch (Throwable t) {
+            s.cloudTtsOn = null;
+            s.cloudTtsKey = null;
+        }
+    }
+
+    static final String A11Y_SERVICE = "com.onesay.assistant.v2.a11y.OneSayA11yService";
+    static final String PREFS = "onesay_console_status";
+
+    static Boolean secureContains(Context app, String key, String needle) {
+        try {
+            String v = Settings.Secure.getString(app.getContentResolver(), key);
+            return Boolean.valueOf(v != null && v.contains(needle));
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    static final String K_CLIPBOARD = "clipboard_allowed";
+
+    /** 经 Shizuku 只读查询 appops READ_CLIPBOARD（白名单内）；Shizuku 不可用 → 上次记下的结果（没有就 null）。 */
+    static Boolean clipboardAllowed(Context app) {
+        com.onesay.plugin.exec.shizuku.ShizukuExecBackend ex = com.onesay.assistant.v2.platform.ExecBackendHost.shizuku();
+        if (ex == null || !Boolean.TRUE.equals(com.onesay.assistant.v2.platform.ExecBackendHost.shizukuReady(app))) return lastClipboard(app);
+        com.onesay.plugin.api.exec.ExecResult r = ex.run("appops get " + app.getPackageName() + " READ_CLIPBOARD", 4000);
+        if (r == null || r.rc != 0) return lastClipboard(app);
+        Boolean v = Boolean.valueOf(PermSetup.clipboardAllowed(r.output));
+        rememberClipboard(app, v);
+        return v;
+    }
+
+    static Boolean lastClipboard(Context app) {
+        try {
+            android.content.SharedPreferences p = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            return p.contains(K_CLIPBOARD) ? Boolean.valueOf(p.getBoolean(K_CLIPBOARD, false)) : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    static void rememberClipboard(Context app, Boolean v) {
+        try {
+            if (v != null) app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(K_CLIPBOARD, v).apply();
+        } catch (Throwable ignored) {
+        }
     }
 
     public static boolean overlayOk(Context ctx) {
@@ -190,6 +283,20 @@ public final class StatusProbe {
         b.voiceprint = a.voiceprint;
         b.micPermission = a.micPermission;
         b.asrKeyInvalid = a.asrKeyInvalid;
+        b.shizukuInstalled = a.shizukuInstalled;
+        b.shizukuRunning = a.shizukuRunning;
+        b.shizukuGranted = a.shizukuGranted;
+        b.shizukuEnabled = a.shizukuEnabled;
+        b.appListConsent = a.appListConsent;
+        b.appListPermMissing = a.appListPermMissing;
+        b.appListLimited = a.appListLimited;
+        b.a11yAvailable = a.a11yAvailable;
+        b.a11yOn = a.a11yOn;
+        b.notifListenerOn = a.notifListenerOn;
+        b.clipboardAllowed = a.clipboardAllowed;
+        b.defaultAssistant = a.defaultAssistant;
+        b.cloudTtsOn = a.cloudTtsOn;
+        b.cloudTtsKey = a.cloudTtsKey;
         b.done = a.done;
         return b;
     }

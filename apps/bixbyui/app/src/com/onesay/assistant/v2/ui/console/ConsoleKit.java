@@ -180,16 +180,10 @@ public final class ConsoleKit {
      */
     public LinearLayout group(LinearLayout root, String title) {
         if (title != null) {
-            LinearLayout hr = rowLayout();
-            hr.setPadding(dp(8), dp(ConsoleTheme.GAP_GROUP + 2), dp(16), dp(8));
-            View bar = new View(act);
-            bar.setBackground(round(t.accent, 2));
-            LinearLayout.LayoutParams blp = lp(dp(4), dp(14));
-            blp.rightMargin = dp(8);
-            hr.addView(bar, blp);
+            // ★ design-1118：分组标题不再加彩色竖条（颜色只表达状态），12.5 中粗次级字色；直接是 TextView，dropIfEmpty 能连标题一起拿掉
             TextView h = text(title, ConsoleTheme.SP_SUB, t.text2, W_MEDIUM);
-            hr.addView(h);
-            root.addView(hr);
+            h.setPadding(dp(8), dp(ConsoleTheme.GAP_GROUP + 6), dp(16), dp(8));
+            root.addView(h);
         }
         LinearLayout g = column();
         g.setBackground(round(t.surface, ConsoleStyle.R_CARD));
@@ -293,7 +287,7 @@ public final class ConsoleKit {
 
     public int toneColor(int tone, int normal) {
         switch (tone) {
-            case ConsoleHost.TONE_OK: return t.accent;
+            case ConsoleHost.TONE_OK: return t.ok;   // ★ design-1118：状态「好了」用状态绿，不用主色
             case ConsoleHost.TONE_WARN: return t.warn;
             case ConsoleHost.TONE_BAD: return t.danger;
             case ConsoleHost.TONE_MUTED: return t.text3;
@@ -303,7 +297,7 @@ public final class ConsoleKit {
 
     public int levelColor(ConsoleStatus.Level l) {
         switch (l) {
-            case OK: return t.accent;
+            case OK: return t.ok;
             case WARN: return t.warn;
             case BAD: return t.danger;
             default: return t.text3;
@@ -334,9 +328,15 @@ public final class ConsoleKit {
         r.listener = l;
         // 左边：点进细项页
         r.textCol.setBackground(ripple(null));
+        // ★ design-1118：插件 / 功能行 —— 开关开着才能进它的设置（关着点左边只提示一句，不进细项页）
         r.textCol.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                if (open != null) open.run();
+                if (open == null) return;
+                if (r.toggle != null && !r.toggle.isOn()) {
+                    android.widget.Toast.makeText(act, "先打开右边的开关，才能改它的设置", android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                open.run();
             }
         });
         View div = new View(act);

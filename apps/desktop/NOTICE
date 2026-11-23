@@ -15,3 +15,9 @@ borrowed (思路参考 omniget，代码自写); no omniget code was copied or ad
 The engines are not bundled: yt-dlp (Unlicense) and an LGPL build of FFmpeg (FFmpeg-Builds, LGPL-3.0)
 are downloaded at the user's request from their official release pages and verified against the
 official SHA-256 checksums before they are run. See THIRD_PARTY_NOTICES.md.
+
+Phone mirroring (手机投屏): OneSay starts the official scrcpy release (https://github.com/Genymobile/scrcpy),
+Apache License 2.0, Copyright (C) 2018 Genymobile, Copyright (C) 2018-2026 Romain Vimont, as a separate
+process. scrcpy is not bundled: version v5.0.1 is downloaded at the user's request from the official
+release page and verified against pinned official SHA-256 checksums. The scrcpy package also contains
+adb (Android SDK Platform-Tools), FFmpeg, SDL and libusb; see THIRD_PARTY_NOTICES.md.

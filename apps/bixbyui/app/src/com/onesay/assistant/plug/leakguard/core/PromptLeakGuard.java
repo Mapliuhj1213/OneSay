@@ -197,7 +197,13 @@ public final class PromptLeakGuard {
         String src = source == null ? "?" : source;
         mPromptSources.add(src);
         int added = 0;
-        for (String line : extractLines(text)) {
+        List<String> heads = new ArrayList<String>();
+        List<String> lines = extractLines(text, heads);
+        for (String hl : heads) {
+            String n = norm(hl);
+            if (n.length() >= FP_STRONG) added += addStrongLocked(n.substring(0, FP_STRONG), src);
+        }
+        for (String line : lines) {
             String n = norm(line);
             if (n.length() < FP_MIN) continue;
             if (n.length() >= FP_STRONG) {
@@ -232,6 +238,11 @@ public final class PromptLeakGuard {
      * Markdown 行首符号。纯 ASCII 行（JSON 示例 / 工具签名）不要。
      */
     static List<String> extractLines(String text) {
+        return extractLines(text, null);
+    }
+
+    /** @param heads 非 null 时收集带举例的整行（{@link #registerSystemPrompt} 只取其开头作强指纹） */
+    static List<String> extractLines(String text, List<String> heads) {
         String t = text.replaceAll("(?s)<!--.*?-->", "\n");
         List<String> out = new ArrayList<String>();
         for (String raw0 : t.split("\\r?\\n")) {
@@ -250,6 +261,9 @@ public final class PromptLeakGuard {
             if (line.matches(".*[0-9０-９].*")) continue;
             // 「例如 / 比如 / 示例」之后是举例，截掉
             int ex = indexOfAny(line, "例如", "比如", "示例", "举例", "如：", "e.g.");
+            // ★ rel-1118 B16：带举例的整行原样吐出来以前认不出（截掉举例后前半句常不足 12 字，或只够一个弱指纹）。
+            //   整行另记一个「头部」候选：只取归一化后开头 FP_STRONG 字作强指纹（跨进举例开头），正常回答复述举例本身不会命中。
+            if (ex >= 0 && heads != null && hasCjk(line.substring(0, ex))) heads.add(line);
             if (ex >= 0) line = line.substring(0, ex);
             if (!hasCjk(line)) continue;
             // 挖掉引号后被切成几段的，各段分别作候选
@@ -352,9 +366,21 @@ public final class PromptLeakGuard {
         for (String p : parts) {
             String q = p.replaceAll("^[：:。．.！!？?\"“”「」]+|[：:。．.！!？?\"“”「」]+$", "")
                     .trim().toLowerCase(Locale.ROOT);
-            if (q.length() > 0) out.add(q);
+            if (q.length() == 0) continue;
+            // ★ rel-1118 B16：「拼多多和抖音和快手…」用连词连起来的词表也要切开；本身就是热词的（「和平精英」）不切
+            if (AND_RE.matcher(q).find() && !isHotword(q)) {
+                for (String x : AND_RE.split(q)) if (x.length() > 0) out.add(x);
+            } else {
+                out.add(q);
+            }
         }
         return out;
+    }
+
+    private static final java.util.regex.Pattern AND_RE = java.util.regex.Pattern.compile("以及|还有|和|与|及|跟|與|還有");
+
+    private synchronized boolean isHotword(String k) {
+        return mHotwords.containsKey(k);
     }
 
     // ---- 热词连串：最长的「热词 (分隔) 热词 …」，容 1 个不认识的夹词（≤10 字，不计数）
@@ -460,13 +486,62 @@ public final class PromptLeakGuard {
 
     // ------------------------------------------------------------------ 工具
 
-    /** 归一化：去空白、标点、Markdown 符号，转小写。 */
+    /** ★ rel-1118 B16：常用繁体字 → 简体（按码位排序，二分查；不是完整繁简转换，够把提示词原文的繁体转写折回来）。
+     *  指纹注册、热词、判定都走 {@link #norm}，两边同口径，所以折错一个字也只是两边一起折。 */
+    private static final String T2S_T =
+            "並個們備傳傷傾僅價儀億儘優儲兒內兩冊凍刪則剛創劃劍劑勁動務勝勞勢勵匯區協卻厭參叢吳員問啓啞啟喚喪喫單嗎嘆嘗噴噸嚇嚮嚴囑圍"
+                + "園圓圖團執堅堯報場塊塗塢塵墜壇壓壘壞壯壺夠夢夾奧奪奮妝娛婦媽嬰孫學寢實寧審寫寬寶將專尋對導尷屆屍層屬島嶄嶼巖師帳帶幣幫幹"
+                + "幾庫廠廢廣廳張彈彌彎彙後徑從復徵徹惡態慣慮慶憂憐憑憲憶懇應懶懷懸懼戀戰戲戶拋挾捨掃掙掛揀揚換揮損搖搗搶搾撈撐撲擁擇擊擋擔"
+                + "據擠擬擴擺擾攔攜攝攤敗敘敵數斂斃斷於時晝暢暫曆曉曬書會朧條梟棄棧楊業極構槍樂樓標樣樹橋機檔檢櫃櫻欄權歐歡歲歷歸殘殺殼毀毆"
+                + "氣氫決沒況淨測準溝溫滅滬滿漁漢漲潛澀澤濃濕濟濾瀉瀏灑灘灣灤災為烏無煉煙煩熱燈燒營燭爐爛爭爺爾牆牽犢犧狀狹猙猶獄獅獎獨獲獵"
+                + "獻現瑣瑩環璽瓊甕產畝畢畫異當疇疊瘋療癢癮發皺盜盞盡監盤盧眾睏睜瞞矯硃確碼磚磯礎礙礦祕禍禪禮禱稅種稱穀穎穩窩窮竄競筆筍筧節"
+                + "範篩簡簽簾籌籠籤粵糞糧糾紀約紅紋納紐純紙級紛細紹終組絆結絕絡給統絲綁經綜綠維綱網緊緒線緝緣編緩緯練縣縫縮縱總績織繞繩繪繳"
+                + "繼續纏罈罰罵罷羅羨義習翹聖聞聯聰聲聳職聽肅腎腦腳膚膩膽臉臟臥臨臺與興舊艙艱艷茲莊華萊萬葉葷蒼蓋蔣蔥蕩蕭薦藍藝藥蘆蘇蘋蘭處"
+                + "虛號蝦螞螢蟬蟲蟻蠟衆衊術衛衝裏補裝裡製複襪襯襲見規覓視親覺覽觀觸訂計訊討訓託記訪設許訴診註詐評詞詢試詩詫話該詳誇誌認誕誘"
+                + "語誠誡誤誦說誰課誼調談請諒論諧諭諮諾謀謂謊謎謙講謝謹證譏識譜譯議譴護譽讀變讒讓讚豈豐豬貓貝貞負財貢貨貪貫貯貴貶買貸費貼貿"
+                + "賀賄資賊賓賜賞賠賣賤賦質賬賭賴賺購賽贈贊贍贏贓趕趙趨跡踐踴蹟蹤蹺躉躋躍車軌軍軒軟軸較載輔輕輛輝輩輪輯輸輻轄轉轎轟辦辭辮辯"
+                + "農這連週進遊運過達違遙遜遞遠適遲遷選遺邁還邇邊邏郟郵鄉鄒鄧鄭鄰醜醞醫醬釀釋釘針釣鈍鈔鈕鈴鉛鉤銀銅銘銳銷鋁鋪鋼錄錘錢錦錫錯"
+                + "錶鍊鍋鍛鍵鍾鎊鎖鎮鏈鏟鏡鏽鐘鐵鑄鑑鑰鑼長門閃閉開閒間閘閣閥閨閩閱閻闆闊闖關闡陝陣陰陳陸陽隊階隕際隨險隱隴隸隻雋雖雙雛雜雞"
+                + "離難雲電霧霽靂靈靚靜鞏韌韓韻響頁頂項順須頌預頑頒頓頗領頜頭頰頸頻顆題額顏願顛類顧顫顯顱風颱颳颼飄飛飢飯飲飼飽餅養餓餘餚館"
+                + "餵饃饋饒馬駁駐駕駛駝騎騙騰驅驕驗驚驛驟驢骯髏髒體髮鬆鬍鬢鬥鬧鬱魚魯鮑鮭鮮鯨鳥鳳鳴鴉鴨鴻鵝鵬鶴鷗鷹鸚鹽麗麥麩麵麼黃點黨黴黶"
+                + "鼴齊齋齒齟齡齣龍龐龜";
+    private static final String T2S_S =
+            "并个们备传伤倾仅价仪亿尽优储儿内两册冻删则刚创划剑剂劲动务胜劳势励汇区协却厌参丛吴员问启哑启唤丧吃单吗叹尝喷吨吓向严嘱围"
+                + "园圆图团执坚尧报场块涂坞尘坠坛压垒坏壮壶够梦夹奥夺奋妆娱妇妈婴孙学寝实宁审写宽宝将专寻对导尴届尸层属岛崭屿岩师账带币帮干"
+                + "几库厂废广厅张弹弥弯汇后径从复征彻恶态惯虑庆忧怜凭宪忆恳应懒怀悬惧恋战戏户抛挟舍扫挣挂拣扬换挥损摇捣抢榨捞撑扑拥择击挡担"
+                + "据挤拟扩摆扰拦携摄摊败叙敌数敛毙断于时昼畅暂历晓晒书会胧条枭弃栈杨业极构枪乐楼标样树桥机档检柜樱栏权欧欢岁历归残杀壳毁殴"
+                + "气氢决没况净测准沟温灭沪满渔汉涨潜涩泽浓湿济滤泻浏洒滩湾滦灾为乌无炼烟烦热灯烧营烛炉烂争爷尔墙牵犊牺状狭狰犹狱狮奖独获猎"
+                + "献现琐莹环玺琼瓮产亩毕画异当畴叠疯疗痒瘾发皱盗盏尽监盘卢众困睁瞒矫朱确码砖矶础碍矿秘祸禅礼祷税种称谷颖稳窝穷窜竞笔笋笕节"
+                + "范筛简签帘筹笼签粤粪粮纠纪约红纹纳纽纯纸级纷细绍终组绊结绝络给统丝绑经综绿维纲网紧绪线缉缘编缓纬练县缝缩纵总绩织绕绳绘缴"
+                + "继续缠坛罚骂罢罗羡义习翘圣闻联聪声耸职听肃肾脑脚肤腻胆脸脏卧临台与兴旧舱艰艳兹庄华莱万叶荤苍盖蒋葱荡萧荐蓝艺药芦苏苹兰处"
+                + "虚号虾蚂萤蝉虫蚁蜡众蔑术卫冲里补装里制复袜衬袭见规觅视亲觉览观触订计讯讨训托记访设许诉诊注诈评词询试诗诧话该详夸志认诞诱"
+                + "语诚诫误诵说谁课谊调谈请谅论谐谕咨诺谋谓谎谜谦讲谢谨证讥识谱译议谴护誉读变谗让赞岂丰猪猫贝贞负财贡货贪贯贮贵贬买贷费贴贸"
+                + "贺贿资贼宾赐赏赔卖贱赋质账赌赖赚购赛赠赞赡赢赃赶赵趋迹践踊迹踪跷趸跻跃车轨军轩软轴较载辅轻辆辉辈轮辑输辐辖转轿轰办辞辫辩"
+                + "农这连周进游运过达违遥逊递远适迟迁选遗迈还迩边逻郏邮乡邹邓郑邻丑酝医酱酿释钉针钓钝钞钮铃铅钩银铜铭锐销铝铺钢录锤钱锦锡错"
+                + "表链锅锻键钟镑锁镇链铲镜锈钟铁铸鉴钥锣长门闪闭开闲间闸阁阀闺闽阅阎板阔闯关阐陕阵阴陈陆阳队阶陨际随险隐陇隶只隽虽双雏杂鸡"
+                + "离难云电雾霁雳灵靓静巩韧韩韵响页顶项顺须颂预顽颁顿颇领颌头颊颈频颗题额颜愿颠类顾颤显颅风台刮飕飘飞饥饭饮饲饱饼养饿余肴馆"
+                + "喂馍馈饶马驳驻驾驶驼骑骗腾驱骄验惊驿骤驴肮髅脏体发松胡鬓斗闹郁鱼鲁鲍鲑鲜鲸鸟凤鸣鸦鸭鸿鹅鹏鹤鸥鹰鹦盐丽麦麸面么黄点党霉黡"
+                + "鼹齐斋齿龃龄出龙庞龟";
+
+    static char t2s(char c) {
+        if (c < 0x4E00) return c;
+        int lo = 0, hi = T2S_T.length() - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            char m = T2S_T.charAt(mid);
+            if (m == c) return T2S_S.charAt(mid);
+            if (m < c) lo = mid + 1; else hi = mid - 1;
+        }
+        return c;
+    }
+
+    /** 归一化：去空白、标点、Markdown 符号，转小写；★ rel-1118 B16：常用繁体折简体。 */
     public static String norm(String s) {
         if (s == null) return "";
         StringBuilder sb = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            if (Character.isLetterOrDigit(c)) sb.append(Character.toLowerCase(c));
+            if (Character.isLetterOrDigit(c)) sb.append(t2s(Character.toLowerCase(c)));
         }
         return sb.toString();
     }

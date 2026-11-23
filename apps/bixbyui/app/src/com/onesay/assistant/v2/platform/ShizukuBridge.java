@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
  * <p>执行用库里公开的 AIDL 接口 {@code IShizukuService.newProcess(argv, null, null)}（不经 shell，argv 来自白名单），
  * 读完输出后 {@code waitForTimeout}，超时 {@code destroy}。输出最多读 64 KB。
  */
-public final class ShizukuBridge implements ShizukuExecBackend.Bridge {
+public final class ShizukuBridge implements ShizukuExecBackend.Bridge, ShizukuExecBackend.Spawner {
 
     public static final int REQUEST_CODE = 0x5A17;
     private static final int MAX_OUT = 64 * 1024;
@@ -82,6 +82,60 @@ public final class ShizukuBridge implements ShizukuExecBackend.Bridge {
             if (p != null) { try { p.destroy(); } catch (Throwable ignored) { } }
             return ExecResult.down("Shizuku 执行失败（" + t.getClass().getSimpleName() + "）");
         }
+    }
+
+    /** a11y-1118：最近一次起的常驻进程（读屏助手）；留着引用，App 退出时随 Shizuku 的客户端死亡一起回收。 */
+    private static volatile moe.shizuku.server.IRemoteProcess sHelper;
+
+    /**
+     * a11y-1118：起常驻进程（argv 已过 {@code ShizukuWhitelist.checkHelperArgv}）。输出在后台线程读掉（最多留 4 KB 给报错用），
+     * 最多等 settleMs 看是不是马上退出。
+     */
+    @Override public ExecResult spawn(List<String> argv, long settleMs) {
+        moe.shizuku.server.IRemoteProcess p = null;
+        try {
+            IBinder b = rikka.shizuku.Shizuku.getBinder();
+            if (b == null) return ExecResult.down(ShizukuExecBackend.REASON_NOT_RUNNING);
+            moe.shizuku.server.IShizukuService svc = moe.shizuku.server.IShizukuService.Stub.asInterface(b);
+            p = svc.newProcess(argv.toArray(new String[0]), null, null);
+            if (p == null) return ExecResult.down("Shizuku 没有起进程");
+            final StringBuffer out = new StringBuffer(), err = new StringBuffer();
+            drain("shz-helper-out", p.getInputStream(), out);
+            drain("shz-helper-err", p.getErrorStream(), err);
+            long end = android.os.SystemClock.elapsedRealtime() + Math.max(0L, settleMs);
+            while (android.os.SystemClock.elapsedRealtime() < end && p.alive()) android.os.SystemClock.sleep(50);
+            if (p.alive()) {
+                sHelper = p;
+                return new ExecResult(0, "spawned", false, false);
+            }
+            int rc = p.exitValue();
+            android.os.SystemClock.sleep(50);   // 让读线程收完最后几行
+            String msg = err.length() > 0 ? err.toString() : out.toString();
+            return new ExecResult(rc == 0 ? 1 : rc, "helper exited rc=" + rc + (msg.trim().length() > 0 ? " " + msg.trim() : ""), false, false);
+        } catch (Throwable t) {
+            if (p != null) { try { p.destroy(); } catch (Throwable ignored) { } }
+            return ExecResult.down("Shizuku 执行失败（" + t.getClass().getSimpleName() + "）");
+        }
+    }
+
+    private static void drain(String name, final ParcelFileDescriptor pfd, final StringBuffer keep) {
+        if (pfd == null) return;
+        com.onesay.assistant.v2.util.Threads.start(name, new Runnable() {
+            @Override public void run() {
+                InputStream in = null;
+                try {
+                    in = new ParcelFileDescriptor.AutoCloseInputStream(pfd);
+                    byte[] buf = new byte[2048];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        if (keep.length() < 4096) keep.append(new String(buf, 0, Math.min(n, 4096 - keep.length()), "UTF-8"));
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    if (in != null) { try { in.close(); } catch (Throwable ignored) { } }
+                }
+            }
+        });
     }
 
     private static String read(ParcelFileDescriptor pfd) {

@@ -96,17 +96,55 @@ public final class IslandGeometry {
         public final int top;
         public final boolean fullscreen;
         public final int statusBarPx;
+        // ★ island-cutout-1118（{@link CutoutGeometry}）：岛从哪里长出来、紧凑态是否包住挖孔
+        /** 挖孔类型（NONE = 没有挖孔；NOTCH / SIDE = 有但不用，回落上方居中）。 */
+        public final CutoutGeometry.Kind cutout;
+        /** 源点：孔（或上方居中的 28dp 种子）的中心与外接尺寸（像素）。出现从这里长出来，收起缩回这里。 */
+        public final float originCx, originCy, originW, originH;
+        /** 紧凑态高（像素）：包孔时 = max(28dp, 孔径 + 2×5dp)，否则 28dp。 */
+        public final int compactH;
+        /** 紧凑态 / 展开卡包住挖孔（上沿 = 孔心 − 紧凑高 / 2）。 */
+        public final boolean wrap;
+        /** 包孔时孔这条「过道」的屏幕 x（内容不进这里）。 */
+        public final float laneL, laneR;
 
         Anchor(int cx, int top, boolean fullscreen, int statusBarPx) {
+            this(cx, top, fullscreen, statusBarPx, CutoutGeometry.Kind.NONE, cx, Float.NaN, 0f, 0f, 0, false, 0f, 0f);
+        }
+
+        Anchor(int cx, int top, boolean fullscreen, int statusBarPx, CutoutGeometry.Kind cutout, float originCx, float originCy,
+                float originW, float originH, int compactH, boolean wrap, float laneL, float laneR) {
             this.cx = cx;
             this.top = top;
             this.fullscreen = fullscreen;
             this.statusBarPx = statusBarPx;
+            this.cutout = cutout == null ? CutoutGeometry.Kind.NONE : cutout;
+            this.originCx = originCx;
+            this.originCy = originCy;
+            this.originW = originW;
+            this.originH = originH;
+            this.compactH = compactH;
+            this.wrap = wrap;
+            this.laneL = laneL;
+            this.laneR = laneR;
+        }
+
+        /** 有真实的源点（孔 / 种子）；旧的 4 参构造没有 → 按 v3 从锚点处的小胶囊长出来。 */
+        public boolean hasOrigin() {
+            return !Float.isNaN(originCy) && originW > 0f && originH > 0f;
+        }
+
+        /** 源点上沿（像素）。 */
+        public float originTop() {
+            return originCy - originH / 2f;
         }
 
         @Override
         public String toString() {
-            return "cx=" + cx + " top=" + top + " statusBar=" + statusBarPx + (fullscreen ? " fullscreen" : "");
+            return "cx=" + cx + " top=" + top + " statusBar=" + statusBarPx + (fullscreen ? " fullscreen" : "")
+                    + (cutout != CutoutGeometry.Kind.NONE || hasOrigin() ? " cutout=" + cutout + " origin=" + Math.round(originCx) + ","
+                    + (Float.isNaN(originCy) ? "-" : String.valueOf(Math.round(originCy))) + " " + Math.round(originW) + "x"
+                    + Math.round(originH) + " compactH=" + compactH + (wrap ? " wrap lane=" + Math.round(laneL) + ".." + Math.round(laneR) : "") : "");
         }
     }
 
@@ -215,5 +253,30 @@ public final class IslandGeometry {
         int bottom = anchorTop + Math.round(expandedMaxHeight(screenH, anchorTop)) + Math.round(16 * d);
         if (screenH > 0) bottom = Math.min(screenH, bottom);
         return new int[] {0, top, Math.max(1, screenW), Math.max(top + 1, bottom)};
+    }
+
+    /**
+     * ★ meizu-1118：Android 12（API 31）起，InputDispatcher 对「不可信遮挡」一律丢点按：触摸点落在别的 UID 的
+     * TYPE_APPLICATION_OVERLAY 窗口的 frame 里、却在它的 touchable region 之外（透传），且这个窗口不透明度 &gt; 0.8
+     * → 「Untrusted touch due to occlusion … obscuring opacity = 1.00」，事件直接丢掉，下面的 App 收不到。
+     * R11 的固定全宽岛窗（不透明、高到展开卡下沿）因此把屏幕上部约 40% 整片变成死区：用户自己的手指点不动，
+     * 无障碍兜底的 dispatchGesture 点按也点不动（真机 Meizu 21 Pro / SDK 36：设置首页「我的手机」连点 3 次无反应）。
+     * API 31+ 退回「窗口包住岛」：窗口只比岛形状大一圈，岛以外的地方不再被这个窗口遮住。
+     */
+    public static boolean fixedWindowAllowed(int sdkInt) {
+        return sdkInt < 31;
+    }
+
+    /** InputManager.getMaximumObscuringOpacityForTouch() 的出厂值（API 31+；compileSdk 28 拿不到常量）。 */
+    public static final float MAX_OBSCURING_OPACITY = 0.8f;
+
+    /**
+     * ★ meizu-1118 B10：执行护罩是全屏 overlay，靠 touchable region 在注入点「开孔」放行我们自己的点按 / 滑动。
+     * API 31+ 上 WMS 只给 FLAG_NOT_TOUCHABLE 的 overlay 把 alpha 压到 0.8；可触摸的护罩 alpha 仍是 1.0，
+     * 孔里的事件被判「Untrusted touch due to occlusion … obscuring opacity = 1.00」直接丢掉
+     * （真机 Meizu 21 Pro：设置页 3 次滑动全丢 → 「连续 3 轮界面没有任何变化」）。护罩窗口 alpha 设到 0.8 就不算遮挡。
+     */
+    public static float shieldWindowAlpha(int sdkInt) {
+        return sdkInt >= 31 ? MAX_OBSCURING_OPACITY : 1f;
     }
 }

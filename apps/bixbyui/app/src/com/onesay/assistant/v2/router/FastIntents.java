@@ -383,6 +383,24 @@ public final class FastIntents {
      * @return null = 不是快路径句子
      */
     public static Hit match(String utterance) {
+        Hit h = match0(utterance);
+        if (h == null && utterance != null && utterance.length() <= 48 && utterance.matches(".*(倒计时|计时器|计时|定时器).*")
+                && RawNumber.suspicious(utterance, false)) {   // ★ rel-1118 B02：「倒计时一点五分钟」去标点后认不出，原句能精确换算就本地算
+            Long s = RawNumber.decimalTimerSeconds(utterance);
+            if (s != null) return new Hit("clock.timer.set", args("seconds", s.intValue()), "timer.decimal");
+        }
+        // ★ rel-1118 B02 / B06：去标点前的原句里有负号 / 小数 → 数值类命令不在本地执行；倒计时的小数分钟 / 小时能精确换算的除外
+        if (h != null && RawNumber.numeric(h.args) && RawNumber.suspicious(utterance, RawNumber.isClock(h.sign))) {
+            if ("clock.timer.set".equals(h.sign)) {
+                Long s = RawNumber.decimalTimerSeconds(utterance);
+                if (s != null) return new Hit("clock.timer.set", args("seconds", s.intValue()), "timer.decimal");
+            }
+            return null;
+        }
+        return h;
+    }
+
+    private static Hit match0(String utterance) {
         if (!sEnabled || utterance == null) return null;
         String c = clean(utterance);
         if (c.length() == 0 || c.length() > 48) return null;
@@ -399,7 +417,7 @@ public final class FastIntents {
         if (BRI_DOWN.matcher(c).matches()) return new Hit("settings.brightness.down", new JSONObject(), "bri.down");
         Matcher m = VOL_SET.matcher(c);
         if (m.matches()) {
-            Integer lv = level(m.group(1), 15, c.contains("百分之") || pct(utterance));
+            Integer lv = level(m.group(1), com.onesay.assistant.v2.util.MediaVolumeScale.max(), c.contains("百分之") || pct(utterance));   // ★ meizu-1118 B6：按真实满格（Meizu 0–60）
             if (lv != null) return new Hit(lv == 0 ? "volume.media.mute" : "volume.media.set", args("level", lv), "vol.set");
         }
         m = BRI_SET.matcher(c);
@@ -528,6 +546,7 @@ public final class FastIntents {
         long hour = h, alt = -1;
         if (period != null) {
             if ((period.equals("下午") || period.equals("傍晚") || period.equals("晚上") || period.equals("夜里")) && hour < 12) hour += 12;
+            else if ((period.equals("晚上") || period.equals("夜里")) && hour == 12) hour = 0;   // ★ rel-1118 B03：晚上 12 点 = 0 点
             else if (period.equals("中午") && hour < 6) hour += 12;
             else if ((period.equals("凌晨") || period.equals("早上") || period.equals("上午") || period.equals("早晨") || period.equals("清晨")) && hour == 12) hour = 0;
         } else if (hour >= 1 && hour <= 11) {
@@ -651,6 +670,7 @@ public final class FastIntents {
         long hour = h;
         if (period != null) {
             if ((period.equals("下午") || period.equals("傍晚") || period.equals("晚上") || period.equals("夜里")) && hour < 12) hour += 12;
+            else if ((period.equals("晚上") || period.equals("夜里")) && hour == 12) hour = 0;   // ★ rel-1118 B03：晚上 12 点 = 0 点（以前没加 12 也没归零 → 中午 12 点）
             else if (period.equals("中午") && hour < 6) hour += 12;
             else if (period.equals("凌晨") && hour == 12) hour = 0;
         }
@@ -746,6 +766,21 @@ public final class FastIntents {
         }
         if (num == null || unit == null) return null;
         num = num.replace("个", "").trim();
+        // ★ rel-1118 B02：复合时长「1分30秒」「2分钟10秒」「1小时30分钟」（以前整串交给 NumberParser 逐字累加成 130 / 210）
+        Matcher mix = Pattern.compile("^([0-9零一二两三四五六七八九十百]+)(分钟|分)([0-9零一二两三四五六七八九十]+)$").matcher(num);
+        if (mix.matches() && unit.startsWith("秒")) {
+            Long mm = NumberParser.parse(mix.group(1)), ss = NumberParser.parse(mix.group(3));
+            if (mm == null || ss == null || mm < 0 || ss < 0 || ss > 59) return null;
+            long sec = mm * 60 + ss;
+            return sec <= 0 || sec > 86400 ? null : sec;
+        }
+        mix = Pattern.compile("^([0-9零一二两三四五六七八九十]+)(小时|钟头)([0-9零一二两三四五六七八九十]+)$").matcher(num);
+        if (mix.matches() && unit.startsWith("分")) {
+            Long hh = NumberParser.parse(mix.group(1)), mm = NumberParser.parse(mix.group(3));
+            if (hh == null || mm == null || hh < 0 || mm < 0 || mm > 59) return null;
+            long sec = hh * 3600 + mm * 60;
+            return sec <= 0 || sec > 86400 ? null : sec;
+        }
         long n;
         if (num.equals("半")) {
             n = -1;

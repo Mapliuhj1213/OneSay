@@ -35,6 +35,23 @@ public final class ConsoleStatus {
         public Boolean micPermission;
         /** r2/p0 P0-2：当前语音识别 Key 就是上次鉴权失败（401 / 403）的那一个（{@code AsrHealth}）；null = 不知道。 */
         public Boolean asrKeyInvalid;
+        // ---- ★ design-1118（移植 mz21-perm-1118 d398333）：「权限配置」页（PermSetup）用。null = 没测到 / 测不了。
+        public Boolean shizukuInstalled;
+        public Boolean shizukuRunning;
+        public Boolean shizukuGranted;
+        /** 「Shizuku 特权」插件开关（默认关）。 */
+        public boolean shizukuEnabled;
+        /** 开源版没有个人版的应用清单同意流程：只记系统给没给读应用列表。 */
+        public String appListConsent;
+        public Boolean appListPermMissing;
+        public Boolean appListLimited;
+        public boolean a11yAvailable;
+        public Boolean a11yOn;
+        public Boolean notifListenerOn;
+        public Boolean clipboardAllowed;
+        public Boolean defaultAssistant;
+        public Boolean cloudTtsOn;
+        public Boolean cloudTtsKey;
         /** 探测是否全部回来了（没回来时「未知」显示成「检测中」）。 */
         public boolean done;
     }
@@ -56,7 +73,8 @@ public final class ConsoleStatus {
     public static final class Banner {
         public static final String ACT_WAKE = "wake", ACT_STATUS = "status", ACT_KEY = "key", ACT_OVERLAY = "overlay",
                 ACT_BATTERY = "battery", ACT_VOICEPRINT = "voiceprint",
-                /* r2/p0 P0-2 */ ACT_ASR_KEY = "asr_key", ACT_MIC = "mic";
+                /* r2/p0 P0-2 */ ACT_ASR_KEY = "asr_key", ACT_MIC = "mic",
+                /* ★ design-1118 / mz21-perm：首页唯一的权限汇总入口 → 「权限配置」页 */ ACT_PERM = "perm";
         public final String text;
         public final String action;
         public final String actionId;
@@ -120,8 +138,8 @@ public final class ConsoleStatus {
     }
 
     public static Pill llm(Snapshot s) {
-        if (s.llmConfigured == null) return s.done ? new Pill("DeepSeek 未知", Level.UNKNOWN) : pending("DeepSeek", null);
-        return s.llmConfigured ? new Pill("DeepSeek", Level.OK) : new Pill("DeepSeek 未配置", Level.WARN);
+        if (s.llmConfigured == null) return s.done ? new Pill("主模型 未知", Level.UNKNOWN) : pending("主模型", null);
+        return s.llmConfigured ? new Pill("主模型", Level.OK) : new Pill("主模型 未配置", Level.WARN);
     }
 
     /** ★ priv-llm：特权通道一行字（状态页 / 权限页共用）：就绪（root）/ Shizuku 就绪 / 无 Root（可选）/ 未就绪。 */
@@ -141,14 +159,20 @@ public final class ConsoleStatus {
         return out;
     }
 
-    // ------------------------------------------------------------------ 提醒条（最多 2 条，按优先级）
+    /** ★ design-1118（mz21-perm）：首页不再摆一排胶囊 —— 只留 Hero 一个汇总状态；运行状态页 / 开发者摘要仍用 {@link #pills}。 */
+    public static boolean homeShowsPills() {
+        return false;
+    }
 
-    public static final int MAX_BANNERS = 2;
+    // ------------------------------------------------------------------ 提醒条（★ design-1118：首页最多 1 条）
+
+    /** 首页提醒条上限 1 条：各项权限 / 密钥合并成一个「权限未就绪 / 待确认」入口（{@link PermSetup#summary}）。完整清单见 {@link #allProblems}。 */
+    public static final int MAX_BANNERS = 1;
 
     public static List<Banner> allProblems(Snapshot s) {
         List<Banner> out = new ArrayList<Banner>();
         if (Boolean.FALSE.equals(s.wakeRunning)) out.add(new Banner("唤醒服务没在运行，按键和唤醒词都没反应", "启动", Banner.ACT_WAKE, Level.BAD));
-        if (root(s).level == Level.BAD) out.add(new Banner("Root 通道未就绪，系统设置类操作用不了", "详情", Banner.ACT_STATUS, Level.BAD));
+        if (root(s).level == Level.BAD) out.add(new Banner("执行通道未就绪（没有 root 守护，也没有可用的 Shizuku）", "去配置", Banner.ACT_PERM, Level.BAD));
         // r2/p0 P0-2（M27-1）：语音识别 Key / 录音权限 —— 缺任一项，说话就完全用不了
         if (Boolean.FALSE.equals(s.micPermission)) out.add(new Banner("没有录音权限，听不到你说话", "去授权", Banner.ACT_MIC, Level.BAD));
         if (Boolean.FALSE.equals(s.asrConfigured)) {
@@ -163,25 +187,33 @@ public final class ConsoleStatus {
         return out;
     }
 
+    /** 首页提醒条：唤醒服务没在跑 → 「启动」；否则必须项有确定的红 / 黄 → 一条「权限未就绪 / 待确认」；全绿（或只是没测到）→ 没有。 */
     public static List<Banner> banners(Snapshot s) {
-        List<Banner> all = allProblems(s);
-        return all.size() > MAX_BANNERS ? new ArrayList<Banner>(all.subList(0, MAX_BANNERS)) : all;
+        List<Banner> out = new ArrayList<Banner>();
+        if (Boolean.FALSE.equals(s.wakeRunning)) {
+            out.add(new Banner("唤醒服务没在运行，按键和唤醒词都没反应", "启动", Banner.ACT_WAKE, Level.BAD));
+            return out;
+        }
+        Banner p = PermSetup.summary(s);
+        if (p != null) out.add(p);
+        return out;
     }
 
     // ------------------------------------------------------------------ Hero
 
     public static Hero hero(Snapshot s) {
         if (s.paused) return new Hero("已暂停", "唤醒已暂停", Level.OFF);
-        int n = allProblems(s).size();
-        boolean critical = wake(s).level == Level.BAD || root(s).level == Level.BAD;   // 按键守护胶囊已随 exec_daemon v4 移除
-        if (critical) return new Hero("需要处理", "有 " + n + " 项要处理", Level.BAD);
-        // r2/p0 P0-2：语音用不了时不能说「随时待命」—— 缺哪个就写哪个
+        if (wake(s).level == Level.BAD) return new Hero("需要处理", "唤醒服务没在运行", Level.BAD);
+        // ★ design-1118（mz21-perm）：其余必须项（悬浮窗 / 录音 / 执行通道 / 密钥 / 应用列表）合并成「权限未就绪」
+        // r2/p0 P0-2：语音用不了时不能说「随时待命」—— 缺哪个就写哪个（比笼统的「权限未就绪」更具体，先看）
         String voice = voiceBlockers(s);
         if (voice != null) return new Hero("需要处理", voice, Level.BAD);
+        if (PermSetup.anyBad(s)) return new Hero("需要处理", "权限未就绪", Level.BAD);
         if (s.wakeRunning == null || (s.rootOk == null && !Boolean.TRUE.equals(s.shizukuOk))) {
             return s.done ? new Hero("状态未知", "有些状态查不到", Level.UNKNOWN) : new Hero("检测中", "正在检查…", Level.UNKNOWN);
         }
         if (wake(s).level == Level.WARN) return new Hero("启动中", "语音引擎启动中", Level.WARN);
+        if (!PermSetup.problems(s).isEmpty()) return new Hero("运行中", "有权限待确认", Level.WARN);
         return new Hero("运行中", "随时待命", Level.OK);
     }
 

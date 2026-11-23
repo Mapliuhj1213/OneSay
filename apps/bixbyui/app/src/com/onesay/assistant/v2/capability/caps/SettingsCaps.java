@@ -76,7 +76,7 @@ public final class SettingsCaps {
                 .entities("setting")
                 .examples("调整设置")
                 .category("settings")
-                .sideEffect(SideEffect.DEVICE_CONTROL)
+                .sideEffect(SideEffect.NONE)   // ★ fix-1118：查询只读（真机 c17：读屏后查蓝牙状态弹了「做了就撤不回来」红卡）
                 .risk(0, false)
                 .executor("shell")
                 .cmd("settings get system screen_brightness")

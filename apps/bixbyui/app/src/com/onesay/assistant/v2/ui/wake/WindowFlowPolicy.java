@@ -57,6 +57,35 @@ public final class WindowFlowPolicy {
         }
     }
 
+    /** ★ fix-1118 卡片高度：结果正文不超过这么多字、这么多行，就当「短结果」，卡片按内容高度贴底（不拉满）。 */
+    public static final int SHORT_RESULT_CHARS = 60;
+    public static final int SHORT_RESULT_LINES = 3;
+
+    /** ★ fix-1118：短结果 = 纯文本（不是富文本卡片）、字数 ≤ {@link #SHORT_RESULT_CHARS}、行数 ≤ {@link #SHORT_RESULT_LINES}。 */
+    public static boolean shortResult(CharSequence body, boolean rich) {
+        if (body == null || rich) return false;
+        String t = body.toString().trim();
+        if (t.length() == 0 || t.length() > SHORT_RESULT_CHARS) return false;
+        int lines = 1;
+        for (int i = 0; i < t.length(); i++) if (t.charAt(i) == '\n') lines++;
+        return lines <= SHORT_RESULT_LINES;
+    }
+
+    /**
+     * ★ fix-1118：真机「亮度 73%」这种一句话结果也被拉满整屏（大片空白）。结果阶段正文短 → 紧凑卡（按内容高度、贴底）；
+     * 作答 / 确认 / 打字、长结果、富文本照旧拉满。
+     */
+    public static boolean cardFull(WakeStage.Stage st, boolean shortResult) {
+        if (st == WakeStage.Stage.RESULT && shortResult) return false;
+        return cardFull(st);
+    }
+
+    /** ★ fix-1118：紧凑的短结果卡和任务卡一样只让卡片收触摸。 */
+    public static TouchArea touchArea(boolean fullWindow, WakeStage.Stage st, boolean shortResult) {
+        if (!fullWindow) return TouchArea.WINDOW;
+        return cardFull(st, shortResult) ? TouchArea.WINDOW : TouchArea.CARD;
+    }
+
     // ------------------------------------------------------------------ LC-1：全屏窗的可触摸区域
 
     /** 卡片窗此刻哪一块收触摸。 */

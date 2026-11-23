@@ -48,6 +48,9 @@ com/onesay/assistant/v2/vision/screenref/ScreenRefCapabilities.java
 # [s1] 看得见的后台 + 剪贴板芯片（纯 Java 部分）
 com/onesay/assistant/v2/island/IslandModel.java
 com/onesay/assistant/v2/island/IslandGeometry.java
+com/onesay/assistant/v2/island/CutoutGeometry.java
+com/onesay/assistant/v2/island/LiquidMotion.java
+com/onesay/assistant/v2/island/IslandMorph.java
 com/onesay/assistant/v2/island/IslandSettings.java
 com/onesay/assistant/v2/island/Subgoal.java
 com/onesay/assistant/v2/s1/AskUserBroker.java
@@ -654,6 +657,9 @@ com/onesay/assistant/v2/pclink/PcMedia.java
 # link-v2（2026-11-08）：TLS 证书 / 指纹、电脑 → 手机常连通道与指令开关（纯 Java）
 com/onesay/assistant/v2/pclink/PcTls.java
 com/onesay/assistant/v2/pclink/PcRx.java
+com/onesay/assistant/v2/pclink/PcFileRx.java
+com/onesay/assistant/v2/pclink/PcShortcuts.java
+com/onesay/assistant/v2/pclink/PcTaskAndroid.java
 com/onesay/assistant/v2/pclink/PcRxPolicy.java
 com/onesay/assistant/v2/pclink/LinkPolicy.java
 # approve-not-block（2026-11-10）：手机屏幕上的确认卡（纯 Java 规则）
@@ -702,6 +708,7 @@ com/onesay/assistant/v2/llm/ProviderRoute.java
 com/onesay/assistant/v2/llm/ProviderRouting.java
 com/onesay/assistant/v2/llm/ProviderStore.java
 com/onesay/assistant/v2/platform/ExecTierRouter.java
+com/onesay/assistant/v2/platform/ShizukuCompat.java
 com/onesay/assistant/v2/platform/ShizukuActions.java
 com/onesay/assistant/v2/ui/console/ConsoleStatus.java
 # 2026-11-08 compat-vyrse：VYRSE 兼容插件 core（纯 Java + org.json）+ 适配层（只编译，确保接线能过 javac）
@@ -725,3 +732,16 @@ com/onesay/assistant/v2/companion/CompanionIntent.java
 com/onesay/assistant/v2/companion/CompanionRouter.java
 com/onesay/assistant/v2/companion/CompanionAlarm.java
 com/onesay/assistant/v2/companion/CompanionDescriptor.java
+com/onesay/assistant/v2/whitelist/AppWhitelist.java
+com/onesay/assistant/v2/whitelist/PrivacyScan.java
+com/onesay/assistant/v2/whitelist/ActionPolicy.java
+com/onesay/assistant/v2/whitelist/WhitelistState.java
+com/onesay/assistant/v2/whitelist/PhoneWhitelistGate.java
+com/onesay/assistant/v2/wake/MicListenPolicy.java
+# ★ a11y-1118
+com/onesay/assistant/v2/a11y/A11yState.java
+com/onesay/assistant/v2/a11y/A11yEntry.java
+com/onesay/assistant/v2/vision/CapturePlan.java
+com/onesay/assistant/v2/fastscreen/FastScreen.java
+com/onesay/assistant/v2/util/RegexCompat.java
+com/onesay/assistant/v2/util/CommandGuard.java

@@ -240,7 +240,7 @@ public class AdvPcRxTest {
                     assertFalse(caps.contains("open_url"));
                     assertFalse(caps.contains("sys_exec"));
                     assertTrue(caps.contains("find_phone"));
-                    assertEquals(PcRxPolicy.ALL.length, ((List<Object>) r.data.get("known")).size());
+                    assertEquals(PcRxPolicy.ALL.length + 2, ((List<Object>) r.data.get("known")).size()); // [overnight-1119] + 列快捷指令 / 查按目标操作进展（跟着别的开关）
                 }
                 return;
             }

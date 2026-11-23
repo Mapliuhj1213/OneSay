@@ -46,7 +46,7 @@ import javax.net.ssl.SSLSocket;
  * </ul>
  */
 public final class LanServer implements Link {
-    public static final int DEFAULT_PORT = 47820;
+    public static final int DEFAULT_PORT = Flavor.lanPort(); // [preview-1120] 正式版 47820，预览版 47920
     /** 发现用的组播组（端口 = 局域网端口 + 1）。 */
     public static final String GROUP = "224.0.0.167";
 

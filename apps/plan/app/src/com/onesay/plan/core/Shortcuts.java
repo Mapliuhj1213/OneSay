@@ -328,6 +328,8 @@ public final class Shortcuts {
     /** 删掉后桌面上留下的图标被禁用时，系统显示的说明（ShortcutManager.disableShortcuts）。 */
     public static final String PIN_DISABLED = "这条快捷指令已删除";
     /** 点到删掉的快捷指令的旧图标。 */
+    /** 快捷指令内部动作：点屏幕上的按钮（参数 target = 按钮上的字）。 */
+    public static final String UI_TAP = "ui.tap";
     public static final String PIN_GONE = "这条快捷指令已经删除了。长按这个图标，选「移除」就能把它从桌面拿掉";
 
     // ------------------------------------------------------------------ 动作清单
@@ -411,6 +413,8 @@ public final class Shortcuts {
             m.reason = "这一版没有该工具";
             l.add(m);
             l.add(new Action("llm.ask", "问一句模型（结果传给下一步）", "模型").p("prompt", "要问的话", "string"));
+            // ★ a11y-labels-1115：点屏幕上的按钮（助手运行时按按钮上的字 / 描述找控件，不存坐标；付款、发送类按钮只找到、不替你点）
+            l.add(new Action(UI_TAP, "点屏幕上的按钮", "屏幕").p("target", "按钮上的字（如「发送」）", "string"));
             for (Action a : l) {
                 if (a.privileged) {
                     a.available = false;

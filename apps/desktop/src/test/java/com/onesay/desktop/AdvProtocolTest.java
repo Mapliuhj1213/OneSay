@@ -302,6 +302,8 @@ public class AdvProtocolTest {
                 assertEquals("tls_required", h.why);
                 break;
             case "plain-unpinned":
+                assertEquals("★ fix-1118 SEC M6：默认拒明文", 4002, ls.checkHello(helloFrame("hello", "phone-a", "hello", null, false, KEY, null), null).code);
+                c.lanPlain = true;
                 assertEquals("phone-a", ls.checkHello(helloFrame("hello", "phone-a", "hello", null, false, KEY, null), null).who);
                 assertNull("明文不记指纹", c.pinOf("phone-a"));
                 break;

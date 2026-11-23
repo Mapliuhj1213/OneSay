@@ -1,0 +1,10 @@
+# [workflow-1120] 电脑端随包的 Java 依赖（版本锁定，SHA-256 校验）。格式：Maven 路径  SHA-256
+# 只在构建机（沙箱）下载，解进 onesay-desktop.jar；运行时不联网下载。许可见 THIRD_PARTY_NOTICES.md。
+io/roastedroot/quickjs4j/0.1.1/quickjs4j-0.1.1.jar b7d9ad3525a0007e69bb701197e37973037e072bd44b6bdc449618e8559300c6
+run/endive/runtime/1.1.0/runtime-1.1.0.jar ff9cf089768392ca3db32478d92bb494b2dabed9f572336e4700fffd24f61123
+run/endive/wasi/1.1.0/wasi-1.1.0.jar 31b3cc3069143c4b8fcdd498832714f2e08ac44941340e6c0d3967abeb324bd4
+run/endive/wasm/1.1.0/wasm-1.1.0.jar d1ef86bc8682fdf31bdbeec61b1c37a3bfadc462c79e70188627993e8eb7e087
+run/endive/log/1.1.0/log-1.1.0.jar 63e591120b4349f2a428f524f880ca26c94f0fd3ac223d1452f6b7d5364d7180
+com/fasterxml/jackson/core/jackson-databind/2.22.3/jackson-databind-2.22.3.jar 556db5439e206114346043f68d200497dc96a0bca62a360a81784092ebd0e0a9
+com/fasterxml/jackson/core/jackson-core/2.22.3/jackson-core-2.22.3.jar 8a501126a385b25841915d839508f8a66e2a0dbc8a6709d055ef3b3e852b094c
+com/fasterxml/jackson/core/jackson-annotations/2.22/jackson-annotations-2.22.jar 21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0

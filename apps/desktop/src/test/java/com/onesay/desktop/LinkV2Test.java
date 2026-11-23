@@ -172,6 +172,12 @@ public class LinkV2Test {
         }
     }
 
+    /** 连接拿到了指令回复才算「被接受」；没连上、发送时连接已被关（Output closed）、等不到回复都算被拒。 */
+    static boolean answered(Conn c, Config cfg) {
+        if (!c.up) return false;
+        try { return c.request(cfg, "ping", new TreeMap<>()) != null; } catch (Exception e) { return false; }
+    }
+
     @Test public void downgradeAndPinMismatchAreRejected() throws Exception {
         try (Server s = new Server()) {
             Config ph = phoneCfg(s.cfg, "phone-ccc");
@@ -185,7 +191,7 @@ public class LinkV2Test {
             plain.peerFp = "";
             Conn d = new Conn(plain, false, null);
             Thread.sleep(300);
-            assertFalse("用 TLS 连过的设备不许退回明文", d.up && d.request(plain, "ping", new TreeMap<>()) != null);
+            assertFalse("用 TLS 连过的设备不许退回明文", answered(d, plain)); // [always-on-1120] 被拒连接在关闭途中发帧会抛 Output closed（满载时偶发），同样算没答
             assertTrue(d.why.get(), d.why.get().contains("要求加密连接"));
 
             // 同一个设备 id、另一张证书 → 4003
@@ -193,10 +199,12 @@ public class LinkV2Test {
             assertNotEquals(ph.tls().fp, other.tls().fp);
             Conn m = new Conn(other, false, null);
             Thread.sleep(300);
-            assertFalse("证书和记住的不一致必须拒", m.up && m.request(other, "ping", new TreeMap<>()) != null);
+            assertFalse("证书和记住的不一致必须拒", answered(m, other));
             assertTrue(m.why.get(), m.why.get().contains("旧证书"));
 
-            // 没见过的旧版手机仍可明文（兼容 v1）
+            // ★ fix-1118 SEC M6：默认不收明文；明确打开 lan_plain 后，没见过的旧版手机才可明文（兼容 v1）
+            assertFalse("默认关", new Config(java.nio.file.Paths.get("unused.properties")).lanPlain);
+            s.cfg.lanPlain = true;
             Config legacy = phoneCfg(s.cfg, "phone-legacy");
             legacy.peerFp = "";
             Conn lg = new Conn(legacy, false, null);
@@ -213,7 +221,17 @@ public class LinkV2Test {
             legacy2.peerFp = "";
             Conn lg2 = new Conn(legacy2, false, null);
             Thread.sleep(300);
-            assertFalse(lg2.up && lg2.request(legacy2, "ping", new TreeMap<>()) != null);
+            // [overnight-1119] 去抖：电脑拒绝时连接可能「刚连上就被关」，这时发请求抛 Output closed——同样算被拒（之前偶发失败）
+            boolean answered;
+            try {
+                answered = lg2.up && lg2.request(legacy2, "ping", new TreeMap<>()) != null;
+            } catch (java.util.concurrent.ExecutionException e) {
+                answered = false;
+            }
+            assertFalse(answered);
+            // [dual-1122] 去抖：机器忙时先报「局域网 127.0.0.1」（刚连上），拒绝原因稍后才到——等一会儿再看
+            long until = System.currentTimeMillis() + 3000;
+            while (!lg2.why.get().contains("要求加密连接") && System.currentTimeMillis() < until) Thread.sleep(50);
             assertTrue(lg2.why.get(), lg2.why.get().contains("要求加密连接"));
         }
     }

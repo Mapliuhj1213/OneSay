@@ -37,6 +37,14 @@ public final class UiTree {
         String key = "";
         /** ★ mika-plug：后端句柄（助手树里的节点下标）；-1 = 没有。 */
         public int src = -1;
+        /** ★ a11y-labels：在 {@link UiTree#tree} 里的节点下标（两条构建路径都填；-1 = 没有）。 */
+        public int node = -1;
+        /** ★ a11y-labels：精准标签（{@link com.onesay.assistant.v2.a11ylabel.A11yLabeler#attach} 填；没贴标签时为空串 / 0）。 */
+        public String nodeKey = "", role = "", nameSrc = "";
+        /** 稳定键靠位置兜底（没资源 id、没文字、没描述）：绑定时还要核对位置。 */
+        public boolean weakKey;
+        /** 阅读顺序里的序号（只给可点 / 可勾选 / 可输入的元素，从 1 起；「显示按钮」编号用）；0 = 不编号。 */
+        public int ord;
 
         public int cx() {
             return (l + r) / 2;
@@ -91,6 +99,33 @@ public final class UiTree {
     /** 树里一个字也没有的大块区域（地图 / 画布 / 读不到的网页）占屏比例。 */
     public float blindArea;
 
+    // ------------------------------------------------------------------ ★ a11y-labels（贴了精准标签才有）
+
+    /** 读出这棵树的原始节点（贴标签时要看祖先路径）；测试 / 旧路径可能为 null。 */
+    public transient FsTree tree;
+    /** 快照 ID：每读一次树一个（贴标签时给）；null = 没贴标签，渲染和执行都走原来的口径。 */
+    public String snapshotId;
+    /** 贴标签的时刻（宿主时钟，ms）。 */
+    public long takenAt;
+
+    public boolean labeled() {
+        return snapshotId != null;
+    }
+
+    /** 按节点稳定键找（贴了标签才有意义）。 */
+    public El findKey(String key) {
+        if (key == null || key.length() == 0) return null;
+        for (El e : els) if (key.equals(e.nodeKey)) return e;
+        return null;
+    }
+
+    /** 按阅读序号找（「N号」）。 */
+    public El findOrd(int ord) {
+        if (ord <= 0) return null;
+        for (El e : els) if (e.ord == ord) return e;
+        return null;
+    }
+
     // ------------------------------------------------------------------ ★ mika-plug（mika.screen 开时才有）
 
     /** 模型编号下的快照（Mika 元素表）；null = 插件关，走原来的元素表。 */
@@ -138,6 +173,7 @@ public final class UiTree {
 
     public static UiTree from(FsTree t, Ids ids, int screenW, int screenH) {
         UiTree u = new UiTree();
+        u.tree = t;
         u.pkg = t.pkg;
         u.activity = t.activity;
         u.truncated = t.truncated;
@@ -202,6 +238,7 @@ public final class UiTree {
             int ord = k == null ? 0 : k + 1;
             dup.put(base, ord);
             e.key = base + "#" + ord;
+            e.node = i;
             e.id = ids == null ? u.els.size() + 1 : ids.idFor(e.key);
             u.els.add(e);
         }
@@ -290,6 +327,7 @@ public final class UiTree {
 
     /** 给模型看的文本（maxLines 行以内，超出的列表项只留前后）。 */
     public String render(int maxLines) {
+        if (labeled()) return com.onesay.assistant.v2.a11ylabel.LabelRender.render(this, maxLines);   // ★ a11y-labels：精准标签口径
         if (mikaJson != null) return "前台：" + (pkg.length() > 0 ? pkg : "?") + (activity.length() > 0 ? " / " + shortAct(activity) : "") + "\n" + mikaJson + "\n";
         StringBuilder b = new StringBuilder();
         b.append("前台：").append(pkg.length() > 0 ? pkg : "?");

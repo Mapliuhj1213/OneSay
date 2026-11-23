@@ -114,6 +114,11 @@ public final class PcLinkUi {
                 });
             }
         });
+        // ★ fix-1118 SEC M6：旧版明文配对默认不收，要连 0.4.x 电脑端得在这里明确打开
+        host.switchRow(g, "允许旧版明文配对", "只为连电脑端 0.4.x：连接有签名但不加密。电脑端 0.5.0 起用不到，默认关", PcLink.allowPlainV1(act),
+                new ConsoleHost.Toggle() {
+                    @Override public void onToggle(boolean on) { PcLink.setAllowPlainV1(act, on); }
+                });
         host.footer(root, "手机和电脑要连同一个 Wi-Fi（局域网直连，不经过任何服务器）。配对码等于钥匙，只在自己的设备之间传。"
                 + "没配对时这个功能什么都不做、不联网。本机名：" + PcLink.me(act));
     }
@@ -148,6 +153,22 @@ public final class PcLinkUi {
         });
         host.actionRow(a, "在电脑上打开网址", "只打开 http / https 网址", "打开", new Runnable() {
             @Override public void run() { openUrlDialog(host, act); }
+        });
+        // [overnight-1119] 双端连通：交任务给电脑 / 查进展 / 发文件到电脑
+        host.actionRow(a, "交给电脑做", "说一句目标，电脑按这台手机的权限一步步做，做完把结果发回手机", "交给电脑", new Runnable() {
+            @Override public void run() { taskDialog(host, act); }
+        });
+        host.actionRow(a, "电脑任务进展", "看刚才交给电脑的任务做到哪了", "查看", new Runnable() {
+            @Override public void run() { taskStatus(host, act); }
+        });
+        host.actionRow(a, "发文件到电脑", "选手机上的文件发过去，电脑放在 OneSay 工作区「来自手机」；别的 App 里也可以分享 →「发到电脑」", "选文件", new Runnable() {
+            @Override public void run() {
+                try {
+                    act.startActivity(new Intent(act, PcSendFileActivity.class).setAction(PcSendFileActivity.ACTION_PICK));
+                } catch (Exception e) {
+                    host.toast("打不开选文件");
+                }
+            }
         });
         // ★ console-align：「把链接下到电脑」搬到「设置 › 下载」（与电脑端「下载」同名同位，见 addDownloadRows）
         host.actionRow(a, "睡眠", "让电脑睡眠（会先问你确认）", "睡眠", new Runnable() {
@@ -428,6 +449,59 @@ public final class PcLinkUi {
         Map<String, Object> m = new TreeMap<String, Object>();
         m.put("text", t);
         simple(host, "clipboard_set", m, "正在发送 " + t.length() + " 字…");
+    }
+
+    /** [overnight-1119] 交任务给电脑：输入一句目标 → pc_task（电脑立刻回「收到了」）。 */
+    static void taskDialog(final ConsoleHost host, final Activity act) {
+        final EditText et = new EditText(act);
+        et.setHint("比如：把下载文件夹里的安装包整理到一个文件夹");
+        et.setMinLines(2);
+        new AlertDialog.Builder(act).setTitle("交给电脑做").setView(et)
+                .setPositiveButton("交给电脑", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        final String g = et.getText().toString().trim();
+                        if (g.length() == 0) {
+                            host.toast("要电脑做什么？");
+                            return;
+                        }
+                        host.toast("正在交给电脑…");
+                        background(act, new Callable() {
+                            @Override public String call() { return PcTaskAndroid.handOff(act, g); }
+                        }, "交给电脑");
+                    }
+                }).setNegativeButton("取消", null).show();
+    }
+
+    static void taskStatus(final ConsoleHost host, final Activity act) {
+        host.toast("正在问电脑…");
+        background(act, new Callable() {
+            @Override public String call() { return PcTaskAndroid.status(act); }
+        }, "电脑任务进展");
+    }
+
+    interface Callable {
+        String call();
+    }
+
+    /** 后台问电脑，回来在对话框里显示（结果可能多行）。 */
+    static void background(final Activity act, final Callable c, final String title) {
+        com.onesay.assistant.v2.util.Threads.start("pclink-task-ui", new Runnable() {
+            @Override public void run() {
+                String t;
+                try {
+                    t = c.call();
+                } catch (Throwable e) {
+                    t = "出错了：" + e.getClass().getSimpleName();
+                }
+                final String text = t;
+                act.runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        if (act.isFinishing()) return;
+                        new AlertDialog.Builder(act).setTitle(title).setMessage(text).setPositiveButton("好", null).show();
+                    }
+                });
+            }
+        });
     }
 
     static void openUrlDialog(final ConsoleHost host, final Activity act) {

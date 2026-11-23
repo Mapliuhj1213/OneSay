@@ -183,7 +183,11 @@ public final class ProbeEngine {
         ShellExecutor shell = new ShellExecutor(ctx);
         ShellExecutor.ShellResponse resp = shell.execute("pm dump " + pkg);
         if (resp.isTimeout) return ProbeResult.fail("系统命令通道超时");
-        if (resp.isDown) return ProbeResult.fail("系统命令通道不可用（root 守护未启动）");
+        if (resp.isDown || resp.isDenied || resp.rc != 0) {
+            // ★ fix-1118（真机 c25）：没有特权通道 / Shizuku 不跑 pm dump 时，以前把拒绝文本当 dump 解析，
+            //   报「设备上没有找到包 com.tencent.mm」——明明 probe.apps 刚找到。改用 PackageManager 核实安装、给主入口。
+            return appIntentsNoShell(ctx, pkg);
+        }
         String text = resp.output == null ? "" : resp.output;
         if (text.contains("Unable to find package") || !text.contains("Package [" + pkg + "]")) {
             return ProbeResult.fail("设备上没有找到包「" + pkg + "」——先用 probe.apps 确认是否安装、拿准包名");
@@ -343,6 +347,35 @@ public final class ProbeEngine {
         }
     }
 
+    /** ★ fix-1118：无特权通道时的 probe.app_intents：PackageManager 核实安装 + 主入口，不挖深层接口。 */
+    static ProbeResult appIntentsNoShell(Context ctx, String pkg) {
+        try {
+            PackageManager pm = ctx.getPackageManager();
+            String label = pkg;
+            try {
+                android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+                CharSequence l = pm.getApplicationLabel(ai);
+                if (l != null) label = l.toString();
+            } catch (PackageManager.NameNotFoundException e) {
+                Intent li0 = pm.getLaunchIntentForPackage(pkg);
+                if (li0 == null) return ProbeResult.fail("设备上没有找到包「" + pkg + "」——先用 probe.apps 确认是否安装、拿准包名");
+            }
+            Intent li = pm.getLaunchIntentForPackage(pkg);
+            JSONObject root = new JSONObject();
+            root.put("ok", true);
+            root.put("package", pkg);
+            root.put("label", label);
+            root.put("interfaces", new JSONArray());
+            String launch = li != null && li.getComponent() != null ? li.getComponent().flattenToString() : null;
+            if (launch != null) root.put("launch", launch);
+            root.put("note", "已安装" + (launch != null ? "，主入口 " + launch + "（可用 app.launch 打开）" : "")
+                    + "；没有特权通道读不到它的内部界面接口，需要的话按屏幕操作");
+            return ProbeResult.ok(root.toString());
+        } catch (Throwable t) {
+            return ProbeResult.fail("读取应用信息失败: " + t.getMessage());
+        }
+    }
+
     // =====================================================================
     // 探针 ③：probe.shell_read —— 白名单只读 shell 兜底
     // =====================================================================
@@ -384,6 +417,7 @@ public final class ProbeEngine {
             "dumpsys activity activities", "dumpsys activity top",
             "dumpsys display", "dumpsys meminfo", "dumpsys cpuinfo",
             "getprop",
+            "dumpsys battery",   // ★ fix-1118：电量只读（本地 BatteryManager / Shizuku 都能答）
     };
 
     /** 禁止的 shell 特殊字符（拼接/重定向/命令替换——全部会破坏"只读"语义）。 */

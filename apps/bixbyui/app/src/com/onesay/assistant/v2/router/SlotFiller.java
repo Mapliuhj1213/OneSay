@@ -71,7 +71,7 @@ public final class SlotFiller {
             new SlotSpec("亮度", "settings.brightness.set", "level",
                     "调到多少？亮度范围 0~255，也可以说「最低」「一半」「最高」。"),
             new SlotSpec("音量", "volume.media.set", "level",
-                    "调到多少？音量范围 0~15，也可以说「一半」「最大」。"),
+                    "调到多少？音量范围 0~{MAX}，也可以说「一半」「最大」。"),
     };
 
     private static final class SlotSpec {
@@ -283,7 +283,7 @@ public final class SlotFiller {
         com.onesay.assistant.v2.capability.ParamsSchema.PropertyRule rule =
                 cap.paramsSchema.getRules().get(param);
         long lo = (rule != null && rule.min != null) ? rule.min.longValue() : 0L;
-        long hi = (rule != null && rule.max != null) ? rule.max.longValue() : 100L;
+        long hi = (rule != null && rule.effectiveMax() != null) ? rule.effectiveMax().longValue() : 100L;
         if (level == LEVEL_LOW) return lo;
         if (level == LEVEL_HIGH) return hi;
         return lo + (hi - lo) / 2;   // 一半
@@ -299,7 +299,7 @@ public final class SlotFiller {
     private static Invocation buildClarify(SlotSpec spec, String query) {
         JSONObject args = new JSONObject();
         try {
-            args.put("text", spec.question);
+            args.put("text", spec.question.replace("{MAX}", String.valueOf(com.onesay.assistant.v2.util.MediaVolumeScale.max())));   // ★ meizu-1118 B6
             args.put("query", query);
             args.put("pendingSign", spec.sign);
             args.put("pendingParam", spec.param);
@@ -383,7 +383,7 @@ public final class SlotFiller {
                 cap.paramsSchema.getRules().get(param);
         if (rule == null) return v;
         long lo = (rule.min != null) ? rule.min.longValue() : Long.MIN_VALUE;
-        long hi = (rule.max != null) ? rule.max.longValue() : Long.MAX_VALUE;
+        long hi = (rule.effectiveMax() != null) ? rule.effectiveMax().longValue() : Long.MAX_VALUE;
         if (v < lo) v = lo;
         if (v > hi) v = hi;
         return v;

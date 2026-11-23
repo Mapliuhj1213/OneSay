@@ -146,7 +146,7 @@ public final class SystemCaps {
                 .examples("发短信给10086")
                 .category("sys")
                 .sideEffect(SideEffect.PUBLIC_COMMS)
-                .schema(new ParamsSchema().addString("number", true, "").addString("text", true, ""))
+                .schema(new ParamsSchema().addString("number", true, "").addString("text", false, ""))   // ★ fix-1118 B19：正文可空（只说号码 → 打开编辑页由用户写）
                 .risk(2, true)
                 .executor("intent")
                 .cmd("am start -a android.intent.action.SENDTO -d smsto:{number} --es sms_body '{text}'")

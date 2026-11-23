@@ -76,7 +76,7 @@ namespace OneSay
                 Activate(form);
                 return;
             }
-            string profile = Path.Combine(dataDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OneSay"), "webview2");
+            string profile = Path.Combine(dataDir ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Program.DataDirName), "webview2");
             form = new MainForm(u, profile, dataDir);
             form.FormClosed += (s, e) =>
             {
@@ -105,7 +105,7 @@ namespace OneSay
         public MainForm(string url, string profile, string dataDir)
         {
             home = url;
-            Text = "OneSay";
+            Text = Program.Name;
             try { Icon = Icon.ExtractAssociatedIcon(Program.Exe); } catch (Exception) { }
             AutoScaleMode = AutoScaleMode.None;
             StartPosition = FormStartPosition.CenterScreen;
@@ -130,7 +130,7 @@ namespace OneSay
                 var cw = web.CoreWebView2;
                 cw.Settings.IsStatusBarEnabled = false;
                 cw.Settings.AreDevToolsEnabled = false;
-                cw.DocumentTitleChanged += (s2, e2) => { Text = string.IsNullOrEmpty(cw.DocumentTitle) ? "OneSay" : cw.DocumentTitle; };
+                cw.DocumentTitleChanged += (s2, e2) => { Text = string.IsNullOrEmpty(cw.DocumentTitle) ? Program.Name : cw.DocumentTitle; };
                 // 外部链接用默认浏览器打开，不在 OneSay 窗口里跳走
                 cw.NewWindowRequested += (s2, e2) => { e2.Handled = true; External(e2.Uri); };
                 cw.NavigationStarting += (s2, e2) =>

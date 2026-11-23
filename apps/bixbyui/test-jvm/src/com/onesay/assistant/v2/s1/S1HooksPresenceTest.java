@@ -43,7 +43,7 @@ public class S1HooksPresenceTest {
         assertTrue("S1-H6", s.contains("S1Hooks.onTaskStart(this, command, islandNow)"));
         assertTrue("S1-H6 上岛判断来自分诊", s.contains("TriageDecider.islandUpFront(mRouter.triage(command).decision)"));
         assertTrue("S1-H7", s.contains("S1Hooks.onTaskStep("));
-        assertTrue("S1-H8a", s.contains("S1Hooks.onConfirmRequired(FloatingSheetService.this)"));
+        assertTrue("S1-H8a", s.contains("S1Hooks.onConfirmRequired(FloatingSheetService.this)") || s.contains("S1Hooks.onConfirmRequired(FloatingSheetService.this, sheetOnScreen())"));   // ★ fix-1118：面板在屏上岛不重复出卡
         assertTrue("S1-H8b", s.contains("S1Hooks.onConfirmResolved()"));
         assertTrue("S1-H9", s.contains("S1Hooks.onTaskEnded(FloatingSheetService.this, cancel.isCancelled(), navExecuted[0])"));
         assertTrue("S1-B 桥接块", s.contains("[s1] BEGIN") && s.contains("public synchronized void s1DetachForCapsule()")
@@ -53,7 +53,7 @@ public class S1HooksPresenceTest {
                 && com.onesay.assistant.v2.kernel.KernelWiring.src("app/src/com/onesay/assistant/v2/router/AgentLoop.java").contains("interface BudgetAskingCallback extends CancellableGatedCallback"));
         // [island] 岛上确认卡 / 结果信息挂钩：紧挨在对应 S1 挂钩之前
         int info = s.indexOf("S1Hooks.onConfirmInfo(cap, args)");
-        int req = s.indexOf("S1Hooks.onConfirmRequired(FloatingSheetService.this)");
+        int req = s.indexOf("S1Hooks.onConfirmRequired(FloatingSheetService.this");
         assertTrue("onConfirmInfo 在 onConfirmRequired 之前", info > 0 && req > info && req - info < 200);
         int out = s.indexOf("S1Hooks.onTaskOutcome(");
         int end = s.indexOf("S1Hooks.onTaskEnded(FloatingSheetService.this, cancel.isCancelled(), navExecuted[0])");
@@ -61,7 +61,7 @@ public class S1HooksPresenceTest {
         assertTrue("岛上确认卡汇点", s.contains("public boolean s1ResolveLoopConfirm(boolean allow)"));
         assertTrue("失败重试", s.contains("public void s1RetryCommand(String command)"));
         // 确认卡强制展开必须先于 showConfirmCard（同一个 Runnable 内）
-        int conf = s.indexOf("S1Hooks.onConfirmRequired(FloatingSheetService.this)");
+        int conf = s.indexOf("S1Hooks.onConfirmRequired(FloatingSheetService.this");
         int card = s.indexOf("mSheetView.showConfirmCard(cap, args, tainted, tier,", conf);
         assertTrue("onConfirmRequired 必须紧挨在 showConfirmCard 之前", conf > 0 && card > conf && card - conf < 300);
         // 圈选拦截必须先于识屏指代拦截（「圈一下这个」不能被当成指代）

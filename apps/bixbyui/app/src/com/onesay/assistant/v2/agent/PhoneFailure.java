@@ -38,6 +38,9 @@ public final class PhoneFailure {
                 return new PhoneFailure(ErrorCode.USER_REJECTED, Outcome.CANCELLED, Outcome.Reason.USER_STOPPED,
                         "用户在界面操作中途拒绝了这一步，不要重试，直接说明");
             }
+            // ★ plan-1118（真机 g02b）：停在「好像卡住了：连续 3 轮界面没有任何变化」的暂停上 → 是没进展，不是用户拒绝；
+            //   以前一律 USER_REJECTED / user_stopped，模型据此说「界面操作被中止了」
+            if (stallStop(true, r)) return stalled();
             if (containsAny(all, LOGIN)) return needsUser(Outcome.Reason.LOGIN, "要用户先登录");
             if (containsAny(all, CAPTCHA)) return needsUser(Outcome.Reason.CAPTCHA, "要用户亲自完成验证");
             if (containsAny(all, PAYMENT)) return needsUser(Outcome.Reason.PAYMENT, "付款要用户亲自确认");
@@ -50,6 +53,9 @@ public final class PhoneFailure {
             return new PhoneFailure(ErrorCode.NOT_CONFIGURED, Outcome.BLOCKED, Outcome.Reason.NO_KEY,
                     "没有配置大模型 Key，点界面做不了；如实告诉用户");
         }
+        if (r.contains("读屏助手不可用") && r.contains(com.onesay.assistant.v2.a11y.A11yState.NEED_A11Y)) {   // ★ a11y-1118
+            return new PhoneFailure(ErrorCode.PERMISSION_DENIED, Outcome.BLOCKED, Outcome.Reason.DEVICE_UNAVAILABLE, A11Y_HINT);
+        }
         if (r.contains("读屏助手不可用") || r.contains("已有一个操作任务在进行")) {
             return new PhoneFailure(ErrorCode.PERMISSION_DENIED, Outcome.BLOCKED, Outcome.Reason.DEVICE_UNAVAILABLE,
                     "这台手机现在没法替你点界面（读屏助手不可用或正忙），换别的做法或如实说明");
@@ -61,10 +67,7 @@ public final class PhoneFailure {
         if (containsAny(all, LOGIN)) return needsUser(Outcome.Reason.LOGIN, "要用户先登录");
         if (containsAny(all, CAPTCHA)) return needsUser(Outcome.Reason.CAPTCHA, "要用户亲自完成验证");
         if (containsAny(all, PAYMENT)) return needsUser(Outcome.Reason.PAYMENT, "付款要用户亲自确认");
-        if (containsAny(r, STUCK)) {
-            return new PhoneFailure(ErrorCode.EXEC_FAILED, Outcome.NOT_DONE, Outcome.Reason.LOOP_GUARD,
-                    "界面卡住没有进展；换一个入口或如实说明卡在哪");
-        }
+        if (containsAny(r, STUCK)) return stalled();
         if (containsAny(r, BUDGET)) {
             return new PhoneFailure(ErrorCode.EXEC_FAILED, Outcome.NOT_DONE, Outcome.Reason.BUDGET,
                     "界面操作用完了预算还没做完；说明做到哪一步、还差什么");
@@ -81,6 +84,27 @@ public final class PhoneFailure {
                 ErrorCode.EXEC_FAILED.defaultHint);
     }
 
+    /** ★ plan-1118：界面没进展而停（不论是预算闸自己停，还是停在「好像卡住了」的暂停上）。 */
+    private static PhoneFailure stalled() {
+        return new PhoneFailure(ErrorCode.EXEC_FAILED, Outcome.NOT_DONE, Outcome.Reason.LOOP_GUARD,
+                "界面卡住没有进展（点了几轮界面都没变化，不是用户叫停的）；别说用户中止了，换一个入口或如实说明卡在哪一步");
+    }
+
+    /**
+     * ★ plan-1118：STOPPED 的原因是「界面没进展」（PhoneAgent 预算闸 STUCK 的说法），而不是用户按停止 / 拒绝。
+     * 用户自己停的原因是「已停止」「用户停止」「用户没有同意：…」。
+     */
+    public static boolean stallStop(boolean stopped, String why) {
+        if (!stopped || why == null) return false;
+        if (why.startsWith("用户没有同意") || why.equals("已停止") || why.equals("用户停止")) return false;
+        return containsAny(why, STUCK);
+    }
+
+    /** ★ plan-1118：phone.operate 没做成时结果文字的开头（没进展停下 = 「没完成：」，用户停 = 「已停止：」）。 */
+    public static String resultPrefix(boolean stopped, String why) {
+        return stopped && !stallStop(true, why) ? "已停止：" : "没完成：";
+    }
+
     private static PhoneFailure needsUser(String reason, String what) {
         return new PhoneFailure(ErrorCode.EXEC_FAILED, Outcome.NEEDS_USER, reason,
                 what + "：别再替用户点，收工时用 end_not_done(subtype=" + reason + ") 说明要用户做什么");
@@ -90,6 +114,10 @@ public final class PhoneFailure {
     public String tag() {
         return "outcome=" + outcome.wire() + " reason=" + reason;
     }
+
+    /** ★ a11y-1118：读屏助手和无障碍读屏服务都用不了时给模型的提示（结果卡上会有「打开无障碍」按钮）。 */
+    public static final String A11Y_HINT = "这台手机还没打开 OneSay 的无障碍读屏服务，没法替用户点界面：别再调 phone.operate，也别只把操作步骤列给用户；"
+            + "收工时用一两句话告诉用户点结果卡上的「打开无障碍」，在列表里打开 OneSay 的「读屏与按键唤醒」，然后再说一遍";
 
     static final String[] LOGIN = {"登录", "登陆", "未登录", "请先登录", "sign in", "log in"};
     static final String[] CAPTCHA = {"验证码", "人机验证", "滑块", "安全验证", "captcha"};

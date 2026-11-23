@@ -14,6 +14,20 @@ package com.onesay.assistant.v2.exec;
  */
 public final class ExecState {
 
+    /** [overnight-1119 魅族] 新的操作任务来时，正在跑的那个怎么办：没有 → RUN；暂停中（你来操作 / 卡住等继续）→ REPLACE（停掉它，岛上说换成新任务）；正在动 → REFUSE（说清楚怎么停）。 */
+    public enum NewTask { RUN, REPLACE, REFUSE }
+
+    public static NewTask onNewTask(boolean busy, boolean paused, boolean stopped) {
+        if (!busy) return NewTask.RUN;
+        return paused || stopped ? NewTask.REPLACE : NewTask.REFUSE;
+    }
+
+    /** 拒绝新任务时的一句话（开头保留「已有一个操作任务在进行」，失败分类认这句）。 */
+    public static String refuseText(String running) {
+        String r = running == null ? "" : running.trim();
+        return "已有一个操作任务在进行" + (r.length() > 0 ? "（「" + (r.length() > 16 ? r.substring(0, 16) + "…" : r) + "」）" : "") + "：先在灵动岛上点「停止」，或者等它做完再说新的";
+    }
+
     public enum S { IDLE, RUNNING, CONFIRM, TAKEOVER, SUPPLEMENT, ENDED }
 
     public enum Shield { NONE, FULL, THIN }

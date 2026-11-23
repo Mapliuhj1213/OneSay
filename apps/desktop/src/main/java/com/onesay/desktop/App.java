@@ -24,6 +24,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -87,15 +88,29 @@ public final class App {
         // 已经开着一个：只把窗口叫出来
         int up = uiPort();
         if (up > 0 && ping(up)) {
-            if (showWindow) openWindow("http://127.0.0.1:" + up + "/");
+            if (showWindow && !askShow(up)) openWindow("http://127.0.0.1:" + up + "/");   // ★ fix-1118 SEC L2：页面要入口钥匙，交给正在运行的那个开窗口
             return;
         }
+        // ★ exe-handoff-1118：直接 javaw -jar 启动、但本机装了加载同一个 jar 的 OneSay.exe → 交给它（窗口属于 OneSay.exe，不落到 Edge）
+        if (ExeHandoff.tryHandoff(!showWindow)) return;
         autoSetup(cfg);
         cfg.tls(); // 协议 v2：第一次运行生成本机证书
         App app = new App(cfg);
         app.start();
         if (showWindow) openWindow(app.ui.url());
         Thread.currentThread().join();
+    }
+
+    /** ★ fix-1118 SEC L2：叫正在运行的 OneSay 自己开窗口。 */
+    static boolean askShow(int port) {
+        try {
+            HttpResponse<String> r = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(600)).build()
+                    .send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/show")).timeout(Duration.ofSeconds(2))
+                            .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+            return r.statusCode() == 200;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     static boolean ping(int port) {
@@ -106,6 +121,243 @@ public final class App {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** [overnight-1119] 手机 ⇄ 电脑互传文件。 */
+    final FileXfer xfer = new FileXfer();
+
+    /**
+     * [overnight-1119] 双端连通：手机交任务给电脑（pc_task / pc_task_status，结果推回手机）、手机发文件到电脑（file_put，落在工作区「来自手机」），
+     * 电脑发文件到手机（界面按钮 / 对话工具，分块 file_put）。
+     */
+    void setupLinks1119() {
+        chat.peerExec = from -> (cmd, args) -> agent.runAsPeer(from, cmd, args);
+        chat.xfer = xfer;
+        agent.local.put("pc_task", a -> chat.startPhoneTask(str(a, "goal", ""), str(a, "_from", "")));
+        agent.local.put("pc_task_status", a -> chat.phoneTaskStatus(str(a, "_from", "")));
+        agent.local.put("file_put", a -> {
+            Map<String, Object> r = xfer.receive(cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE), a, str(a, "_from", ""));
+            return new Actions.Result(Boolean.TRUE.equals(r.get("ok")), String.valueOf(r.get("text")), r);
+        });
+        xfer.onDone = st -> notify.post("task", "收到手机发来的文件", st.name + "（" + FileXfer.human(st.size) + "）→ " + st.path, st.peer, Outcomes.DONE); // [preview-1120] 带状态
+        chat.onPhoneTaskEnd = (from, card) -> {
+            if (card == null || from == null || from.isEmpty()) return;
+            Map<String, Object> n = new TreeMap<>();
+            n.put("title", "电脑任务" + Outcomes.zh(String.valueOf(card.getOrDefault("state", ""))));
+            n.put("text", Chat.phoneTaskLine(card));
+            try {
+                Actions.Result r = agent.callPeer(from, "notify", n, 4000, 8000).get(14, java.util.concurrent.TimeUnit.SECONDS);
+                log.accept("手机任务结果" + (r.ok ? "已推回手机 " : "没推到手机（手机可以自己查）：" + r.text + " ") + from);
+            } catch (Exception e) {
+                log.accept("手机任务结果没推到手机（手机可以自己查）：" + from);
+            }
+        };
+    }
+
+    /** [overnight-1119] 托盘图标（有确认卡等着时只改它的提示文字，不弹通知）。 */
+    volatile TrayIcon trayIcon;
+
+    void trayHint(String text) {
+        TrayIcon t = trayIcon;
+        if (t == null) return;
+        String want = text == null ? Flavor.name() + " " + cfg.deviceId : text;
+        try { if (!want.equals(t.getToolTip())) t.setToolTip(want); } catch (Exception ignored) { }
+    }
+
+    /** 在电脑上弹系统选文件框（发到手机用）。 */
+    java.io.File pickFile() {
+        if (java.awt.GraphicsEnvironment.isHeadless()) return null;
+        java.io.File[] out = new java.io.File[1];
+        try {
+            java.awt.EventQueue.invokeAndWait(() -> {
+                java.awt.FileDialog d = new java.awt.FileDialog((java.awt.Frame) null, "选一个文件发到手机", java.awt.FileDialog.LOAD);
+                d.setAlwaysOnTop(true);
+                d.setVisible(true);
+                if (d.getFile() != null) out[0] = new java.io.File(d.getDirectory(), d.getFile());
+                d.dispose();
+            });
+        } catch (Exception e) {
+            return null;
+        }
+        return out[0];
+    }
+
+    /** [preview-1120] MCP 连接器（配置目录 mcp.json 记住选过的目录）。 */
+    McpHub mcp;
+
+    // ---------- [always-on-1120] 常驻分工：定时 / 提醒 / 查网页可声明执行位置；电脑离线时需电脑的任务排队，上线后补跑或过期；网络唤醒 ----------
+    AlwaysOnService aon;
+    volatile boolean relayUp;
+    volatile Map<String, Object> wolCheck;
+    volatile long wolCheckedAt;
+    volatile List<Map<String, Object>> nicCache;
+    volatile long nicAt;
+
+    void setupAlwaysOn() {
+        aon = new AlwaysOnService(Config.defaultDir().resolve("always-on.json"), System::currentTimeMillis, log);
+        aon.load();
+        aonCfg();
+        aon.notifier = (t, x, from) -> notify.post("reminder", t, x, from);
+        aon.runner = this::aonRun;
+        RelayClient rc = agent.relay();
+        if (rc != null) aon.port = new AlwaysOnService.Port() {
+            @Override public boolean up() { return rc.isConnected(); }
+            @Override public void send(Map<String, Object> f) { rc.send(Json.stringify(f)); }
+        };
+        agent.nodeHook = aon::onFrame;
+        agent.onLinkState = (l, c) -> {
+            if (!(l instanceof RelayClient)) return;
+            boolean was = relayUp;
+            relayUp = c;
+            if (c && !was) aon.onNodeUp(); // 中转连上：整份同步交给节点的任务和唤醒设置
+        };
+        aon.start(); // 先补一轮：关机期间错过的按策略补跑或过期
+    }
+
+    void aonCfg() {
+        aon.pcId = cfg.deviceId;
+        aon.pairKey = cfg.pairKey;
+        aon.nodeConfigured = cfg.relayEnabled();
+        aon.wolEnabled = cfg.wolEnabled;
+        aon.wolAuto = cfg.wolAuto;
+        aon.wolMac = cfg.wolMac;
+        aon.wolBcast = cfg.wolBcast;
+    }
+
+    /** 到点真正执行：提醒 → 电脑通知；快捷指令 → 和对话同一条审批链（需要批准时弹在窗口里，没人点按没批准处理）。 */
+    Object[] aonRun(AlwaysOn.Job j, long due, boolean late) {
+        String from = j.where == AlwaysOn.Where.NODE ? "常驻节点" : "本机";
+        switch (j.action) {
+            case NOTIFY:
+                notify.post("reminder", (late ? "补提醒：" : "") + j.title, (j.text.isEmpty() ? "到点了" : j.text) + (late ? "\n（电脑离线时到点：" + AlwaysOnService.hm(due) + "）" : ""), from);
+                return new Object[] {AlwaysOn.St.DONE, "已提醒"};
+            case SHORTCUT: {
+                Map<String, Object> a = new TreeMap<>();
+                a.put("name", j.target);
+                Actions.Result r = agent.runLocal("shortcut_run", a);
+                if (r != null && r.ok) return new Object[] {AlwaysOn.St.DONE, "快捷指令「" + j.target + "」已运行"};
+                String why = r == null ? "" : String.valueOf(r.data == null ? "" : r.data.getOrDefault("reason", ""));
+                String text = r == null ? "没有结果" : r.text;
+                return new Object[] {why.contains("confirm") || why.contains("approval") ? AlwaysOn.St.NEEDS_USER : AlwaysOn.St.FAILED, text};
+            }
+            default:
+                return new Object[] {AlwaysOn.St.FAILED, "查网页只在常驻节点上做"};
+        }
+    }
+
+    List<Map<String, Object>> nics() {
+        long now = System.currentTimeMillis();
+        if (nicCache == null || now - nicAt > 60_000) { nicCache = WakeOnLan.nics(); nicAt = now; }
+        return nicCache;
+    }
+
+    Map<String, Object> aonView() {
+        Map<String, Object> v = aon == null ? new TreeMap<>() : aon.view();
+        Map<String, Object> w = new LinkedHashMap<>();
+        w.put("enabled", cfg.wolEnabled);
+        w.put("auto", cfg.wolAuto);
+        w.put("mac", cfg.wolMac);
+        w.put("bcast", cfg.wolBcast);
+        w.put("nics", new ArrayList<Object>(nics()));
+        w.put("check", wolCheck == null ? Map.of() : wolCheck);
+        w.put("checked_at", wolCheckedAt);
+        w.put("windows", System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win"));
+        v.put("wol", w);
+        return v;
+    }
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> aonApi(Map<String, Object> b) {
+        String op = str(b, "op", "");
+        switch (op) {
+            case "add": {
+                if (!(b.get("job") instanceof Map)) return fail("缺任务");
+                Map<String, Object> jm = new TreeMap<>((Map<String, Object>) b.get("job"));
+                jm.remove("id");
+                jm.remove("seen");
+                AlwaysOn.Job j = AlwaysOn.Job.from(jm);
+                if (AlwaysOn.Action.of(jm.get("action")) == null) return fail("选做什么");
+                String bad = aon.add(j);
+                return bad == null ? ok("已添加：" + j.title + "（" + j.where.zh + "）") : fail(bad);
+            }
+            case "del": { String bad = aon.remove(str(b, "id", "")); return bad == null ? ok("已删除") : fail(bad); }
+            case "toggle": { String bad = aon.toggle(str(b, "id", ""), "true".equals(str(b, "on", ""))); return bad == null ? ok("已" + ("true".equals(str(b, "on", "")) ? "打开" : "暂停")) : fail(bad); }
+            case "clear": aon.clearItems(); return ok("记录已清空");
+            case "wol_check": {
+                boolean win = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+                wolCheck = WakeOnLan.verdict(win ? WakeOnLan.runWindowsCheck() : null, win);
+                wolCheckedAt = System.currentTimeMillis();
+                nicAt = 0;
+                Map<String, Object> m = ok(String.valueOf(wolCheck.get("summary")));
+                m.put("check", wolCheck);
+                return m;
+            }
+            case "wol_use": {
+                String mac = WakeOnLan.normMac(str(b, "mac", ""));
+                if (mac.isEmpty()) return fail("MAC 不对");
+                String bc = str(b, "bcast", "");
+                cfg.wolMac = mac;
+                cfg.wolBcast = WakeOnLan.ipv4(bc) ? bc : "";
+                try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+                aonCfg();
+                aon.wakeChanged();
+                return ok("唤醒用这块网卡：" + mac);
+            }
+            default: return fail("不认识的操作");
+        }
+    }
+
+    /** [preview-1120] 当前外观：mode（system / light / dark）、主题包（找不到就当没选）。 */
+    Map<String, Object> appearance() {
+        Map<String, Object> a = new TreeMap<>();
+        a.put("mode", Themes.mode(cfg.theme));
+        a.put("pack", "");
+        if (!cfg.themePack.isEmpty()) {
+            for (Object o : Themes.list(Config.defaultDir().resolve("themes"))) {
+                @SuppressWarnings("unchecked") Map<String, Object> p = (Map<String, Object>) o;
+                if (cfg.themePack.equals(p.get("id"))) { a.put("pack", p.get("id")); a.put("pack_name", p.get("name")); a.put("pack_mode", p.get("mode")); a.put("tokens", p.get("tokens")); }
+            }
+        }
+        return a;
+    }
+
+    /**
+     * [preview-1120] 系统选择框（在 OneSay 进程里弹，置顶）。kind：folder / exe / json / file / folder_or_json。没界面（测试）返回 null。
+     * Swing 的 JFileChooser 能选文件夹（AWT 的 FileDialog 在 Windows 上选不了）；用系统外观。
+     */
+    java.io.File pick(String kind, String title, String start) {
+        if (java.awt.GraphicsEnvironment.isHeadless()) return null;
+        java.io.File[] out = new java.io.File[1];
+        try {
+            javax.swing.SwingUtilities.invokeAndWait(() -> {
+                try { javax.swing.UIManager.setLookAndFeel(javax.swing.UIManager.getSystemLookAndFeelClassName()); } catch (Exception ignored) { }
+                javax.swing.JFileChooser ch = new javax.swing.JFileChooser(start == null || start.isBlank() ? null : new java.io.File(start));
+                ch.setDialogTitle(title == null || title.isBlank() ? (kind.startsWith("folder") ? "选文件夹" : "选文件") : title);
+                switch (kind) {
+                    case "folder": ch.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY); break;
+                    case "folder_or_json":
+                        ch.setFileSelectionMode(javax.swing.JFileChooser.FILES_AND_DIRECTORIES);
+                        ch.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("文件夹或 MCP 配置（.json）", "json"));
+                        break;
+                    case "exe": ch.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("程序（.exe）", "exe")); break;
+                    case "json": ch.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("主题包（.json）", "json")); break;
+                    default: break;
+                }
+                javax.swing.JFrame owner = new javax.swing.JFrame();
+                owner.setUndecorated(true);
+                owner.setAlwaysOnTop(true);
+                owner.setLocationRelativeTo(null);
+                owner.setVisible(true);
+                try {
+                    if (ch.showDialog(owner, "选择") == javax.swing.JFileChooser.APPROVE_OPTION) out[0] = ch.getSelectedFile();
+                } finally {
+                    owner.dispose();
+                }
+            });
+        } catch (Exception e) {
+            return null;
+        }
+        return out[0];
     }
 
     void start() throws Exception {
@@ -122,25 +374,248 @@ public final class App {
             Map<String, Object> m = store.mergeMemory(a.get("text") == null ? null : String.valueOf(a.get("text")), at instanceof Number ? ((Number) at).longValue() : 0L);
             return Actions.Result.ok("记忆已同步", m);
         });
+        // [preview-1120] MCP 连接器：读记住的目录，后台启动（不挡启动）；工具交给对话，调用走审批
+        mcp = new McpHub(Config.defaultDir().resolve("mcp.json"), log);
+        mcp.load();
+        PcGuard.MCP = mcp;
+        setupWorkflow(); // [workflow-1120] 工作流 / 技能 / 万能 API 连接器 / OAuth
+        ChatAgent.extraTools = () -> { List<Map<String, Object>> l = new ArrayList<>(mcp.toolDefs()); l.addAll(WfApi.toolDefs()); return l; };
+        ChatAgent.mcpName = mcp::describe;
+        Runtime.getRuntime().addShutdownHook(new Thread(mcp::shutdown, "onesay-mcp-stop")); // 退出时把 stdio 服务器子进程一起结束
+        new Thread(mcp::startAll, "onesay-mcp-start") {{ setDaemon(true); }}.start();
         setupMedia();
-        agent.confirms.onNew = d -> notify.post("pc", "手机请求，需要你确认", d + "（在 OneSay 窗口里用鼠标 / 键盘点，或在已配对手机屏幕上的确认卡上点；60 秒不点、关窗口、按 Esc 都算拒绝，说话不算批准）", "");
-        agent.guard.notify = t -> notify.post("pc", "远程指令", t, "");
+        setupMirror();
+        setupWhitelist();
+        // [overnight-1119] 审批不进通知（列表和 Windows 通知中心都不进，也不弹托盘气泡）：卡片在对话的任务卡 / 窗口里点；
+        // 有卡等着时只改托盘图标的提示文字，点击次数记进「设置 › 权限审批记录」
+        agent.confirms.onNew = d -> trayHint(d != null && d.startsWith(ChatAgent.FROM) ? "OneSay · 有一步等你批准（回到窗口里点）" : "OneSay · 手机请求等你确认（回到窗口里点）");
+        agent.guard.stats = (type, field) -> store.bumpPerm(type, field);
+        int purged = store.purgeApprovalNotes();
+        if (purged > 0) log.accept("通知列表里清掉了 " + purged + " 条旧版本留下的审批记录（审批不进通知）");
+        agent.guard.notify = t -> { log.accept("权限：" + t); agent.guard.logPerm(t, "提醒", ""); };
+        setupAlwaysOn(); // [always-on-1120] 要在通道启动前挂好：中转一连上就要同步任务、收排队
+        chat.reminders = new ChatReminders(aon, d -> agent.guard.confirmLow(ChatAgent.FROM, "reminder", d), System::currentTimeMillis, null); // [fix-1120 晚] 对话里建提醒：存在常驻分工里，默认电脑本地
         agent.start();
         chat.phone = (cmd, args) -> callPhone(cmd, args);
+        setupLinks1119();
+        chat.phones = agent::peers;             // [phone-tools-1118] 对话的运行环境里写连着哪些手机
+        chat.lastPhone = () -> cfg.phoneLast;
+        chat.onTaskEnd = (st, t) -> { String[] p2 = t.split("\n", 2); notify.post("task", "任务" + Outcomes.titleZh(st) + "：" + p2[0], p2.length > 1 ? p2[1] : "", "", st); }; // [preview-1120] 带上状态，标签不再一律「任务完成」 // [overnight-1119]
+        chat.onTaskStart = agent.guard::taskStarted; // [approvals-1118] 新任务开始：上一个任务的「允许本次任务」不带过来
+        chat.pcExec = agent::runLocal;
+        chat.appResolver = n -> LocalLaunch.displayName(n, cfg.appMap(), System.getenv()); // [approvals-1118] 打开前先找本地应用 // [chat-agent-1118] 「对话」能执行任务：同一条安全链（插件 → 矩阵 → 电脑上确认 → 凭证）
+        chat.workspace = cfg.workspace().toString();
         asr = new AsrRoute(cfg);
         asr.warmUp(); // 启动时先看云端能不能用（后台，不阻塞）
         voice = new Voice(cfg, actions, log, asr);
         voice.fallback = text -> String.valueOf(chat.send(text, "voice").get("text"));
         voice.approvalPending = () -> !agent.confirms.list().isEmpty();
         voice.start();
-        ui = new UiServer();
+        ui = new UiServer("1".equals(System.getenv("ONESAY_TEST_ACTIONS")) ? System.getenv("ONESAY_TEST_LAUNCH_KEY") : null);   // ★ fix-1118 SEC L2：测试才可预设入口钥匙
         routes();
         if (!ui.start(uiPort()) && !ui.start(0)) throw new IOException("界面端口打不开");
-        log.accept("界面 " + ui.url());
+        ui.onShow = () -> openWindow(ui.url());
+        log.accept("界面 " + ui.baseUrl());   // ★ fix-1118 SEC L2：入口钥匙不进日志
         Host.ready(ui.url()); // OneSay.exe 托管时：记下地址，再次双击 OneSay.exe 就叫出窗口
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); }));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> { voice.stop(); agent.stop(); ui.stop(); media.shutdown(); mirror.shutdown(); }));
         if (!GraphicsEnvironment.isHeadless() && SystemTray.isSupported()) tray();
         new Thread(App::ensureShortcuts, "onesay-shortcuts").start();
+    }
+
+    // ---------- [workflow-1120] 工作流 / 技能 / 万能 API 连接器 ----------
+    WfApi wf;
+
+    /** 数据放预览版 / 正式版各自的数据目录；key 进 Windows 凭据管理器；审批接现有确认卡（只有允许 / 拒绝，不能记住）。 */
+    void setupWorkflow() {
+        wf = new WfApi(Config.defaultDir(), SecretStore.system(), log);
+        PcGuard.WF = wf;
+        wf.llm = (sys, prompt, temp, conn, tmo) -> {
+            Llm l = Llm.from(cfg);
+            if (!l.ready()) throw new IllegalStateException("没配置大模型（设置 › 模型与密钥）");
+            List<Map<String, Object>> msgs = new ArrayList<>();
+            if (sys != null && !sys.isBlank()) msgs.add(Llm.msg("system", sys));
+            msgs.add(Llm.msg("user", prompt));
+            return l.chat(msgs, temp, tmo);
+        };
+        wf.mcp = new WfApi.McpPort() {
+            @Override public List<Map<String, Object>> toolDefs() { return mcp.toolDefs(); }
+            @Override public boolean readOnly(String fn) { return mcp.readOnlyFn(fn); }
+            @Override public String describe(String fn) { return mcp.describe(fn); }
+            @Override public Actions.Result call(String fn, Map<String, Object> args) { return mcp.call(fn, args); }
+        };
+        wf.approver((title, detail, risk) -> askPlain("workflow", detail));
+        wf.skillApprover = (title, detail) -> askPlain("skill_install", detail);
+        wf.oauth.opener = url -> { try { if (Desktop.isDesktopSupported()) Desktop.getDesktop().browse(URI.create(url)); } catch (Exception ignored) { } };
+    }
+
+    /** 弹一张只有「允许 / 拒绝」的确认卡（4 参数 ask：不给「记住」「允许本次任务」）。 */
+    boolean askPlain(String cmd, String detail) {
+        PcGuard.Confirmer c = agent.guard.confirmer;
+        if (c == null) return false;
+        try { return c.ask("工作流", cmd, detail, 60_000) == PcGuard.ALLOW; } catch (Throwable t) { return false; }
+    }
+
+    // ---------- [app-whitelist-1116] 应用白名单 ----------
+    WhitelistStore whitelist;
+    /** 上次同步过的常连手机（新连上的手机先同步一次）。 */
+    final java.util.Set<String> wlSynced = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** 白名单：存在配置目录；判定接进 PcGuard；手机发来的 whitelist_sync 在这里合并；手机常连上来 / 本机改了就推一次。 */
+    void setupWhitelist() {
+        Path dir = cfg.file.getParent() == null ? Config.defaultDir() : cfg.file.getParent();
+        whitelist = new WhitelistStore(dir);
+        whitelist.device = cfg.deviceId;
+        agent.guard.whitelist = whitelist;
+        agent.local.put("whitelist_sync", a -> whitelistSyncIn(whitelist, a, null, log)); // [overnight-1119] 「要你确认」类不进通知
+        whitelist.onChange = () -> new Thread(this::whitelistPush, "onesay-wl-push").start();
+        Thread t = new Thread(() -> {
+            while (true) {
+                try { Thread.sleep(5000); } catch (InterruptedException e) { return; }
+                try {
+                    java.util.Set<String> now = new java.util.HashSet<>();
+                    for (Link l : agent.links()) if (l instanceof LanServer) for (String c : ((LanServer) l).clients()) if (((LanServer) l).held(c)) now.add(c);
+                    wlSynced.retainAll(now);
+                    for (String c : now) if (wlSynced.add(c)) whitelistPush(c);
+                } catch (RuntimeException ignored) { }
+            }
+        }, "onesay-wl-sync");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** 手机发来整份白名单：合并、提醒对方新加的、回本机整份（对方再合并，两边就一样了）。 */
+    static Actions.Result whitelistSyncIn(WhitelistStore w, Map<String, Object> a, Consumer<String> tell, Consumer<String> log) {
+        String doc = str(a, "doc", "");
+        String from = str(a, "_from", "");
+        try {
+            List<AppWhitelist.Entry> added = w.merge(doc, from);
+            if (!added.isEmpty()) {
+                StringBuilder b = new StringBuilder();
+                for (AppWhitelist.Entry e : added) b.append(b.length() == 0 ? "" : "、").append(e.name.isEmpty() ? e.id : e.name);
+                String t = "手机加了 " + added.size() + " 个白名单应用：" + b + "。要在电脑上确认一次才生效（设置 › 应用白名单 › 确认生效，也能删）";
+                log.accept(t);
+                if (tell != null) tell.accept(t);
+            }
+            Map<String, Object> d = new TreeMap<>();
+            d.put("doc", w.json());
+            return Actions.Result.ok("白名单已同步", d);
+        } catch (IllegalStateException e) {
+            return Actions.Result.fail("电脑上的白名单文件读坏了，先在电脑设置里清空重建");
+        } catch (IllegalArgumentException e) {
+            return Actions.Result.fail("白名单格式不对（" + e.getMessage() + "）");
+        }
+    }
+
+    void whitelistPush() {
+        String d = agent.phoneTarget("");
+        if (d != null) whitelistPush(d);
+    }
+
+    /** 推给常连着的手机；手机回它的整份，合并进来。手机不在线就不推（下次连上时 setupWhitelist 的线程会推）。 */
+    void whitelistPush(String device) {
+        if (whitelist == null || whitelist.broken()) return;
+        try {
+            Map<String, Object> args = new TreeMap<>();
+            args.put("doc", whitelist.json());
+            Actions.Result r = agent.callPeer(device, "whitelist_sync", args, 0, 15000).get(20, java.util.concurrent.TimeUnit.SECONDS);
+            if (r.ok && r.data != null && r.data.get("doc") != null) {
+                List<AppWhitelist.Entry> added = whitelist.merge(String.valueOf(r.data.get("doc")), device);
+                if (!added.isEmpty()) {
+                    String t = "手机上有 " + added.size() + " 个白名单应用同步过来了，要在电脑上确认一次才生效（设置 › 应用白名单 › 确认生效，也能删）";
+                    log.accept(t);
+                }
+                log.accept("白名单已和手机 " + device + " 同步");
+            } else if (!r.ok) {
+                wlSynced.remove(device);
+                log.accept("白名单没同步到手机：" + r.text);
+            }
+        } catch (Exception e) {
+            wlSynced.remove(device);
+        }
+    }
+
+    /** 界面「应用白名单」：看 / 加（界面先弹过风险确认）/ 删 / 读坏了清空重建 / 最近审计。只能在电脑界面上用，远程改不了。 */
+    static Map<String, Object> whitelistApi(WhitelistStore w, Map<String, Object> b, Consumer<String> log) {
+        String op = str(b, "op", "list");
+        String platform = str(b, "platform", AppWhitelist.WINDOWS), id = str(b, "id", "");
+        Map<String, Object> m;
+        switch (op) {
+            case "list": m = ok(""); break;
+            case "risk": {
+                String why = AppWhitelist.refuseReason(platform, id);
+                if (why != null) return fail(why);
+                m = ok(AppWhitelist.riskText(platform, id, str(b, "name", "")));
+                m.put("norm", AppWhitelist.normId(platform, id));
+                break;
+            }
+            case "add": {
+                if (!Boolean.TRUE.equals(b.get("confirmed"))) return fail("要先在确认框里看过风险说明并点「确定」");
+                String why = w.add(platform, id, str(b, "name", ""));
+                if (why != null) return fail(why);
+                log.accept("应用白名单加了 " + platform + ":" + AppWhitelist.normId(platform, id));
+                m = ok("已加进白名单，会同步到手机");
+                break;
+            }
+            case "confirm": { // [app-whitelist-1116 规则调整] 手机同步来的，在电脑上确认一次才生效（界面先弹风险说明）
+                if (!Boolean.TRUE.equals(b.get("confirmed"))) return fail("要先在确认框里看过风险说明并点「确认生效」");
+                String why = w.confirm(platform, id);
+                if (why != null) return fail(why);
+                log.accept("应用白名单确认生效 " + platform + ":" + AppWhitelist.normId(platform, id));
+                m = ok("已生效");
+                break;
+            }
+            case "remove":
+                if (!w.remove(platform, id)) return fail("白名单里没有这个");
+                log.accept("应用白名单删了 " + platform + ":" + AppWhitelist.normId(platform, id));
+                m = ok("已删除，会同步到手机");
+                break;
+            case "reset":
+                w.reset();
+                m = ok("已清空重建");
+                break;
+            default:
+                return fail("不认识的操作");
+        }
+        m.put("whitelist", w.view());
+        m.put("broken", w.broken());
+        m.put("audit", w.recentAudit(30));
+        return m;
+    }
+
+    // ---------- phone-mirror M1：手机投屏（官方 scrcpy；只响应电脑界面上的点击 / 拖拽，不给 agent 用） ----------
+    PhoneMirror mirror;
+
+    void setupMirror() {
+        MirrorTools mt = MirrorTools.forThisPc();
+        mirror = new PhoneMirror(mt, mt.dir().resolveSibling("phone-drop"), log);
+        mirror.uhid = () -> "uhid".equals(cfg.mirrorKeyboard);
+        mirror.onEvent = e -> {
+            if ("needs_auth".equals(e.kind)) notify.post("pc", "手机投屏", "在手机上点「允许 USB 调试」，勾上「始终允许这台电脑」", "");
+            else if ("authorized".equals(e.kind)) notify.post("pc", "手机投屏", e.zh + "，在 OneSay「手机投屏」里点「投屏」", "");
+        };
+        mirror.start();
+    }
+
+    Map<String, Object> mirrorApi(Map<String, Object> b) {
+        String op = str(b, "op", "state"), serial = str(b, "serial", "");
+        switch (op) {
+            case "install": { String e = mirror.installTools(); return e == null ? ok("开始安装") : fail(e); }
+            case "mirror": { String e = mirror.mirror(serial); return e == null ? ok("正在打开投屏窗口…") : fail(e); }
+            case "open_app": { String e = mirror.openApp(serial, str(b, "package", "")); return e == null ? ok("正在打开 App 窗口…") : fail(e); }
+            case "close": return mirror.close(serial, str(b, "package", "")) ? ok("已关掉") : fail("没有开着的窗口");
+            case "apps": {
+                try {
+                    Map<String, Object> m = ok("");
+                    m.put("apps", new ArrayList<Object>(mirror.apps(serial)));
+                    return m;
+                } catch (Exception e) {
+                    return fail(MediaTools.msg(e));
+                }
+            }
+            case "push_instead": return mirror.pushInstead(str(b, "id", ""));
+            case "state": { Map<String, Object> m = ok(""); m.put("mirror", mirror.view()); return m; }
+            default: return fail("不认识的操作");
+        }
     }
 
     // ---------- 链接下载 ----------
@@ -149,8 +624,8 @@ public final class App {
         Path dir = cfg.file.getParent() == null ? Config.defaultDir() : cfg.file.getParent();
         media = new Media(MediaTools.forThisPc(), new MediaCookies(dir.resolve("cookies")), Media.defaultOutDir(cfg.mediaDir), log);
         media.onFinish = t -> {
-            if (t.state == Media.State.DONE) notify.post("pc", "下载完成", (t.title.isEmpty() ? t.url : t.title) + " → " + t.file, t.from);
-            else if (t.state == Media.State.FAILED) notify.post("pc", "下载失败", (t.title.isEmpty() ? t.url : t.title) + "：" + t.error, t.from);
+            if (t.state == Media.State.DONE) notify.post("task", "下载完成", (t.title.isEmpty() ? t.url : t.title) + " → " + t.file, t.from, Outcomes.DONE);
+            else if (t.state == Media.State.FAILED) notify.post("task", "下载失败", (t.title.isEmpty() ? t.url : t.title) + "：" + t.error, t.from, Outcomes.FAILED); // [preview-1120] 以前标签也是「任务完成」
         };
         agent.guard.mediaToolsMissing = media.tools::missing;
         agent.local.put("media_get", media::remoteGet);
@@ -307,6 +782,9 @@ public final class App {
     static void ensureShortcuts() {
         String exe = System.getProperty("onesay.exe", "");
         if (!isWindows() || exe.isEmpty() || !new File(exe).isFile()) return;
+        // [preview-1120] 预览版不自己建快捷方式：开始菜单 / 桌面的 OneSay.lnk 是正式版的，覆盖了就指到预览版去了。
+        // 预览版的开始菜单项由 install-preview.ps1 建（名字「OneSay Preview」），卸载脚本删。
+        if (Flavor.PREVIEW) return;
         String appdata = System.getenv("APPDATA");
         if (appdata == null) return;
         Path start = Paths.get(appdata, "Microsoft", "Windows", "Start Menu", "Programs", "OneSay.lnk");
@@ -384,6 +862,7 @@ public final class App {
         Map<String, Object> s = new TreeMap<>();
         s.put("device_id", cfg.deviceId);
         s.put("lan_port", (long) cfg.lanPort);
+        s.put("lan_env_off", "off".equalsIgnoreCase(String.valueOf(System.getenv("ONESAY_LAN")))); // [preview-1120 真机] ONESAY_LAN=off 时设置页别再显示「开」
         s.put("relay", cfg.relayEnabled());
         s.put("relay_url", cfg.relayUrl);
         s.put("ptt", cfg.pttEnabled);
@@ -393,6 +872,12 @@ public final class App {
         s.put("asr_key_set", !cfg.asrKey.isEmpty());
         s.put("llm_provider", cfg.llmProvider);
         s.put("llm_key_set", !cfg.llmKey.isEmpty());
+        s.put("vision_key_set", !cfg.visionKey.isEmpty()); // [devtools-1118] Key 本身不回界面
+        s.put("vision_base", cfg.visionBase);
+        s.put("vision_model", cfg.visionModel);
+        DeviceTools.Vision vz = DeviceTools.Vision.from(cfg);
+        s.put("vision_source", vz == null ? "" : vz.source + " · " + vz.model);
+        s.put("adb_path", cfg.adbPath);
         s.put("llm_model", cfg.llmModel);
         s.put("llm_model_default", Llm.defaultModel(cfg.llmProvider));
         s.put("llm_base", cfg.llmBase);
@@ -407,7 +892,14 @@ public final class App {
         s.put("plugin_encoded", cfg.pluginEncoded);
         s.put("net_allow", cfg.netAllow);
         s.put("trusted_domains", cfg.trusted);
+        s.put("chat_preset", ChatPolicy.Preset.of(cfg.chatPreset).id);
+        s.put("chat_timeout_min", (long) cfg.chatTimeoutMin);
         s.put("media_quality", MediaArgs.quality(cfg.mediaQuality));
+        s.put("mirror_keyboard", "uhid".equals(cfg.mirrorKeyboard) ? "uhid" : "sdk");
+        s.put("theme", Themes.mode(cfg.theme));
+        s.put("theme_pack", cfg.themePack);
+        s.put("wol_enabled", cfg.wolEnabled);
+        s.put("wol_auto", cfg.wolAuto);
         return s;
     }
 
@@ -415,13 +907,17 @@ public final class App {
         ui.on("state", b -> {
             agent.confirms.uiAlive(); // 界面还活着：确认框显示后界面 8 秒没动静按拒绝
             Map<String, Object> s = store.snapshot();
-            s.put("version", Main.VERSION);
+            s.put("version", Flavor.version());
+            s.put("flavor", Flavor.PREVIEW ? "preview" : "release");
             s.put("device", cfg.deviceId);
             s.put("status", agent.status);
             s.put("voice", voice.status);
             s.putAll(asr.view()); // 识别：设置（先看云端 / 仅云端 / 仅本机）+ 当前用的是哪个 + 原因
             s.put("peers", new TreeMap<String, Object>(agent.peers()));
             s.put("settings", settingsView());
+            s.put("appearance", appearance()); // [preview-1120] 主题插件：当前模式 + 主题包的颜色
+            Map<String, Object> mv = mcp.view(); // [preview-1120] MCP 连接器：每个服务器的状态、工具数、错误
+            s.put("mcp", mv);
             s.put("caps", new ArrayList<Object>(actions.capabilities()));
             s.put("shortcuts", new ArrayList<Object>(shortcuts()));
             s.put("lan_ips", new ArrayList<Object>(LanClient.localAddresses()));
@@ -437,16 +933,151 @@ public final class App {
             s.put("pc_approval", cfg.mode().approval.id);
             s.put("plugin_enabled", cfg.pluginEnabled);
             s.put("confirms", agent.confirms.list());
+            s.put("chat_running", chat.running());
             s.put("shortcut_policy", agent.guard.shortcutView());
             s.put("shortcut_approvals", agent.guard.approvalView());
             s.put("remembered", agent.guard.rememberedView());
+            s.put("chat_rules", ChatPolicy.view(agent.guard.chatRules()));
+            s.put("perm_log", agent.guard.permLogView());
+            s.put("perm_stats", PermStats.view(store.permStats()));
+            s.put("xfers", xfer.view()); // [overnight-1119] 文件互传进度
+            Map<String, Object> lv = chat.live;
+            if (lv != null) s.put("progress", lv); // [overnight-1119] 任务卡上的下载 / 传输进度条
+            s.put("xfer_dir", cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE).toString()); // [overnight-1119] 权限审批记录：按类型 允许 x 次 / 拒绝 x 次
+            s.put("grants", agent.guard.grantView());
+            s.put("chat_preset", ChatPolicy.Preset.of(cfg.chatPreset).id);
+            s.put("choices", chat.choices.list());
+            s.put("habits", OpenTarget.parseHabits(cfg.openHabits));
+            if (whitelist != null) { s.put("whitelist", whitelist.view()); s.put("whitelist_broken", whitelist.broken()); }
             s.put("workspace", cfg.workspace().toString());
             s.put("media", mediaState());
+            s.put("mirror", mirror.view());
+            s.put("aon", aonView()); // [always-on-1120] 常驻与唤醒
             synchronized (recent) { s.put("log", new ArrayList<Object>(recent)); }
             return s;
         });
-        ui.on("chat", b -> chat.send(str(b, "text", ""), "text"));
-        ui.on("chat_clear", b -> { store.clear("chat"); return ok("已清空对话，记忆保留"); });
+        ui.on("chat", b -> {
+            List<String> att = new ArrayList<>();
+            if (b.get("attachments") instanceof List) for (Object o : (List<?>) b.get("attachments")) att.add(String.valueOf(o));
+            return chat.send(str(b, "text", ""), "text", att);
+        });
+        ui.on("attach", b -> chat.attach(str(b, "name", ""), str(b, "b64", ""))); // [overnight-1119] 粘贴截图 / 拖进来 / 附件按钮
+        // [preview-1120] 主题插件：列出 / 导入 / 删除主题包（外观模式和当前包走 settings 的 theme / theme_pack）
+        ui.on("theme", b -> {
+            String op = str(b, "op", "list");
+            Path dir = Config.defaultDir().resolve("themes");
+            try {
+                switch (op) {
+                    case "import": {
+                        Map<String, Object> m = Themes.importPack(dir, str(b, "json", ""));
+                        Map<String, Object> r = ok("导入了主题「" + m.get("name") + "」");
+                        r.put("pack", m);
+                        return r;
+                    }
+                    case "remove": {
+                        String id = str(b, "id", "");
+                        if (!Themes.remove(dir, id)) return fail("删不了（自带的主题不能删，或者没有这个）");
+                        if (id.equals(cfg.themePack)) { cfg.themePack = ""; cfg.save(); }
+                        return ok("删掉了");
+                    }
+                    default: {
+                        Map<String, Object> r = ok("");
+                        r.put("packs", Themes.list(dir));
+                        return r;
+                    }
+                }
+            } catch (IllegalArgumentException e) {
+                return fail(e.getMessage());
+            } catch (IOException e) {
+                return fail("存不下：" + e.getClass().getSimpleName());
+            }
+        });
+        // [preview-1120] 系统选择框：文件夹 / 程序（.exe）/ 文件。设置页里需要路径的地方都用它，不用手敲
+        ui.on("pick", b -> {
+            String kind = str(b, "kind", "folder");
+            java.io.File f = pick(kind, str(b, "title", ""), str(b, "start", ""));
+            if (f == null) return fail("没选");
+            Map<String, Object> r = ok(f.getAbsolutePath());
+            r.put("path", f.getAbsolutePath());
+            return r;
+        });
+        // [preview-1120] MCP 连接器
+        ui.on("mcp", b -> {
+            String op = str(b, "op", "list");
+            switch (op) {
+                case "add": return mcp.addSource(str(b, "path", ""));
+                case "pick": {
+                    java.io.File f = pick("folder_or_json", "选 MCP 服务器所在的文件夹（或 MCP 配置文件）", "");
+                    if (f == null) return fail("没选");
+                    return mcp.addSource(f.getAbsolutePath());
+                }
+                case "enable": return mcp.setEnabled(str(b, "id", ""), !"false".equals(str(b, "on", "true")));
+                case "restart": return mcp.restart(str(b, "id", ""));
+                case "remove": return mcp.remove(str(b, "id", ""));
+                case "rescan": return mcp.rescan(str(b, "source", ""));
+                case "try": {
+                    // 界面「试一下」：只许服务器声明只读的工具（有副作用的请在对话里用，走确认卡）
+                    String fn = str(b, "fn", "");
+                    if (!mcp.readOnlyFn(fn)) return fail("这个工具没声明只读，可能有副作用：请在对话里让助手用它（会弹确认卡）");
+                    @SuppressWarnings("unchecked") Map<String, Object> args = b.get("arguments") instanceof Map ? (Map<String, Object>) b.get("arguments") : new TreeMap<>();
+                    Actions.Result r = mcp.call(fn, args);
+                    Map<String, Object> m = r.ok ? ok(r.text) : fail(r.text);
+                    if (r.data != null) m.put("output", r.data.get("output"));
+                    log.accept("MCP 试用 " + mcp.describe(fn) + "：" + (r.ok ? "成功" : "失败"));
+                    return m;
+                }
+                default: {
+                    Map<String, Object> r = ok("");
+                    r.putAll(mcp.view());
+                    return r;
+                }
+            }
+        });
+        // [overnight-1119] 文件互传：看进度、选文件发到手机、打开「来自手机」文件夹
+        ui.on("xfer", b -> {
+            String op = str(b, "op", "list");
+            if (op.equals("pick_send")) {
+                String phone = agent.phoneTarget("");
+                if (phone == null || phone.isEmpty() || !agent.peers().containsKey(phone)) return fail("手机没连着（先在手机上打开 OneSay，确认电脑联动在线）");
+                java.io.File f = pickFile();
+                if (f == null) return fail("没选文件");
+                new Thread(() -> {
+                    Actions.Result r = xfer.send(f, phone, this::callPhone);
+                    log.accept("发文件到手机：" + (r.ok ? "成功 " : "失败 ") + f.getName());
+                    notify.post("task", r.ok ? "文件已发到手机" : "文件没发到手机", r.text, phone, r.ok ? Outcomes.DONE : Outcomes.FAILED);
+                }, "onesay-xfer-send").start();
+                return ok("开始发：" + f.getName() + "（" + FileXfer.human(f.length()) + "），进度看下面");
+            }
+            if (op.equals("send_path")) {
+                // 电脑上一个已知路径发到手机（拖进传输区 / 对话里点「发到手机」用；同样分块、进度在这里看）
+                String phone = agent.phoneTarget("");
+                if (phone == null || phone.isEmpty() || !agent.peers().containsKey(phone)) return fail("手机没连着（先在手机上打开 OneSay，确认电脑联动在线）");
+                java.io.File f = new java.io.File(str(b, "path", ""));
+                if (!f.isFile()) return fail("电脑上没有这个文件");
+                new Thread(() -> {
+                    Actions.Result r = xfer.send(f, phone, this::callPhone);
+                    log.accept("发文件到手机：" + (r.ok ? "成功 " : "失败 ") + f.getName());
+                    notify.post("task", r.ok ? "文件已发到手机" : "文件没发到手机", r.text, phone, r.ok ? Outcomes.DONE : Outcomes.FAILED);
+                }, "onesay-xfer-send").start();
+                return ok("开始发：" + f.getName() + "（" + FileXfer.human(f.length()) + "），进度看下面");
+            }
+            if (op.equals("open_dir")) {
+                try {
+                    java.nio.file.Path d = cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE);
+                    Files.createDirectories(d);
+                    SafeExec.start(new ProcessBuilder("explorer.exe", d.toString()));
+                    return ok("已打开");
+                } catch (Exception e) { return fail("打不开：" + e.getClass().getSimpleName()); }
+            }
+            Map<String, Object> m = ok("传输");
+            m.put("xfers", xfer.view());
+            m.put("dir", cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE).toString());
+            return m;
+        });
+        ui.on("chat_clear", b -> { if (chat.running()) return fail("任务还在做，先点「停止」"); store.clear("chat"); return ok("已清空对话，记忆保留"); });
+        ui.on("chat_stop", b -> { boolean again = chat.running() && chat.stopping(); return chat.stop() ? ok(again ? "直接结束，不再收尾" : "正在停下：中断当前这一步，再简短收尾（再点一次停止就直接结束）") : ok("没有在做的任务"); });
+        ui.on("dl_cancel", b -> chat.cancelTransfer() ? ok("已取消，任务会接着往下") : ok("现在没有在下载 / 传的")); // [overnight-1119]
+        ui.on("artifact", b -> chat.artifact(str(b, "path", ""))); // [devtools-1118] 任务卡里的截图 / 文件（只给对话里登记过的路径）
         ui.on("memory", b -> { store.setMemory(str(b, "text", ""), System.currentTimeMillis()); return ok("记忆已保存"); });
         ui.on("todo", b -> {
             String op = str(b, "op", "");
@@ -515,7 +1146,10 @@ public final class App {
             return m;
         });
         ui.on("confirm", b -> confirmApi(agent.confirms, b, log));
+        ui.on("whitelist", b -> whitelistApi(whitelist, b, log));
         ui.on("media", this::mediaApi);
+        ui.on("mirror", this::mirrorApi);   // phone-mirror M1：只给电脑界面用（本机口令保护），不进 agent.local
+        ui.onUpload("mirror_drop", (q, size, in) -> mirror.drop(q.getOrDefault("serial", ""), q.getOrDefault("name", ""), size, in));
         // 「以后这类不用问」记住的动作类型：看 / 撤销（只能在电脑界面上；远程改不了）
         ui.on("remembered", b -> {
             String op = str(b, "op", "list");
@@ -526,6 +1160,54 @@ public final class App {
             } else if (!op.equals("list")) return fail("不认识的操作");
             Map<String, Object> m = ok(op.equals("revoke") ? "已撤销，下次这类会再问你" : "记住的类型");
             m.put("remembered", agent.guard.rememberedView());
+            return m;
+        });
+        // [approvals-1118] 本机对话：前缀规则（以后以 … 开头的命令不用问）看 / 撤销；任务 / 运行级批准撤销；权限记录
+        ui.on("chat_rules", b -> {
+            String op = str(b, "op", "list");
+            if (op.equals("revoke")) {
+                String k = str(b, "key", "");
+                if (!agent.guard.forgetRule(k)) return fail("没有这条规则");
+                agent.guard.logPerm(ChatPolicy.keyZh(k), "撤销", "");
+                log.accept("撤销了对话前缀规则：" + k);
+            } else if (op.equals("revoke_grants")) {
+                agent.guard.revokeGrants();
+                agent.guard.logPerm("「允许本次任务 / 这次运行都允许」", "撤销", "");
+            } else if (op.equals("clear_stats")) {
+                store.clearPermStats();
+                agent.guard.logPerm("权限审批记录的次数", "清零", "");
+            } else if (!op.equals("list")) return fail("不认识的操作");
+            Map<String, Object> m = ok(op.equals("list") ? "对话规则" : op.equals("clear_stats") ? "已清零" : "已撤销，下次会再问你");
+            m.put("perm_stats", PermStats.view(store.permStats()));
+            m.put("chat_rules", ChatPolicy.view(agent.guard.chatRules()));
+            m.put("grants", agent.guard.grantView());
+            m.put("perm_log", agent.guard.permLogView());
+            return m;
+        });
+        // [approvals-1118] 任务卡上「本地应用 / 网页」的选择（不是审批）：只收界面上的真实点击
+        ui.on("choice", b -> {
+            Object id = b.get("id");
+            if (!(id instanceof Number)) return fail("没有这个选择");
+            if (!Boolean.TRUE.equals(b.get("trusted"))) return fail("只认界面上的点击");
+            return chat.choices.answer(((Number) id).intValue(), str(b, "pick", ""), !Boolean.FALSE.equals(b.get("remember"))) ? ok("好") : fail("已经过期");
+        });
+        // 打开习惯：看 / 改 / 删
+        ui.on("habits", b -> {
+            String op = str(b, "op", "list"), k = OpenTarget.norm(str(b, "key", ""));
+            Map<String, Map<String, Object>> h = OpenTarget.parseHabits(cfg.openHabits);
+            if (op.equals("remove")) { if (h.remove(k) == null) return fail("没有这条习惯"); }
+            else if (op.equals("set")) {
+                String c = str(b, "choice", "");
+                if (!h.containsKey(k) || !(c.equals("app") || c.equals("web"))) return fail("改不了");
+                h.get(k).put("choice", c);
+            } else if (!op.equals("list")) return fail("不认识的操作");
+            if (!op.equals("list")) {
+                cfg.openHabits = OpenTarget.formatHabits(h);
+                try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+                agent.guard.logPerm("打开习惯「" + k + "」", op.equals("remove") ? "删除" : "改成" + ("web".equals(str(b, "choice", "")) ? "网页" : "本地应用"), "");
+            }
+            Map<String, Object> m = ok("打开习惯");
+            m.put("habits", h);
             return m;
         });
         // 快捷指令批准表：看 / 撤销（批准只能在手机触发时的确认里点「以后直接执行」）
@@ -573,22 +1255,25 @@ public final class App {
                 return fail(e.getMessage());
             }
         });
+        ui.on("aon", this::aonApi); // [always-on-1120]
+        ui.on("wf", b -> wf.handle(b)); // [workflow-1120] 工作流页
         ui.on("settings", b -> {
-            boolean restartVoice = false;
+            boolean restartVoice = false, aonTouched = false;
             for (Map.Entry<String, Object> e : b.entrySet()) {
                 String v = String.valueOf(e.getValue()).trim();
                 switch (e.getKey()) {
                     case "llm_provider": if (List.of("deepseek", "bailian", "custom").contains(v)) cfg.llmProvider = v; break;
                     case "llm_key": if (v.equals("-")) cfg.llmKey = ""; else if (!v.isEmpty()) cfg.llmKey = v; break;
                     case "llm_model": cfg.llmModel = v; break;
-                    case "llm_base": if (v.isEmpty() || v.startsWith("https://") || v.startsWith("http://127.0.0.1") || v.startsWith("http://localhost")) cfg.llmBase = v; else return fail("接口地址要用 https"); break;
+                    case "llm_base": if (baseOk(v)) cfg.llmBase = v; else return fail("接口地址要用 https（本机的 http://127.0.0.1 / localhost 也行）"); break;
                     case "asr_mode": if (List.of("local", "phone", "cloud").contains(v)) cfg.asrMode = v; break; // 旧接口，只存不用
                     case "asr_pref": if (List.of("auto", "cloud", "local").contains(v)) { cfg.asrPref = v; asr.invalidate(); restartVoice = true; log.accept("识别 → " + AsrRoute.Pref.of(v).zh); } break;
                     case "asr_key": if (v.equals("-")) cfg.asrKey = ""; else if (!v.isEmpty()) cfg.asrKey = v; asr.invalidate(); restartVoice = true; break;
                     case "ptt": cfg.pttEnabled = v.equals("true"); restartVoice = true; break;
                     case "ptt_skip": cfg.pttSkip = v; restartVoice = true; break;
-                    case "files_dir": cfg.filesDir = v; break;
-                    case "scripts_dir": cfg.scriptsDir = v; break;
+                    // [preview-1120] 路径类设置：界面用系统选择框选；这里再核一次，填错了明说（以前什么都收，到用的时候才发现不对）
+                    case "files_dir": { String bad = dirProblem(v); if (bad != null) return fail("共享文件夹：" + bad); cfg.filesDir = v; break; }
+                    case "scripts_dir": { String bad = dirProblem(v); if (bad != null) return fail("快捷指令文件夹：" + bad); cfg.scriptsDir = v; break; }
                     case "apps": cfg.apps = v; break;
                     case "pc_level": cfg.setLegacyLevel(v); log.accept("电脑档位 → " + cfg.mode()); break; // 旧接口：三档映射到两轴
                     case "pc_sandbox": cfg.setMode(new LinkPolicy.Mode(LinkPolicy.Sandbox.of(v), cfg.mode().approval)); log.accept("沙箱档 → " + cfg.pcSandbox); break;
@@ -603,12 +1288,51 @@ public final class App {
                     case "plugin_encoded": cfg.pluginEncoded = v.equals("true"); log.accept("编码 / 隐藏命令拦截 → " + (cfg.pluginEncoded ? "开" : "关")); break;
                     case "net_allow": cfg.netAllow = String.join(",", LinkPolicy.parseDomains(v)); break;
                     case "trusted_domains": cfg.trusted = String.join(",", LinkPolicy.parseDomains(v)); break;
+                    case "chat_preset": {
+                        ChatPolicy.Preset np = ChatPolicy.Preset.of(v);
+                        if (!np.id.equals(cfg.chatPreset)) {
+                            cfg.chatPreset = np.id;
+                            agent.guard.revokeGrants(); // 改预设：之前的任务 / 运行级批准作废
+                            agent.guard.logPerm("对话权限预设 → " + np.zh, "设置", "");
+                            log.accept("对话权限预设 → " + np.zh);
+                        }
+                        break;
+                    }
+                    case "chat_timeout_min": try { cfg.chatTimeoutMin = Math.max(5, Math.min(1440, Integer.parseInt(v))); } catch (NumberFormatException nfe) { return fail("时长写分钟数"); } break;
                     case "autostart": autostart(v.equals("true")); break;
                     case "media_quality": cfg.mediaQuality = MediaArgs.quality(v); break;
+                    case "vision_key": if (v.equals("-")) cfg.visionKey = ""; else if (!v.isEmpty()) cfg.visionKey = v; break; // [devtools-1118]
+                    case "vision_base": if (baseOk(v)) cfg.visionBase = v; else return fail("看图模型接口地址要用 https（本机的 http://127.0.0.1 / localhost 也行）"); break;
+                    case "vision_model": cfg.visionModel = v; break;
+                    case "adb_path": {
+                        if (!v.isEmpty() && (!new File(v).isFile() || !new File(v).getName().toLowerCase(java.util.Locale.ROOT).matches("adb(\\.exe)?"))) return fail("adb 程序要选 adb.exe 这个文件（没找到或不是 adb）");
+                        cfg.adbPath = v;
+                        break;
+                    }
+                    case "theme": cfg.theme = Themes.mode(v); break; // [preview-1120] 外观
+                    case "theme_pack": if (v.matches("[a-z0-9-]{0,40}")) cfg.themePack = v; else return fail("主题包 id 不对"); break;
+                    case "wol_enabled": { // [always-on-1120] 网络唤醒：打开时没选过网卡就用第一块连着的有线网卡
+                        cfg.wolEnabled = v.equals("true");
+                        if (!cfg.wolEnabled) cfg.wolAuto = false;
+                        if (cfg.wolEnabled && cfg.wolMac.isEmpty()) for (Map<String, Object> n : nics())
+                            if (!Boolean.TRUE.equals(n.get("wireless")) && !String.valueOf(n.get("ip")).isEmpty()) { cfg.wolMac = String.valueOf(n.get("mac")); cfg.wolBcast = String.valueOf(n.get("bcast")); break; }
+                        aonTouched = true;
+                        log.accept("网络唤醒 → " + (cfg.wolEnabled ? "开" : "关"));
+                        break;
+                    }
+                    case "wol_auto":
+                        if (v.equals("true") && !cfg.wolEnabled) return fail("先打开网络唤醒");
+                        if (v.equals("true") && cfg.wolMac.isEmpty()) return fail("先选唤醒用的网卡");
+                        cfg.wolAuto = v.equals("true");
+                        aonTouched = true;
+                        log.accept("预先授权自动唤醒 → " + (cfg.wolAuto ? "开" : "关"));
+                        break;
+                    case "mirror_keyboard": cfg.mirrorKeyboard = "uhid".equals(v) ? "uhid" : "sdk"; log.accept("投屏键盘 → " + ("uhid".equals(v) ? "物理键盘（UHID）" : "普通键盘")); break;
                     default: break;
                 }
             }
             try { cfg.save(); } catch (IOException e) { return fail("保存失败"); }
+            if (aonTouched && aon != null) { aonCfg(); aon.wakeChanged(); }
             if (restartVoice) {
                 voice.stop();
                 Voice nv = new Voice(cfg, actions, log, asr);
@@ -660,12 +1384,13 @@ public final class App {
         boolean allow = Boolean.TRUE.equals(b.get("allow"));
         boolean always = allow && Boolean.TRUE.equals(b.get("always"));
         boolean remember = allow && !always && Boolean.TRUE.equals(b.get("remember"));
+        String scope = allow ? str(b, "scope", "") : "";
         ConfirmGate.Input in = Boolean.TRUE.equals(b.get("trusted")) ? ConfirmGate.Input.of(b.get("input")) : ConfirmGate.Input.UNKNOWN;
-        ConfirmGate.Answer a = cf.answer(((Number) id).intValue(), allow, always, remember, in);
+        ConfirmGate.Answer a = cf.answer(((Number) id).intValue(), allow, always, remember, scope, in);
         switch (a) {
             case ACCEPTED:
                 log.accept((allow ? (always ? "允许（以后直接执行）" : remember ? "允许（以后这类不用问）" : "允许") : "拒绝") + "了一条远程请求（" + (in.local() ? (in == ConfirmGate.Input.KEYBOARD ? "键盘" : "鼠标") : "界面") + "）");
-                return ok(allow ? (always ? "已允许，以后直接执行" : remember ? "已允许，以后这类不用问" : "已允许一次") : "已拒绝");
+                return ok(allow ? ("task".equals(scope) ? "已允许本次任务" : "session".equals(scope) ? "这次运行都允许" : always ? "已允许，以后直接执行" : remember ? "已允许，以后这类不用问" : "已允许一次") : "已拒绝");
             case NOT_LOCAL: {
                 log.accept("一条不是本机鼠标 / 键盘的「允许」没算数：" + LinkPolicy.R_VOICE_APPROVAL_BLOCKED);
                 Map<String, Object> f = fail(LinkPolicy.reasonZh(LinkPolicy.R_VOICE_APPROVAL_BLOCKED));
@@ -702,7 +1427,7 @@ public final class App {
     boolean autostartOn() {
         if (!isWindows()) return false;
         try {
-            Process p = new ProcessBuilder("reg", "query", RUN_KEY, "/v", "OneSay").redirectErrorStream(true).start();
+            Process p = new ProcessBuilder("reg", "query", RUN_KEY, "/v", Flavor.runValue()).redirectErrorStream(true).start();
             p.getInputStream().readAllBytes();
             return p.waitFor() == 0;
         } catch (Exception e) {
@@ -722,8 +1447,8 @@ public final class App {
             } catch (Exception e) { return; }
         }
         try {
-            ProcessBuilder pb = on ? new ProcessBuilder("reg", "add", RUN_KEY, "/v", "OneSay", "/t", "REG_SZ", "/d", cmd, "/f")
-                    : new ProcessBuilder("reg", "delete", RUN_KEY, "/v", "OneSay", "/f");
+            ProcessBuilder pb = on ? new ProcessBuilder("reg", "add", RUN_KEY, "/v", Flavor.runValue(), "/t", "REG_SZ", "/d", cmd, "/f")
+                    : new ProcessBuilder("reg", "delete", RUN_KEY, "/v", Flavor.runValue(), "/f");
             Process p = pb.redirectErrorStream(true).start();
             p.getInputStream().readAllBytes();
             p.waitFor();
@@ -731,13 +1456,25 @@ public final class App {
     }
 
     // ---------- 窗口与托盘 ----------
+    /** ★ exe-handoff-1118：Edge 后备窗口的地址带这个片段，页面据此在标题和顶部写明「Edge 后备窗口」（片段不发给服务端）。 */
+    static final String EDGE_FALLBACK_MARK = "#edge-fallback";
+
+    /** Edge 后备窗口打开的地址：原地址加 {@link #EDGE_FALLBACK_MARK}（已有片段就替换）。 */
+    static String edgeFallbackUrl(String url) {
+        int h = url.indexOf('#');
+        return (h >= 0 ? url.substring(0, h) : url) + EDGE_FALLBACK_MARK;
+    }
+
     /**
-     * OneSay.exe 托管时用它自己进程里的窗口（WebView2，窗口属于 OneSay.exe）；
-     * 否则 / 没有 WebView2 运行时：Edge 应用窗口（无地址栏、独立图标）；没有 Edge 就用默认浏览器。
+     * OneSay.exe 托管时用它自己进程里的窗口（WebView2，窗口属于 OneSay.exe）——正常情况；直接用 java 启动时
+     * {@link ExeHandoff} 会先交给 OneSay.exe。都不行（没装 OneSay.exe / 装的 jar 不同 / 没有 WebView2 运行时）才是
+     * 最后的后备：Edge 应用窗口（标明「Edge 后备窗口」）；没有 Edge 就用默认浏览器。
      */
     static void openWindow(String url) {
         if (Host.open(url)) return;
         if (isWindows()) {
+            System.err.println("[window] 后备：Edge 应用窗口（不是 OneSay.exe 托管，窗口会算在 Edge 名下）");
+            String edgeUrl = edgeFallbackUrl(url);
             List<String> cands = new ArrayList<>();
             for (String env : List.of("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")) {
                 String base = System.getenv(env);
@@ -747,7 +1484,7 @@ public final class App {
                 if (!new File(c).isFile()) continue;
                 try {
                     String profile = Config.defaultDir().resolve("window").toString();
-                    new ProcessBuilder(c, "--app=" + url, "--user-data-dir=" + profile, "--window-size=1200,800", "--no-first-run", "--no-default-browser-check").start();
+                    new ProcessBuilder(c, "--app=" + edgeUrl, "--user-data-dir=" + profile, "--window-size=1200,800", "--no-first-run", "--no-default-browser-check").start();
                     return;
                 } catch (IOException ignored) { }
             }
@@ -786,19 +1523,49 @@ public final class App {
         menu.add(st);
         menu.addSeparator();
         menu.add(quit);
-        TrayIcon icon = new TrayIcon(trayImage(true), "OneSay " + cfg.deviceId, menu);
+        TrayIcon icon = new TrayIcon(trayImage(true), Flavor.name() + " " + cfg.deviceId, menu);
         icon.setImageAutoSize(true);
         icon.addActionListener(e -> openWindow(ui.url()));
         SystemTray.getSystemTray().add(icon);
         notify.attach(icon);
+        trayIcon = icon;
         new Thread(() -> {
             boolean last = true;
             while (true) {
+                if (agent.confirms.list().isEmpty()) trayHint(null); // [overnight-1119] 没卡等着了：提示文字复原
                 boolean on = !agent.peers().isEmpty();
                 st.setLabel(on ? "手机在线" : "手机离线");
                 if (on != last) { icon.setImage(trayImage(on)); last = on; }
                 try { Thread.sleep(2000); } catch (InterruptedException e) { return; }
             }
         }, "onesay-tray").start();
+    }
+
+    /**
+     * [preview-1120 AUDIT A-07] 模型 / 看图接口地址：空、https，或者真正的本机 http。以前用 startsWith("http://localhost")，
+     * 「http://localhost.example.com」「http://127.0.0.1.nip.io」也算本机，Key 会用明文发到别人的服务器。
+     */
+    static boolean baseOk(String v) {
+        if (v == null || v.isEmpty()) return true;
+        try {
+            java.net.URI u = new java.net.URI(v);
+            String sc = u.getScheme() == null ? "" : u.getScheme().toLowerCase(java.util.Locale.ROOT);
+            String h = u.getHost() == null ? "" : u.getHost().toLowerCase(java.util.Locale.ROOT);
+            if (h.isEmpty() || u.getUserInfo() != null) return false;
+            if (sc.equals("https")) return true;
+            return sc.equals("http") && (h.equals("127.0.0.1") || h.equals("localhost") || h.equals("[::1]") || h.equals("::1"));
+        } catch (java.net.URISyntaxException e) {
+            return false;
+        }
+    }
+
+    /** [preview-1120] 文件夹设置：空 = 不开；否则要是绝对路径、真的存在、是文件夹。返回问题（null = 没问题）。 */
+    static String dirProblem(String v) {
+        if (v == null || v.isEmpty()) return null;
+        File f = new File(v);
+        if (!f.isAbsolute()) return "要完整路径（点「选择…」从电脑上选）";
+        if (!f.exists()) return "「" + v + "」不存在";
+        if (!f.isDirectory()) return "「" + v + "」不是文件夹";
+        return null;
     }
 }

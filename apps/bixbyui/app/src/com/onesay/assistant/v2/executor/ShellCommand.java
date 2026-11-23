@@ -58,6 +58,23 @@ public final class ShellCommand {
      * 把执行参数整理成槽位值表（含 {component}/{pkg} 与 {seconds}/{ms} 派生值）。
      * {@code seconds} 按整数秒处理，并派生毫秒 {@code ms}（与旧版一致）。
      */
+    private static final java.util.regex.Pattern URL_SCHEME = java.util.regex.Pattern.compile("^\\s*([A-Za-z][A-Za-z0-9+.\\-]*):");
+
+    /**
+     * ★ rel-1118 B01：L0 槽位改为原样取回之后，「打开网页file:///…」「javascript:…」「intent://…」「content://…」会带着协议进来
+     * （以前标点被删、协议名糊成了普通字串）。网址槽位只放行 http / https 和不带协议的域名（「www.a.com」「a.com:8080/x」）。
+     */
+    public static boolean dangerousUrl(String url) {
+        if (url == null) return false;
+        java.util.regex.Matcher m = URL_SCHEME.matcher(url);
+        if (!m.find()) return false;
+        String scheme = m.group(1).toLowerCase(java.util.Locale.ROOT);
+        if (scheme.equals("http") || scheme.equals("https")) return false;
+        // 「a.com:8080」是主机 + 端口不是协议：冒号后紧跟数字
+        String rest = url.trim().substring(m.end());
+        return !(scheme.contains(".") && rest.length() > 0 && Character.isDigit(rest.charAt(0)));
+    }
+
     public static Map<String, String> slotValues(JSONObject args, String component, String pkg) {
         Map<String, String> m = new LinkedHashMap<String, String>();
         if (args != null) {
@@ -66,6 +83,9 @@ public final class ShellCommand {
                 String k = String.valueOf(it.next());
                 Object v = args.opt(k);
                 if (v == null || v == JSONObject.NULL) continue;
+                if ("url".equals(k) && dangerousUrl(String.valueOf(v))) {   // ★ rel-1118 B01：网址槽位只认 http(s) / 裸域名
+                    throw new IllegalArgumentException("url 只支持 http/https 网址");
+                }
                 m.put(k, String.valueOf(v));
             }
             if (args.has("seconds")) {

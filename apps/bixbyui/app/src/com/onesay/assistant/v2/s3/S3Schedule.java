@@ -112,7 +112,9 @@ public final class S3Schedule {
                 int dd = dayDiff(now, onceAt, tz);
                 String day = dd == 0 ? "今天" : dd == 1 ? "明天" : dd == 2 ? "后天"
                         : (c.get(Calendar.MONTH) + 1) + "月" + c.get(Calendar.DAY_OF_MONTH) + "日";
-                return day + " " + hm;
+                // ★ fix-1118 c20：单次任务按实际响铃时刻写（以前用解析时的钟点，「7点」顺延到 19:00 仍写 07:00）
+                int h = c.get(Calendar.HOUR_OF_DAY), mi = c.get(Calendar.MINUTE);
+                return day + " " + (h < 10 ? "0" : "") + h + ":" + (mi < 10 ? "0" : "") + mi;
             }
         }
     }

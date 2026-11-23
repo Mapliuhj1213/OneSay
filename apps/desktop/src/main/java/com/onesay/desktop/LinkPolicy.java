@@ -225,6 +225,8 @@ public final class LinkPolicy {
         /** 操作第三方 App（关掉 / 清后台等，不含卸载）。 */
         APP_OPERATE,
         WORKSPACE_WRITE, OUTSIDE_WRITE,
+        /** [preview-1120] MCP 连接器里有副作用（没声明只读）的工具：每次确认（只读档拒）。 */
+        MCP_TOOL,
         UNINSTALL_APP,
         /** 运行工作区 scripts/ 里已有的脚本。 */
         RUN_WS_SCRIPT,
@@ -321,7 +323,7 @@ public final class LinkPolicy {
         static Decision script(String reason, String text) { return new Decision(Verdict.SCRIPT, reason, text, false); }
 
         /** 确认卡上能不能给「以后这类不用问」：要确认、有动作类型。硬规则（拒绝 / 只生成脚本）永远不是。 */
-        public boolean rememberable() { return verdict == Verdict.CONFIRM && kind.length() > 0 && knownKind(kind); }
+        public boolean rememberable() { return verdict == Verdict.CONFIRM && kind.length() > 0 && (knownKind(kind) || ChatPolicy.validKey(kind)); }
 
         @Override public String toString() {
             return verdict + (reason.length() > 0 ? "/" + reason : "") + (headsUp ? "/heads-up" : "") + (kind.length() > 0 ? "/" + kind : "")
@@ -334,7 +336,7 @@ public final class LinkPolicy {
     /** 能记住的动作类型（键 → 给人看的说法）。不在这里的不收（远程塞进来的乱写的类型也不收）。 */
     private static final String[][] KINDS = {
             {"pc.setting", "电脑：改音量 / 亮度 / 勿扰"}, {"pc.power", "电脑：关机 / 睡眠"}, {"pc.uninstall", "电脑：卸载程序"},
-            {"pc.script_run", "电脑：运行工作区脚本"}, {"pc.shell_exec", "电脑：执行命令"}, {"pc.outside_write", "电脑：写工作区以外的文件"},
+            {"pc.script_run", "电脑：运行工作区脚本"}, {"pc.shell_exec", "电脑：执行命令"}, {"pc.mcp_tool", "电脑：调用 MCP 工具"}, {"pc.outside_write", "电脑：写工作区以外的文件"},
             {"pc.url", "电脑：打开不在信任列表的网址"}, {"pc.url.risky", "电脑：打开有风险的网址（IP / 内网 / 带账号 / 疑似仿冒）"},
             {"pc.clipboard", "电脑：写剪贴板"}, {"pc.clipboard.command", "电脑：写像命令 / 带特殊链接的剪贴板"}, {"pc.clipboard.sensitive", "电脑：写敏感内容到剪贴板"},
             {"pc.blocked_app.open", "电脑：打开支付 / 银行 / 密码 / 商店类程序"}, {"pc.blocked_app.uninstall", "电脑：卸载支付 / 银行 / 密码 / 商店类程序"},
@@ -541,6 +543,8 @@ public final class LinkPolicy {
                 return needsApproval(sb, ap, "运行工作区脚本（每次都要确认，按你自己的权限执行）", "pc.script_run");
             case SHELL_EXEC:
                 return needsApproval(sb, ap, "执行命令（会显示完整命令，按你自己的权限执行）", "pc.shell_exec");
+            case MCP_TOOL:
+                return needsApproval(sb, ap, "调用 MCP 工具（服务器没声明只读，可能有副作用；按服务器自己的权限执行）", "pc.mcp_tool");
             default:
                 return Decision.deny(R_UNKNOWN, "不认识的指令");
         }
@@ -638,6 +642,10 @@ public final class LinkPolicy {
         if ("uninstall_app".equals(cmd)) return Cat.UNINSTALL_APP;
         if ("script_run".equals(cmd)) return Cat.RUN_WS_SCRIPT;
         if ("sys_exec".equals(cmd)) return Cat.SHELL_EXEC;
+        if ("operate".equals(cmd)) return Cat.APP_OPERATE; // [phone-tools-1118] 交给手机自己的规划执行；危险的那一下由手机执行链弹卡
+        if (in(cmd, "shortcut_list", "operate_status")) return Cat.QUERY;                // [overnight-1119]
+        if ("file_put".equals(cmd)) return Cat.WORKSPACE_WRITE;                           // 只往自己的「下载 / OneSay」放新文件，不覆盖、不打开
+        if ("shortcut_run".equals(cmd)) return Cat.APP_OPERATE;                           // 快捷指令每一步照旧走手机执行链（危险那一下弹卡）
         return Cat.UNKNOWN;
     }
 
@@ -647,6 +655,12 @@ public final class LinkPolicy {
         if (isRemoteApproval(cmd)) return Cat.REMOTE_APPROVAL;
         if (isPayFinal(cmd)) return Cat.PAY_FINAL;
         if (in(cmd, "ping", "caps", "info", "shortcut_list", "level", "media_status")) return Cat.QUERY;
+        if ("pc_task_status".equals(cmd)) return Cat.QUERY;   // [overnight-1119] 手机查交给电脑的任务
+        if ("pc_task".equals(cmd)) return Cat.HARMLESS;        // 只交一句目标；电脑按这台手机的权限逐步判定
+        if ("file_put".equals(cmd)) return Cat.WORKSPACE_WRITE; // 落在电脑工作区「来自手机」
+        // [app-whitelist-1116] 白名单同步：只在配对的签名通道上交换整份、按条目最后写入合并（AppWhitelist），任何沙箱档都要能同步，所以和查询同一行；
+        // 单独「远程加一条白名单」的指令不收（见 isSelfAuthorizeCmd）
+        if ("whitelist_sync".equals(cmd)) return Cat.QUERY;
         if (in(cmd, "screenshot", "clipboard_get", "file_get", "file_list", "script_list", "media_fetch")) return Cat.READ_PRIVATE;
         if (in(cmd, "media", "lock", "notify", "memory_sync", "echo", "media_cancel")) return Cat.HARMLESS;
         if ("media_get".equals(cmd)) return Cat.MEDIA_DOWNLOAD;
@@ -671,7 +685,9 @@ public final class LinkPolicy {
         String c = cmd == null ? "" : cmd.trim().toLowerCase(Locale.ROOT);
         return in(c, "settings", "settings_set", "config_set", "pc_level", "level_set", "set_level", "sandbox_set", "approval_set", "plugin_set", "plugin_off",
                 "trust_add", "trusted_add", "net_allow_add", "shortcut_approve", "policy_set", "remember_type", "remember_kind", "remembered_add", "approve_type",
-                "approve_types", "clip_autoclear", "rx_enable", "rx_set", "cmd_enable", "switch_set");
+                "approve_types", "clip_autoclear", "rx_enable", "rx_set", "cmd_enable", "switch_set",
+                "whitelist_add", "whitelist_set", "whitelist_remove", "app_whitelist_add", "app_whitelist_set",
+                "chat_preset", "chat_preset_set", "chat_rule_add", "chat_rules"); // [approvals-1118] 本机对话的预设 / 前缀规则同样只能在电脑界面上改 // [app-whitelist-1116] 白名单只能本机加删，经 whitelist_sync 同步
     }
 
     /**
@@ -724,7 +740,7 @@ public final class LinkPolicy {
                     + "|(\\bdpm\\s+set-(active-admin|device-owner|profile-owner))|(\\bcmd\\s+device_policy\\b)"
                     + "|(\\bcmd\\s+package\\s+(grant|revoke|set-permission-flags|set-installer)\\b)" // [sync-1114 ← 手机]
                     + "|(\\bshizuku\\b)|(moe\\.shizuku)|(\\bmagisk\\b.*(--sqlite\\b|\\bpolic(y|ies)\\b))|(\\bsupolicy\\b)" // [sync-1114 ← 手机] 原 \\b--sqlite 永远匹配不上
-                    + "|(\\bAdd-MpPreference\\b)|(\\bicacls\\b)|(\\btakeown\\b)|(\\bSet-Acl\\b)|(\\bnet\\s+localgroup\\b)",
+                    + "|(\\b(Add|Set|Remove)-MpPreference\\b)|(\\bUninstall-WindowsFeature\\s+Windows-Defender)|(\\bicacls\\b)|(\\btakeown\\b)|(\\bSet-Acl\\b)|(\\bnet\\s+localgroup\\b)",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PHONE_SIMPLE = Pattern.compile(
             "^\\s*(settings\\s+put\\s+system\\s+(screen_brightness|screen_brightness_mode|screen_off_timeout)\\s+\\S+"
@@ -1424,14 +1440,79 @@ public final class LinkPolicy {
                     + "|(\\bnet\\s+(user|localgroup|accounts)\\b)|(\\bsetx\\b[^|;]*\\s/m\\b)|(\\bmsiexec\\b)"
                     + "|(\\bset-executionpolicy\\b(?![^|;]*-scope\\s+(currentuser|process)))", Pattern.CASE_INSENSITIVE);
 
+    /**
+     * [preview-1120 真机] 只读的 {@code netsh … show …}（如 {@code netsh wlan show interfaces}、{@code netsh interface ip show config}）
+     * 不改任何设置、普通用户也能跑，不算「要管理员」——以前一律当成改网络，生成管理员脚本，模型拿不到结果就反复去读脚本、卡住。
+     * 仍算要管理员：带 set / add / delete / reset / connect 等动词、{@code -f} / {@code exec} 跑脚本、{@code key=clear}（显示 Wi-Fi 密码）。
+     */
+    private static final Pattern NETSH_STMT = Pattern.compile("\\bnetsh(\\.exe)?\\b([^|;&\\n\\r]*)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NETSH_WRITE = Pattern.compile(
+            "(^|\\s)(-f|-r|exec|set|add|delete|del|reset|install|uninstall|import|export|connect|disconnect|start|stop|dump|trace|init|flush|commit|offline|online|bridge|refresh|reconnect|hostednetwork)(\\s|=|$)",
+            Pattern.CASE_INSENSITIVE);
+
+    static boolean netshReadOnly(String args) {
+        String a = " " + (args == null ? "" : args.trim().toLowerCase(java.util.Locale.ROOT)) + " ";
+        if (!a.matches("(?s).*\\sshow\\s.*")) return false;
+        if (NETSH_WRITE.matcher(a).find()) return false;
+        return !a.replace(" ", "").contains("key=clear");
+    }
+
+    /** ADMIN_NET 的命中，但跳过只读的 netsh show 语句。 */
+    private static String netAdminHit(String s) {
+        Matcher m = ADMIN_NET.matcher(s);
+        while (m.find()) {
+            if (m.group().toLowerCase(java.util.Locale.ROOT).startsWith("netsh")) {
+                Matcher st = NETSH_STMT.matcher(s);
+                if (st.find(m.start()) && st.start() == m.start() && netshReadOnly(st.group(2))) continue;
+            }
+            if (m.group().toLowerCase(java.util.Locale.ROOT).contains("hosts") && readOnlyAt(s, m.start())) continue; // [preview-1120 真机 2] 只读 hosts
+            String h = oneLine(m.group());
+            return h.length() > 40 ? h.substring(0, 40) + "…" : h;
+        }
+        return null;
+    }
+
+    /**
+     * [preview-1120 真机综合测试 2] 只读地看机器级注册表 / hosts（{@code Get-ItemProperty 'HKLM:\…\Uninstall\*'}、
+     * {@code Get-Content C:\Windows\System32\drivers\etc\hosts}）普通用户也能做，不算「要管理员」——以前一律生成管理员脚本，
+     * 模型拿不到「装了哪些软件」「hosts 里有什么」，就去翻目录瞎猜（真机：漏掉已装的 VirtualBox、说 hosts 查不了）。
+     * 只在整条命令没有任何写入动作、且命中所在的那一句是由读命令开头时放行；其余照旧算要管理员。
+     */
+    private static final Pattern READ_LEAD = Pattern.compile(
+            "^(?:&\\s*)?(get-itemproperty|get-itempropertyvalue|get-childitem|get-item|test-path|get-acl|resolve-path|get-content|select-string|"
+                    + "gp|gpv|gci|gi|ls|dir|gc|type|cat|sls|reg(?:\\.exe)?\\s+query)\\b");
+    private static final Pattern ANY_WRITE = Pattern.compile(
+            "\\bout-(file|printer)\\b|\\b(set|new|remove|rename|copy|move|clear|add|export|import|install|uninstall|start|stop|restart|invoke|enable|disable|register|unregister)-[a-z]+\\b"
+                    + "|\\b(sp|ni|ri|rni|rm|del|erase|rd|rmdir|mi|move|cpi|copy|cp|mv|clc|cli|iex|icm|saps|start|sc|ac|tee)\\b"
+                    + "|\\breg(\\.exe)?\\s+(add|delete|import|load|unload|restore|copy|save|export)\\b|[^2*=\\-]>|>>|\\.(setvalue|deletevalue|deletesubkey\\w*|createsubkey|opensubkey\\s*\\([^)]*,\\s*\\$?true)");
+
+    static boolean readOnlyAt(String s, int at) {
+        if (ANY_WRITE.matcher(s).find()) return false;
+        int b = at;
+        while (b > 0 && ";|&\n\r({".indexOf(s.charAt(b - 1)) < 0) b--;
+        String stmt = s.substring(b).trim();
+        return READ_LEAD.matcher(stmt).find();
+    }
+
+    private static String readTolerantHit(Pattern p, String s, boolean onlyHosts) {
+        Matcher m = p.matcher(s);
+        while (m.find()) {
+            boolean candidate = !onlyHosts || m.group().contains("hosts");
+            if (candidate && readOnlyAt(s, m.start())) continue;
+            String h = oneLine(m.group());
+            return h.length() > 40 ? h.substring(0, 40) + "…" : h;
+        }
+        return null;
+    }
+
     /** 需要管理员就返回中文原因（给脚本头注释用），不需要返回空串。 */
     public static String adminReason(String normalized) {
         String s = normalized == null ? "" : normalized;
-        String h = firstHit(ADMIN_REG, s);
+        String h = readTolerantHit(ADMIN_REG, s, false);
         if (h != null) return "要改机器级注册表（" + h + "），需要管理员";
         h = firstHit(ADMIN_SVC, s);
         if (h != null) return "要动服务 / 驱动 / 启动项（" + h + "），需要管理员";
-        h = firstHit(ADMIN_NET, s);
+        h = netAdminHit(s);
         if (h != null) return "要改防火墙 / 网卡 / DNS / 系统级代理 / hosts（" + h + "），需要管理员";
         h = firstHit(ADMIN_TASK, s);
         if (h != null) return "要建系统级计划任务（" + h + "），需要管理员";
@@ -1473,7 +1554,7 @@ public final class LinkPolicy {
                     // [fix-1114 B10] 关掉 OneSay 的其它写法：Get-Process onesay | Stop-Process、wmic … onesay … delete、Invoke-CimMethod Terminate
                     + "|(\\b(get-process|gps|ps)\\b[^|;]*onesay[^;]*\\|\\s*(stop-process|spps|kill)\\b)|(\\b(wmic|get-wmiobject|gwmi|get-ciminstance|gcim)\\b[^;]*onesay[^;]*\\b(delete|terminate)\\b)"
                     // [fix-1114 B12] OneSay 的数据目录：%APPDATA% 展开后的真实路径 AppData\Roaming\OneSay（还有 Local / LocalLow 下的 OneSay）
-                    + "|(appdata[\\\\/]onesay)|(appdata[\\\\/](roaming|local|locallow)[\\\\/]onesay\\b)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):47830)|(/api/(settings|confirm|shortcuts|remembered))|(approve_kinds)|(clip_autoclear)",
+                    + "|(appdata[\\\\/]onesay)|(appdata[\\\\/](roaming|local|locallow)[\\\\/]onesay\\b)|(\\.config/onesay)|(\\bsc(\\.exe)?\\s+\\w+\\s+onesay\\b)|((127\\.0\\.0\\.1|localhost|\\[::1\\]):4(78|79)30)|(/api/(settings|confirm|shortcuts|remembered|chat_rules|choice|habits))|(approve_kinds)|(clip_autoclear)|(chat_preset)|(chat_allow_prefixes)|(open_habits)|(\\bnet_allow\\b)",
             Pattern.CASE_INSENSITIVE);
 
     public static String selfAuthorizeReason(String normalized, List<String> selfPaths) {

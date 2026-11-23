@@ -363,7 +363,7 @@ public final class Console implements ConsoleHost {
             return;
         }
         kit.dialog().setTitle("暂停助手？")
-                .setMessage("暂停后 Bixby 键（含长按记一记）和唤醒词都不响应；灵动岛、定时任务、取件码照常。\n随时在首页右上角恢复。")
+                .setMessage("暂停后唤醒键（含长按记一记）和唤醒词都不响应；灵动岛、定时任务、取件码照常。\n随时在首页右上角恢复。")
                 .setPositiveButton("暂停", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         com.onesay.assistant.v2.wake.AssistantPause.set(act, true);

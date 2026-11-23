@@ -67,6 +67,11 @@ public final class ShellBackend implements ExecutorBackend {
         String r = reason == null ? "" : reason;
         String why;
         String how;
+        if (r.startsWith("SHIZUKU_")) {
+            // ★ fix-1118：开源版没 root 的手机走 Shizuku，别说「系统特权守护」「root」
+            return what + "没有执行：OneSay 只让 Shizuku 跑少数几条固定命令，这一条不在里面（" + r + "）。"
+                    + "可以在系统设置里手动操作，或者换一种说法。";
+        }
         if (r.startsWith("MAC_") || r.startsWith("SIG_") || r.startsWith("UID_") || r.startsWith("NO_IDENTITY")
                 || r.startsWith("REVOKED") || r.startsWith("PIN_") || r.startsWith("MULTI_CERT")) {
             why = "守护没认出 OneSay 的身份";
@@ -90,6 +95,8 @@ public final class ShellBackend implements ExecutorBackend {
         if (s.startsWith("app.")) return "打开 App";
         if (s.contains("alarm") || s.contains("timer")) return "设置闹钟";
         if (s.contains("browser") || s.contains("url") || s.contains("web")) return "打开网页";
+        // ★ fix-1118：只读的查询（状态 / 亮度读数 / 电量）不是「改系统设置」（真机 c12、c18、c32）
+        if (s.endsWith(".state") || s.endsWith(".get") || s.endsWith(".level") || s.endsWith(".status") || s.startsWith("battery.")) return "读系统状态";
         if (s.startsWith("connectivity.") || s.startsWith("settings.") || s.startsWith("volume.")) return "改系统设置";
         return "这一步";
     }

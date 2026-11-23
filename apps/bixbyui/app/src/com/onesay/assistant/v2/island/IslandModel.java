@@ -733,6 +733,17 @@ public final class IslandModel {
         return list(Effect.ATTACH_SHEET, Effect.RENDER);
     }
 
+    /**
+     * ★ fix-1118（真机 c17：同一步确认卡出了两张）：面板此刻就在屏幕上、卡片画在面板里 —— 只记「待确认」（不变量照旧：不自动收起），
+     * 岛上不再另展开一张确认卡。
+     */
+    public synchronized List<Effect> confirmRequiredOnVisibleSheet(String title, String detail) {
+        mConfirmPending = true;
+        mConfirmTitle = title;
+        mConfirmDetail = detail;
+        return NONE;
+    }
+
     public synchronized List<Effect> confirmRequired() {
         return confirmRequired(null, null);
     }

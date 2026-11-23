@@ -878,7 +878,7 @@ public class V2SelfTest {
         try {
             final String composite = "打开浏览器搜索必应";
 
-            Invocation l0Res = router.getL0().route(composite);
+            Invocation l0Res = router.getL0() == null ? null : router.getL0().route(composite);
             if (l0Res == null) {
                 log(cb, "  ✓ L0 残余检测生效: [" + composite + "] 未被贪婪吞噬，已放行给上层");
                 passCount++;

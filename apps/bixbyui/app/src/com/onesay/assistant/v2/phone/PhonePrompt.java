@@ -5,6 +5,14 @@ import java.util.List;
 /** ★ r2/fast-screen：App 操作代理的提示词（纯 Java）。 */
 public final class PhonePrompt {
 
+    /** ★ overnight-1119：识屏用不了时回给模型的一句（不要再要截图）。 */
+    public static final String NO_VISION = "（看不了屏幕图像：没配识屏 Key 或截屏不可用。不要再要截图；只按上面的读屏结果做，读屏不够就用 ask 问用户，或在 done 里如实说做不到）";
+
+    /** ★ overnight-1119：识屏用不了时从系统提示里去掉「要看画面」这条。 */
+    public static String withoutShot(String sys) {
+        return sys == null ? null : sys.replace("5) 控件树看不出来、需要看画面：{\"shot\":true}\n", "");
+    }
+
     private PhonePrompt() {}
 
     public static final String MODEL = com.onesay.assistant.v2.net.LlmModels.DEEPSEEK_DEFAULT;
@@ -37,6 +45,14 @@ public final class PhonePrompt {
                 + "5) 控件树看不出来、需要看画面：{\"shot\":true}\n"
                 + "规则：只按编号操作当前界面里的元素；付款、下单、登录、填验证码/密码、发送消息、提交、删除这些步骤代码会暂停让用户确认，你照常排，"
                 + "但用户拒绝后不要换法子再试；不要编造界面上没有的内容；同一个动作没效果就换思路，不要原地重复；任务要求的结果都拿到了就 done。";
+    }
+
+    /** ★ a11y-labels：精准标签口径的补充说明（接在 system() 后面）。 */
+    public static String labelsAddendum() {
+        return "\n【精准标签】界面第一行带「快照 S…」：每读一次界面一个快照号。每行的类型是精准角色（按钮/输入框/开关/勾选框/单选/列表项/标签页/图片/文本/列表…）；"
+                + "名字后面标「推断」= 屏幕上没有这几个字，是从图标的描述或资源 id 得到的（expect 里别写它）；标「提示」= 输入框里的提示语，不是已输入的内容。"
+                + "你写的编号会绑定到你看到的那个快照：执行前代码会重读界面，页面换了或那个控件不在了就不执行、回执 STALE_ELEMENT 并给你新界面，"
+                + "这时按新界面重新安排，不要原样重发；也不要写坐标去点已经不在的东西。";
     }
 
     /** 改前对照：每次只允许一步（旧 BrowserAgent / AgentLoop 的单步口径）。 */

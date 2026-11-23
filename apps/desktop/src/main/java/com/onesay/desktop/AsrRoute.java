@@ -40,7 +40,7 @@ public final class AsrRoute {
 
     /** 实际用的识别。 */
     public enum Engine {
-        CLOUD("cloud", "云端"), LOCAL("local", "本机离线"), NONE("none", "没有可用的识别");
+        CLOUD("cloud", "云端"), LOCAL("local", "本机离线"), WINRT("winrt", "Windows 语音识别"), NONE("none", "没有可用的识别");
         public final String id, zh;
 
         Engine(String id, String zh) {
@@ -84,6 +84,8 @@ public final class AsrRoute {
     public volatile CloudFactory cloud = (base, key) -> new Asr(base, key)::recognize;
     public volatile Recognizer local = LocalAsr::recognize;
     public volatile BooleanSupplier localAvailable = LocalAsr::available;
+    /** [overnight-1119] Windows 自带语音识别（WinRT，自己从麦克风听）能不能用。 */
+    public volatile BooleanSupplier winrtAvailable = WinAsr::available;
     public volatile LongSupplier clock = System::currentTimeMillis;
     public volatile int probeTimeoutMs = PROBE_TIMEOUT_MS;
 
@@ -179,8 +181,8 @@ public final class AsrRoute {
                 w = keySet ? "设置为仅云端" : "设置为仅云端，但没填识别 Key";
                 break;
             case LOCAL:
-                e = localAvailable.getAsBoolean() ? Engine.LOCAL : Engine.NONE;
-                w = e == Engine.LOCAL ? "设置为仅本机" : "设置为仅本机，但这台电脑没有可用的中文离线识别";
+                e = localAvailable.getAsBoolean() ? Engine.LOCAL : winrtOk() ? Engine.WINRT : Engine.NONE;
+                w = e == Engine.LOCAL ? "设置为仅本机" : e == Engine.WINRT ? "设置为仅本机，用 Windows 语音识别" : "设置为仅本机，但这台电脑没有可用的中文识别（去设置填识别 Key）";
                 break;
             default:
                 if (cloudAvailable()) {
@@ -189,13 +191,26 @@ public final class AsrRoute {
                 } else {
                     String c = keySet ? "云端连不上" : "没填识别 Key";
                     boolean l = localAvailable.getAsBoolean();
-                    e = l ? Engine.LOCAL : Engine.NONE;
-                    w = l ? c + "，改用本机离线识别" : c + "，本机也没有可用的中文离线识别";
+                    e = l ? Engine.LOCAL : winrtOk() ? Engine.WINRT : Engine.NONE;
+                    w = l ? c + "，改用本机离线识别" : e == Engine.WINRT ? c + "，改用 Windows 语音识别" : c + "，本机也没有可用的中文识别：去「设置 › 模型与密钥」填识别 Key";
                 }
         }
         current = e;
         why = w;
         return e;
+    }
+
+    boolean winrtOk() {
+        try { return winrtAvailable.getAsBoolean(); } catch (RuntimeException e) { return false; }
+    }
+
+    /** [overnight-1119] 有没有任何识别来源（界面上「按住空格说话」是否真能用）。 */
+    public boolean anySource() {
+        boolean keySet = cfg.asrKey != null && !cfg.asrKey.isEmpty();
+        Pref p = pref();
+        if (p == Pref.CLOUD) return keySet;
+        if (p == Pref.AUTO && keySet) return true;
+        return localAvailable.getAsBoolean() || winrtOk();
     }
 
     /** 识别一段 16 位单声道 PCM。「自动」下云端出错会回落本机（同一段录音，不再上传别处）。 */
@@ -205,6 +220,7 @@ public final class AsrRoute {
 
     public Result recognize(byte[] pcm, int rate, Engine e) throws Exception {
         if (e == Engine.NONE) throw new IllegalStateException(why);
+        if (e == Engine.WINRT) throw new IllegalStateException("Windows 语音识别自己听麦克风，不收录音"); // Voice 走 WinAsr.begin / end
         if (e == Engine.LOCAL) return new Result(local.recognize(pcm, rate), Engine.LOCAL, false);
         try {
             return new Result(cloud.make(cfg.asrBase, cfg.asrKey).recognize(pcm, rate), Engine.CLOUD, false);

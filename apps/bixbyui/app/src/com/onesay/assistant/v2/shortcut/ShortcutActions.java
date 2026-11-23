@@ -40,9 +40,11 @@ public final class ShortcutActions {
     private ShortcutActions() {}
 
     public static final String LLM_ASK = "llm.ask", EVENT_ADD = "plan.event.add", BRIEF_PLAY = "brief.play", WEATHER = "weather.say",
-            MEDIA_SAVE = "media.save_clip";
+            MEDIA_SAVE = "media.save_clip",
+            /** ★ a11y-labels：点屏幕上的控件（按文字 / 描述 / 资源 id 运行时找，不存坐标；旧坐标格式兼容）。 */
+            UI_TAP = "ui.tap";
     /** 快捷指令内部动作（不在工具注册表里，由执行端口自己执行）。 */
-    public static final List<String> INTERNAL = Collections.unmodifiableList(java.util.Arrays.asList(LLM_ASK, EVENT_ADD, BRIEF_PLAY, WEATHER, MEDIA_SAVE));
+    public static final List<String> INTERNAL = Collections.unmodifiableList(java.util.Arrays.asList(LLM_ASK, EVENT_ADD, BRIEF_PLAY, WEATHER, MEDIA_SAVE, UI_TAP));
 
     /** 构建开关（开源默认 false；自用上机版在 local-config 里打开）。 */
     public static final boolean PRIVILEGED_BUILD = ShortcutBuild.PRIVILEGED_ACTIONS;
@@ -111,13 +113,16 @@ public final class ShortcutActions {
         l.add(new Action("settings.page.wifi", "打开 Wi‑Fi 设置页", "打开"));
         l.add(new Action("dnd.on", "打开勿扰", "系统开关").priv());
         l.add(new Action("dnd.off", "关闭勿扰", "系统开关").priv());
-        l.add(new Action("volume.media.set", "媒体音量", "系统开关").p("level", "音量（0–15）", "int", "媒体音量调到多少？").priv());
+        l.add(new Action("volume.media.set", "媒体音量", "系统开关").p("level", "音量（0–" + com.onesay.assistant.v2.util.MediaVolumeScale.max() + "）", "int", "媒体音量调到多少？").priv());
         l.add(new Action("volume.ring.set", "铃声音量", "系统开关").p("level", "音量（0–15）", "int", "铃声音量调到多少？").priv());
         l.add(new Action("settings.brightness.set", "屏幕亮度", "系统开关").p("level", "亮度（0–255）", "int", "亮度调到多少？").priv());
         l.add(new Action(BRIEF_PLAY, "播报晨间简报", "播报").priv());
         l.add(new Action(WEATHER, "播报天气", "播报"));   // ★ feat/rain-minutely：接分钟级降水（和风天气），能不能用看 weatherProbe
         l.add(new Action(MEDIA_SAVE, "保存剪贴板里的视频 / 图片", "保存").notBuilt("这一版没有该工具（feat/media-save 未合入）"));
         l.add(new Action(LLM_ASK, "问一句模型（结果传给下一步）", "模型").p("prompt", "要问的话", "string", "要问模型什么？"));
+        // ★ a11y-labels：点屏幕上的按钮（计划 App 的 Shortcuts.java 同步加了同一项，ShortcutFormatTest 核对两边一致）。
+        // 只编辑 target（按钮上的字，默认按文字 / 描述 / 推断名找）；by / role 等高级参数照旧可写在步骤 JSON 里。
+        l.add(new Action(UI_TAP, "点屏幕上的按钮", "屏幕").p("target", "按钮上的字（如「发送」）", "string", "要点哪个按钮？说按钮上的字"));
         ALL = Collections.unmodifiableList(l);
     }
 
@@ -158,6 +163,10 @@ public final class ShortcutActions {
             return new Capability.Builder(BRIEF_PLAY, "播报晨间简报").domain("shortcut").category("shortcut").sideEffect(SideEffect.DEVICE_CONTROL)
                     .risk(0, false).executor("custom").build();   // root 广播给晨间播报 App → 上机版专属
         }
+        if (UI_TAP.equals(sign)) {   // ★ a11y-labels：点屏幕（付款 / 发送类按钮运行时一律交给本人点，见 LabelTap）
+            return new Capability.Builder(UI_TAP, "点屏幕上的按钮").domain("shortcut").category("shortcut").sideEffect(SideEffect.DEVICE_CONTROL)
+                    .schema(new ParamsSchema().addString("target", false, null).addString("by", false, "text")).risk(1, false).executor("shortcut").build();
+        }
         if (WEATHER.equals(sign) || MEDIA_SAVE.equals(sign)) {
             Action a = get(sign);
             return new Capability.Builder(sign, a.label).domain("shortcut").category("shortcut").sideEffect(SideEffect.NONE).risk(0, false)
@@ -194,6 +203,11 @@ public final class ShortcutActions {
             if (why != null) return "播报天气用分钟级降水：" + why;
         }
         if (cap == null) return "没有这个工具：" + sign;
+        if (UI_TAP.equals(sign)) {
+            Probe p = uiTapProbe;
+            String why = p == null ? null : p.reason();   // 没装探针 = 不置灰（运行时读不到屏再报）
+            if (why != null) return "点屏幕：" + why;
+        }
         if (isPrivileged(sign, cap)) {
             if (!privilegedBuild) {
                 // OneSay 开源版：不再由编译期开关一刀切，而是看用户选中的执行后端（root / Shizuku 插件）此刻是否可用。
@@ -214,6 +228,8 @@ public final class ShortcutActions {
     }
 
     public static volatile Probe weatherProbe;
+    /** ★ a11y-labels：「点屏幕上的按钮」能不能用（读屏助手 / 无障碍后端在不在）；null = 不置灰。 */
+    public static volatile Probe uiTapProbe;
     public static final String WEATHER_NOT_READY = "还没配好（缺和风天气 Key / Host）";
 
     /** 端口：按签名找能力（注册表 / 插件 / 内部动作）。 */

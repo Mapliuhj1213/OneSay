@@ -1677,6 +1677,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     private boolean mV2FullWindow;
     /** ★ lane C：卡片此刻拉满（作答 / 结果 / 确认 / 打字）。 */
     private boolean mV2CardFull;
+    /** ★ fix-1118：当前结果是短结果（卡片紧凑贴底）。每次 v2Render 重算。 */
+    private boolean mV2ShortResult;
     private boolean mV2CardTopInit;
     private final Runnable mInnerSettle = new Runnable() {
         @Override
@@ -1747,7 +1749,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     int[] v2TouchRect() {
         if (!mV2 || !mV2FullWindow) return null;
         if (chatActive()) return null;   // ★ ui-K1：对话窗全屏收触摸
-        if (com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.touchArea(true, mStage.stage())
+        if (com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.touchArea(true, mStage.stage(), mV2ShortResult)
                 != com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.TouchArea.CARD) return null;
         return com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.cardTouchRect(v2Side(), mBgTop.t, v2CardBottomGap(), getWidth(), getHeight());
     }
@@ -2665,7 +2667,10 @@ public class FloatingSheetView extends CurvedEdgeContainer {
             default:
                 break;
         }
-        v2ApplyFull(com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.cardFull(st));
+        // ★ fix-1118 卡片高度：短结果（纯文本、几行以内）不拉满，按内容高度贴底
+        mV2ShortResult = st == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.RESULT && !chat
+                && com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.shortResult(body, richFinal);
+        v2ApplyFull(com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.cardFull(st, mV2ShortResult));
         if (!chat) v2PinBar(com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.pinBarBottom(st, mV2, mV2FullWindow, mChat != null && mChat.shownOnCard()));
         if (chat) v2TrackIme(com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.trackIme(st, true, mChat.bar().typingFocus()));   // ★ ui-K1（★ 11-05：被动获焦不算）
         else if (mChat != null) v2TrackIme(com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.trackIme(st, mChat.shownOnCard(),

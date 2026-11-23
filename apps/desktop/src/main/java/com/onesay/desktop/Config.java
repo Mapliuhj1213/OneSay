@@ -48,7 +48,7 @@ public final class Config {
     public String tlsCert = "";       // 本机自签证书（DER，base64url）
     public String peerFp = "";        // 下令端：配对串里对方电脑的证书指纹（空 = 旧版配对串，走明文 v1）
     public String pins = "";          // 记住的对方设备证书指纹：设备id=指纹,...（首次 TLS 连上时记，换钥匙清空）
-    public boolean lanPlain = true;   // 还接受旧版（v1，明文）手机；已经用 TLS 连过的设备不再接受明文
+    public boolean lanPlain = false;   // ★ fix-1118 SEC M6：默认不再接受旧版（v1，明文）手机；lan_plain=on 明确打开才收，已经用 TLS 连过的设备照旧不接受明文
     public String phoneLast = "";     // 最近一台常连（hold）的手机 id，电脑→手机下令时找它
     public String pcLevel = "auto";   // 旧版的三档（read_only / auto / full）：只为兼容旧配置和旧手机；现在以下面两轴为准
     public String pcSandbox = "workspace_write"; // 沙箱档：read_only / workspace_write（默认）/ full_access（LinkPolicy.Sandbox）
@@ -60,11 +60,34 @@ public final class Config {
     public String approveKinds = "";
     public String shortcutApprovals = ""; // 手机触发快捷指令「以后直接执行」的批准表：id=内容哈希,...（LinkPolicy.parseApprovals）
     public String trusted = "";       // 手机让电脑打开网址时的信任域名，逗号分隔
+    /** [approvals-1118] 本机对话的权限预设：read_only 只读 / default 默认 / full 完全访问（ChatPolicy.Preset）；只在电脑界面上改。 */
+    public String chatPreset = "default";
+    /** [approvals-1118] 本机对话「以后以 … 开头的命令不用问」的前缀规则（JSON 数组的数组，ChatPolicy.parseRules）；只在电脑界面上能看 / 撤销。 */
+    public String chatAllowPrefixes = "";
+    /** [approvals-1118] 本机对话一个任务最长跑多少分钟（兜底；没有步数上限）。 */
+    public int chatTimeoutMin = ChatAgent.DEFAULT_TIMEOUT_MIN;
+    /** [approvals-1118] 打开习惯（OpenTarget.parseHabits）：bilibili → 本地应用 / 网页；只在电脑界面上能看 / 改。 */
+    public String openHabits = "";
     public String workspaceDir = "";
+    /** [devtools-1118] 看图模型（OpenAI 兼容、消息里能带图片）：单独的 Key / 接口 / 模型名；Key 空 = 用百炼大模型或百炼语音识别的 Key（DeviceTools.Vision.from）。 */
+    public String visionKey = "";
+    public String visionBase = "";
+    public String visionModel = "";
+    /** [devtools-1118] adb 的完整路径；空 = 自己找（PATH / MuMu / Android SDK）。 */
+    public String adbPath = "";
     /** 链接下载：默认清晰度 best / 1080 / 720（MediaArgs.quality）。 */
     public String mediaQuality = "best";
     /** 链接下载的文件夹；空 = %USERPROFILE%\OneSay\Downloads。 */
     public String mediaDir = "";  // 空 = %USERPROFILE%\OneSay\Downloads（不回退，见 UserDirs.downloadsDir）
+    /** phone-mirror M1：投屏窗口的键盘模式 sdk（普通，默认）/ uhid（物理键盘，中文用手机输入法）。 */
+    public String mirrorKeyboard = "sdk";
+    /** [preview-1120] 外观：system / light / dark；主题包 id（空 = 不用包）。 */
+    public String theme = "system", themePack = "";
+    /** [always-on-1120] 网络唤醒：开关、预先授权常驻节点自动唤醒、用哪块网卡（MAC）和它的广播地址。MAC 不是秘密，但只交给常驻节点和唤醒代理。 */
+    public boolean wolEnabled = false, wolAuto = false;
+    public String wolMac = "", wolBcast = "";
+    /** [always-on-1120] 只在「唤醒代理」那台机器上用：允许替哪些 MAC 发魔术包（逗号分隔；空 = 一个都不发）。 */
+    public String wakeAllow = "";
 
     private transient Tls tls;
 
@@ -74,8 +97,8 @@ public final class Config {
 
     public static Path defaultDir() {
         String appdata = System.getenv("APPDATA");
-        if (appdata != null && !appdata.isEmpty()) return Paths.get(appdata, "OneSay");
-        return Paths.get(System.getProperty("user.home"), ".config", "onesay");
+        if (appdata != null && !appdata.isEmpty()) return Paths.get(appdata, Flavor.dir()); // [preview-1120] 预览版 %APPDATA%\OneSay-Preview
+        return Paths.get(System.getProperty("user.home"), ".config", Flavor.unixDir());
     }
 
     public static Config load(Path file) throws IOException {
@@ -111,8 +134,16 @@ public final class Config {
         c.tlsCert = p.getProperty("tls_cert", "").trim();
         c.peerFp = p.getProperty("peer_fp", "").trim();
         c.pins = p.getProperty("lan_pins", "").trim();
-        c.lanPlain = !"off".equalsIgnoreCase(p.getProperty("lan_plain", "on").trim());
+        // ★ fix-1118 SEC M6：默认关。迁移：0.5.1 以前每次保存都把默认值 lan_plain=on 写进文件，分不出是不是用户自己开的 ——
+        // 没有 lan_plain_v=2 标记的旧配置一律按关处理（下次保存写上标记）；要连 0.4.x 手机得重新明确打开（设置 / 配置文件写 lan_plain=on）。
+        c.lanPlain = "2".equals(p.getProperty("lan_plain_v", "").trim()) && "on".equalsIgnoreCase(p.getProperty("lan_plain", "off").trim());
         c.phoneLast = p.getProperty("phone_last", "").trim();
+        c.wolEnabled = "on".equalsIgnoreCase(p.getProperty("wol_enabled", "off").trim());
+        c.wolAuto = "on".equalsIgnoreCase(p.getProperty("wol_auto", "off").trim());
+        c.wolMac = WakeOnLan.normMac(p.getProperty("wol_mac", ""));
+        String wb = p.getProperty("wol_bcast", "").trim();
+        c.wolBcast = WakeOnLan.ipv4(wb) ? wb : "";
+        c.wakeAllow = p.getProperty("wake_allow", "").trim();
         c.pcLevel = LinkPolicy.Level.of(p.getProperty("pc_level", "auto")).id;
         // 两轴：新配置直接读；旧配置只有 pc_level，按 LinkPolicy.Mode.ofLegacy 映射（只读 / 自动 / 完全访问 → 两轴）
         LinkPolicy.Mode legacy = LinkPolicy.Mode.ofLegacy(LinkPolicy.Level.of(c.pcLevel));
@@ -126,9 +157,20 @@ public final class Config {
         c.trusted = p.getProperty("trusted_domains", "").trim();
         c.shortcutApprovals = LinkPolicy.formatApprovals(LinkPolicy.parseApprovals(p.getProperty("shortcut_approvals", "")));
         c.approveKinds = LinkPolicy.formatKinds(LinkPolicy.parseKinds(p.getProperty("approve_kinds", "")));
+        c.chatPreset = ChatPolicy.Preset.of(p.getProperty("chat_preset", "default")).id;
+        try { c.chatTimeoutMin = Math.max(5, Math.min(1440, Integer.parseInt(p.getProperty("chat_timeout_min", "" + ChatAgent.DEFAULT_TIMEOUT_MIN).trim()))); } catch (NumberFormatException e) { c.chatTimeoutMin = ChatAgent.DEFAULT_TIMEOUT_MIN; }
+        c.openHabits = OpenTarget.formatHabits(OpenTarget.parseHabits(p.getProperty("open_habits", "")));
+        c.chatAllowPrefixes = ChatPolicy.formatRules(ChatPolicy.parseRules(p.getProperty("chat_allow_prefixes", "")));
         c.workspaceDir = p.getProperty("workspace_dir", "").trim();
+        c.visionKey = p.getProperty("vision_key", "").trim();
+        c.visionBase = p.getProperty("vision_base", "").trim();
+        c.visionModel = p.getProperty("vision_model", "").trim();
+        c.adbPath = p.getProperty("adb_path", "").trim();
         c.mediaQuality = MediaArgs.quality(p.getProperty("media_quality", "best"));
         c.mediaDir = p.getProperty("media_dir", "").trim();
+        c.mirrorKeyboard = "uhid".equals(p.getProperty("mirror_keyboard", "sdk").trim()) ? "uhid" : "sdk";
+        c.theme = Themes.mode(p.getProperty("theme", "system").trim());
+        c.themePack = p.getProperty("theme_pack", "").trim().matches("[a-z0-9-]{0,40}") ? p.getProperty("theme_pack", "").trim() : "";
         return c;
     }
 
@@ -189,9 +231,20 @@ public final class Config {
         p.setProperty("trusted_domains", trusted);
         p.setProperty("shortcut_approvals", shortcutApprovals);
         p.setProperty("approve_kinds", approveKinds);
+        p.setProperty("chat_preset", ChatPolicy.Preset.of(chatPreset).id);
+        p.setProperty("open_habits", openHabits == null ? "" : openHabits);
+        p.setProperty("chat_timeout_min", String.valueOf(chatTimeoutMin));
+        p.setProperty("chat_allow_prefixes", chatAllowPrefixes == null ? "" : chatAllowPrefixes);
         p.setProperty("workspace_dir", workspaceDir);
+        p.setProperty("vision_key", visionKey);
+        p.setProperty("vision_base", visionBase);
+        p.setProperty("vision_model", visionModel);
+        p.setProperty("adb_path", adbPath);
         p.setProperty("media_quality", MediaArgs.quality(mediaQuality));
         p.setProperty("media_dir", mediaDir);
+        p.setProperty("mirror_keyboard", "uhid".equals(mirrorKeyboard) ? "uhid" : "sdk");
+        p.setProperty("theme", Themes.mode(theme));
+        p.setProperty("theme_pack", themePack == null ? "" : themePack);
         p.setProperty("llm_provider", llmProvider);
         p.setProperty("llm_key", llmKey);
         p.setProperty("llm_model", llmModel);
@@ -201,7 +254,13 @@ public final class Config {
         p.setProperty("peer_fp", peerFp);
         p.setProperty("lan_pins", pins);
         p.setProperty("lan_plain", lanPlain ? "on" : "off");
+        p.setProperty("lan_plain_v", "2");   // ★ fix-1118 SEC M6：迁移标记（见 load）
         p.setProperty("phone_last", phoneLast);
+        p.setProperty("wol_enabled", wolEnabled ? "on" : "off");
+        p.setProperty("wol_auto", wolAuto ? "on" : "off");
+        p.setProperty("wol_mac", wolMac);
+        p.setProperty("wol_bcast", wolBcast);
+        if (!wakeAllow.isEmpty()) p.setProperty("wake_allow", wakeAllow);
         try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) { p.store(w, "OneSay desktop - contains secrets, do not share"); }
         try { Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------")); } catch (UnsupportedOperationException | IOException ignored) { }
     }
@@ -240,7 +299,7 @@ public final class Config {
         if (!workspaceDir.isEmpty()) return Paths.get(workspaceDir);
         String up = System.getenv("USERPROFILE");
         if (up != null && !up.isEmpty()) return Paths.get(UserDirs.workspaceDir(up, System.getenv("ProgramData")));
-        return Paths.get(System.getProperty("user.home"), "OneSay", "workspace");
+        return Paths.get(System.getProperty("user.home"), Flavor.dir(), "workspace");
     }
 
     public boolean lanEnabled() { return lanPort > 0 && lanPort < 65535; }

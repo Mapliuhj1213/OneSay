@@ -50,18 +50,44 @@ public final class SensitiveGuard {
      * @return null = 不是；否则是给用户看的一句话。
      */
     public static String userMustTap(PhonePlan.Step s, UiTree screen) {
-        if (s == null || screen == null || s.id < 0) return null;
+        if (s == null || screen == null) return null;
         if (!"tap".equals(s.op) && !"long".equals(s.op)) return null;
-        UiTree.El e = screen.find(s.id);
+        UiTree.El e = target(s, screen);   // ★ sec-audit-1118 S2：0–999 坐标点也按坐标下面的元素判（以前 s.id < 0 直接放行）
         if (e == null || e.edit) return null;
         if (!com.onesay.assistant.v2.pclink.LinkPolicy.finalPayLabel(e.label)) return null;
         String n = e.label.length() > 16 ? e.label.substring(0, 16) + "…" : e.label;
         return "付款 / 转账的最后一下（「" + n + "」）只能你自己点";
     }
 
+    /**
+     * ★ sec-audit-1118 S2：这一步实际会落到的元素。按编号（@eN）的照旧；没给编号、只给了 0–999 坐标（mika.dosteps）的，
+     * 按与 {@code FastScreenDriver.tapXY} 同一换算（{@link com.onesay.assistant.plug.screen.core.UiElement#denormalize}）找坐标下面的元素：
+     * 优先可点的，同类里取面积最小的（最内层的按钮）。以前坐标点三道闸（付款亲手点 / 敏感步骤 / 污点确认）都拿不到元素，一律放行。
+     */
+    public static UiTree.El target(PhonePlan.Step s, UiTree screen) {
+        if (s == null || screen == null) return null;
+        if (s.id >= 0) return screen.find(s.id);
+        if (s.x < 0 || s.y < 0) return null;
+        int px = com.onesay.assistant.plug.screen.core.UiElement.denormalize(s.x, screen.screenW);
+        int py = com.onesay.assistant.plug.screen.core.UiElement.denormalize(s.y, screen.screenH);
+        UiTree.El best = null;
+        long bestArea = Long.MAX_VALUE;
+        boolean bestClick = false;
+        for (UiTree.El e : screen.els) {
+            if (e == null || px < e.l || px >= e.r || py < e.t || py >= e.b) continue;
+            long area = (long) (e.r - e.l) * (long) (e.b - e.t);
+            if (best == null || (e.click && !bestClick) || (e.click == bestClick && area < bestArea)) {
+                best = e;
+                bestArea = area;
+                bestClick = e.click;
+            }
+        }
+        return best;
+    }
+
     /** @return null = 不敏感；否则是给用户看的原因（「这一步是付款」）。 */
     public static String check(PhonePlan.Step s, UiTree screen) {
-        UiTree.El e = s.id >= 0 && screen != null ? screen.find(s.id) : null;
+        UiTree.El e = target(s, screen);   // ★ sec-audit-1118 S2：坐标点同样判
         if (s.op.equals("type")) {
             if (e != null && (e.password || SECRET_FIELD.matcher(e.rid + " " + e.label).find())) return "要往密码 / 验证码框里填写";
             return null;
@@ -74,12 +100,19 @@ public final class SensitiveGuard {
 
     /** 单个元素会不会是「提交」类按钮。 */
     static String checkElement(UiTree.El e) {
-        String name = title(e.label);
+        // ★ sec-audit-1118 H3（严格）：立即开通 / 自动续费 / 订阅 / 确认收货 / Place your order / Buy with 1-Click / 签署 / 同意授权 / 立即付 / Agree and pay
+        //   先于导航 / 开关判定、在归一化后的整个标题上找（多长都拦；「订阅」单独出现时只取消「超长当导航」）。
+        String shown = title(e.label);
+        com.onesay.assistant.plug.action.core.RiskGate.Irrev strict = com.onesay.assistant.plug.action.core.RiskGate.strictIrreversible(shown);
+        if (e.edit) strict = null;   // 点进输入框（「签署人姓名」）不是提交
+        if (strict != null && !com.onesay.assistant.plug.action.core.RiskGate.strictSoftOnly(shown)) return reason(strictKind(strict), shown);
+        String name = com.onesay.assistant.v2.security.SafetyText.fold(shown);   // ★ sec-audit-1118 H3：同形字 / U+034F / 零宽 / 繁体先折掉再判
+        boolean softStrict = strict != null;
         String rid = splitRid(e.rid);
         boolean ridCommit = rid.length() > 0 && RID_COMMIT.matcher(rid).find() && !RID_NAV.matcher(rid).find();
         if (name.length() == 0 && !ridCommit) return null;
         if (e.check) return null;                       // 开关：切换设置，不是提交
-        if (name.length() > 0 && isNavigation(name)) {
+        if (name.length() > 0 && (softStrict ? isNavigationShort(name) : isNavigation(name))) {
             // ★ fast-screen-v3：导航放行有两个例外 ——
             //   ① 资源 id 含 send/pay/submit/confirm/login/verify/delete → 无论文字多长都拦；
             //   ② 节点是可点击的 Button 类 → 不当导航条目，照常按提交动词判（多长都一样）。
@@ -88,6 +121,7 @@ public final class SensitiveGuard {
             if (!isClickableButton(e)) return null;
         }
         if (name.length() > 0) {
+            if (softStrict) return reason("付款 / 下单", shown);
             if (PAY.matcher(name).find()) return reason("付款 / 下单", name);
             if (SEND.matcher(name).find()) return reason("发送 / 提交", name);
             if (VERIFY.matcher(name).find()) return reason("验证码 / 身份验证", name);
@@ -122,8 +156,19 @@ public final class SensitiveGuard {
     static boolean isNavigation(String name) {
         String n = name.replace(" ", "");
         if (n.length() > MAX_BUTTON_LEN) return true;
+        return isNavigationShort(n);
+    }
+
+    /** 只看名词连接 / 名词收尾，不因为长就当导航（★ sec-audit-1118 H3：带「订阅」的长文字）。 */
+    static boolean isNavigationShort(String name) {
+        String n = name.replace(" ", "");
         if (NAV_JOIN.matcher(n).find()) return true;
         return NAV_TAIL.matcher(n).find();
+    }
+
+    static String strictKind(com.onesay.assistant.plug.action.core.RiskGate.Irrev k) {
+        if (k == com.onesay.assistant.plug.action.core.RiskGate.Irrev.SUBMIT) return "签署 / 授权";
+        return "付款 / 下单";
     }
 
     /** 「标题 · 摘要」只取标题；去掉括号里的描述。 */

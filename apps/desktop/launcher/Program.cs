@@ -15,9 +15,20 @@ namespace OneSay
     static class Program
     {
         /// <summary>任务栏分组 / 固定用的 AppUserModelID；快捷方式（安装程序、程序自建）写同一个。Java 端 Host.AUMID 必须相同。</summary>
+#if PREVIEW
+        // [preview-1120] 预览版：和正式版分开的 AppUserModelID / 单实例锁，两个能同时开、互不叫出对方的窗口
+        public const string AppId = "OneSay.Desktop.Preview";
+        const string MutexName = "Local\\OneSay.Desktop.Preview.Instance";
+        const string ShowEventName = "Local\\OneSay.Desktop.Preview.Show";
+        internal const string Name = "OneSay Preview";
+        internal const string DataDirName = "OneSay-Preview";
+#else
         public const string AppId = "OneSay.Desktop";
         const string MutexName = "Local\\OneSay.Desktop.Instance";
         const string ShowEventName = "Local\\OneSay.Desktop.Show";
+        internal const string Name = "OneSay";
+        internal const string DataDirName = "OneSay";
+#endif
 
         internal static string Dir;
         internal static string Exe;

@@ -146,7 +146,7 @@ public final class ExecutionGate {
         // ★ r2/screenoff-wake：锁屏时（面板可浮在锁屏上方语音回答）有副作用 / 读隐私的能力一律先解锁 —— 排在「始终允许」之前
         String lockWhy = com.onesay.assistant.v2.wake.ScreenOffPolicy.unlockDenyReason(cap);
         if (lockWhy != null) return new Decision(ToolGate.Decision.DENY, lockWhy, false, 0, null);
-        ConsentPolicy.Outcome o = ConsentPolicy.gate(cap, args, tainted);
+        ConsentPolicy.Outcome o = withWhitelist(cap, args, tainted, ConsentPolicy.gate(cap, args, tainted));
         if (o.decision == ToolGate.Decision.REQUIRE_CONFIRM) {
             ConfirmToken t = issue(cap, args, tainted);
             return new Decision(o.decision, o.reason, false, ConsentPolicy.tierOf(cap, tainted), t);
@@ -226,7 +226,7 @@ public final class ExecutionGate {
         RECEIPT.remove();
         ExecutionResult locked = lockedDenied(cap, args);   // ★ r2/screenoff-wake
         if (locked != null) return locked;
-        ConsentPolicy.Outcome o = ConsentPolicy.gate(cap, args, tainted);
+        ConsentPolicy.Outcome o = withWhitelist(cap, args, tainted, ConsentPolicy.gate(cap, args, tainted));
         if (o.decision == ToolGate.Decision.DENY) {
             return ExecutionResult.failed(ErrorCode.GATE_DENIED, o.reason, "GateDenied: " + o.reason, cap, args);
         }
@@ -253,7 +253,7 @@ public final class ExecutionGate {
         RECEIPT.remove();   // [conn] 旧布尔入口永远不留消费回执
         ExecutionResult locked = lockedDenied(cap, args);   // ★ r2/screenoff-wake
         if (locked != null) return locked;
-        ConsentPolicy.Outcome o = ConsentPolicy.gate(cap, args, tainted);
+        ConsentPolicy.Outcome o = withWhitelist(cap, args, tainted, ConsentPolicy.gate(cap, args, tainted));
         if (o.decision == ToolGate.Decision.DENY) {
             return ExecutionResult.failed(ErrorCode.GATE_DENIED, o.reason, "GateDenied: " + o.reason, cap, args);
         }
@@ -264,6 +264,27 @@ public final class ExecutionGate {
             return null;
         }
         return ExecutionResult.gated(cap, args);
+    }
+
+    /**
+     * ★ app-whitelist-1116：原本要确认、参数里的目标 App（package / pkg）在应用白名单里 → 放行（{@link com.onesay.assistant.v2.whitelist.PhoneWhitelistGate#capability}）。
+     * 污点（读过外部内容）、ROOT / 破坏性 / 对外发送、红卡不可逆名单、通信类、远程工具、参数里有隐私的一律不放行；拒绝永远不变。
+     * evaluate 和 authorize 走同一个函数，两边结论一致。
+     */
+    static ConsentPolicy.Outcome withWhitelist(Capability cap, JSONObject args, boolean tainted, ConsentPolicy.Outcome o) {
+        if (o == null || o.decision != ToolGate.Decision.REQUIRE_CONFIRM || cap == null || args == null) return o;
+        try {
+            String pkg = args.optString("package", args.optString("pkg", ""));
+            if (pkg.length() == 0) return o;
+            boolean excluded = !ConsentPolicy.acceptsAlwaysAllow(cap) || ConsentPolicy.tierOf(cap, tainted) == ConsentPolicy.TIER_RED;
+            if (com.onesay.assistant.v2.whitelist.PhoneWhitelistGate.capability(com.onesay.assistant.v2.whitelist.WhitelistState.get(), cap.sign,
+                    cap.sideEffect == null ? "" : cap.sideEffect.name(), pkg, args.toString(), tainted, excluded)) {
+                return new ConsentPolicy.Outcome(ToolGate.Decision.ALLOW, "应用白名单：" + pkg, false);
+            }
+        } catch (Throwable ignored) {
+            // 判不了：原结论
+        }
+        return o;
     }
 
     /** ★ r2/screenoff-wake：锁屏 + 需要解锁的能力 → 直接拒绝（不弹卡、不消费令牌；解锁后重说即可）。 */

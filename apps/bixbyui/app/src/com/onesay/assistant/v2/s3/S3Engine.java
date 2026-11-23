@@ -4,6 +4,7 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
 import java.util.TimeZone;
 
 /**
@@ -186,9 +187,35 @@ public final class S3Engine {
             else if (act.isEmpty()) return new Result(Type.CANCEL_MISS, "现在没有在跑的提醒或定时任务。", null, null);
             if (best != null) bs = 1.0;
         }
+        if ((best == null || bs < 0.5) && p.text.length() > 0) {
+            // ★ fix-1118：「取消今天7点的任务」—— 检索词是个钟点（今天7点 / 晚上7点 / 7:30），按钟点找（没说上下午时 7 点与 19 点都算）；
+            //   恰好一条 → 取消它（照旧走取消确认），多条 → 下面问哪一个
+            Matcher tm = S3Parser.TIME.matcher(p.text);
+            if (tm.find() && p.text.replace(tm.group(0), "").replaceAll("(今天|明天|今晚|明早|的|那个|这个|那条|点)", "").trim().isEmpty()) {
+                int h = S3Parser.cn(tm.group(2));
+                String part = tm.group(1);
+                int mi = tm.group(3) == null ? 0 : "半".equals(tm.group(3)) ? 30 : tm.group(4) != null ? S3Parser.cn(tm.group(4)) : 0;
+                List<S3Store.Task> hit = new java.util.ArrayList<S3Store.Task>();
+                for (S3Store.Task t : activeTasks()) {
+                    int th = t.hour, tmi = t.minute;
+                    if (t.repeat == S3Schedule.ONCE && t.onceAt > 0) {
+                        java.util.Calendar c = java.util.Calendar.getInstance(mTz);
+                        c.setTimeInMillis(t.onceAt);
+                        th = c.get(java.util.Calendar.HOUR_OF_DAY);
+                        tmi = c.get(java.util.Calendar.MINUTE);
+                    }
+                    boolean hourOk = part == null ? th % 12 == h % 12 : th == S3Parser.applyPart(h, part);
+                    if (hourOk && tmi == mi) hit.add(t);
+                }
+                if (hit.size() == 1) {
+                    best = hit.get(0);
+                    bs = 1.0;
+                }
+            }
+        }
         if (best == null || bs < 0.5) {
-            // 没点名（「取消那个提醒」）或找不到：只有句子里明确说了提醒/定时才接管，否则让别的模块（S2「删掉停车那个」）处理
-            if (!(query.contains("提醒") || query.contains("定时"))) return null;
+            // 没点名（「取消那个提醒」）或找不到：只有句子里明确说了提醒 / 定时 / 任务才接管，否则让别的模块（S2「删掉停车那个」）处理
+            if (!(query.contains("提醒") || query.contains("定时") || query.contains("任务"))) return null;
             return new Result(Type.CANCEL_MISS, p.text.length() == 0 ? "要取消哪一个？" + shortList() : "没找到「" + p.text + "」相关的定时任务。" + shortList(),
                     null, null);
         }

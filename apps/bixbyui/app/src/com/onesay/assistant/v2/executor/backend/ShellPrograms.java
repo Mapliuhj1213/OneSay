@@ -58,6 +58,8 @@ public final class ShellPrograms {
         // 守护 v4 直接 DENY METACHAR(;) → 「被系统特权守护按安全策略拦下了」。改成单条命令序列。
         if (com.onesay.assistant.v2.vision.screenref.ScreenRefCapabilities.SIGN_NAV.equals(sign)) return navigate(false);
         if (com.onesay.assistant.v2.s2.S2Capabilities.SIGN_NAV_APP.equals(sign)) return navigate(true);
+        if (SIGN_BROWSER_CHECK.equals(sign)) return BROWSER_CHECK;   // ★ fix-1118：原模板 2>/dev/null | tail -1 被特权白名单按 > 拒
+        if ("settings.brightness.get".equals(sign)) return BRIGHTNESS_READ;   // ★ fix-1118 c32：换算成百分比（厂商刻度不是 255）
         if ("settings.brightness.up".equals(sign)) return brightnessStep(40);
         if ("settings.brightness.down".equals(sign)) return brightnessStep(-40);
         if ("volume.media.up".equals(sign)) return volumeStep(2);
@@ -104,7 +106,18 @@ public final class ShellPrograms {
     static final Pattern VOL_IS = Pattern.compile("volume is (\\d+)");
     static final Pattern VOL_MAX = Pattern.compile("\\.\\.(\\d+)");
 
-    /** 原：b=$(settings get …); n=$((b±40)); 夹到 1..255; settings put …; echo $n */
+    /** ★ fix-1118 c32：读亮度 → 「73%（5968/8191）」（满格见 {@link BrightnessScale}）。读不出数原样返回。 */
+    static final Program BRIGHTNESS_READ = new Program() {
+        @Override public ShellExecutor.ShellResponse run(ShellRunner sh, Map<String, String> slots) {
+            ShellExecutor.ShellResponse r = sh.execute(BRIGHTNESS_GET);
+            if (bad(r) || !r.isSuccess()) return r;
+            int b = firstInt(r.output, INT, -1);
+            if (b < 0) return r;
+            return ok(BrightnessScale.of(sh, b).describe(b));
+        }
+    };
+
+    /** 原：b=$(settings get …); n=$((b±40)); 夹到 1..255; settings put …; echo $n。★ fix-1118 c32：步长 / 上限按实际满格；满格不是 255 时输出「n/满格」。 */
     static Program brightnessStep(final int delta) {
         return new Program() {
             @Override public ShellExecutor.ShellResponse run(ShellRunner sh, Map<String, String> slots) {
@@ -112,10 +125,11 @@ public final class ShellPrograms {
                 if (bad(r)) return r;
                 // 同原脚本 $((b ± 40))：读不出数时 b 按 0 算（shell 算术里空变量 = 0）
                 int b = r.isSuccess() ? firstInt(r.output, INT, 0) : 0;
-                int n = Math.max(1, Math.min(255, b + delta));
+                BrightnessScale sc = BrightnessScale.of(sh, b);
+                int n = Math.max(1, Math.min(sc.max, b + sc.step(delta)));
                 ShellExecutor.ShellResponse w = sh.execute("settings put system screen_brightness " + n);
                 if (bad(w) || !w.isSuccess()) return w;
-                return ok(String.valueOf(n));
+                return ok(sc.max == BrightnessScale.AOSP_MAX ? String.valueOf(n) : n + "/" + sc.max);   // 255 刻度照旧只回数字
             }
         };
     }
@@ -210,6 +224,48 @@ public final class ShellPrograms {
     };
 
     /** 默认浏览器：resolve 出组件就 {@code am start -n 组件}，否则回落 VIEW。 */
+    public static final String SIGN_BROWSER_CHECK = "browser.default.check";
+    static final String RESOLVER = "com.android.internal.app.ResolverActivity";
+    static final java.util.Map<String, String> BROWSER_NAMES = new java.util.LinkedHashMap<String, String>();
+    static {
+        BROWSER_NAMES.put("com.android.chrome", "Chrome");
+        BROWSER_NAMES.put("com.microsoft.emmx", "Edge");
+        BROWSER_NAMES.put("org.mozilla.firefox", "Firefox");
+        BROWSER_NAMES.put("com.tencent.mtt", "QQ 浏览器");
+        BROWSER_NAMES.put("com.UCMobile", "UC 浏览器");
+        BROWSER_NAMES.put("com.quark.browser", "夸克");
+        BROWSER_NAMES.put("com.mmbox.xbrowser", "X 浏览器");
+        BROWSER_NAMES.put("via.browser", "Via");
+        BROWSER_NAMES.put("mark.via", "Via");
+        BROWSER_NAMES.put("com.android.browser", "系统浏览器");
+        BROWSER_NAMES.put("com.heytap.browser", "系统浏览器");
+        BROWSER_NAMES.put("com.vivo.browser", "系统浏览器");
+        BROWSER_NAMES.put("com.huawei.browser", "系统浏览器");
+        BROWSER_NAMES.put("com.mi.globalbrowser", "系统浏览器");
+    }
+
+    /**
+     * ★ fix-1118：查默认浏览器。只跑一条白名单内的 {@link #RESOLVE_BROWSER}（不带重定向 / 管道），最后一行在 Java 里取；
+     * 系统选择器（没设默认）→ 明说「没设默认」；认识的包名带上常用名。只读，不拉起任何界面。
+     */
+    static final Program BROWSER_CHECK = new Program() {
+        @Override public ShellExecutor.ShellResponse run(ShellRunner sh, Map<String, String> slots) {
+            ShellExecutor.ShellResponse r = sh.execute(RESOLVE_BROWSER);
+            if (bad(r) || !r.isSuccess()) return r;
+            return ok(describeBrowser(lastLine(r.output)));
+        }
+    };
+
+    static String describeBrowser(String line) {
+        String c = line == null ? "" : line.trim();
+        if (!COMPONENT.matcher(c).matches()) return "没查到（可能没装浏览器）";
+        String pkg = c.substring(0, c.indexOf('/'));
+        String cls = c.substring(c.indexOf('/') + 1);
+        if ("android".equals(pkg) || cls.endsWith(RESOLVER) || cls.endsWith("ResolverActivity")) return "没设默认浏览器（打开链接时会让你选）";
+        String name = BROWSER_NAMES.get(pkg);
+        return name == null ? pkg : name + "（" + pkg + "）";
+    }
+
     static final Program BROWSER_DEFAULT = new Program() {
         @Override public ShellExecutor.ShellResponse run(ShellRunner sh, Map<String, String> slots) {
             ShellExecutor.ShellResponse r = sh.execute(RESOLVE_BROWSER);

@@ -85,7 +85,13 @@ public class AppTest {
         try {
             HttpClient h = HttpClient.newBuilder().proxy(HttpClient.Builder.NO_PROXY).build();
             String base = "http://127.0.0.1:" + ui.port();
-            HttpResponse<String> page = h.send(HttpRequest.newBuilder(URI.create(base + "/")).build(), HttpResponse.BodyHandlers.ofString());
+            // ★ fix-1118 SEC L2：没有入口钥匙拿不到页面（也就拿不到口令）
+            HttpResponse<String> bare = h.send(HttpRequest.newBuilder(URI.create(base + "/")).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(403, bare.statusCode());
+            assertFalse(bare.body().contains("TOKEN"));
+            assertEquals(403, h.send(HttpRequest.newBuilder(URI.create(base + "/?k=wrong")).build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertFalse(ui.baseUrl().contains("k="));
+            HttpResponse<String> page = h.send(HttpRequest.newBuilder(URI.create(ui.url())).build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(200, page.statusCode());
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("const TOKEN='([^']+)'").matcher(page.body());
             assertTrue(m.find());

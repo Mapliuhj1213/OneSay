@@ -369,6 +369,8 @@ public final class ExecProtocol {
     /** 给用户 / 模型看的拒绝说明（不混进普通「命令失败」）。 */
     public static String describeDeny(String reason) {
         String r = reason == null ? "" : reason;
+        // ★ fix-1118：Shizuku 拒的不是 root 守护（真机 c07：没 root 的手机上提示「root 守护拒绝执行」）
+        if (r.startsWith("SHIZUKU_")) return "Shizuku 没有执行（这条命令不在 OneSay 给 Shizuku 的固定命令清单里：" + r + "）";
         String why;
         if (r.startsWith("MAC_")) why = "请求签名校验未通过";
         else if (r.startsWith("SIG_") || r.startsWith("REVOKED") || r.startsWith("UID_") || r.startsWith("PIN_")

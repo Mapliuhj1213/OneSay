@@ -55,7 +55,12 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
     private static Pattern cachedPattern(String regex) {
         Pattern p = REGEX_CACHE.get(regex);
         if (p != null) return p;
-        p = Pattern.compile(regex);
+        try {
+            p = Pattern.compile(regex);
+        } catch (IllegalArgumentException e) {   // ★ a8fix-1118：一条模板在本机编不过 = 这条模板不匹配，不能炸掉整条路由
+            SafeLog.w(TAG, "[L0-TEMPLATE] 模板正则在本机编不过，按不匹配处理: " + e);
+            p = com.onesay.assistant.v2.util.RegexCompat.NEVER;
+        }
         if (REGEX_CACHE.size() >= CACHE_MAX) REGEX_CACHE.clear();
         REGEX_CACHE.put(regex, p);
         return p;
@@ -92,6 +97,20 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         this.mContext = null;
         this.mIntentExecutor = null;
         this.mRegistry = registry;
+    }
+
+    /** ★ meizu-1118：JVM 单测用的应用解析桩（应用名 → 组件；null = 解析不出）。 */
+    interface AppResolver {
+        String resolve(String app);
+    }
+
+    private AppResolver mTestResolver;
+
+    /** ★ meizu-1118：JVM 单测 —— 带一个应用解析桩，让 app.launch 也能参与候选排序（线上走 IntentExecutor）。 */
+    static L0RuleRouter forRegistry(CapabilityRegistry registry, AppResolver resolver) {
+        L0RuleRouter r = new L0RuleRouter(registry);
+        r.mTestResolver = resolver;
+        return r;
     }
 
     private static class MatchCandidate implements Comparable<MatchCandidate> {
@@ -136,7 +155,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
     public Invocation route(String query) {
         if (query == null || query.trim().length() == 0) return null;
 
-        String raw = query.trim();
+        String raw = TriageDecider.stripTrailingThanksRaw(query.trim()).trim();   // ★ rel-1118 B09：句尾「，谢谢」不进槽位、不挡模板
         // [kernel] 插件 L0 直达规则（顺序 = L0 优先级）：存图「保存图片 / 存这张图 / 全部保存…」→ image.save（bixby_imgsave），
         //   摘要「总结一下 / 这篇讲了什么 / 太长不看…」→ screen.summary（bixby_summary）；都不注册进能力表
         com.onesay.assistant.v2.kernel.FeatureKernel.Hit direct = com.onesay.assistant.v2.kernel.FeatureKernel.get().l0(mContext, raw);
@@ -165,10 +184,123 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         }
 
         Collections.sort(candidates);
-        MatchCandidate best = candidates.get(0);
-
+        // ★ rel-1118 B18：「打开网页{url}」是贪婪模板，「打开网页浏览器嘛」会被它吃成 url=浏览器嘛。
+        //   网址槽位按原句取回后不像网址（没有 http(s):// 也没有「主机.后缀」）的候选整条丢掉，换下一个候选。
+        MatchCandidate best = null;
+        JSONObject args = null;
+        // ★ meizu-1118：「打开网页www.baidu.com」—— app.launch 的分数 = 字面量 2 + 整个槽位长度，长网址让它反超
+        //   「打开网页{url}」（字面量 4，网址槽位不计分），又因为品类别名「网页」能解析成浏览器而成立 → 只拉起浏览器、网址丢了（假成功）。
+        //   有网址候选且按原句取回的网址像网址时，app.launch 不得排在它前面。
+        MatchCandidate urlWin = null;
+        JSONObject urlArgs = null;
+        for (MatchCandidate c : candidates) {
+            if (!c.args.has("url") || "app.launch".equals(c.capability.sign)) continue;
+            JSONObject a = restoreRawSlots(raw, c.args);
+            if (plausibleUrl(a.optString("url", null))) { urlWin = c; urlArgs = a; break; }
+        }
+        if (urlWin != null && preferUrlOver(candidates.get(0).capability.sign)) {
+            best = urlWin; args = urlArgs;
+        }
+        if (best == null) for (MatchCandidate c : candidates) {
+            JSONObject a = restoreRawSlots(raw, c.args);   // ★ rel-1118 B01：文本槽位按原句取回（不丢标点 / 空格 / 大小写）
+            if (a.has("url") && !plausibleUrl(a.optString("url", null))) {
+                SafeLog.i(TAG, "L0 跳过候选：网址槽位不像网址（" + c.capability.sign + "）");
+                continue;
+            }
+            best = c; args = a; break;
+        }
+        if (best == null) return null;
+        // ★ rel-1118 B02 / B06：归一化删掉了负号和小数点（「-5秒」「1.5」）→ 数值类能力不在本地执行
+        if (RawNumber.numeric(args) && RawNumber.suspicious(raw, RawNumber.isClock(best.capability.sign))) {
+            SafeLog.i(TAG, "L0 放弃：原句数值带负号 / 小数（" + best.capability.sign + "）");
+            return null;
+        }
+        if (com.onesay.assistant.v2.executor.ShellCommand.dangerousUrl(args.optString("url", null))) {
+            SafeLog.i(TAG, "L0 放弃：网址不是 http/https（" + best.capability.sign + "）");
+            return null;
+        }
         SafeLog.i(TAG, "L0 命中能力: " + best.capability.sign + " (字面量权重=" + best.literalScore + ", 参数=" + com.onesay.assistant.v2.util.LogText.args(best.args) + ")");
-        return new Invocation(best.capability.sign, best.args, 1.0, Invocation.RouteSource.L0_RULE, query);
+        return new Invocation(best.capability.sign, args, 1.0, Invocation.RouteSource.L0_RULE, query);
+    }
+
+    /** ★ rel-1118 B18：http(s)://… 或「主机.后缀」（可带端口 / 路径）才算网址；「浏览器嘛」「百度」不算。 */
+    //   ★ a8fix-1118：顶级域里的汉字用 RegexCompat.HAN 显式区间（以前的 \\p{IsHan} 在 Android 7–8 的 ICU 正则里
+    //     类初始化就抛 PatternSyntaxException，整个路由层连同面板一发指令就崩）；万一本机仍编不过 → 保底只认 http(s)://
+    private static final java.util.regex.Pattern URL_LIKE = com.onesay.assistant.v2.util.RegexCompat.compile(
+            "^(?:https?://\\S+|(?:[\\p{L}\\p{N}](?:[\\p{L}\\p{N}-]*[\\p{L}\\p{N}])?\\.)+[A-Za-z" + com.onesay.assistant.v2.util.RegexCompat.HAN + "]{2,}(?::\\d{1,5})?(?:[/?#]\\S*)?)$",
+            java.util.regex.Pattern.CASE_INSENSITIVE,
+            "^https?://\\S+$");
+
+    /** ★ meizu-1118：排第一的是 app.launch（最宽泛的贪婪模板）时，像网址的网址候选优先。 */
+    static boolean preferUrlOver(String topSign) {
+        return "app.launch".equals(topSign);
+    }
+
+    static boolean plausibleUrl(String url) {
+        if (url == null) return false;
+        String u = url.trim();
+        return u.length() > 0 && u.length() <= 2048 && URL_LIKE.matcher(u).matches();
+    }
+
+    /** ★ rel-1118 B01：这些文本槽位要原样（网址、笔记正文、搜索词、号码、包名）。 */
+    private static final String[] RAW_SLOTS = { "url", "content", "keyword", "number", "app" };
+    /** 句末语气标点：取回原文时不带进槽位。 */
+    private static final String TAIL_PUNCT = "。！？!?，,、；;：:…~～ \t";
+
+    /**
+     * ★ rel-1118 B01：模板是在归一化后的句子上匹配的（去空白、去标点、小写），槽位也就跟着丢了标点：
+     * 「打开网页www.baidu.com」→ url=wwwbaiducom、「记一下买牛奶、鸡蛋和面包」→ 正文没了顿号。
+     * 这里把槽位值在原句里找回来：原句逐字归一化、记住每个保留字在原句的位置，槽位值在保留串里
+     * 最后一次出现的那一段就是原文（中间的标点 / 空格 / 大小写都还在）；紧挨着、且只由被删字符组成的
+     * 首尾符号（「#话题#」「$(…)」）一并带回，句末的中文语气标点不带。找不到就保持原值。
+     */
+    public static JSONObject restoreRawSlots(String raw, JSONObject matched) {
+        if (raw == null || matched == null || matched.length() == 0) return matched;
+        StringBuilder kept = new StringBuilder(raw.length());
+        int[] pos = new int[raw.length()];
+        int n = 0;
+        for (int i = 0; i < raw.length(); i++) {
+            String one = normalizeUtterance(String.valueOf(raw.charAt(i)));
+            if (one.length() == 1) {
+                kept.append(one);
+                pos[n++] = i;
+            }
+        }
+        String k = kept.toString();
+        JSONObject args;
+        try {
+            args = new JSONObject(matched.toString());
+        } catch (Exception e) {
+            return matched;
+        }
+        for (String key : RAW_SLOTS) {
+            Object v = matched.opt(key);
+            if (!(v instanceof String)) continue;
+            String sv = (String) v;
+            if (sv.length() == 0) continue;
+            int at = k.lastIndexOf(sv);
+            if (at < 0) continue;
+            int from = pos[at], to = pos[at + sv.length() - 1];
+            // 往后：直到下一个保留字之前、不是句末语气标点的被删字符带回（「#话题#」的尾 #、「(reboot)」的右括号）
+            int stop = at + sv.length() < n ? pos[at + sv.length()] : raw.length();
+            int end = to;
+            for (int j = to + 1; j < stop; j++) {
+                if (TAIL_PUNCT.indexOf(raw.charAt(j)) >= 0) break;
+                end = j;
+            }
+            // 往前：同理（「#话题」的头 #），空白和中文标点不带
+            int prev = at > 0 ? pos[at - 1] : -1;
+            int start = from;
+            for (int j = from - 1; j > prev; j--) {
+                char c = raw.charAt(j);
+                if (TAIL_PUNCT.indexOf(c) >= 0 || Character.isWhitespace(c) || "“”‘’\"'《》（）【】".indexOf(c) >= 0) break;
+                start = j;
+            }
+            String orig = raw.substring(start, end + 1).trim();
+            if (orig.length() == 0) continue;
+            try { args.put(key, orig); } catch (Exception ignored) {}
+        }
+        return args;
     }
 
     /** 生成口语剥离变体列表（剥离前缀语气词、中置助词、句末语气词与近音纠错） */
@@ -271,12 +403,13 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         int slotLen = 0;
         // 提取槽位内容
         if (tNorm.contains("{app}")) {
-            String app = matcher.group("app");
+            String app = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "app");
             if (app == null || app.trim().length() == 0) return null;
 
             // ★ BUG-003 防贪婪抢占：必须能解析出本地真实应用或品类别名才算命中！
             if ("app.launch".equals(cap.sign)) {
-                String component = mIntentExecutor != null ? mIntentExecutor.resolveComponent(app.trim()) : null;
+                String component = mTestResolver != null ? mTestResolver.resolve(app.trim())
+                        : mIntentExecutor != null ? mIntentExecutor.resolveComponent(app.trim()) : null;
                 if (component == null) {
                     return null; // 无法解析出应用，不准抢占！
                 }
@@ -306,7 +439,7 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         }
 
         if (tNorm.contains("{n}")) {
-            String nStr = matcher.group("n");
+            String nStr = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "n");
             // **文本型** {n} 槽位必须先于数字解析。
             //
             //   实测踩过：「新建笔记记录明天下午三点开会」→ notes.new.text，但 content 为空。
@@ -330,13 +463,14 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
             //   现在改用**语法定位**：从动作语素右边界取宾语（{@link ActionLexicon#objectOf}），
             //   量词/助词由语法结构决定要剥，任何"下载个X/装个X/搜个X"都自动干净。
             String nClean = nStr;
-            if (textSlot) {
+            // ★ rel-1118 B10：笔记正文（content）原样记，不按动作语素取宾语（「记一下买牛奶再打开侧屏闪光」以前只记了「侧屏闪光」）
+            if (textSlot && !cap.paramsSchema.getRules().containsKey("content")) {
                 String obj = ActionLexicon.objectOf(nStr);
                 if (obj != null && obj.length() > 0 && obj.length() <= nStr.length()) {
                     nClean = obj;
                 }
             }
-            Long val = textSlot ? null : NumberParser.parse(stripSlotQuantifier(nStr));
+            Long val = textSlot ? null : NumberParser.parseLoose(stripSlotQuantifier(nStr));
             if (val == null) {
                 // 文本型回填（闹钟/时间/关键词/便签正文）
                 if (cap.paramsSchema.getRules().containsKey("content")) {
@@ -344,8 +478,11 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
                 } else if (cap.sign.startsWith("browser.search")
                         || cap.paramsSchema.getRules().containsKey("keyword")) {
                     try { args.put("keyword", nClean); } catch (Exception ignored) {}
-                } else if ("phone.call".equals(cap.sign)) {
-                    try { args.put("number", nClean); } catch (Exception ignored) {}
+                } else if ("sms.send".equals(cap.sign) && !nStr.trim().matches("\\+?[0-9][0-9 -]{2,19}")) {
+                    return null;   // 只认号码；「发短信给张三」要查联系人，交给后面的层
+                } else if ("phone.call".equals(cap.sign) || "sms.send".equals(cap.sign)) {
+                    // ★ fix-1118 B19：「发短信给10086」—— 号码槽位按原文（不取宾语），正文没说就空着，打开短信编辑页由用户写、再点发送（确认卡照旧）
+                    try { args.put("number", "sms.send".equals(cap.sign) ? nStr.trim() : nClean); } catch (Exception ignored) {}
                 } else if (textSlot) {
                     // 兜底：文本槽位但参数名不在上面三类，按占位符本身的名字回填
                     // （例如 store.search.* 用 keyword 已覆盖；此处防将来新增自定义文本槽）
@@ -368,20 +505,20 @@ public class L0RuleRouter implements IRouter, IOfflineProbe {
         }
 
         if (tNorm.contains("{m}")) {
-            String mStr = matcher.group("m");
-            Long mVal = NumberParser.parse(stripSlotQuantifier(mStr));
+            String mStr = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "m");
+            Long mVal = NumberParser.parseLoose(stripSlotQuantifier(mStr));
             try { args.put("minute", mVal != null ? mVal : 0L); } catch (Exception ignored) {}
         } else if (cap.paramsSchema.getRules().containsKey("minute") && !args.has("minute")) {
             try { args.put("minute", 0L); } catch (Exception ignored) {}
         }
 
         if (tNorm.contains("{url}")) {
-            String url = matcher.group("url");
+            String url = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "url");
             try { args.put("url", url); } catch (Exception ignored) {}
         }
 
         if (tNorm.contains("{content}")) {
-            String content = matcher.group("content");
+            String content = com.onesay.assistant.v2.util.RegexCompat.group(matcher, "content");
             try { args.put("content", content); } catch (Exception ignored) {}
         }
 

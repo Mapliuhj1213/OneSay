@@ -9,6 +9,7 @@ ONESAY_BASE=/path/OneSay-0.5.0-windows-x64.zip bash installer/build-installer.sh
 - `ONESAY_BASE`：上一版 zip，或者解开后的 `OneSay` 目录。只用里面的 `runtime\`（jlink 精简过的 Temurin 17，要有 `runtime\bin\server\jvm.dll`），在 Linux 上不重新构建。jar 每次用 `build.sh` 从源码构建。
 - 启动器 `OneSay.exe` 每次用 `launcher/build-launcher.sh` 从源码构建（.NET 8 SDK，Linux 上就能编；`DOTNET=` 可指定路径），或者用 `ONESAY_LAUNCHER=<目录>` 给编好的。产物 5 个文件：`OneSay.exe`、`OneSay.exe.config`、`Microsoft.Web.WebView2.Core.dll`、`Microsoft.Web.WebView2.WinForms.dll`、`WebView2Loader.dll`。
 - **启动器的做法（2026-11-14 起）**：OneSay.exe 在自己进程里加载 `runtime\bin\server\jvm.dll`（JNI_CreateJavaVM，jpackage 同款），跑 jar 的 main，自己不退出；主窗口用 WebView2 开在 OneSay.exe 里（没有 WebView2 运行时才退回 Edge 应用窗口）。所以任务管理器、Windows 防火墙弹窗、按 exe 认程序的 Dock 软件看到的都是 OneSay（名字 / 图标 / 版本信息都是 OneSay），不再是「OpenJDK Platform binary / Eclipse Adoptium」。AppUserModelID 固定为 `OneSay.Desktop`，进程里设置，开始菜单和桌面快捷方式也写同一个（安装程序调用 `OneSay.exe --shortcut <lnk>` 写入）。
+- **直接用 javaw -jar 启动时（2026-11-18 起）**：jar 一开始就找本机的 OneSay.exe（jar 在 `<目录>\app\` 下、自带运行时的上一级、或默认目录 `%LOCALAPPDATA%\Programs\OneSay`），它加载的 `app\onesay-desktop.jar` 与正在跑的是同一个（同一文件或 SHA-256 相同）就改由 OneSay.exe 启动（`--tray` 照带），本进程退出，窗口仍归 OneSay.exe。jar 不同时不交接（不悄悄换版本），stderr 里说明要把 jar 放进 `app\` 再用 OneSay.exe 启动。Edge 应用窗口只作最后的后备，标题和页面顶部写明「Edge 后备窗口」。关掉交接：`-Donesay.handoff=0` 或环境变量 `ONESAY_NO_HANDOFF=1`。
 - 版本号取构建出来的 jar 里的 `Implementation-Version`（由 `build.sh` 写入），不用另外填。
 - 需要：JDK 17+、unzip、makensis 3.x（可用 `MAKENSIS=` 指定路径）。Debian/Ubuntu 上装 `apt install nsis` 就行。
 - 默认输出到 `build/installer-out/`。中间文件在 `build/installer/`，这个目录已被 .gitignore 忽略。

@@ -112,6 +112,7 @@ public class SecIntExecWhitelistCiTest {
         // 能力程序（ShellPrograms）里的固定命令
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.BRIGHTNESS_GET);
         l.add("settings put system screen_brightness 120");
+        l.add(com.onesay.assistant.v2.executor.backend.BrightnessScale.DUMPSYS_POWER);   // ★ fix-1118 c32：厂商亮度刻度
         l.add(com.onesay.assistant.v2.executor.backend.ShellPrograms.VOLUME_GET);
         l.add("media volume --stream 3 --set 7");
         // [ci-1114] TORCH_GET / ON / OFF 已随厂商 sysfs 手电筒 shell 路径删除（手电筒走 CameraManager）

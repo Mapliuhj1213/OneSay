@@ -29,6 +29,10 @@ public final class CompoundSplitter {
 
     private static final Pattern SEP = Pattern.compile(
             "[、，,；;。！!？?]+|然后再|然后|接着|之后再|之后|并且|而且|同时|顺便|顺带|还有|以及|完了再|再帮我|再给我|再把|另外|最后");
+    /** ★ rel-1118 B10：单独的「再」只在后面紧跟设备操作动词时才切（「音量5再打开省电模式」）；「再打电话 / 再发」不切（笔记正文里常见），
+     *  「再大一点」这类改值追问前面没有子句、切不出两段。 */
+    private static final Pattern ZAI = Pattern.compile(
+            "再(?=打开|开启|开一下|关闭|关掉|关一下|调到|调成|调为|调高|调低|调大|调小|设置|设为|设成|切换|启动|播放|暂停|锁屏|截屏|截图|开|关)");
     /** 「和 / 跟」只在两边都像动作 / 开关对象时才切（「张三和李四」不切：那种句子本来也接不住）。 */
     private static final Pattern AND = Pattern.compile("和|跟|与");
 
@@ -43,7 +47,12 @@ public final class CompoundSplitter {
         String q = utterance.trim();
         if (q.length() < 4 || q.length() > 60) return null;
         List<String> clauses = new ArrayList<String>();
+        List<String> parts = new ArrayList<String>();
         for (String part : SEP.split(q)) {
+            if (part == null) continue;
+            for (String z : ZAI.split(part)) splitBareZai(z, l0, parts);
+        }
+        for (String part : parts) {
             if (part == null) continue;
             String p = part.trim();
             if (p.length() == 0) continue;
@@ -67,6 +76,38 @@ public final class CompoundSplitter {
             if (v != null) lastVerb = v;
         }
         return Invocation.plan(steps, Invocation.RouteSource.L0_RULE, utterance);
+    }
+
+    /**
+     * ★ rel-1118 B10：其余单独的「再」（「定位开着吗再wifi开着吗」）：前半句自己能被接住、且不是带正文 / 关键词的能力（笔记、搜索、短信），
+     * 后半句也能被接住，才切；「记一下明天再打电话给妈妈」前半句是笔记正文 → 不切。
+     */
+    private static void splitBareZai(String part, Resolver l0, List<String> out) {
+        String[] pcs = part.split("再", -1);
+        if (pcs.length == 1) { out.add(part); return; }
+        String cur = pcs[0];
+        for (int i = 1; i < pcs.length; i++) {
+            String next = pcs[i];
+            boolean cut = false;
+            if (cur.trim().length() >= 2 && next.trim().length() >= 2) {
+                Invocation left = resolve(cur.trim(), l0);
+                if (left != null && !left.isPlan() && !freeText(left)) {
+                    Invocation right = resolve(next.trim(), l0);
+                    cut = right != null && !right.isPlan();
+                }
+            }
+            if (cut) {
+                out.add(cur);
+                cur = next;
+            } else {
+                cur = cur + "再" + next;
+            }
+        }
+        out.add(cur);
+    }
+
+    private static boolean freeText(Invocation inv) {
+        return inv.args != null && (inv.args.has("content") || inv.args.has("keyword") || inv.args.has("message") || inv.args.has("text"));
     }
 
     private static Invocation resolve(String clause, Resolver l0) {

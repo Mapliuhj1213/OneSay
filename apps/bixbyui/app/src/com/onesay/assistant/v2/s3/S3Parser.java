@@ -154,7 +154,10 @@ public final class S3Parser {
             return p;
         }
         boolean cancelVerb = q.matches("^(取消|删掉|删除|关掉|停掉|撤掉|不用|别再).*");
-        Parsed c = cancelVerb ? null : parseCreate(q, now, tz);
+        // ★ fix-1118 c20：「不许7点叫我」「别7点提醒我」= 叫我别做，永不新建（以前建了个标题「不许」的提醒）。
+        //   分诊 / 插件接管入口已先问 NegationGuard，这里再兜一层：解析器自己也不把否定句当新建。
+        boolean negated = com.onesay.assistant.v2.router.NegationGuard.reason(utterance) != null;
+        Parsed c = cancelVerb || negated ? null : parseCreate(q, now, tz);
         if (c != null) return c;
         m = CANCEL.matcher(q);
         if (m.find() && (m.group(4) != null || q.contains("那个") || q.contains("提醒") || q.contains("定时"))) {
@@ -229,6 +232,12 @@ public final class S3Parser {
             long at = onceAt(q, hour, minute, part, now, tz);
             if (at <= 0) return null;
             p.onceAt = at;
+            // ★ fix-1118 c20：没说上下午的钟点会顺延到下一个（10 点多说「7点」= 今晚 19:00），预览与标题要跟实际时刻一致
+            //   （以前 hour 仍是 7，确认卡写「今天 07:00」、实际 19:00 响）。
+            Calendar ca = Calendar.getInstance(tz);
+            ca.setTimeInMillis(at);
+            p.hour = ca.get(Calendar.HOUR_OF_DAY);
+            p.minute = ca.get(Calendar.MINUTE);
             rest = DAY_WORD.matcher(rest).replaceAll("");
         }
         rest = rest.replaceAll("^(的|在|到|，|,|、|时候|的时候|准时)+", "").replaceAll("^[，, ]+", "");

@@ -88,6 +88,10 @@ public final class PcLinkPlugin extends FeaturePlugin {
             text = "现在没法等电脑回话，请在控制台「电脑联动」页里点。";   // 路由正常在后台线程；万一在主线程不做网络
         } else if (k == PcVoice.Kind.MEDIA) {
             text = media(app, query);
+        } else if (k == PcVoice.Kind.TASK) {
+            text = com.onesay.assistant.v2.pclink.PcTaskAndroid.handOff(app, PcVoice.taskGoal(query));   // [overnight-1119] 手机交任务给电脑
+        } else if (k == PcVoice.Kind.TASK_STATUS) {
+            text = com.onesay.assistant.v2.pclink.PcTaskAndroid.status(app);
         } else if (k == PcVoice.Kind.LOCK) {
             PcLanClient.Result r = PcLink.runNow(app, "lock", null, 1800, 8000);
             text = r.ok ? "电脑已锁屏。" : "没锁上：" + r.text;

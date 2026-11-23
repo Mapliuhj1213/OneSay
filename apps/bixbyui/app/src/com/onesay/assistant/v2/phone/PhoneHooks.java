@@ -20,6 +20,8 @@ public final class PhoneHooks {
     public static final String PREF = "bixby_phone";
     public static final String KEY_ENABLED = "enabled";
     private static volatile boolean sBusy;
+    /** [overnight-1119] 正在做的目标（拒绝新任务时说是哪个）。 */
+    private static volatile String sCurrentGoal = "";
     private static volatile String sLast = "";
 
     public static boolean enabled(Context ctx) {
@@ -31,6 +33,17 @@ public final class PhoneHooks {
 
     public static boolean settleEnabled(Context ctx) {
         return ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_SETTLE, true);
+    }
+
+    /** ★ a11y-labels：精准标签 + 动作绑定快照（默认开；偏好里可关，排查用）。 */
+    public static final String KEY_LABELS = "a11y_labels";
+
+    public static boolean labelsEnabled(Context ctx) {
+        try {
+            return ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_LABELS, true);
+        } catch (Throwable t) {
+            return true;
+        }
     }
 
     /** 最近一次任务的稳定读屏统计（dump 用）。 */
@@ -120,13 +133,35 @@ public final class PhoneHooks {
     public static PhoneAgent.Result runBlocking(Context ctx, String goal, String pkg, boolean legacy, boolean execMode, PhoneAgent.Planner script) {
         Context app = ctx.getApplicationContext();
         PhoneAgent.Result res;
+        // ★ overnight-1119 魅族：暂停中（你来操作 / 卡住等继续）的旧任务不挡新任务——停掉它，等它收尾（最多 5 秒），岛上提示换成了新任务
         if (sBusy) {
+            ExecModeController cur = ExecModeController.current();
+            com.onesay.assistant.v2.exec.ExecState.NewTask nt = com.onesay.assistant.v2.exec.ExecState.onNewTask(sBusy,
+                    cur != null && cur.state.paused(), cur != null && cur.state.stopped());
+            if (nt == com.onesay.assistant.v2.exec.ExecState.NewTask.REPLACE && cur != null) {
+                SafeLog.i(TAG, "[PHONE] 暂停中的任务让给新任务");
+                cur.stop("新任务来了，换成新任务");
+                long end = android.os.SystemClock.elapsedRealtime() + 5000;
+                while (sBusy && android.os.SystemClock.elapsedRealtime() < end) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                }
+            }
+        }
+        // ★ a11y-labels：屏幕输入独占租约（语音任务 / 定时任务 / 编号点选不抢屏；持有方异常没释放，到期自动作废）
+        final com.onesay.assistant.v2.a11ylabel.ScreenLease.Lease lease = com.onesay.assistant.v2.a11ylabel.ScreenLease.get().tryAcquire("手机操作任务", com.onesay.assistant.v2.a11ylabel.ScreenLease.TASK_TTL_MS);
+        if (sBusy || lease == null) {
+            if (lease != null) com.onesay.assistant.v2.a11ylabel.ScreenLease.get().release(lease);
             res = new PhoneAgent.Result();
             res.status = PhoneAgent.Status.FAILED;
-            res.reason = "已有一个操作任务在进行";
+            res.reason = sBusy ? com.onesay.assistant.v2.exec.ExecState.refuseText(sCurrentGoal) : com.onesay.assistant.v2.a11ylabel.ScreenLease.get().busySay();
             return res;
         }
         sBusy = true;
+        sCurrentGoal = goal;
         sSettleStats = "";
         sReplayStats = "";
         FastScreenDriver drv = new FastScreenDriver(app);
@@ -142,10 +177,13 @@ public final class PhoneHooks {
             }
             MikaExec mika0 = com.onesay.assistant.v2.mikaplug.MikaPlugs.phoneExec(app);   // ★ mika-plug：B2 可用时助手不可用也能跑
             if (mika0 != null) drv.setMika(mika0);
-            if (!drv.observeOk() && !drv.b2Ready()) {
+            // ★ a11y-1118：助手不可用（只有 Shizuku / 没有 root）但无障碍服务连着 → 整个任务走无障碍；都不行 → 原因带「打开无障碍」入口
+            com.onesay.assistant.v2.a11y.A11yState.Choice be = drv.chooseBackend();
+            com.onesay.assistant.v2.a11y.A11yEntry.note(be.offerA11ySettings);
+            if (be.backend == com.onesay.assistant.v2.a11y.A11yState.Backend.NONE) {
                 res = new PhoneAgent.Result();
                 res.status = PhoneAgent.Status.FAILED;
-                res.reason = "读屏助手不可用：" + com.onesay.assistant.v2.fastscreen.FastScreen.get(app).lastError();
+                res.reason = be.reason;
                 return res;
             }
             PhoneAgent.Host host = exec != null ? exec : headlessHost();
@@ -164,6 +202,8 @@ public final class PhoneHooks {
                 agent.settle = StableRead.Params.defaults();
                 SafeLog.i(TAG, "[PHONE] 画面稳定再读：" + agent.settle);
             }
+            agent.labels = !legacy && labelsEnabled(app);
+            if (!legacy) agent.whitelist = com.onesay.assistant.v2.whitelist.WhitelistAndroid.state(app);   // ★ app-whitelist-1116   // ★ a11y-labels：改前口径（legacy）保持原样
             if (replayEnabled(app) && !legacy) agent.replay = replayStore(app);   // ★ smart-replay：开关关 = null，原行为
             // ★ borrow-1112：发给模型前本地脱敏（默认开；映射只在这次任务的内存里）、本轮污染标记、等待期间画面变化进时间轴
             if (com.onesay.assistant.v2.privacy.PrivacySettings.REDACT.on(app)) agent.redactor = new com.onesay.assistant.v2.privacy.Redactor();
@@ -180,7 +220,8 @@ public final class PhoneHooks {
             SafeLog.i(TAG, "[PHONE] 开始：" + com.onesay.assistant.v2.util.LogText.u(goal) + " pkg=" + pkg + (legacy ? "（改前口径：单步 + 8 步上限）" : ""));
             res = agent.run(goal, pkg);
             sSettleStats = "settle=" + (agent.settle != null) + " settleReads=" + agent.settleReads + " unstable=" + agent.settleUnstable
-                    + " refStale=" + agent.refStale + " refMoved=" + agent.refMoved;
+                    + " refStale=" + agent.refStale + " refMoved=" + agent.refMoved
+                    + " labels=" + agent.labels + " bindRefused=" + agent.bindRefused + " bindRebound=" + agent.bindRebound;
             sReplayStats = "replay=" + (agent.replay != null) + " hit=" + agent.replayHit + " fallback=" + agent.replayFallback
                     + " voided=" + agent.replayVoided + " handoff=" + agent.replayHandoff + " recorded=" + agent.replayRecorded
                     + " replayedSteps=" + agent.replaySteps + (agent.replayNote.length() > 0 ? " note=" + agent.replayNote : "")
@@ -203,6 +244,7 @@ public final class PhoneHooks {
         } finally {
             if (redactorRef[0] != null) redactorRef[0].clear();   // ★ borrow-1112：映射只活到任务结束
             sBusy = false;
+            com.onesay.assistant.v2.a11ylabel.ScreenLease.get().release(lease);
             sLast = goal;
             dump(app, goal, drv, planner, exec);
         }

@@ -305,10 +305,15 @@ public final class S1Hooks {
 
     /** [S1-H8a] 确认卡即将弹出（主线程，showConfirmCard 之前）：收起状态必须先展开（岛：待确认 → 1 s 后展开确认卡）。 */
     public static void onConfirmRequired(FloatingSheetService svc) {
+        onConfirmRequired(svc, false);
+    }
+
+    /** @param sheetVisible ★ fix-1118：面板此刻在屏幕上（确认卡画在面板里）→ 岛不再另展开一张 */
+    public static void onConfirmRequired(FloatingSheetService svc, boolean sheetVisible) {
         com.onesay.assistant.v2.tts.VoiceSyncSession vs = VoiceSync.current();
         if (vs != null) vs.onConfirm(true);   // ★ arch/voice-sync：确认期间不催
         try {
-            if (sIsland != null) sIsland.confirmRequired();
+            if (sIsland != null) sIsland.confirmRequired(sheetVisible);
         } catch (Throwable t) {
             Log.w(TAG, "[S1] confirmRequired 异常: " + t.getMessage());
         }

@@ -28,10 +28,7 @@ final class HomePage extends ConsoleNav.Page {
     private FlowLayout mPills;
     private LinearLayout mBanners;
     private ConsoleKit.Tile mNoteTile, mMemTile;
-    private ConsoleKit.RowImpl mVoiceRow, mAboutRow, mPlanRow, mDevHead;
-    private LinearLayout mDevBody;
-    private boolean mDevExpanded = ConsoleGroups.DEV_EXPANDED_BY_DEFAULT;
-    private boolean mDevBuiltFor;
+    private ConsoleKit.RowImpl mVoiceRow, mAboutRow, mPlanRow, mPermRow, mPluginsRow;
     private ConsoleStatus.Snapshot mSnap;
     private boolean mQuickNoteOn = true;
 
@@ -86,68 +83,29 @@ final class HomePage extends ConsoleNav.Page {
         }
         gp.addView(tabs, k.lpMatch(0, 0));
 
-        // ---- 设置（★ console-align 2026-11-12，ConsoleGroups.GROUPS 的顺序 = 电脑端设置页的顺序）：
-        //      连接 · 权限与审批 · 模型与密钥 · 语音 · 替你操作 · 功能 · 下载 · 插件
+        // ---- 设置（★ design-1118，docs/DESIGN.md / IA）：首页只留 4 行 —— 权限配置 · 基础设置 · 插件 · 高级（关于、开发者、运行状态都在「高级」里）。
+        //      旧分组页（连接 / 权限与审批 / 模型与密钥 / 语音 / 替你操作 / 功能 / 下载）都还在，从这 4 页里进得去，设置键不改名。
         LinearLayout g1 = k.group(col, "设置");
-        k.linkRow(g1, "连接", ConsoleGroups.defaultSub(ConsoleGroups.CONNECT), ConsoleIcon.LINK, new Runnable() {
+        mPermRow = k.linkRow(g1, "权限配置", "一步步配好必须的权限和密钥", ConsoleIcon.SHIELD, new Runnable() {
             @Override public void run() {
-                c.push(new GroupPages.ConnectPage(c));
+                c.push(new PermSetupPage(c));
             }
         });
-        k.linkRow(g1, "权限与审批", ConsoleGroups.defaultSub(ConsoleGroups.PERM), ConsoleIcon.SHIELD, new Runnable() {
+        mVoiceRow = k.linkRow(g1, "基础设置", "模型 · 语音 · 唤起 · 外观 · 隐私", ConsoleIcon.GEAR, new Runnable() {
             @Override public void run() {
-                c.push(new GroupPages.PermPage(c));
+                c.push(new DesignPages.BasicsPage(c));
             }
         });
-        k.linkRow(g1, "模型与密钥", ConsoleGroups.defaultSub(ConsoleGroups.MODEL), ConsoleIcon.GEAR, new Runnable() {
+        mPluginsRow = k.linkRow(g1, "插件", "每个功能一个开关，开着才显示设置", ConsoleIcon.PUZZLE, new Runnable() {
             @Override public void run() {
-                c.push(new AdvancedPage(c));
+                c.push(new DesignPages.PluginsPage(c));
             }
         });
-        mVoiceRow = k.linkRow(g1, "语音", ConsoleGroups.defaultSub(ConsoleGroups.VOICE), ConsoleIcon.MIC, new Runnable() {
+        mAboutRow = k.linkRow(g1, "高级", "专家选项 · 运行状态 · 关于" + (c.devMode() ? " · 开发者" : ""), ConsoleIcon.SLIDERS, new Runnable() {
             @Override public void run() {
-                c.push(VoicePage.all(c));
+                c.push(new DesignPages.AdvancedHubPage(c));
             }
         });
-        k.linkRow(g1, "替你操作", ConsoleGroups.defaultSub(ConsoleGroups.ACT), ConsoleIcon.HAND, new Runnable() {
-            @Override public void run() {
-                c.push(new GroupPages.ActPage(c));
-            }
-        });
-        k.linkRow(g1, "功能", ConsoleGroups.defaultSub(ConsoleGroups.FEATURES), ConsoleIcon.SLIDERS, new Runnable() {
-            @Override public void run() {
-                c.push(new FeaturesPage(c));
-            }
-        });
-        k.linkRow(g1, "下载", ConsoleGroups.defaultSub(ConsoleGroups.DOWNLOAD), ConsoleIcon.DOWNLOAD, new Runnable() {
-            @Override public void run() {
-                c.push(new GroupPages.DownloadPage(c));
-            }
-        });
-        k.linkRow(g1, "插件", ConsoleGroups.defaultSub(ConsoleGroups.PLUGINS), ConsoleIcon.PUZZLE, new Runnable() {
-            @Override public void run() {
-                c.push(new AdvancedPage.PluginsPage(c));
-            }
-        });
-
-        LinearLayout ga = k.group(col, null);
-        mAboutRow = k.linkRow(ga, "关于", "v2 " + Console.RELEASE + (c.devMode() ? " · 开发者模式" : ""), ConsoleIcon.INFO, new Runnable() {
-            @Override public void run() {
-                c.push(new AboutPage(c));
-            }
-        });
-
-        // ---- 开发者（放最下，默认折叠）：诊断与摘要 · 调试工具（开发者模式开着才有，与之前一样）
-        LinearLayout gd = k.group(col, null);
-        mDevHead = k.linkRow(gd, ConsoleGroups.DEV_TITLE, ConsoleGroups.DEV_SUB_COLLAPSED, ConsoleIcon.CODE, new Runnable() {
-            @Override public void run() {
-                setDevExpanded(!mDevExpanded);
-            }
-        });
-        mDevBody = k.column();
-        gd.addView(mDevBody, k.lpMatch(0, 0));
-        fillDev();
-        setDevExpanded(ConsoleGroups.DEV_EXPANDED_BY_DEFAULT);
 
         ConsoleStatus.Snapshot last = StatusProbe.last();
         // 首帧：有上次结果画上次的；冷启动没有 → 「检测中」快照带上次的守护版本占位（不画「按键 未知」，免得 1 秒后变宽度顶动布局）
@@ -209,31 +167,6 @@ final class HomePage extends ConsoleNav.Page {
         return h;
     }
 
-    /** 开发者分组的子行（开发者模式变了要重画：「调试工具」只在开发者模式开着时出现）。 */
-    private void fillDev() {
-        mDevBody.removeAllViews();
-        mDevBuiltFor = c.devMode();
-        k.linkRow(mDevBody, "诊断与摘要", "设置诊断 · 长内容摘要 · 旧插件卡片", 0, new Runnable() {
-            @Override public void run() {
-                c.push(new GroupPages.DevFeaturesPage(c));
-            }
-        });
-        // ★ console-align：「功能插件」搬到设置区「插件」
-        if (mDevBuiltFor) {
-            k.linkRow(mDevBody, "调试工具", "调试按钮 · 自测 · 关停文件 · 阈值 · 日志", 0, new Runnable() {
-                @Override public void run() {
-                    c.push(new DeveloperPage(c));
-                }
-            });
-        }
-    }
-
-    private void setDevExpanded(boolean on) {
-        mDevExpanded = on;
-        mDevBody.setVisibility(on ? View.VISIBLE : View.GONE);
-        mDevHead.setSub(on ? ConsoleGroups.DEV_SUB_EXPANDED : ConsoleGroups.DEV_SUB_COLLAPSED);
-    }
-
     /** 计划区：先跳计划 App（开关开着 + 能打开）；不行就进本机计划页。tab = null 即「打开计划」。 */
     void openPlan(String tab) {
         PlanSection.go(new PlanSection.Opener() {
@@ -258,7 +191,14 @@ final class HomePage extends ConsoleNav.Page {
         mHint.setText(ConsoleStatus.heroHint(s.paused, mQuickNoteOn));
         mToggle.setOn(!s.paused, mToggle.isAttachedToWindow());
         mPills.removeAllViews();
-        for (ConsoleStatus.Pill p : ConsoleStatus.pills(s)) mPills.addView(k.pill(p));
+        // ★ design-1118（mz21-perm）：首页只留 Hero 一个汇总状态，不再摆一排胶囊；各项权限合并成一条「权限未就绪」提醒条
+        if (ConsoleStatus.homeShowsPills()) for (ConsoleStatus.Pill p : ConsoleStatus.pills(s)) mPills.addView(k.pill(p));
+        mPills.setVisibility(mPills.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+        if (mPermRow != null) {
+            mPermRow.setSub(PermSetup.headline(s));
+            mPermRow.setSubTone(PermSetup.anyBad(s) ? com.onesay.assistant.v2.kernel.ConsoleHost.TONE_BAD
+                    : (PermSetup.problems(s).isEmpty() ? com.onesay.assistant.v2.kernel.ConsoleHost.TONE_NORMAL : com.onesay.assistant.v2.kernel.ConsoleHost.TONE_WARN));
+        }
         mBanners.removeAllViews();
         List<ConsoleStatus.Banner> bs = ConsoleStatus.banners(s);
         for (final ConsoleStatus.Banner b : bs) {
@@ -286,6 +226,10 @@ final class HomePage extends ConsoleNav.Page {
     private int mRetries;
 
     private void onBanner(String id) {
+        if (ConsoleStatus.Banner.ACT_PERM.equals(id)) {   // ★ design-1118（mz21-perm）
+            c.push(new PermSetupPage(c));
+            return;
+        }
         if (ConsoleStatus.Banner.ACT_WAKE.equals(id)) {
             c.startWakeService();
             mScroll.postDelayed(new Runnable() {
@@ -327,9 +271,8 @@ final class HomePage extends ConsoleNav.Page {
 
     private void updateVoiceRow() {
         if (mVoiceRow == null || mSnap == null) return;
-        String vp = mSnap.voiceprint == null ? "声纹 未知" : (mSnap.voiceprint ? "声纹已注册" : "声纹未注册");
-        // ★ console-align：「语音」= 唤醒 + 朗读一页，副标题两样都带
-        mVoiceRow.setSub(vp + " · 唤醒手感 · 提示音" + (mTtsOff != null ? " · " + mTtsOff + " · 朗读完整回答" + (mFullAnswer ? "开" : "关") : " · 朗读"));
+        // ★ design-1118：「基础设置」一行只说有什么，不堆状态
+        mVoiceRow.setSub("模型 · 语音 · 唤起 · 外观 · 隐私");
     }
 
     /** 重新探测状态 + 刷新大卡 / 入口行副标题。 */
@@ -348,6 +291,7 @@ final class HomePage extends ConsoleNav.Page {
                 final boolean qnOn = qn != null && qn.enabled(app);
                 final String tts = com.onesay.assistant.v2.ui.TtsSpeaker.isEnabled(app) ? "语音回复开" : "语音回复关";
                 final boolean fullAnswer = com.onesay.assistant.v2.ui.TtsSpeaker.isFullAnswerEnabled(app);
+                final int plugOn = DesignPages.countOnPlugins(app);
                 final String plan = PlanSection.sub(com.onesay.assistant.v2.planner.PlannerLink.installed(app),
                         com.onesay.assistant.v2.planner.PlannerLink.SWITCH.on(app));
                 c.ui(new Runnable() {
@@ -358,11 +302,11 @@ final class HomePage extends ConsoleNav.Page {
                         mPlanRow.setSub(plan);
                         mTtsOff = tts;
                         mFullAnswer = fullAnswer;
-                        if (mDevBuiltFor != c.devMode()) fillDev();
                         mQuickNoteOn = qnOn;
                         if (mSnap != null) mHint.setText(ConsoleStatus.heroHint(mSnap.paused, qnOn));
                         updateVoiceRow();
-                        mAboutRow.setSub("v2 " + Console.RELEASE + (c.devMode() ? " · 开发者模式" : ""));
+                        mAboutRow.setSub("专家选项 · 运行状态 · 关于" + (c.devMode() ? " · 开发者" : ""));
+                        mPluginsRow.setSub("已开 " + plugOn + " 个 · 开着才显示设置");
                     }
                 });
             }

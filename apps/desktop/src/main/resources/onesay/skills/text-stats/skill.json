@@ -1,0 +1,20 @@
+{
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "text": { "type": "string", "title": "文字", "description": "要统计的文字", "maxLength": 100000 },
+      "top_n": { "type": "integer", "title": "列出前几个词", "default": 3, "minimum": 1, "maximum": 20 }
+    },
+    "required": ["text"]
+  },
+  "outputs": {
+    "type": "object",
+    "properties": {
+      "chars": { "type": "integer", "title": "字数" },
+      "lines": { "type": "integer", "title": "行数" },
+      "top": { "type": "array", "title": "高频词", "items": { "type": "string" } }
+    }
+  },
+  "entry": { "runtime": "js", "script": "scripts/main.js" },
+  "permissions": { "net": false, "files": false, "tools": [] }
+}

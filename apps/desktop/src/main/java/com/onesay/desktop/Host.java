@@ -7,7 +7,7 @@ package com.onesay.desktop;
  */
 final class Host {
     /** 任务栏分组 / 固定图标用的 AppUserModelID；与 launcher/Program.cs 的 AppId、安装程序写的必须相同。 */
-    static final String AUMID = "OneSay.Desktop";
+    static final String AUMID = Flavor.aumid();
 
     private Host() { }
 

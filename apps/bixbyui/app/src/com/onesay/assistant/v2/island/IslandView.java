@@ -25,6 +25,10 @@ import java.util.Locale;
  * [island v3] 灵动岛的<b>自绘视图</b>：黑色形状，上沿固定在状态栏下 2dp（全屏 8dp）、水平居中，各状态只改宽 / 高 / 圆角
  * （弹簧 ω=22 ζ=0.86），内容在形状长到 80% 后才淡入。设计稿 motion/island-v3.html；方案 island-v3-plan.md §5。
  *
+ * <p>★ island-cutout-1118：岛从挖孔摄像头长出来（{@link CutoutGeometry}：有中间 / 角落挖孔就包住孔，刘海 / 无孔 / 横屏回落上方居中），
+ * 形状由 {@link IslandMorph} 的六根弹簧驱动（宽 / 高 / 圆角 / 水平中心 / 上沿 / 颈），画成<b>一条 Path</b>：底边随竖直速度下垂（水滴）、
+ * 孔与岛之间有 metaball 颈；收起时缩回孔里再淡出。系统「动画时长缩放」= 0 → 直接到终点。窗口固定、每帧不 relayout。
+ *
  * <p>窗口（TYPE_APPLICATION_OVERLAY）只在形变期间变大，静止时只包住岛。逻辑全在 {@link IslandModel}；这里只画快照、翻译手势。
  * 手势：点按 = 打开 App；长按 450ms = 展开；横滑 &gt; 24dp = 暂避 60s；展开态上滑 &gt; 24dp 或点外部 = 收起（确认卡除外）。
  */
@@ -65,8 +69,10 @@ public class IslandView extends View {
         void onHiddenSettled();
     }
 
-    static final int INK = 0xFF111111, INK2 = 0xFF262624, ON1 = 0xFFFFFFFF, ON2 = 0xFFCFCBC4, ON3 = 0xFFA3A09A,
-            RED = 0xFFE5484D, ACC = 0xFF84AE64, MUTE = 0xFF8C8983, LINE = 0xFF2A2927;
+    /** OneSay 设计语言 v1 §1.5（docs/design）：岛纯黑（形状用 {@link #SHAPE}），文字 text1 #F2F1EE / text2 #A9A7A2 / text3 #8C8A85，
+     *  状态点用 §1.3 状态色（bad #F0575C），主色 accent #84AE64。 */
+    static final int INK = 0xFF111111, INK2 = 0xFF262624, ON1 = 0xFFF2F1EE, ON2 = 0xFFA9A7A2, ON3 = 0xFF8C8A85,
+            RED = 0xFFF0575C, ACC = 0xFF84AE64, MUTE = 0xFF7E7C78, LINE = 0xFF2E2E33;
     /** 提醒点颜色：麦克风橙（Android 12 起的系统约定）、相机 / 通话绿、警示黄。 */
     static final int TONE_MIC = 0xFFF5A524, TONE_CAM = 0xFF30C452, TONE_WARN = 0xFFF2C94C;
 
@@ -89,7 +95,19 @@ public class IslandView extends View {
     private final Rect mWinReq = new Rect();
 
     private IslandModel.Snapshot mCur, mPrev;
+    /** ★ island-cutout-1118：形状弹簧都在 IslandMorph 里（mW / mH / mR 就是它的 w / h / r，同一批对象）。 */
+    private final IslandMorph mMorph = new IslandMorph();
     private final IslandGeometry.Spring mW, mH, mR, mSplit;
+    /** 「动画时长缩放」换算的 dt 倍率（0 = 关动画，直接到终点）；retarget 时读一次系统设置（最多 2 s 一次）。 */
+    private float mTimeScale = 1f;
+    private long mTimeScaleAt;
+    private final Path mNeckPath = new Path();
+    private final PathAdapter mPathSink = new PathAdapter();
+    private final PathAdapter mNeckSink = new PathAdapter();
+    /** 岛形状的纯黑（与摄像头孔融成一块；内容 / 按钮仍用 INK 系）。 */
+    static final int SHAPE = 0xFF000000;
+    /** 包孔紧凑态：这一帧文字最多画到的 x（视图坐标；孔左侧过道）；≤ 0 = 不限。 */
+    private float mWordLimitX;
     private final IslandGeometry.Spring mCurA = new IslandGeometry.Spring(0f, 20f, 1f);
     private final IslandGeometry.Spring mPrevA = new IslandGeometry.Spring(0f, 50f, 1f);
     private float mPrevH;
@@ -133,6 +151,7 @@ public class IslandView extends View {
     private final TouchRegion mTouch;
     private final Rect mTouchRect = new Rect();
     private final int[] mLoc = new int[2];
+    private final Rect mDirty = new Rect(), mDirtyTmp = new Rect();
     private android.graphics.LinearGradient mShimmer;
     private float mShimmerW = -1f;
     private final android.graphics.Matrix mShimmerM = new android.graphics.Matrix();
@@ -152,6 +171,10 @@ public class IslandView extends View {
     private final RectF mTmp = new RectF();
     private final List<Hit> mHits = new ArrayList<Hit>();
     private final RectF mIslandRect = new RectF();
+    private final RectF mLayerRect = new RectF();
+    /** 包孔双活动：主泡内容中心、副泡内容区（视图坐标）。 */
+    private float mDualMainCx = Float.NaN;
+    private final RectF mDualSubBox = new RectF();
     private final RectF mLeftRect = new RectF();
     private final RectF mRightRect = new RectF();
     private final SimpleDateFormat mHm = new SimpleDateFormat("HH:mm", Locale.CHINA);
@@ -183,9 +206,9 @@ public class IslandView extends View {
     public IslandView(Context ctx) {
         super(ctx);
         d = ctx.getResources().getDisplayMetrics().density;
-        mW = new IslandGeometry.Spring(0f, IslandGeometry.SPRING_OMEGA, IslandGeometry.SPRING_ZETA);
-        mH = new IslandGeometry.Spring(0f, IslandGeometry.SPRING_OMEGA, IslandGeometry.SPRING_ZETA);
-        mR = new IslandGeometry.Spring(0f, IslandGeometry.SPRING_OMEGA, IslandGeometry.SPRING_ZETA);
+        mW = mMorph.w;
+        mH = mMorph.h;
+        mR = mMorph.r;
         mSplit = new IslandGeometry.Spring(0f, IslandGeometry.SPRING_OMEGA, IslandGeometry.SPRING_ZETA);
         Typeface med = Typeface.create("sans-serif-medium", Typeface.NORMAL);
         Typeface bold = Typeface.create(Typeface.DEFAULT, Typeface.BOLD);
@@ -212,7 +235,9 @@ public class IslandView extends View {
         mStroke.setStrokeCap(Paint.Cap.ROUND);
         mStroke.setStrokeJoin(Paint.Join.ROUND);
         setContentDescription("OneSay 灵动岛");
-        mTouch = TouchRegion.create(this);
+        // ★ meizu-1118：API 31+ 全宽透传窗口会被系统当「不可信遮挡」丢掉下面 App 的点按 → 不用固定窗，退回包住岛
+        //   （不挂 touchable region：包住岛的窗口整窗可触摸，region 空会让岛自己也点不动）
+        mTouch = IslandGeometry.fixedWindowAllowed(android.os.Build.VERSION.SDK_INT) ? TouchRegion.create(this) : null;
         mFixedWin = mTouch != null;
     }
 
@@ -330,6 +355,8 @@ public class IslandView extends View {
         mAnchor = a;
         mScreenW = screenW;
         mScreenH = screenH;
+        mMorph.setAnchor(a, d);
+        mMeasureCache.clear();   // 包孔 / 屏宽变了 → 尺寸都要重量
         mWinReq.setEmpty();
         retarget();
     }
@@ -466,43 +493,40 @@ public class IslandView extends View {
         boolean visibleNow = mW.v >= 1f && mShapeA.v > 0.02f;
         boolean hold = !hide && mMorphHoldUntil > SystemClock.uptimeMillis() && !visibleNow;
         if (hold) {   // ★ R13：卡片在飞来 → 先只出一颗种子（APPEAR 的原生起点），不显示内容
-            tw = th = IslandGeometry.COMPACT_H_DP * d;
+            tw = th = ch();
             tr = tw / 2f;
         }
         if (!visibleNow || hide) mAppearLock = false;
         mMotion = mAppearLock ? IslandGeometry.Motion.APPEAR : IslandGeometry.motionFor(visibleNow ? mW.v : 0f, visibleNow ? mH.v : 0f, tw, th);
         float[] sp = IslandGeometry.springFor(mMotion);
-        mW.setParams(sp[0], sp[1]);
-        mH.setParams(sp[0], sp[1]);
-        mR.setParams(sp[0], sp[1]);
+        // ★ island-cutout-1118：宽 / 高 / 圆角 / 位置 / 颈 各用各的弹簧（LiquidMotion.params）；面板接力（mAppearLock）仍是 APPEAR ω22 ζ0.86
+        mMorph.setPhase(LiquidMotion.phaseOf(mMotion, mAppearLock));
         mSplit.setParams(sp[0], sp[1]);
         // 面板收成岛 / 出现走 APPEAR：门槛与参数和 R10 完全一样（用户表扬过，不动）；其余形变用 R11 的 0.6 门槛
         mGate = mMotion == IslandGeometry.Motion.APPEAR ? IslandGeometry.CONTENT_GATE : IslandGeometry.CONTENT_GATE_R11;
         if (hide) {
-            // ★ R11：缩回一颗小药丸再淡出（不缩成一个点）；内容先淡掉
-            float pill = IslandGeometry.HIDE_PILL_DP * d;
-            mW.t = mW.v < 1f ? 0f : pill;
-            mH.t = mH.v < 1f ? 0f : pill;
-            mR.t = pill / 2f;
+            // ★ island-cutout-1118：缩回源点（挖孔 / 上方的小种子）；有孔时等缩到孔附近再淡出（黑色已与摄像头融在一起），没孔时边缩边淡（R11 原样）
+            if (mW.v < 1f) {
+                mW.t = mH.t = mR.t = 0f;
+            } else {
+                mMorph.targetOrigin();
+            }
             mCurA.t = 0f;
             mSplit.t = 0f;
-            mShapeA.t = 0f;
+            mShapeA.t = mMorph.originIsHole() && mW.v >= 1f ? 1f : 0f;
         } else {
-            mW.t = tw;
-            mH.t = th;
-            mR.t = tr;
+            mMorph.targetShape(tw, th, tr, targetCx(s, tw), mAnchor.top);
             mCurA.t = hold ? 0f : 1f;
             mSplit.t = s.kind == IslandModel.Kind.MINIMAL_DUAL && !hold ? 1f : 0f;
             mShapeA.t = 1f;
         }
-        if (!hide && (mW.v < 1f || mShapeA.v <= 0.02f)) {   // 从隐藏出现：从小胶囊长出来（R10 原样）
-            mW.v = Math.min(mW.t, IslandGeometry.COMPACT_H_DP * d);
-            mH.v = Math.min(mH.t, IslandGeometry.COMPACT_H_DP * d);
-            mR.v = mH.v / 2f;
-            mW.vel = mH.vel = mR.vel = 0f;
+        if (!hide && (mW.v < 1f || mShapeA.v <= 0.02f)) {   // 从隐藏出现：从孔（或上方的小种子）里长出来
+            mMorph.seedAtOrigin();
             mShapeA.v = 1f;
             mShapeA.vel = 0f;
         }
+        refreshTimeScale();
+        if (mTimeScale == 0f) snapForReducedMotion();
         if (mFixedWin) {
             requestFixedWindow();
             mSettledReported = false;
@@ -511,11 +535,15 @@ public class IslandView extends View {
             return;
         }
         Rect env = new Rect();
-        shapeRect(env, mW.v, mH.v);
+        shapeRect(env, mMorph.x.v, mMorph.y.v, mW.v, mH.v);
         Rect tgt = new Rect();
-        shapeRect(tgt, mW.t, mH.t);
+        shapeRect(tgt, mMorph.x.t, mMorph.y.t, mW.t, mH.t);
         env.union(tgt);
-        env.inset(-Math.round(6 * d), -Math.round(6 * d));
+        unionOrigin(env);
+        // 弹簧过冲（≤ 约 3.5%）+ 底边下垂（≤ 10dp）都要装得下
+        int slack = Math.round(Math.max(6f * d, 0.05f * Math.max(env.width(), env.height())));
+        env.inset(-slack, -slack);
+        env.bottom += Math.round(10f * d);
         clampRect(env);
         if (mHost != null && !env.equals(mWinReq)) {
             mWinReq.set(env);
@@ -532,6 +560,9 @@ public class IslandView extends View {
         int[] f = IslandGeometry.fixedWindow(mScreenW > 0 ? mScreenW : Math.round(360 * d), mScreenH > 0 ? mScreenH : Math.round(800 * d),
                 mAnchor.top, d);
         Rect r = new Rect(f[0], f[1], f[2], f[3]);
+        if (mAnchor.hasOrigin()) {   // ★ island-cutout-1118：源点（孔）在锚点上方时窗口也要盖住它（颈 / 缩回孔里）
+            r.top = Math.max(0, Math.min(r.top, (int) Math.floor(mAnchor.originTop()) - Math.round(4f * d)));
+        }
         if (!r.equals(mWinReq)) {
             mWinReq.set(r);
             mHost.requestWindow(new Rect(r));
@@ -546,10 +577,83 @@ public class IslandView extends View {
         if (r.height() < 1) r.bottom = r.top + 1;
     }
 
-    private void shapeRect(Rect out, float w, float h) {
-        float cx = mAnchor.cx;
-        float top = mAnchor.top;
+    private void shapeRect(Rect out, float cx, float top, float w, float h) {
         out.set((int) Math.floor(cx - w / 2f), (int) Math.floor(top), (int) Math.ceil(cx + w / 2f), (int) Math.ceil(top + h));
+    }
+
+    private void unionOrigin(Rect r) {
+        if (mAnchor == null || !mAnchor.hasOrigin()) return;
+        int m = Math.round(2f * d);
+        r.union((int) Math.floor(mAnchor.originCx - mAnchor.originW / 2f) - m, (int) Math.floor(mAnchor.originTop()) - m,
+                (int) Math.ceil(mAnchor.originCx + mAnchor.originW / 2f) + m, (int) Math.ceil(mAnchor.originTop() + mAnchor.originH) + m);
+    }
+
+    // ------------------------------------------------------------------ ★ island-cutout-1118：位置 / 减少动画 / 路径
+
+    /** 目标水平中心：包孔时以孔为中心并夹在屏内；双活动包孔时让孔落在主泡里（{@link CutoutGeometry#dualWrap}）。 */
+    private float targetCx(IslandModel.Snapshot s, float tw) {
+        int sw = mScreenW > 0 ? mScreenW : Math.round(360 * d);
+        if (s != null && s.kind == IslandModel.Kind.MINIMAL_DUAL && mAnchor.wrap) {
+            float[] g = dualWrapLayout();
+            return g[0] + g[8] / 2f;
+        }
+        return CutoutGeometry.cxFor(mAnchor, tw, sw, d);
+    }
+
+    private float[] dualWrapLayout() {
+        int sw = mScreenW > 0 ? mScreenW : Math.round(360 * d);
+        return CutoutGeometry.dualWrap(mAnchor, Math.max(IslandGeometry.MIN_TASK_DP * d, ch()), IslandGeometry.MIN_CODE_W_DP * d,
+                IslandGeometry.DUAL_GAP_DP * d, sw, d);
+    }
+
+    /** 读系统「动画时长缩放」（开发者选项 / 无障碍「移除动画」）：0 → 不做动画。最多 2 s 读一次。 */
+    private void refreshTimeScale() {
+        long now = SystemClock.uptimeMillis();
+        if (mTimeScaleAt != 0L && now - mTimeScaleAt < 2000L) return;
+        mTimeScaleAt = now;
+        float sc = 1f;
+        try {
+            sc = android.provider.Settings.Global.getFloat(getContext().getContentResolver(),
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
+        } catch (Throwable ignored) {
+        }
+        mTimeScale = LiquidMotion.timeScale(sc);
+    }
+
+    /** 关动画：形状、内容、分泡、透明度全部直接到终点。 */
+    private void snapForReducedMotion() {
+        mMorph.snapAll();
+        mSplit.snap();
+        if (targetHidden()) mShapeA.t = 0f;
+        mShapeA.snap();
+        mCurA.snap();
+        mPrevA.snap();
+        mPress.snap();
+        mBulgeX.snap();
+        mBulgeY.snap();
+        mMorphGateOn = false;
+        mGateArmed = false;
+    }
+
+    /** IslandMorph 的路径 → android.graphics.Path（复用，不分配）。 */
+    private static final class PathAdapter implements LiquidMotion.PathSink {
+        Path p;
+
+        @Override public void moveTo(float x, float y) {
+            p.moveTo(x, y);
+        }
+
+        @Override public void lineTo(float x, float y) {
+            p.lineTo(x, y);
+        }
+
+        @Override public void cubicTo(float x1, float y1, float x2, float y2, float x3, float y3) {
+            p.cubicTo(x1, y1, x2, y2, x3, y3);
+        }
+
+        @Override public void close() {
+            p.close();
+        }
     }
 
     // ------------------------------------------------------------------ ★ borrow-1112：控屏状态描边
@@ -573,7 +677,8 @@ public class IslandView extends View {
         long now = SystemClock.uptimeMillis();
         float dt = mLastFrame == 0L ? 0.016f : Math.min(0.033f, (now - mLastFrame) / 1000f);
         mLastFrame = now;
-        stepAll(dt);
+        if (mTimeScale == 0f) snapForReducedMotion();   // ★ 关动画：每帧都在终点
+        else stepAll(dt * mTimeScale);
         // ★ R11：用这一帧真实的窗口位置画（窗口挪动是异步的；按「请求的」原点画会先错位一帧 = 抖）
         try {
             getLocationOnScreen(mLoc);
@@ -587,9 +692,10 @@ public class IslandView extends View {
         float press = mPress.v;
 
         float w = Math.max(0f, mW.v), h = Math.max(0f, mH.v);
-        float r = Math.min(mR.v, Math.min(w, h) / 2f);
-        float cx = mAnchor.cx - mWinL;
-        float top = mAnchor.top - mWinT;
+        float r = mMorph.radius();
+        // ★ island-cutout-1118：位置也是弹簧（包孔时以孔为中心；从孔里长出来、缩回孔里）
+        float cx = mMorph.x.v - mWinL;
+        float top = mMorph.y.v - mWinT;
         mIslandRect.set(cx - w / 2f, top, cx + w / 2f, top + h);
         mHits.clear();
 
@@ -600,54 +706,71 @@ public class IslandView extends View {
             c.scale(1f + mBulgeX.v, 1f + mBulgeY.v, mIslandRect.centerX(), mIslandRect.top + h / 2f);
         }
         updateTouchRect();
-        mFill.setColor(INK);
-        mFill.setAlpha(Math.round(255 * shapeA));
+        // 形状轮廓（带底边下垂）：一条 Path，内容也按它裁
+        mPath.reset();
+        mPathSink.p = mPath;
+        if (w > 0.5f && h > 0.5f) LiquidMotion.outline(mPathSink, mIslandRect.left, mIslandRect.top, mIslandRect.right, mIslandRect.bottom, r,
+                split > 0.01f ? 0f : mMorph.sag());
+        mNeckPath.reset();
+        mNeckSink.p = mNeckPath;
+        boolean neck = w > 0.5f && h > 0.5f && mMorph.buildNeck(mNeckSink, mWinL, mWinT);
+        int shapeAlpha = Math.round(255 * shapeA);
+        boolean layer = neck && shapeAlpha < 255;   // 孔圆 / 颈 / 岛三块叠着：半透明时先合成再整体淡，叠加处不变深
+        if (layer) {
+            RectF lb = mLayerRect;
+            lb.set(mIslandRect);
+            lb.union(mAnchor.originCx - mWinL - mAnchor.originW, mAnchor.originTop() - mWinT - mAnchor.originH,
+                    mAnchor.originCx - mWinL + mAnchor.originW, mAnchor.originTop() - mWinT + 2f * mAnchor.originH);
+            lb.inset(-12f * d, -12f * d);
+            c.saveLayerAlpha(lb, shapeAlpha);
+        }
+        mFill.setColor(SHAPE);
+        mFill.setAlpha(layer ? 255 : shapeAlpha);
         if (w > 0.5f && h > 0.5f) {
             if (split > 0.01f) {
-                float gap = IslandGeometry.DUAL_GAP_DP * d * split;
-                float total = IslandGeometry.MIN_TASK_DP + IslandGeometry.MIN_CODE_W_DP;
-                float wa = (w - gap) * (IslandGeometry.MIN_TASK_DP / total);
-                mLeftRect.set(mIslandRect.left, top, mIslandRect.left + wa, top + h);
-                mRightRect.set(mLeftRect.right + gap, top, mIslandRect.right, top + h);
+                layoutDual(cx, top, w, h, split);
                 c.drawRoundRect(mLeftRect, h / 2f, h / 2f, mFill);
                 c.drawRoundRect(mRightRect, h / 2f, h / 2f, mFill);
             } else {
                 mLeftRect.setEmpty();
                 mRightRect.setEmpty();
-                c.drawRoundRect(mIslandRect, r, r, mFill);
+                c.drawPath(mPath, mFill);
             }
+            if (neck) c.drawPath(mNeckPath, mFill);
         }
+        if (layer) c.restore();
 
         int ring = sControlRing;   // ★ borrow-1112：执行中按「谁在控屏」描一圈边（助手 / 等你 / 你接手）
         if (ring != 0 && w > 0.5f && h > 0.5f && split <= 0.01f && mCur != null && mCur.exec) {
             mStroke.setColor(ring);
             mStroke.setStrokeWidth(1.6f * d);
             mStroke.setAlpha(Math.round(230 * shapeA));
-            c.drawRoundRect(mIslandRect, r, r, mStroke);
+            c.drawPath(mPath, mStroke);
         }
 
         c.save();
-        mPath.reset();
-        mPath.addRoundRect(mIslandRect, r, r, Path.Direction.CW);
+        if (split > 0.01f) {
+            mPath.reset();
+            mPath.addRoundRect(mLeftRect, h / 2f, h / 2f, Path.Direction.CW);
+            mPath.addRoundRect(mRightRect, h / 2f, h / 2f, Path.Direction.CW);
+        }
         c.clipPath(mPath);
         float pa = clamp01(mPrevA.v) * shapeA;
         if (mPrev != null && pa > 0.01f) {
-            float pw = measure(mPrev)[0];
-            render(c, mPrev, mIslandRect.centerX() - pw / 2f, mIslandRect.top, pw, (int) (pa * 255), false, now);
+            drawContent(c, mPrev, (int) (pa * 255), false, now, false);
         } else if (clamp01(mPrevA.v) <= 0.01f) {
             if (mPrev != null) mMeasureCache.remove(mPrev);
             mPrev = null;
         }
         float ca = clamp01(mCurA.v) * shapeA;
         if (mCur != null && mCur.kind != IslandModel.Kind.HIDDEN && ca > 0.01f) {
-            float cw = measure(mCur)[0];
             boolean sc = mScaleIn && ca < 0.995f;
             if (sc) {
                 float k = IslandGeometry.CONTENT_SCALE_FROM + (1f - IslandGeometry.CONTENT_SCALE_FROM) * ca;
                 c.save();
-                c.scale(k, k, mIslandRect.centerX(), mIslandRect.top + Math.min(h, IslandGeometry.COMPACT_H_DP * d) / 2f);
+                c.scale(k, k, mIslandRect.centerX(), mIslandRect.top + Math.min(h, ch()) / 2f);
             }
-            render(c, mCur, mIslandRect.centerX() - cw / 2f, mIslandRect.top, cw, (int) (ca * 255), mCurA.t == 1f, now);
+            drawContent(c, mCur, (int) (ca * 255), mCurA.t == 1f, now, true);
             if (sc) c.restore();
         }
         c.restore();
@@ -684,10 +807,17 @@ public class IslandView extends View {
             return;
         }
         float w = Math.max(Math.max(0f, mW.v), mW.t) * 1.05f, h = Math.max(Math.max(0f, mH.v), mH.t) * 1.05f;
-        float cx = mAnchor.cx - mWinL, top = mAnchor.top - mWinT;
         int m = Math.round(12 * d);
-        int l = (int) Math.floor(cx - w / 2f) - m, t = (int) Math.floor(top) - m, r = (int) Math.ceil(cx + w / 2f) + m,
-                b = (int) Math.ceil(top + h) + m;
+        Rect dirty = mDirty;
+        shapeRect(dirty, mMorph.x.v - mWinL, mMorph.y.v - mWinT, w, h);
+        mDirtyTmp.setEmpty();
+        shapeRect(mDirtyTmp, mMorph.x.t - mWinL, mMorph.y.t - mWinT, w, h);
+        dirty.union(mDirtyTmp);
+        if (mAnchor.hasOrigin()) {
+            dirty.union((int) Math.floor(mAnchor.originCx - mAnchor.originW - mWinL), (int) Math.floor(mAnchor.originTop() - mWinT),
+                    (int) Math.ceil(mAnchor.originCx + mAnchor.originW - mWinL), (int) Math.ceil(mAnchor.originTop() + mAnchor.originH - mWinT));
+        }
+        int l = dirty.left - m, t = dirty.top - m, r = dirty.right + m, b = dirty.bottom + m + Math.round(10f * d);
         if (frame) postInvalidateOnAnimation(l, t, r, b);
         else postInvalidateDelayed(50L, l, t, r, b);
     }
@@ -725,7 +855,7 @@ public class IslandView extends View {
         }
         if (mFixedWin) return;   // 固定窗口：静止时不收窗口（收窗口 = 挪位置 = 抖）
         Rect tgt = new Rect();
-        shapeRect(tgt, mW.t, mH.t);
+        shapeRect(tgt, mMorph.x.t, mMorph.y.t, mW.t, mH.t);
         tgt.inset(-Math.round(2 * d), -Math.round(2 * d));
         clampRect(tgt);
         if (!tgt.equals(mWinReq)) {
@@ -735,10 +865,11 @@ public class IslandView extends View {
     }
 
     private void stepAll(float dt) {
-        mW.step(dt);
-        mH.step(dt);
-        mR.step(dt);
+        mMorph.step(dt);   // 宽 / 高 / 圆角 / 位置 / 颈
         mSplit.step(dt);
+        if (mMorph.toOrigin() && targetHidden() && mShapeA.t > 0f && mMorph.nearOrigin()) {
+            mShapeA.t = 0f;   // ★ 缩回孔里了 → 淡出（这时黑色已与摄像头融成一块）
+        }
         mPrevA.step(dt);
         mCurA.step(dt);
         mShapeA.step(dt);
@@ -778,40 +909,89 @@ public class IslandView extends View {
 
     /** 量尺寸（展开卡要排版文字，结果按快照缓存：R11 之前每帧都重新排版 2–4 次 → Note 8 上掉帧）。 */
     private float[] measure0(IslandModel.Snapshot s) {
-        float ch = IslandGeometry.COMPACT_H_DP * d;
+        // ★ island-cutout-1118：宽度随屏宽缩放（CutoutGeometry：手机上与 v3 相同，平板 / 横屏放宽）；包孔时紧凑态给孔让出过道、展开内容从孔下沿排
+        float ch = ch();
+        int sw = screenW();
         switch (s.kind) {
             case COMPACT_TASK:
             case COMPACT_PICKUP:
-            case COMPACT_REMIND:
-                return new float[] {IslandGeometry.compactWidth(compactContent(s), d), ch, ch / 2f};
-            case COMPACT_NOTE:
-                return new float[] {IslandGeometry.compactWidth(12f * d + 6f * d + pWord.measureText(noteWord(s)), d), ch, ch / 2f};
+            case COMPACT_REMIND: {
+                float[] g = compactSides(s);
+                return new float[] {wrapW(g, CutoutGeometry.compactWidth(compactContent(s), sw, d)), ch, ch / 2f};
+            }
+            case COMPACT_NOTE: {
+                float[] g = compactSides(s);
+                return new float[] {wrapW(g, CutoutGeometry.compactWidth(12f * d + 6f * d + pWord.measureText(noteWord(s)), sw, d)), ch, ch / 2f};
+            }
             case COMPACT_NOTICE: {
-                float maxW = Math.max(IslandGeometry.MIN_CODE_W_DP * d, Math.min(220f * d, (mScreenW > 0 ? mScreenW : 360f * d) - 48f * d));
+                float maxW = Math.max(IslandGeometry.MIN_CODE_W_DP * d, Math.min(220f * d, sw - 48f * d));
                 IslandModel.NoticeRow top = s.notices != null && !s.notices.isEmpty() ? s.notices.get(0) : null;
                 float chronoW = top != null && top.chronoBase > 0 ? pTime.measureText("00:00:00") + 8f * d : 0f;
                 float want = 12f * d + 6f * d + pWord.measureText(s.title == null ? "" : s.title) + chronoW + noticeBadgeW(s);
-                return new float[] {Math.min(maxW, IslandGeometry.compactWidth(want, d)), ch, ch / 2f};
+                return new float[] {wrapW(compactSides(s), Math.min(maxW, CutoutGeometry.compactWidth(want, sw, d))), ch, ch / 2f};
             }
             case COMPACT_TODO: {
                 float w = Math.max(IslandGeometry.MIN_CODE_W_DP * d, 9f * d + 12f * d + 6f * d
                         + pCode.measureText(String.valueOf(s.todoCount)) + 10f * d);
-                return new float[] {w, ch, ch / 2f};
+                return new float[] {wrapW(compactSides(s), w), ch, ch / 2f};
             }
             case MINIMAL_DUAL:
+                if (mAnchor != null && mAnchor.wrap) return new float[] {dualWrapLayout()[8], ch, ch / 2f};
                 return new float[] {(IslandGeometry.MIN_TASK_DP + IslandGeometry.DUAL_GAP_DP + IslandGeometry.MIN_CODE_W_DP) * d,
                         ch, ch / 2f};
             case PULSE_STEP:
-                return new float[] {Math.min(IslandGeometry.PULSE_W_DP * d, Math.max(1f, mScreenW - 24f * d)),
-                        IslandGeometry.PULSE_H_DP * d, IslandGeometry.PULSE_R_DP * d};
+                return new float[] {Math.min(IslandGeometry.PULSE_W_DP * d, Math.max(1f, sw - 24f * d)),
+                        IslandGeometry.PULSE_H_DP * d + insetTop(), IslandGeometry.PULSE_R_DP * d};
             case HIDDEN:
                 return new float[] {0f, 0f, 0f};
             default: {
-                float w = IslandGeometry.expandedWidth(mScreenW > 0 ? mScreenW : Math.round(360 * d), d);
-                float h = render(null, s, 0f, 0f, w, 255, false, 0L);
+                float w = CutoutGeometry.expandedWidth(sw, d);
+                float h = render(null, s, 0f, 0f, w, 255, false, 0L) + insetTop();
                 float max = IslandGeometry.expandedMaxHeight(mScreenH > 0 ? mScreenH : Math.round(800 * d), mAnchor.top);
                 if (max > 0f) h = Math.min(h, max);
                 return new float[] {w, h, IslandGeometry.EXP_R_DP * d};
+            }
+        }
+    }
+
+    private float insetTop() {
+        return CutoutGeometry.expandedInsetTop(mAnchor, d);
+    }
+
+    private float wrapW(float[] sides, float plain) {
+        if (mAnchor == null || !mAnchor.wrap) return plain;
+        return CutoutGeometry.wrapCompactWidth(mAnchor, sides[0], sides[1], plain, screenW(), d);
+    }
+
+    /** 紧凑态左组 / 右组宽（包孔、孔在中间时两组分居孔两侧，岛按较宽的一组对称放）。 */
+    private float[] compactSides(IslandModel.Snapshot s) {
+        if (mAnchor == null || !mAnchor.wrap) return new float[] {0f, 0f};
+        switch (s.kind) {
+            case COMPACT_PICKUP:
+                return new float[] {16f * d + 8f * d, s.pickup == null ? 0f : pCode.measureText(s.pickup.code) + 4f * d};
+            case COMPACT_REMIND:
+                return new float[] {12f * d + 6f * d + pWord.measureText("提醒"), pTime.measureText("00:00") + 4f * d};
+            case COMPACT_NOTE:
+                return new float[] {12f * d + 6f * d + pWord.measureText(noteWord(s)), 0f};
+            case COMPACT_NOTICE: {
+                IslandModel.NoticeRow top = s.notices != null && !s.notices.isEmpty() ? s.notices.get(0) : null;
+                float chronoW = top != null && top.chronoBase > 0 ? pTime.measureText("00:00:00") + 8f * d : 0f;
+                return new float[] {12f * d + 6f * d + Math.min(pWord.measureText(s.title == null ? "" : s.title), 96f * d), chronoW + noticeBadgeW(s)};
+            }
+            case COMPACT_TODO:
+                return new float[] {9f * d + 12f * d, pCode.measureText(String.valueOf(s.todoCount)) + 10f * d};
+            default: {
+                float all = compactContent(s);
+                float right;
+                if (progressLive(s)) {
+                    right = pTime.measureText("00 s") + (s.progressTotal >= 2 ? progressDotsWidth(s.progressTotal) + 6f * d : 0f);
+                } else {
+                    right = s.status == IslandModel.Status.DONE ? pTime.measureText("0:00")
+                            : s.status == IslandModel.Status.FAIL ? pTime.measureText(IslandModel.compactFailRight(s))
+                            : s.progressTotal >= 2 ? progressDotsWidth(s.progressTotal) : 18f * d;
+                }
+                // 左组（点 + 字）最多占 110dp：太长的字按词截，不把岛撑到屏宽
+                return new float[] {Math.min(110f * d, Math.max(0f, all - right - IslandGeometry.COMPACT_GROUP_GAP_DP * d)), right};
             }
         }
     }
@@ -959,8 +1139,67 @@ public class IslandView extends View {
         }
     }
 
+    /** 紧凑态高：包孔时 = 孔径 + 2×5dp（至少 28dp），否则 28dp。 */
     private float ch() {
-        return IslandGeometry.COMPACT_H_DP * d;
+        return mAnchor != null && mAnchor.wrap && mAnchor.compactH > 0 ? mAnchor.compactH : IslandGeometry.COMPACT_H_DP * d;
+    }
+
+    private static boolean isCompactKind(IslandModel.Kind k) {
+        return k == IslandModel.Kind.COMPACT_TASK || k == IslandModel.Kind.COMPACT_PICKUP || k == IslandModel.Kind.COMPACT_REMIND
+                || k == IslandModel.Kind.COMPACT_TODO || k == IslandModel.Kind.COMPACT_NOTE || k == IslandModel.Kind.COMPACT_NOTICE;
+    }
+
+    private int screenW() {
+        return mScreenW > 0 ? mScreenW : Math.round(360 * d);
+    }
+
+    /** ★ island-cutout-1118：内容放进当前形状 —— 包孔时紧凑内容绕开孔、展开内容从孔下沿往下排。 */
+    private void drawContent(Canvas c, IslandModel.Snapshot s, int alpha, boolean hits, long now, boolean cur) {
+        float cw = measure(s)[0];
+        float x0 = mIslandRect.centerX() - cw / 2f;
+        float y0 = mIslandRect.top;
+        mWordLimitX = 0f;
+        if (mAnchor != null && mAnchor.wrap) {
+            if (isCompactKind(s.kind)) {
+                float laneL = mAnchor.laneL - mWinL, laneR = mAnchor.laneR - mWinL;
+                int mode = CutoutGeometry.laneMode(mAnchor, screenW());
+                if (mode == CutoutGeometry.LANE_SPLIT) {
+                    mWordLimitX = laneL - 2f * d;
+                } else if (mode == CutoutGeometry.LANE_LEFT) {
+                    float x1 = x0 + cw;
+                    x0 = Math.max(x0, laneR - IslandGeometry.COMPACT_PAD_L_DP * d * 0.5f);
+                    cw = Math.max(1f, x1 - x0);
+                } else if (mode == CutoutGeometry.LANE_RIGHT) {
+                    cw = Math.max(1f, Math.min(x0 + cw, laneL + IslandGeometry.COMPACT_PAD_R_DP * d * 0.5f) - x0);
+                }
+            } else if (s.kind != IslandModel.Kind.MINIMAL_DUAL) {
+                y0 += CutoutGeometry.expandedInsetTop(mAnchor, d);
+            }
+        }
+        render(c, s, x0, y0, cw, alpha, hits, now);
+        mWordLimitX = 0f;
+    }
+
+    /** 双活动的两个泡（视图坐标）：包孔时按 {@link CutoutGeometry#dualWrap} 让孔落在泡里，否则按 v3 比例。 */
+    private void layoutDual(float cx, float top, float w, float h, float split) {
+        float l = cx - w / 2f, r = cx + w / 2f;
+        if (mAnchor != null && mAnchor.wrap) {
+            float[] g = dualWrapLayout();
+            float k = g[8] > 0f ? w / g[8] : 1f;
+            float mainR = l + (g[2] - g[0]) * k, subL = l + (g[4] - g[0]) * k;
+            mLeftRect.set(l, top, r + (mainR - r) * split, top + h);
+            mRightRect.set(l + (subL - l) * split, top, r, top + h);
+            mDualMainCx = l + (g[3] - g[0]) * k;
+            mDualSubBox.set(l + (g[6] - g[0]) * k, top, l + (g[7] - g[0]) * k, top + h);
+            return;
+        }
+        float gap = IslandGeometry.DUAL_GAP_DP * d * split;
+        float total = IslandGeometry.MIN_TASK_DP + IslandGeometry.MIN_CODE_W_DP;
+        float wa = (w - gap) * (IslandGeometry.MIN_TASK_DP / total);
+        mLeftRect.set(l, top, l + wa, top + h);
+        mRightRect.set(mLeftRect.right + gap, top, r, top + h);
+        mDualMainCx = Float.NaN;
+        mDualSubBox.setEmpty();
     }
 
     private float renderCompactTask(Canvas c, IslandModel.Snapshot s, float x, float y, float w, int alpha, long now) {
@@ -1009,6 +1248,7 @@ public class IslandView extends View {
         }
         float wordX = lx + 18f * d + iconW;
         float avail = Math.max(0f, rx - rightW - IslandGeometry.COMPACT_GROUP_GAP_DP * d - wordX);
+        if (mWordLimitX > 0f) avail = Math.max(0f, Math.min(avail, mWordLimitX - wordX));   // ★ 包孔：字停在孔左边
         String t = fitWidth(compactWord(s), pWord, avail);   // ★ 11-04 ①：整词截断，不出省略号
         drawText(c, t, wordX, cy, pWord, alpha, false);
         return ch();
@@ -1031,7 +1271,9 @@ public class IslandView extends View {
         mFill.setColor(s.status == IslandModel.Status.FAIL ? MUTE : ACC);
         mFill.setAlpha(alpha);
         c.drawCircle(lx + 6f * d, cy, 4.5f * d, mFill);
-        drawText(c, noteWord(s), lx + 18f * d, cy, pWord, alpha, false);
+        String nw = noteWord(s);
+        if (mWordLimitX > 0f) nw = fitWidth(nw, pWord, Math.max(0f, mWordLimitX - (lx + 18f * d)));   // ★ 包孔：字停在孔左边
+        drawText(c, nw, lx + 18f * d, cy, pWord, alpha, false);
         if (s.status == IslandModel.Status.RUN) {
             float t = (now % 1200L) / 1200f;
             float gw = w * 0.45f;
@@ -1183,7 +1425,9 @@ public class IslandView extends View {
         String chrono = top != null && top.chronoBase > 0 ? top.chronoText(System.currentTimeMillis()) : "";
         float cw = chrono.length() > 0 ? pTime.measureText(chrono) + 8f * d : 0f;
         if (cw > 0f) drawText(c, chrono, rx - bw - 2f * d, cy, pTime, alpha, true);
-        String t = fitWidth(s.title == null ? "" : s.title, pWord, Math.max(0f, rx - bw - cw - tx));
+        float availT = Math.max(0f, rx - bw - cw - tx);
+        if (mWordLimitX > 0f) availT = Math.max(0f, Math.min(availT, mWordLimitX - tx));   // ★ 包孔：字停在孔左边
+        String t = fitWidth(s.title == null ? "" : s.title, pWord, availT);
         drawText(c, t, tx, cy, pWord, alpha, false);
         return ch();
     }
@@ -1341,14 +1585,16 @@ public class IslandView extends View {
         if (c == null) return ch();
         if (mLeftRect.isEmpty() || mRightRect.isEmpty()) return ch();
         float cy = mLeftRect.centerY();
-        drawMini(c, s.act, s.status, s.pickup, mLeftRect.centerX(), cy, alpha, now);
+        float mainCx = Float.isNaN(mDualMainCx) ? mLeftRect.centerX() : mDualMainCx;   // ★ 包孔：任务环画在孔旁边
+        RectF sub = mDualSubBox.isEmpty() ? mRightRect : mDualSubBox;
+        drawMini(c, s.act, s.status, s.pickup, mainCx, cy, alpha, now);
         if (s.bubble == IslandModel.Act.PICKUP || s.bubble == IslandModel.Act.REMIND || s.bubble == IslandModel.Act.NOTICE) {
             String t = s.bubbleText == null ? "" : s.bubbleText;
             TextPaint p = s.bubble == IslandModel.Act.PICKUP ? pCode : pLabel;
-            String tt = TextUtils.ellipsize(t, p, Math.max(0f, mRightRect.width() - 8f * d), TextUtils.TruncateAt.START).toString();
-            drawTextCentered(c, tt, mRightRect, p, alpha);
+            String tt = TextUtils.ellipsize(t, p, Math.max(0f, sub.width() - 8f * d), TextUtils.TruncateAt.START).toString();
+            drawTextCentered(c, tt, sub, p, alpha);
         } else {
-            drawMini(c, s.bubble, s.bubbleStatus, null, mRightRect.centerX(), cy, alpha, now);
+            drawMini(c, s.bubble, s.bubbleStatus, null, sub.centerX(), cy, alpha, now);
         }
         return ch();
     }
@@ -2115,13 +2361,18 @@ public class IslandView extends View {
         if (mAnchor == null || screenRect == null || targetHidden()) return false;
         retarget();   // 先算出真正的目标（紧凑 / 展开）
         float w = Math.max(1f, screenRect.width());
-        float h = Math.max(IslandGeometry.COMPACT_H_DP * d * 0.5f, screenRect.bottom - mAnchor.top);
+        float h = Math.max(ch() * 0.5f, screenRect.bottom - mAnchor.top);
         mW.v = w;
         mH.v = h;
         mR.v = Math.min(w, h) / 2f;
         mW.vel = vw;
         mH.vel = vh;
         mR.vel = 0f;
+        mMorph.x.v = mMorph.x.t;   // ★ island-cutout-1118：面板接力时位置直接在锚点（舞台已经飞到这里），颈不出现
+        mMorph.y.v = mMorph.y.t;
+        mMorph.x.vel = mMorph.y.vel = 0f;
+        mMorph.neck.v = mMorph.neck.t = 0f;
+        mMorph.setPhase(LiquidMotion.Phase.APPEAR);
         mShapeA.v = 1f;
         mShapeA.vel = 0f;
         mMotion = IslandGeometry.Motion.APPEAR;
@@ -2165,8 +2416,8 @@ public class IslandView extends View {
     public float[] shapeForHandoff() {
         if (mAnchor == null || mW.v < 1f || mShapeA.v < 0.05f) return null;
         float w = mW.v, h = mH.v;
-        float l = mAnchor.cx - w / 2f, t = mAnchor.top;
-        return new float[] {l, t, l + w, t + h, Math.min(mR.v, Math.min(w, h) / 2f)};
+        float l = mMorph.left(), t = mMorph.top();
+        return new float[] {l, t, l + w, t + h, mMorph.radius()};
     }
 
     /** 回程：冻住当前形状（模型的 RENDER 先记下、不执行），直到 vanishForHandoff 或超时。 */

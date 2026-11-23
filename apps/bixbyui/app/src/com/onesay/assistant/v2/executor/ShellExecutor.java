@@ -21,6 +21,69 @@ import java.io.InputStreamReader;
 public class ShellExecutor implements ShellRunner {
 
     private static final String TAG = "ShellExecutor";
+    /** ★ fix-1118：BatteryManager 粘性广播读电量 / 温度 / 充电状态，输出与 dumpsys battery 同格式。读不到 = null。 */
+    /** ★ meizu-1118 B8：媒体音量 App 内 AudioManager 读写（不需要特权）。失败 = null（交特权通道）。 */
+    private ShellResponse localMediaVolume(int op) {
+        try {
+            android.media.AudioManager am = (android.media.AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return null;
+            int max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC);
+            if (max <= 0) return null;
+            com.onesay.assistant.v2.util.MediaVolumeScale.set(max);
+            if (op >= 0) {
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, Math.min(op, max), 0);
+                Log.i(TAG, "[EXEC] 媒体音量（App 内 AudioManager，不经特权通道）");
+            }
+            int v = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC);
+            return new ShellResponse(0, com.onesay.assistant.v2.platform.ShizukuCompat.mediaVolumeOut(v, max), false, false);
+        } catch (Throwable t) {
+            Log.w(TAG, "[EXEC] App 内媒体音量失败，交特权通道: " + t.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private ShellResponse localBattery(String command) {
+        try {
+            android.content.Intent b = mContext.registerReceiver(null, new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            if (b == null) return null;
+            int lv = b.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1), sc = b.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100);
+            int pct = lv < 0 || sc <= 0 ? -1 : Math.round(lv * 100f / sc);
+            int plug = b.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0);
+            String out = com.onesay.assistant.v2.platform.ShizukuCompat.localBatteryDump(command, pct,
+                    b.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Integer.MIN_VALUE),
+                    b.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1),
+                    (plug & android.os.BatteryManager.BATTERY_PLUGGED_AC) != 0, (plug & android.os.BatteryManager.BATTERY_PLUGGED_USB) != 0);
+            Log.i(TAG, "[EXEC] 电量本地读取（BatteryManager，不经特权通道）");
+            return new ShellResponse(0, out, false, false);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** ★ fix-1118：本地查默认浏览器（VIEW http://example.com 的默认处理者）。查不到 = null（交特权通道）。 */
+    private ShellResponse localResolveBrowser() {
+        try {
+            android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("http://example.com"));
+            it.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+            android.content.pm.ResolveInfo ri = mContext.getPackageManager().resolveActivity(it, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+            if (ri == null || ri.activityInfo == null) return new ShellResponse(0, "No activity found", false, false);
+            Log.i(TAG, "[EXEC] 默认浏览器本地查询（PackageManager，不经特权通道）");
+            return new ShellResponse(0, ri.activityInfo.packageName + "/" + ri.activityInfo.name, false, false);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 守护通道是否可能在线（探测缓存说离线就不去排 1.5 s 超时）。 */
+    private boolean daemonLikelyUp() {
+        try {
+            com.onesay.assistant.v2.platform.DeviceProfile p = com.onesay.assistant.v2.platform.DeviceCapabilityProbe.cached(mContext);
+            return p == null || p.get(com.onesay.assistant.v2.platform.DeviceCap.EXEC_DAEMON) != com.onesay.assistant.v2.platform.Tri.NO;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     /**
      * 审计 B-2：全局 IPC 锁从 synchronized 改成可 tryLock 的 ReentrantLock。
      * 普通命令照旧排队（{@link #execute}）；轮询类只读命令用 {@link #executePoll}：
@@ -95,11 +158,24 @@ public class ShellExecutor implements ShellRunner {
     private static ShellResponse viaBackend(String command, long timeoutMs) {
         // ★ priv-llm：执行档位 su / root 守护 / Shizuku 特权（白名单）/ 原守护，见 ExecTierRouter
         com.onesay.assistant.v2.platform.ExecTierRouter.Route rt = com.onesay.assistant.v2.platform.ExecBackendHost.route(command);
+        String grep = null;
+        if (rt.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.DENY && rt.denyReason != null && rt.denyReason.startsWith("SHIZUKU_")) {
+            // ★ fix-1118：模板旧写法（service call bluetooth_manager / dumpsys battery | grep）换成白名单里的等价命令再判一次，不放宽白名单
+            com.onesay.assistant.v2.platform.ShizukuCompat.Rewrite w = com.onesay.assistant.v2.platform.ShizukuCompat.rewrite(command);
+            if (w != null) {
+                com.onesay.assistant.v2.platform.ExecTierRouter.Route r2 = com.onesay.assistant.v2.platform.ExecBackendHost.route(w.command);
+                if (r2.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.BACKEND) {
+                    rt = r2;
+                    command = w.command;
+                    grep = w.grep;
+                }
+            }
+        }
         if (rt.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.DENY) return ShellResponse.denied(rt.denyReason);
         if (rt.kind == com.onesay.assistant.v2.platform.ExecTierRouter.Kind.DAEMON) return null;
         com.onesay.plugin.api.exec.ExecResult r = rt.backend.run(command, timeoutMs);
         if (r.rc == ExecProtocol.RC_DENIED && r.output.startsWith("DENY ")) return ShellResponse.denied(r.output.substring(5).trim());
-        return new ShellResponse(r.rc, r.output, r.timedOut, r.backendDown);
+        return new ShellResponse(r.rc, com.onesay.assistant.v2.platform.ShizukuCompat.filter(r.output, grep), r.timedOut, r.backendDown);
     }
 
     /**
@@ -113,8 +189,47 @@ public class ShellExecutor implements ShellRunner {
         if (command == null || command.trim().length() == 0) {
             return new ShellResponse(0, "", false, false);
         }
+        // ★ fix-1118：电量不需要任何特权 —— 「dumpsys battery | grep level」直接用 BatteryManager 本地答（没 root / 没 Shizuku 也能用）
+        if (com.onesay.assistant.v2.platform.ShizukuCompat.isBatteryRead(command) && !"dumpsys battery".equals(command.trim())) {
+            ShellResponse lb = localBattery(command);
+            if (lb != null) return lb;
+        }
+        // ★ fix-1118「默认浏览器是什么」：resolve-activity 不在 Shizuku 白名单里 → App 自己 PackageManager.resolveActivity（targetSdk 28，无包可见性限制），
+        //   输出与 cmd package resolve-activity --brief 末行同格式（包名/类名），ShellPrograms.BROWSER_CHECK 照常解析
+        if (com.onesay.assistant.v2.executor.backend.ShellPrograms.RESOLVE_BROWSER.equals(command.trim())) {
+            ShellResponse lr = localResolveBrowser();
+            if (lr != null) return lr;
+        }
+        int mv = com.onesay.assistant.v2.platform.ShizukuCompat.mediaVolume(command);   // ★ meizu-1118 B8
+        if (mv != -1) {
+            ShellResponse lv = localMediaVolume(mv);
+            if (lv != null) return lv;
+        }
+        // ★ fix-1118 B19 真机：只打开一个应用商店 / 网页链接 → App 自己 startActivity（Shizuku 白名单不放带引号的 am start）
+        String viewUri = com.onesay.assistant.v2.platform.ShizukuCompat.viewUri(command);
+        if (viewUri != null) {
+            try {
+                android.content.Intent it = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(viewUri));
+                it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                mContext.startActivity(it);
+                Log.i(TAG, "[EXEC] 打开链接（App 内 startActivity，不经特权通道）");
+                return new ShellResponse(0, "Starting: Intent { act=android.intent.action.VIEW }", false, false);
+            } catch (Throwable t) {
+                Log.w(TAG, "[EXEC] App 内打开链接失败，交特权通道: " + t.getClass().getSimpleName());
+            }
+        }
         ShellResponse viaB = viaBackend(command, TIMEOUT_MS);
-        if (viaB != null) return viaB;
+        if (viaB != null) {
+            if (!viaB.isSuccess() && com.onesay.assistant.v2.platform.ShizukuCompat.isBatteryRead(command)) {
+                ShellResponse lb = localBattery(command);
+                if (lb != null) return lb;
+            }
+            return viaB;
+        }
+        if (com.onesay.assistant.v2.platform.ShizukuCompat.isBatteryRead(command) && !daemonLikelyUp()) {
+            ShellResponse lb = localBattery(command);
+            if (lb != null) return lb;
+        }
         IPC_LOCK.lock();
         try {
             return runLocked(command, TIMEOUT_MS);

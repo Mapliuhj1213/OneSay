@@ -77,7 +77,7 @@ public final class ConnectivityCaps {
                 .entities("setting")
                 .examples("调整设置")
                 .category("net")
-                .sideEffect(SideEffect.DEVICE_CONTROL)
+                .sideEffect(SideEffect.NONE)   // ★ fix-1118：查询只读（真机 c17：读屏后查蓝牙状态弹了「做了就撤不回来」红卡）
                 .risk(0, false)
                 .executor("shell")
                 .cmd("settings get global wifi_on")
@@ -128,7 +128,7 @@ public final class ConnectivityCaps {
                 .entities("setting")
                 .examples("调整设置")
                 .category("net")
-                .sideEffect(SideEffect.DEVICE_CONTROL)
+                .sideEffect(SideEffect.NONE)   // ★ fix-1118：查询只读（真机 c17：读屏后查蓝牙状态弹了「做了就撤不回来」红卡）
                 .risk(0, false)
                 .executor("shell")
                 .cmd("settings get global bluetooth_on")
@@ -175,7 +175,7 @@ public final class ConnectivityCaps {
                 .entities("setting")
                 .examples("调整设置")
                 .category("net")
-                .sideEffect(SideEffect.DEVICE_CONTROL)
+                .sideEffect(SideEffect.NONE)   // ★ fix-1118：查询只读（真机 c17：读屏后查蓝牙状态弹了「做了就撤不回来」红卡）
                 .risk(0, false)
                 .executor("shell")
                 .cmd("settings get global mobile_data")
@@ -256,7 +256,7 @@ public final class ConnectivityCaps {
                 .entities("setting")
                 .examples("调整设置")
                 .category("net")
-                .sideEffect(SideEffect.DEVICE_CONTROL)
+                .sideEffect(SideEffect.NONE)   // ★ fix-1118：查询只读（真机 c17：读屏后查蓝牙状态弹了「做了就撤不回来」红卡）
                 .risk(0, false)
                 .executor("shell")
                 .cmd(LOC_PROBE)
@@ -303,7 +303,7 @@ public final class ConnectivityCaps {
                 .entities("setting")
                 .examples("调整设置")
                 .category("net")
-                .sideEffect(SideEffect.DEVICE_CONTROL)
+                .sideEffect(SideEffect.NONE)   // ★ fix-1118：查询只读（真机 c17：读屏后查蓝牙状态弹了「做了就撤不回来」红卡）
                 .risk(0, false)
                 .executor("shell")
                 .cmd("timeout 1 dumpsys nfc 2>/dev/null | grep -m1 mState || echo 'mState=off'")

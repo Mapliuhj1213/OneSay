@@ -172,8 +172,18 @@ public final class TriageDecider {
             "油价", "金价", "比特币", "限行", "路况", "多少钱", "价格", "比分", "日出", "日落", "多少度", "几度",
     };
     /** 算术/换算 —— AskEngine 本地答或问答通道。 */
-    private static final String ARITH_RE =
-            ".*([0-9零一二两三四五六七八九十百千万]+(加|减|乘以|乘|除以|除|\\+|-|\\*|/|x)[0-9零一二两三四五六七八九十百千万]+).*|.*(等于几|等于多少|等于多少米|是多少米|多少公斤|换算).*";
+    /** ★ rel-1118 B08：原来是 {@code .*(数字+运算+数字+).*} 整句 matches，长数字串（5000 个「九」）灾难性回溯、2 万字卡死。
+     *  改成 find：最长数字串前不得紧挨数字（后行断言）+ 独占量词，判定与原式等价（存在「数字 运算 数字」子串，或含换算词），线性时间。 */
+    private static final java.util.regex.Pattern ARITH =
+            java.util.regex.Pattern.compile("(?<![0-9零一二两三四五六七八九十百千万])[0-9零一二两三四五六七八九十百千万]++(?:加|减|乘以|乘|除以|除|\\+|-|\\*|/|x)[0-9零一二两三四五六七八九十百千万]"
+                    + "|等于几|等于多少|是多少米|多少公斤|换算");
+    /** ★ rel-1118 B08：规则层只看前这么多字。再长的不是口头指令（粘贴的长文 / 攻击输入）：本地规则一律不接，交给模型分诊（模型拿到全文）。 */
+    public static final int MAX_RULE_LEN = 2000;
+
+    /** ★ rel-1118 B08：超长输入不跑本地规则（快路径、L0、决策表都先问这里）。 */
+    public static boolean tooLongForRules(String utterance) {
+        return utterance != null && utterance.length() > MAX_RULE_LEN;
+    }
 
     /** 条件 / 评估 —— 必须先看结果再决定，MIXED。 */
     private static final String[] CONDITIONAL = {
@@ -364,6 +374,10 @@ public final class TriageDecider {
     public static Decision decide(String utterance, Signals s, boolean allowDiagnose, boolean allowImplicitMemory, boolean allowImageSave,
                                   boolean allowSummary, boolean allowS3) {
         if (s == null) s = Signals.offline();
+        // ★ rel-1118 B08：超长输入（> MAX_RULE_LEN 字）不跑规则表，交模型分诊；core 只留前 MAX_RULE_LEN 字（本地问答引擎不会再扫全文）
+        if (tooLongForRules(utterance)) {
+            return build(Label.AMBIGUOUS, 0.0, "0-too-long", utterance.substring(0, MAX_RULE_LEN), false, false, "rule", s);
+        }
         String q = normalize(utterance);
         if (q.length() == 0) {
             return build(Label.AMBIGUOUS, 0.0, "1-empty", "", false, false, "rule", s);
@@ -374,6 +388,11 @@ public final class TriageDecider {
         //   落 ASK：只回一句话、永不调工具。
         if (isNegatedCommand(q)) {
             return new Decision(Label.ASK, false, 0.9, "0n-negated", q, false, false, "rule");
+        }
+        // ★ rel-1118 B04：否定 / 反悔（「，算了不用了」「个屁」）/ 只是在问（「…要多久」「关机吗」）—— 与快路径、插件接管同一个判定
+        String guard = NegationGuard.reason(utterance);
+        if (guard != null) {
+            return new Decision(Label.ASK, false, 0.9, guard, q, false, false, "rule");
         }
 
         // ★ fix/shop-research（R5）：「好 / 你决定」接回上一轮任务（TaskContinuation 改写过）→ 直接进 AgentLoop，不重新分诊成问答
@@ -524,6 +543,22 @@ public final class TriageDecider {
             return build(Label.DO_READ, 0.85, "5m-deep-research", core, false, true, "rule", s);
         }
 
+        // 3x. ★ rel-1118 B11：L0 接住了「点名的搜索引擎」（用必应 / google / 搜狗搜索 X —— 没点名浏览器的「搜索 X」已被 SearchRouting 丢掉）
+        //     或「识屏 + 问题」（识别屏幕这是什么）：用户要的就是这个本地动作，问句 / 时效词（天气、是什么）只是它的参数，不再判成问答。
+        if (s.l0Sign != null && isExplicitTargetSign(s.l0Sign) && !containsAny(q, SEQUENCE) && !isAndJoinedActs(core)) {   // 多步（「看看屏幕写的什么然后打开微信」）照旧进 AgentLoop
+            Label l = isReadOnlySign(s.l0Sign) ? Label.DO_READ : Label.DO_ACT;
+            return build(l, 0.85, "3x-l0-explicit", core, false, false, "rule", s);
+        }
+        // 3l. ★ fix-1118 B19：L0 整句接住了「模板就是这个动作」的能力（应用商店搜索 / 下载、新建笔记、写草稿、息屏开关、
+        //     打开设置页、查默认浏览器、发短信给号码），句里的第二个动作词（「打开应用商店<b>下载</b>」「新建笔记<b>记录</b>」
+        //     「打开息屏<b>提醒</b>」）或达成型动词（下载 / 安装）只是模板的一部分，不再因此判成多步进 AgentLoop，
+        //     「是什么」也不再判成问答。否定 / 反悔 / 风险闸都在上面先判；多步（然后 / 再 / 并且…）、三个以上动作、超长句照旧。
+        //     发短信照样走本地能力的确认卡（sms.send risk 2 + CommsRisk）。
+        if (s.l0Sign != null && isTemplateSelfContainedSign(s.l0Sign) && !containsAny(q, SEQUENCE) && !isAndJoinedActs(core)
+                && actCount <= 2 && core.length() <= 24) {
+            Label l = isReadOnlySign(s.l0Sign) || s.l0Sign.endsWith(".check") ? Label.DO_READ : Label.DO_ACT;
+            return build(l, 0.85, "3l-l0-template", core, false, false, "rule", s);
+        }
         // 3a. D-3b：两地距离问句 → ASK（外部世界信息）；有动作动词（导航/打车）的不在这里
         if (actCount == 0 && DISTANCE_Q.matcher(q).find()) {
             return build(Label.ASK, 0.85, "3-distance", core, false, false, "rule", s);
@@ -535,7 +570,9 @@ public final class TriageDecider {
         if (containsAny(q, ASK_VERBS) && !isMessageWriting(q) && !isMessageSend(q)) {
             return build(Label.ASK, 0.9, "3-ask-verb", core, false, false, "rule", s);
         }
-        if (q.matches(ARITH_RE)) {
+        // ★ plan-1118（真机 g02）：「打开计算器，替我在计算器上点按算一下 12 乘 34」被算术规则判成问答，答「我没法点按」→
+        //   以「打开」开头且点名界面动作（点按 / 一个个点…）的不走算术问答，交给后面的办事规则
+        if (ARITH.matcher(q).find() && !(startsWithLaunch(core) && com.onesay.assistant.v2.agenttools.GuiFold.explicitUi(q))) {
             return build(Label.ASK, 0.9, "3-arith", core, false, false, "rule", s);
         }
         if (containsAny(q, WORLD_INFO) && !startsWithLaunch(core)) {
@@ -807,7 +844,70 @@ public final class TriageDecider {
                 }
             }
         }
+        return stripTrailingThanks(q);
+    }
+
+    /** ★ rel-1118 B11：句子本身点名了动作载体的 L0 能力（问句 / 时效词只是参数）。 */
+    /** ★ fix-1118 B19：说法模板本身带两个动作词 / 达成型动词、但一步就做完的本地能力（前缀或全名）。 */
+    private static final String[] TEMPLATE_SELF_CONTAINED = {
+            "store.search.", "store.detail.", "notes.new.", "mail.draft.", "settings.aod.", "settings.smartcapture.",
+            "settings.page.", "browser.default.check", "sms.send",
+    };
+
+    static boolean isTemplateSelfContainedSign(String sign) {
+        if (sign == null) return false;
+        for (String p : TEMPLATE_SELF_CONTAINED) {
+            if (p.endsWith(".") ? sign.startsWith(p) : sign.equals(p)) return true;
+        }
+        return false;
+    }
+
+    static boolean isExplicitTargetSign(String sign) {
+        return sign != null && (sign.startsWith("browser.search.") || sign.equals("vision.screen.understand"));
+    }
+
+    /** ★ rel-1118 B09：句尾道谢（「关闭网络，谢谢」「打开漫游流量 谢谢」）不改变指令本身；剥掉后剩下的至少 2 个字才剥（单说「谢谢」仍是闲聊）。 */
+    private static final String[] THANKS_TAIL = {
+            "谢谢你了", "谢谢你啦", "谢谢你", "谢谢啦", "谢谢了", "谢谢", "多谢了", "多谢", "谢啦", "感谢",
+            "thankyou", "thanks", "thx",
+    };
+
+    /** 已归一化（无空白 / 标点、小写）的句子去掉句尾道谢；可重复（「谢谢谢谢」）。 */
+    static String stripTrailingThanks(String q) {
+        if (q == null) return null;
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (String t : THANKS_TAIL) {
+                if (q.endsWith(t) && q.length() - t.length() >= 2) {
+                    String rest = q.substring(0, q.length() - t.length());
+                    if (rest.endsWith("不用") || rest.endsWith("非常") || rest.endsWith("十分") || rest.endsWith("太")) return q;
+                    q = rest;
+                    changed = true;
+                    break;
+                }
+            }
+        }
         return q;
+    }
+
+    private static final java.util.regex.Pattern THANKS_TAIL_RAW = java.util.regex.Pattern.compile(
+            "[\\s，,。.！!～~、]*(?:谢谢你了|谢谢你啦|谢谢你|谢谢啦|谢谢了|谢谢|多谢了|多谢|谢啦|感谢|thank\\s*you|thanks|thx)[\\s。.！!～~]*$",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** ★ rel-1118 B09：原句版（L0 在原句上取槽位）：「删除软件微信，谢谢」→「删除软件微信」；剩下不足 2 个字或是「不用谢谢」之类不剥。 */
+    public static String stripTrailingThanksRaw(String raw) {
+        if (raw == null) return null;
+        String cur = raw;
+        for (int i = 0; i < 4; i++) {
+            java.util.regex.Matcher m = THANKS_TAIL_RAW.matcher(cur);
+            if (!m.find()) break;
+            String rest = cur.substring(0, m.start());
+            String rn = rest.trim();
+            if (rn.length() < 2 || rn.endsWith("不用") || rn.endsWith("非常") || rn.endsWith("十分") || rn.endsWith("太")) break;
+            cur = rest;
+        }
+        return cur;
     }
 
     /** 剥礼貌框架（前后缀，可重复）。 */

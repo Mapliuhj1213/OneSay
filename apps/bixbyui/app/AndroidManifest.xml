@@ -177,6 +177,18 @@
             </intent-filter>
         </service>
 
+        <!-- 快捷开关「唤醒词」：临时关掉 / 恢复唤醒词监听（只有系统能绑定）。 -->
+        <service
+            android:name="com.onesay.assistant.v2.entry.MicListenTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_entry_mic"
+            android:label="唤醒词"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- 桌面小部件（APPWIDGET_UPDATE 只由系统投递）。 -->
         <receiver
             android:name="com.onesay.assistant.v2.entry.SummonWidgetProvider"
@@ -236,6 +248,26 @@
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- [overnight-1119] 分享菜单「发到电脑」：别的 App 分享文件 / 多个文件 / 文字 → 分块发到电脑（电脑放在 OneSay 工作区「来自手机」）。
+             控制台「发文件到电脑」用内部 action 先弹系统选文件。必须导出才能出现在分享菜单里；没配对只提示，不发任何东西。 -->
+        <activity
+            android:name="com.onesay.assistant.v2.pclink.PcSendFileActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:label="发到电脑">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 
@@ -457,7 +489,7 @@
         <!-- 自动化回归与测试驱动广播接收器
              · 只打进 debug 包（DEBUG=1）；release 包里没有这个类，也没有这个组件；
                · debug 包里加签名级权限：adb 需用 root 发送 —— adb shell su -c "am broadcast -n com.onesay.assistant/.v2.test.TestRunReceiver ..."
-                 （uid 0 不受组件权限限制）。若设备上 su 不可用，可 DEBUG=1 TEST_RECEIVER_OPEN=1 构建临时去掉权限。 -->
+                 （uid 0 不受组件权限限制）。若设备上 su 不可用，可 DEBUG=1 TEST_RECEIVER_OPEN=1 构建把权限换成 android.permission.DUMP（adb shell 能发，第三方 App 不能）。 -->
         <receiver
             android:name="com.onesay.assistant.v2.test.TestRunReceiver"
             android:exported="true"

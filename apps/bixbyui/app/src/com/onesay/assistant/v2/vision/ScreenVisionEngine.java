@@ -270,23 +270,25 @@ public class ScreenVisionEngine {
                     //   不再退回 /sdcard/Pictures（会进相册、任何 App 可读）。
                     // 先私有 scratch，再内部 cache 根目录（都只有本 App 能读）；
                     //   两处都拿不到才退回外部缓存目录，而且不再放开成所有人可读写（统一 chown 给 App + chmod 600）。
-                    shotPath = shotPathPrivate();
-                    captured = shotPath != null && captureScreen(shotPath);
-                    if (!captured) {
-                        if (shotPath != null) {
-                            Log.w(TAG, "[VISION] 私有 scratch 截屏失败，改用内部 cache 目录");
-                            deleteQuietly(shotPath);
-                        }
-                        shotPath = shotPathInternalCache();
-                        captured = shotPath != null && captureScreen(shotPath);
+                    // ★ a11y-1118：只有 Shizuku 时 screencap 只许写外部缓存目录（另两处一定被白名单拒）→ 私有目录只试 App 自己落盘的方式
+                    //   （读屏助手 / 无障碍截图），screencap 第一次就写外部缓存目录；失败原因（白名单 / Shizuku 给的）写进提示
+                    mLastCapErr = null;
+                    boolean shzOnly = false;
+                    try {
+                        shzOnly = com.onesay.assistant.v2.platform.ExecBackendHost.shizukuTier(mContext);
+                    } catch (Throwable ignored) {
                     }
-                    if (!captured) {
+                    captured = false;
+                    shotPath = null;
+                    for (CapturePlan.Step st : CapturePlan.steps(shzOnly)) {
                         if (shotPath != null) deleteQuietly(shotPath);
-                        shotPath = shotPathExternalCache();
-                        if (shotPath != null) {
-                            Log.w(TAG, "[VISION] 内部目录都不可用，退回外部缓存目录（600，用完即删）");
-                            captured = captureScreen(shotPath);
-                        }
+                        String p = shotPathFor(st.dir);
+                        if (p == null) continue;
+                        shotPath = p;
+                        if (st.dir == CapturePlan.EXTERNAL && !shzOnly) Log.w(TAG, "[VISION] 内部目录都不可用，退回外部缓存目录（600，用完即删）");
+                        captured = captureScreen(p, st.shell, shzOnly);
+                        if (captured) break;
+                        Log.w(TAG, "[VISION] 截屏失败 dir=" + st.dir + " shell=" + st.shell + "：" + mLastCapErr);
                     }
                     if (shotPath == null) {
                         if (callback != null) callback.onError("无法截取屏幕内容：没有可写的缓存目录");
@@ -302,7 +304,7 @@ public class ScreenVisionEngine {
                     }
                     if (!captured || !shotFile.exists() || shotFile.length() < 1024) {
                         if (callback != null) {
-                            callback.onError("无法截取屏幕内容：画面文件为空或权限受阻");
+                            callback.onError(CapturePlan.userError(existingImage != null ? null : mLastCapErr));
                         }
                         return;
                     }
@@ -537,6 +539,15 @@ public class ScreenVisionEngine {
      * ② root 守护进程**可直接写**（不必 chown 到 app uid）；
      * ③ App 自己名下的目录，可自删；卸载后系统自动清理。
      */
+    /** ★ a11y-1118：CapturePlan 的目录 → 路径（root 档的顺序：私有 scratch → 内部 cache → 外部缓存目录）。 */
+    private String shotPathFor(int dir) {
+        String shotPath = null;
+        if (dir == CapturePlan.PRIVATE) shotPath = shotPathPrivate();
+        else if (dir == CapturePlan.INTERNAL) shotPath = shotPathInternalCache();
+        else if (dir == CapturePlan.EXTERNAL) shotPath = shotPathExternalCache();
+        return shotPath;
+    }
+
     private String shotPathExternalCache() {
         try {
             File dir = mContext.getExternalCacheDir();
@@ -563,21 +574,49 @@ public class ScreenVisionEngine {
         return com.onesay.assistant.v2.util.PrivateScratch.fixupCmd(path, parent == null ? path : parent);
     }
 
+    /** ★ a11y-1118：最近一次截屏失败的真实原因（白名单 / Shizuku / 文件状态），给提示用。 */
+    private volatile String mLastCapErr;
+
     /** 执行一次截屏；返回"文件看起来有效"（存在且 >1KB）。 */
     private boolean captureScreen(String path) {
+        return captureScreen(path, true, false);
+    }
+
+    /**
+     * @param shell     要不要试特权 screencap（false = 只试 App 自己落盘的方式）
+     * @param shizuku   特权通道是 Shizuku（shell uid）：不预建文件，让 screencap 自己建（SDK 36 的 FUSE 下 shell 改写 App 建的空文件可能失败）
+     */
+    private boolean captureScreen(String path, boolean shell, boolean shizuku) {
         try {
             // ★ r2/fast-screen：先走常驻读屏助手（JPEG q90）；不可用才走 root screencap -p
             if (com.onesay.assistant.v2.fastscreen.FsCapture.jpegTo(mContext, new File(path), 90, 0) && new File(path).length() > 1024) return true;
-            com.onesay.assistant.v2.util.PrivateScratch.prepare(new File(path));
-            mShellExecutor.execute(captureCmd(path));
-            if (com.onesay.assistant.v2.util.PrivateScratch.needsFixup(new File(path))) {
+            // ★ a11y-1118：无障碍截图（API 30+，服务声明了截图能力时）
+            com.onesay.assistant.v2.a11y.A11yBackend b2 = com.onesay.assistant.v2.a11y.A11yBackend.instance();
+            if (b2 != null && b2.screenshotTo(new File(path), 3000)) return true;
+            if (!shell) {
+                mLastCapErr = "读屏助手和无障碍截图都不可用";
+                return false;
+            }
+            File f = new File(path);
+            if (shizuku) {
+                if (f.exists()) f.delete();
+            } else {
+                com.onesay.assistant.v2.util.PrivateScratch.prepare(new File(path));
+            }
+            ShellExecutor.ShellResponse r = mShellExecutor.execute(captureCmd(path));
+            if (!shizuku && com.onesay.assistant.v2.util.PrivateScratch.needsFixup(f)) {
                 Log.w(TAG, "[VISION] 截图不是 App 可读的文件（root 没有原地写），退回属主修正");
                 mShellExecutor.execute(fixupFallbackCmd(path));
             }
-            File f = new File(path);
-            return f.exists() && f.length() > 1024;
+            boolean ok = f.exists() && f.length() > 1024;
+            if (!ok) {
+                mLastCapErr = r == null ? "截屏命令没有返回" : CapturePlan.describe(r.isDenied, r.denyReason, r.isDown, r.isTimeout, r.rc, r.output,
+                        f.exists(), f.exists() ? f.length() : -1L);
+            }
+            return ok;
         } catch (Throwable t) {
             Log.w(TAG, "[VISION] 截屏执行异常: " + t.getMessage());
+            mLastCapErr = "截屏执行异常：" + t.getClass().getSimpleName();
             return false;
         }
     }
@@ -650,6 +689,12 @@ public class ScreenVisionEngine {
             @Override public String name() { return "fast"; }
             @Override public boolean capture(String p) {
                 return com.onesay.assistant.v2.fastscreen.FsCapture.jpegTo(mContext, new File(p), 90, 0);
+            }
+        }, new Capturer() {   // ★ a11y-1118：无障碍截图（API 30+，服务声明了截图能力时）
+            @Override public String name() { return "a11y"; }
+            @Override public boolean capture(String p) {
+                com.onesay.assistant.v2.a11y.A11yBackend b = com.onesay.assistant.v2.a11y.A11yBackend.instance();
+                return b != null && b.screenshotTo(new File(p), 3000);
             }
         });
         Log.i(TAG, "[VISION] 识屏附图截屏 via=" + via + " 耗时=" + (SystemClock.elapsedRealtime() - t0) + "ms");

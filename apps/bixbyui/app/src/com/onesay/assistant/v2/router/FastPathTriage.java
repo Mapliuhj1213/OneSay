@@ -21,7 +21,9 @@ public final class FastPathTriage {
     /** @return null = 第 0 层不接，交回决策表 */
     static UnifiedRouter.Triage triage(String query, CompoundSplitter.Resolver l0) {
         if (query == null || query.trim().length() == 0) return null;
+        if (TriageDecider.tooLongForRules(query)) return null;   // ★ rel-1118 B08：超长输入快路径不接
         if (com.onesay.assistant.v2.trip.TripIntent.isTrigger(query)) return null;   // ★ trip-decompose：交决策表进规划模式
+        if (NegationGuard.blocks(query)) return null;   // ★ rel-1118 B04：否定 / 反悔 / 只是在问 → 交决策表落 ASK，快路径不接
         Invocation f = FastIntents.route(query);
         if (f != null) {
             return new UnifiedRouter.Triage(TriageDecider.fastPath(query, f.sign, false), f, null);
@@ -42,6 +44,7 @@ public final class FastPathTriage {
     /** 原句匹配 L0；没中且剥礼貌框架后的核心短语不同 → 用核心短语再试（结果保留原句作 originalQuery）。 */
     static Invocation l0WithCore(String query, CompoundSplitter.Resolver l0) {
         if (query == null || l0 == null) return null;
+        if (TriageDecider.tooLongForRules(query)) return null;   // ★ rel-1118 B08
         Invocation hit = l0.resolve(query);
         if (hit != null) return hit;
         String n = TriageDecider.normalize(query);

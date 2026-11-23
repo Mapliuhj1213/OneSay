@@ -193,4 +193,45 @@ public class ShortcutsTest {
         e.pinShortcutSupported = null;   // 探测不到按可用
         assertTrue(Capabilities.of(Capabilities.Feature.PIN_SHORTCUT, e).available);
     }
+
+    // ★ a11y-labels-1115：ui.tap 同步进计划 App 的动作清单（与助手 ShortcutActions 一致）
+    @Test public void uiTapInDefaultCatalogWithChineseLabelAndTargetParam() {
+        Shortcuts.Actions.Catalog c = Shortcuts.Actions.defaults();
+        Shortcuts.Actions.Action a = c.get(Shortcuts.UI_TAP);
+        assertNotNull("默认表要有 ui.tap", a);
+        assertEquals("ui.tap", a.sign);
+        assertEquals("点屏幕上的按钮", a.label);
+        assertEquals("点屏幕上的按钮", c.labelOf("ui.tap"));
+        assertEquals("屏幕", a.group);
+        assertFalse(a.privileged);
+        assertTrue("不是上机版专属，默认可用", a.available);
+        assertEquals(1, a.params.size());
+        assertEquals("target", a.params.get(0).name);
+        assertEquals("string", a.params.get(0).type);
+        assertTrue(a.params.get(0).label.contains("按钮上的字"));
+        for (String t : new String[]{a.label, a.group, a.params.get(0).label})
+            assertFalse("用户可见文字不带品牌字样：" + t, t.contains("Bixby") || t.contains("三星"));
+    }
+
+    @Test public void uiTapStepRoundTripsAndShowsChineseName() throws Exception {
+        String json = "[{\"tool\":\"ui.tap\",\"args\":{\"target\":\"发送\"}},{\"tool\":\"ui.tap\",\"args\":{\"target\":null},\"ask\":[\"target\"]}]";
+        assertNull(Shortcuts.checkSteps(json));
+        java.util.List<Shortcuts.Step> l = Shortcuts.parseSteps(json);
+        assertEquals("ui.tap", l.get(0).tool);
+        assertEquals("发送", l.get(0).args.getString("target"));
+        assertEquals(java.util.Arrays.asList("target"), Shortcuts.askParams(l.get(1)));
+        assertEquals(new org.json.JSONArray(json).toString(), new org.json.JSONArray(Shortcuts.stepsJson(l)).toString());
+    }
+
+    @Test public void pushedCatalogCarriesUiTapAvailability() throws Exception {
+        String json = new JSONObject().put("format", 1).put("actions", new org.json.JSONArray()
+                .put(new JSONObject().put("sign", "ui.tap").put("label", "点屏幕上的按钮").put("group", "屏幕").put("available", false)
+                        .put("reason", "点屏幕：读屏助手不可用")
+                        .put("params", new org.json.JSONArray().put(new JSONObject().put("name", "target").put("label", "按钮上的字（如「发送」）").put("type", "string"))))).toString();
+        Shortcuts.Actions.Catalog c = Shortcuts.Actions.parse(json);
+        assertNotNull(c);
+        assertFalse(c.get("ui.tap").available);
+        assertEquals("点屏幕：读屏助手不可用", c.get("ui.tap").reason);
+        assertEquals("target", c.get("ui.tap").params.get(0).name);
+    }
 }

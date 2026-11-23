@@ -69,6 +69,13 @@ public final class ShortcutHooks {
         sCache = null;
     }
 
+    /** [overnight-1119] 电脑看 / 运行手机快捷指令用：快捷指令功能关着返回 null（调用方说清楚），出错抛异常。 */
+    public static List<ShortcutModel.Shortcut> forPc(Context c) {
+        if (!PlannerLink.get(c).shortcutsOn()) return null;
+        invalidate();
+        return cached(c);
+    }
+
     // ------------------------------------------------------------------ 命中
 
     /** 这句话命中已存快捷指令？任意线程（会走一次计划 App 的 IPC，结果缓存 30 s）。出错一律 false。 */
@@ -241,6 +248,9 @@ public final class ShortcutHooks {
                 boolean ok = com.onesay.assistant.v2.brief.BriefRemote.sendNow(ctx, com.onesay.assistant.v2.brief.BriefControl.Cmd.REPLAY, 0);
                 return ok ? ExecutionResult.success(cap, args, "已开始播报晨间简报", false, "brief")
                         : ExecutionResult.failed(ErrorCode.EXEC_FAILED, "晨间简报没响应", "brief send failed", cap, args);
+            }
+            if (ShortcutActions.UI_TAP.equals(cap.sign)) {   // ★ a11y-labels：按标签找控件再点（不存坐标）
+                return com.onesay.assistant.v2.a11ylabel.LabelTapHooks.run(ctx, cap, args);
             }
             if (ShortcutActions.WEATHER.equals(cap.sign)) {   // ★ feat/rain-minutely
                 String why = com.onesay.assistant.v2.rain.RainService.unavailableReason(ctx);

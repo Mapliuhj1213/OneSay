@@ -58,14 +58,26 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
     }
 
     private UnifiedRouter(Context context) {
-        this.mL0 = new L0RuleRouter(context);
+        this.mL0 = newL0(context);
         this.mL1 = new L1SkillRouter(context);
         this.mL2 = new L2LLMCompiler(context);
         this.mContext = context.getApplicationContext();
         this.mAgentLoop = new AgentLoop(mContext, mL2);
     }
 
+    /** 可能为 null：L0 规则层在本机初始化失败（a8fix-1118：老 Android 正则不兼容）时整层跳过，L1 / L2 照常。 */
     public L0RuleRouter getL0() { return mL0; }
+
+    /** ★ a8fix-1118：L0 类初始化 / 构造因正则不兼容失败 → 记日志、L0 整层跳过，不让路由器（连同面板服务）一起崩。 */
+    private static L0RuleRouter newL0(Context context) {
+        try {
+            return new L0RuleRouter(context);
+        } catch (RuntimeException | LinkageError e) {
+            if (!com.onesay.assistant.v2.util.RegexCompat.isRegexCompatFailure(e) && !(e instanceof LinkageError)) throw e;
+            SafeLog.e(TAG, "[L0] 规则层初始化失败，本次进程跳过 L0（走 L1 / 模型）: " + e, e);
+            return null;
+        }
+    }
     public L1SkillRouter getL1() { return mL1; }
     public L2LLMCompiler getL2() { return mL2; }
 
@@ -225,7 +237,9 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
 
     private Invocation safeL0(String q) {
         if (q == null || q.trim().length() == 0) return null;
+        if (TriageDecider.tooLongForRules(q)) return null;   // ★ rel-1118 B08：超长输入 L0 不接
         try {
+            if (mL0 == null) return null;   // ★ a8fix-1118：L0 初始化失败 → 整层跳过
             Invocation inv = mL0.route(q);
             // ★ 11-04 ②：「搜索 X」不再零 LLM 拉起百度网页；没明确说浏览器 → 当未命中（调研 / 问答走搜索 API）
             if (inv != null && SearchRouting.dropL0(inv.sign, q)) {
@@ -420,7 +434,9 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
         //   直接交付：不查也不写 L1 / ASK 缓存、不登记待验证、不进 AgentLoop；写入类交给执行层（ExecutionGate → 各插件后端）。
         //   日志口径不变：[ROUTE-IMG] / [ROUTE-SUM] / [ROUTE-S3] / [ROUTE-S2] / [ROUTE-DIAG]；
         //   需要的插件先跑一次 triage(query)，只为 [TRIAGE] 日志口径一致（规则判，不触网；5 秒内复用）。
-        com.onesay.assistant.v2.kernel.FeatureKernel.Hit take = com.onesay.assistant.v2.kernel.FeatureKernel.get().takeover(mContext, query, mL2);
+        // ★ rel-1118 B04：否定 / 反悔 / 只是在问的句子不给插件本地接管（S3 建提醒、记一记、诊断…），直接进分诊落 ASK
+        com.onesay.assistant.v2.kernel.FeatureKernel.Hit take = NegationGuard.blocks(query) ? null
+                : com.onesay.assistant.v2.kernel.FeatureKernel.get().takeover(mContext, query, mL2);
         if (take != null) {
             if (take.plugin.triageBeforeRouteLog(take.inv)) triage(query);
             SafeLog.i(TAG, take.plugin.routeLog() + take.inv.sign + mode);
@@ -875,11 +891,20 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
     public Invocation routeOffline(String query) {
         if (query == null || query.trim().length() == 0) return null;
         if (isAckEcho(query)) return null;
+        if (TriageDecider.tooLongForRules(query)) return null;   // ★ rel-1118 B08
 
         String askAnswer = AskEngine.tryAnswer(query);
         if (askAnswer != null) return askReply(askAnswer, query);
 
-        Invocation inv = mL0.route(query);
+        Invocation inv = null;
+        if (mL0 != null) {
+            try {
+                inv = mL0.route(query);
+            } catch (RuntimeException | LinkageError e) {   // ★ a8fix-1118：L0 出错 = 未命中，不往上抛
+                SafeLog.w(TAG, "L0 匹配异常（按未命中处理）: " + e);
+                inv = null;
+            }
+        }
         if (inv != null) return inv;
 
         return mL1.route(query, null);
@@ -978,7 +1003,10 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
     @Override
     public int literalLength(String utterance) {
         if (utterance == null) return 0;
-        int l0 = mL0.getQueryLiteralLength(utterance);
+        int l0 = 0;
+        if (mL0 != null) {
+            try { l0 = mL0.getQueryLiteralLength(utterance); } catch (RuntimeException | LinkageError e) { l0 = 0; }   // ★ a8fix-1118
+        }
         if (l0 > 0) return l0;
         // Ask 问答按"整句即字面量"计（AskEngine 为精确短语/正则匹配，无模糊膨胀）
         if (AskEngine.tryAnswer(utterance) != null) {

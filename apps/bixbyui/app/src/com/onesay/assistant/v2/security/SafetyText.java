@@ -50,7 +50,16 @@ public final class SafetyText {
         if (c >= '\u202A' && c <= '\u202E') return true;
         if (c >= '\u2060' && c <= '\u2064') return true;
         if (c == '\uFEFF' || c == '\u00AD' || c == '\u180E' || c == '\u034F') return true;
+        // ★ sec-audit-1118 H3：蒙古文变体选择符、变体选择符 FE00-FE0F、韩文填充符（显示为空白）也当看不见
+        if ((c >= '\u180B' && c <= '\u180F') || (c >= '\uFE00' && c <= '\uFE0F')) return true;
+        if (c == '\u115F' || c == '\u1160' || c == '\u3164' || c == '\uFFA0') return true;
         return Character.getType(c) == Character.FORMAT;
+    }
+
+    /** ★ sec-audit-1118 H3：西里尔 / 希腊同形字 → 拉丁（不是同形字原样返回），给不想整串小写的调用方用。 */
+    public static char homo(char c) {
+        int h = HOMO.indexOf(c);
+        return h >= 0 ? LATN.charAt(h) : c;
     }
 
     /** NFKC + 去零宽 + 同形字 → 拉丁 + 繁 → 简 + 小写（保留空白）。null → ""。 */

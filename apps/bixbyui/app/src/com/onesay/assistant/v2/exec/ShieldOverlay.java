@@ -88,6 +88,7 @@ public final class ShieldOverlay extends View {
                     PixelFormat.TRANSLUCENT);
             mLp.gravity = Gravity.TOP | Gravity.START;
             mLp.setTitle("OneSay-ExecShield");
+            mLp.alpha = com.onesay.assistant.v2.island.IslandGeometry.shieldWindowAlpha(android.os.Build.VERSION.SDK_INT);   // ★ meizu-1118 B10
             try {
                 mWm.addView(this, mLp);
                 mAttached = true;

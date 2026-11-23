@@ -22,6 +22,17 @@ public final class VolumeCaps {
             + "m=$(echo \"$o\" | grep -o '\\.\\.[0-9]*' | tr -d '.'); [ -z \"$m\" ] && m=15; [ -z \"$v\" ] && exit 1; "
             + "n=$((v {op} 2)); [ $n -gt $m ] && n=$m; [ $n -lt 0 ] && n=0; media volume --stream 3 --set $n >/dev/null 2>&1; echo $n";
 
+    /**
+     * ★ meizu-1118 B6：媒体音量 level 的校验上限。满格按 {@link com.onesay.assistant.v2.util.MediaVolumeScale}
+     * （进程启动时读 AudioManager）；默认 15 时与原快照一致，读到更大的满格（Meizu 0–60）就放到真实满格，
+     * 不再把「调到 30」当越界拒掉。
+     */
+    static final ParamsSchema.Bound MEDIA_LEVEL_MAX = new ParamsSchema.Bound() {
+        @Override public long get() {
+            return Math.max(15, com.onesay.assistant.v2.util.MediaVolumeScale.max());
+        }
+    };
+
     public static void register(CapabilityRegistry reg) {
         // 媒体音量
         reg.register(new Capability.Builder("volume.media.set", "设置媒体播放音量")
@@ -31,7 +42,7 @@ public final class VolumeCaps {
                 .examples("调整设置")
                 .category("media")
                 .sideEffect(SideEffect.DEVICE_CONTROL)
-                .schema(new ParamsSchema().addInteger("level", true, 0, 15, "8"))
+                .schema(new ParamsSchema().addInteger("level", true, 0, 15, MEDIA_LEVEL_MAX, "8"))
                 .risk(1, false)
                 .executor("shell")
                 .cmd("media volume --stream 3 --set {level}")

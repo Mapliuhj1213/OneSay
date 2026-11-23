@@ -111,13 +111,19 @@ public final class PcRx {
             for (String c : PcRxPolicy.ALL) if (h.enabled(c)) on.add(c);
             List<Object> all = new ArrayList<Object>();
             for (String c : PcRxPolicy.ALL) all.add(c);
+            // [overnight-1119] 跟着别的开关走的两条（列快捷指令 / 查按目标操作的进展）：开关开着就一起报
+            for (String c : new String[]{PcRxPolicy.SHORTCUT_LIST, PcRxPolicy.OPERATE_STATUS}) {
+                all.add(c);
+                if (h.enabled(PcRxPolicy.toggleOf(c))) on.add(c);
+            }
             Map<String, Object> d = new TreeMap<String, Object>();
             d.put("caps", on);      // 现在开着的
             d.put("known", all);    // 这台手机支持的全部（关着的在手机控制台里能打开）
             return new PcLanClient.Result(true, "能力清单", d, "");
         }
+        if ("whitelist_sync".equals(cmd)) return whitelistSync(args); // ★ app-whitelist-1116：白名单同步不走逐项开关（签名通道已验过）
         if (!PcRxPolicy.known(cmd)) return new PcLanClient.Result(false, "手机不支持「" + cmd + "」", null, "");
-        if (!h.enabled(cmd)) return new PcLanClient.Result(false, "手机上没开「" + PcRxPolicy.label(cmd) + "」（控制台 › 电脑联动 › 电脑可以让手机做的事）", null, "");
+        if (!h.enabled(PcRxPolicy.toggleOf(cmd))) return new PcLanClient.Result(false, "手机上没开「" + PcRxPolicy.label(cmd) + "」（控制台 › 电脑联动 › 电脑可以让手机做的事）", null, "");
         String bad = PcRxPolicy.check(cmd, args);
         if (bad != null) return new PcLanClient.Result(false, bad, null, "");
         Map<String, Object> a = new TreeMap<String, Object>();
@@ -261,6 +267,32 @@ public final class PcRx {
             return LinkPolicy.decodeScript(b);
         } catch (Exception e) {
             return "";
+        }
+    }
+
+    /** ★ app-whitelist-1116：宿主接上「对方带来新条目」的提醒（Android：通知）；没接 = 只记日志。 */
+    public interface WhitelistTell {
+        void added(java.util.List<com.onesay.assistant.v2.whitelist.AppWhitelist.Entry> e);
+    }
+
+    public static volatile WhitelistTell WL_TELL;
+
+    /** 电脑发来整份白名单：合并、回手机整份（电脑再合并一次，两边一样）。坏文档 / 本机文件读坏了 → 失败，不合并。 */
+    public static PcLanClient.Result whitelistSync(Map<String, Object> args) {
+        com.onesay.assistant.v2.whitelist.WhitelistState st = com.onesay.assistant.v2.whitelist.WhitelistState.get();
+        Object doc = args == null ? null : args.get("doc");
+        if (!(doc instanceof String)) return new PcLanClient.Result(false, "白名单格式不对", null, "");
+        try {
+            java.util.List<com.onesay.assistant.v2.whitelist.AppWhitelist.Entry> added = st.merge((String) doc, "pc");
+            WhitelistTell t = WL_TELL;
+            if (t != null && !added.isEmpty()) t.added(added);
+            Map<String, Object> d = new TreeMap<String, Object>();
+            d.put("doc", st.json());
+            return new PcLanClient.Result(true, "白名单已同步", d, "");
+        } catch (IllegalStateException e) {
+            return new PcLanClient.Result(false, "手机上的白名单文件读坏了，先在手机控制台里清空重建", null, "");
+        } catch (IllegalArgumentException e) {
+            return new PcLanClient.Result(false, "白名单格式不对（" + e.getMessage() + "）", null, "");
         }
     }
 

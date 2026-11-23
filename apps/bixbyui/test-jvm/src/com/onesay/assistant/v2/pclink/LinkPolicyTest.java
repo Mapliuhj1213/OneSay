@@ -513,7 +513,7 @@ public class LinkPolicyTest {
             assertEquals(r[4], fu.reason);
         }
         assertEquals("没有事实 = 不在列表里", D, v(Target.PC, FU, Cat.SHORTCUT));
-        assertEquals(Cat.UNKNOWN, LinkPolicy.phoneCat("shortcut_run"));
+        assertEquals("[overnight-1119] 手机端运行快捷指令交给手机自己的执行链", Cat.APP_OPERATE, LinkPolicy.phoneCat("shortcut_run"));
         for (String code : new String[]{LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL, LinkPolicy.R_SHORTCUT_CHANGED, LinkPolicy.R_SHORTCUT_BLOCKED})
             assertFalse(code, LinkPolicy.reasonZh(code).isEmpty());
         assertEquals("shortcut_needs_approval", LinkPolicy.R_SHORTCUT_NEEDS_APPROVAL);
@@ -585,7 +585,7 @@ public class LinkPolicyTest {
         assertFalse("从不自己授权", rx.contains("\"pm grant") || rx.contains("ACTION_MANAGE_WRITE_SETTINGS") || rx.contains("ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS"));
         String pol = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcRxPolicy.java").toPath()), "UTF-8");
         // [第二轮] 改：8 个指令加回来了（每项一个开关），原来断言它们「不在」
-        assertTrue("8 个指令加回来了", pol.contains("EXTRA") && pol.contains("\"sys_exec\"") && pol.contains("ALL = concat(CMDS, EXTRA)"));
+        assertTrue("8 个指令加回来了", pol.contains("EXTRA") && pol.contains("\"sys_exec\"") && pol.contains("ALL = concat(concat(CMDS, EXTRA), AGENT)")); // [phone-tools-1118] + 按目标操作
         assertTrue("实现了红线要的 Guard（没有确认 / 级别）", rx.contains("PcRx.Guard") && !rx.contains("允许一次"));
         String rxc = new String(Files.readAllBytes(new File(root, "app/src/com/onesay/assistant/v2/pclink/PcRx.java").toPath()), "UTF-8");
         assertFalse("没有 Gate / ConfirmBox", rxc.contains("interface Gate") || rxc.contains("ConfirmBox"));

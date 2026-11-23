@@ -30,7 +30,7 @@
 #             release 不编译 app/src/com/onesay/assistant/v2/test/**（V2SelfTest、TestRunReceiver），
 #             改用 app/src-release 里的 V2SelfTest 占位，并从 Manifest 删除 DEBUG-ONLY 段（TestRunReceiver）。
 #             DEBUG=1 时两者都打进 APK（TestRunReceiver 受签名级权限保护，adb 需 su 发广播）。
-#   TEST_RECEIVER_OPEN  仅 DEBUG=1 时有效：=1 去掉 TestRunReceiver 的权限（兼容不用 su 的旧 adb 脚本，切勿用于日常包）
+#   TEST_RECEIVER_OPEN  仅 DEBUG=1 时有效：=1 把 TestRunReceiver 的签名级权限换成 android.permission.DUMP（免 root 机上 adb shell 直接发；sec-audit-1118 S1：以前是整个去掉权限）
 # ============================================================
 set -euo pipefail
 
@@ -138,7 +138,7 @@ KS_SHA256="$("$JDK/keytool" -list -v -keystore "$KS" "$KT_PASS_ARG" "$KT_PASS_VA
 echo "== signer: $(basename "$KS") SHA-256 ${KS_SHA256:0:8}…${KS_SHA256: -8}"
 fi
 [ "$DEBUG" != "1" ] && [ "$TEST_RECEIVER_OPEN" = "1" ] && { echo "TEST_RECEIVER_OPEN=1 只能和 DEBUG=1 一起用" >&2; exit 2; }
-echo "== VARIANT: $VARIANT$([ "$TEST_RECEIVER_OPEN" = "1" ] && echo ' (TestRunReceiver 无权限保护!)')  applicationId=$APP_ID"
+echo "== VARIANT: $VARIANT$([ "$TEST_RECEIVER_OPEN" = "1" ] && echo ' (TestRunReceiver 只要 DUMP：adb shell 可发，第三方 App 不行)')  applicationId=$APP_ID"
 
 mkdir -p "$OUT"
 find "$OUT" -mindepth 1 -delete
@@ -156,7 +156,9 @@ echo "[2/8] aapt2 link    (manifest + resources + assets)"
 MANIFEST="$OUT/AndroidManifest.xml"
 if [ "$DEBUG" = "1" ]; then
   if [ "$TEST_RECEIVER_OPEN" = "1" ]; then
-    sed 's#android:permission="com.onesay.assistant.permission.CONTROL"><!-- TEST-RECEIVER-PERMISSION -->#>#' \
+    # ★ sec-audit-1118 S1：「开放」不再是「谁都能发」：把签名级权限换成 android.permission.DUMP，
+    #   adb shell（uid 2000）和 root 照常能发，第三方 App 拿不到（以前整个删掉权限，任何零权限 App 都能驱动测试接收器）。
+    sed 's#android:permission="com.onesay.assistant.permission.CONTROL"><!-- TEST-RECEIVER-PERMISSION -->#android:permission="android.permission.DUMP">#' \
       "$ROOT/app/AndroidManifest.xml" > "$MANIFEST.src"
   else
     cp "$ROOT/app/AndroidManifest.xml" "$MANIFEST.src"

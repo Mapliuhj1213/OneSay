@@ -89,8 +89,35 @@ public final class Intent {
         return reply("手机能做的：响铃找手机、亮屏、调媒体音量、打开网址或 App、发剪贴板、发通知、看电量。换个说法试试，比如「让手机响一下」");
     }
 
+    /** [dual-1122] 「打开」后面除了 App 名还跟着要做的事（看看 / 查 / 然后 / 帮我…）。 */
+    static final java.util.regex.Pattern OPEN_TAIL = java.util.regex.Pattern.compile(
+            ".+?(看看|看一下|看下|查一下|查查|查看|搜索|搜一下|然后|并且|接着|帮我|给我|找一下|点一下|点开|发给|发送|里面|里的|是多少|是什么|怎么|有没有)");
+
+    static boolean openWithTask(String what) {
+        return what != null && OPEN_TAIL.matcher(what).lookingAt();
+    }
+
     /** apps：可按名字打开的程序（小写名）；shortcuts：快捷指令文件名（不含扩展名）。 */
     public static Intent parse(String text, Map<String, String> apps, List<String> shortcuts) {
+        return parse(text, apps, shortcuts, false);
+    }
+
+    /** [chat-agent-1118] 超过这么多字（规范化后）的一句话当成「任务」，不再被句子里碰巧出现的词（截图、打开、调大…）劫持成固定指令。 */
+    public static final int TASK_CHARS = 14;
+
+    /** [chat-agent-1118] 「继续」「接着做」这类接着上一件事的话（规范化后整句）。 */
+    static final java.util.regex.Pattern CONTINUE = java.util.regex.Pattern.compile(
+            "(好的?|可以|行|嗯|ok)?(请)?(继续|接着|往下)(吧|做|干|来|执行|弄|进行)?(吧|呀|啊)?|下一步|continue|goon|keepgoing");
+
+    public static boolean isContinuation(String text) {
+        return CONTINUE.matcher(normalize(text)).matches();
+    }
+
+    /**
+     * preferModel = 大模型能用（填了 Key 且「对话」能执行任务）：长句只认关机 / 睡眠的安全口令和手机指令，其余交给模型当任务做；
+     * 短句照旧按规则认（锁屏、截图、静音…）。
+     */
+    public static Intent parse(String text, Map<String, String> apps, List<String> shortcuts, boolean preferModel) {
         String t = normalize(text);
         if (t.isEmpty()) return reply("没听清");
 
@@ -100,7 +127,16 @@ public final class Intent {
         if (t.matches(".*(关机|关电脑|关掉电脑).*")) return reply("关机要说「确认关机」");
         if (t.matches(".*(睡眠|休眠).*")) return reply("睡眠要说「确认睡眠」");
 
-        if (t.contains("手机")) return phone(t, text);
+        if (t.contains("手机")) {
+            Intent p = phone(t, text);
+            // 长句里提到手机但不是手机指令（比如「把电脑上的文件传到手机」之类的任务）：交给模型
+            if (preferModel && t.length() > TASK_CHARS && p.phoneCmd == null) return reply("没听懂：" + text);
+            // [dual-1122] 「让手机打开设置看看安卓版本」：打开之后还要做事，是交给手机的目标（按目标操作），
+            // 不是打开一个叫「设置看看安卓版本」的 App。大模型能用时交给模型（它用按目标操作交给手机）。
+            if (preferModel && "open_app".equals(p.phoneCmd) && openWithTask(String.valueOf(p.args.get("name")))) return reply("没听懂：" + text);
+            return p;
+        }
+        if (preferModel && t.length() > TASK_CHARS) return reply("没听懂：" + text);
 
         for (String s : shortcuts) {
             String n = normalize(s);

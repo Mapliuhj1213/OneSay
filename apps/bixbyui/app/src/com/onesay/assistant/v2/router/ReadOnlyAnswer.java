@@ -145,7 +145,7 @@ public final class ReadOnlyAnswer {
         return renderRaw(sign, raw);
     }
 
-    static String renderRaw(String sign, String raw) {
+    public static String renderRaw(String sign, String raw) {   // ★ fix-1118：public 给跨包单测
         if (!isWhitelisted(sign) || raw == null) return null;
         String out = raw.trim();
         if (out.length() == 0) return null;
@@ -171,6 +171,13 @@ public final class ReadOnlyAnswer {
                 return sb.append("。").toString();
             }
             if ("settings.brightness.get".equals(sign)) {
+                // ★ fix-1118 c32：执行端已按实际满格换算 →「[约 ]73%（5968/8191）」
+                Matcher d = com.onesay.assistant.v2.executor.backend.BrightnessScale.P_DESCRIBED.matcher(out);
+                if (d.matches()) {
+                    int pct = Integer.parseInt(d.group(2));
+                    if (pct < 0 || pct > 100) return null;
+                    return "当前屏幕亮度" + (d.group(1) != null ? "约 " : " ") + pct + "%。";
+                }
                 Matcher m = P_INT.matcher(out);
                 if (!m.matches()) return null;
                 long v = Long.parseLong(m.group(1));

@@ -167,6 +167,25 @@ public final class MikaPlugs {
         return f;
     }
 
+    /**
+     * ★ a11y-1118：无障碍后端被开发者<b>显式</b>关掉（kill 文件 plug_mika.a11y.off、调试覆盖 off、或偏好里明确写了 off）。
+     * 插件出厂默认关只表示「助手可用时不抢先用 B2」，不算关掉 —— 读屏助手不可用时照样用无障碍兜底。
+     */
+    public static boolean a11yBackendKilled(Context ctx) {
+        attach(ctx);
+        Boolean o = sOverride.get(A11Y);
+        if (o != null) return !o.booleanValue();
+        Context c = sApp;
+        if (c == null) return false;
+        try {
+            if (FeatureSwitch.killFilePresent(c, "plug_" + A11Y + ".off")) return true;
+            SharedPreferences sp = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            return sp.contains(A11Y) && !sp.getBoolean(A11Y, false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static String status() {
         return REG.statusText();
     }
