@@ -77,6 +77,19 @@ public final class Mcp {
             return s;
         }
 
+        /** [fix-1123-a] 「是不是同一个服务器」：网络服务看地址，本机程序看 程序 + 参数 + 工作目录（不分大小写、路径统一斜杠）。 */
+        public String identity() {
+            if (!url.isEmpty()) return "url:" + url.trim().replaceAll("/+$", "").toLowerCase(Locale.ROOT);
+            StringBuilder b = new StringBuilder("cmd:").append(normPath(command));
+            for (String a : args) b.append('\u0001').append(normPath(a));
+            b.append('\u0002').append(normPath(cwd));
+            return b.toString();
+        }
+
+        static String normPath(String x) {
+            return x == null ? "" : x.trim().replace('\\', '/').replaceAll("/+$", "").toLowerCase(Locale.ROOT);
+        }
+
         /** 给人看的启动方式（不带 env 值）。 */
         public String shown() {
             if (!url.isEmpty()) return (transport.equals("sse") ? "SSE " : transport.equals("http") ? "HTTP " : "") + redactUrl(url);
@@ -493,7 +506,13 @@ public final class Mcp {
             cmd.addAll(s.args);
             ProcessBuilder pb = new ProcessBuilder(cmd);
             if (!s.cwd.isEmpty() && Files.isDirectory(Paths.get(s.cwd))) pb.directory(Paths.get(s.cwd).toFile());
-            pb.environment().putAll(s.env);
+            // [fix-1123-a] 子进程只拿必要的环境变量（找程序、临时目录、用户目录、语言、代理）+ 配置里写给它的；
+            // 以前整份继承 OneSay 的环境（everything 服务器的 Print Environment 能把别的 Key / 令牌都列出来）
+            Map<String, String> env = pb.environment();
+            Map<String, String> keep = minimalEnv(System.getenv());
+            env.clear();
+            env.putAll(keep);
+            env.putAll(s.env);
             p = SafeExec.start(pb);
             out = p.getOutputStream();
             Thread rd = new Thread(this::readLoop, "onesay-mcp-out");
@@ -507,6 +526,19 @@ public final class Mcp {
             }, "onesay-mcp-err");
             er.setDaemon(true);
             er.start();
+        }
+
+        /** 环境变量白名单（不分大小写）：系统运行要的、找程序要的、临时 / 用户目录、语言时区、代理。 */
+        static final java.util.Set<String> ENV_KEEP = java.util.Set.of("PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "SYSTEMDRIVE", "TEMP", "TMP", "TMPDIR",
+                "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432",
+                "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432", "PUBLIC", "ALLUSERSPROFILE", "USERNAME", "USERDOMAIN", "COMPUTERNAME", "OS",
+                "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER", "NUMBER_OF_PROCESSORS", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "TZ", "USER", "LOGNAME", "SHELL", "TERM",
+                "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY");
+
+        static Map<String, String> minimalEnv(Map<String, String> sys) {
+            Map<String, String> m = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            if (sys != null) for (Map.Entry<String, String> e : sys.entrySet()) if (e.getKey() != null && e.getValue() != null && ENV_KEEP.contains(e.getKey().toUpperCase(Locale.ROOT))) m.put(e.getKey(), e.getValue());
+            return m;
         }
 
         static Map<String, String> mergedEnv(Spec s) {

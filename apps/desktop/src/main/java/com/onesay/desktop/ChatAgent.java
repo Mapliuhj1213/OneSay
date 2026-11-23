@@ -169,6 +169,7 @@ public final class ChatAgent {
         wf.put("text", prop("string", "文件内容（UTF-8 文本，最多 256 KB）"));
         l.add(fn("write_file", "写一个文本文件。", wf, List.of("description", "path", "text")));
         l.add(ChatReminders.toolDef()); // [fix-1120 晚] 电脑本机的提醒 / 日程
+        l.add(AppControl.toolDef()); // [fix-1123-a] 一句话改 OneSay 自己的设置 / 跳到某一页
         // [phone-tools-1118] 手机：走已配对的手机联动通道（不是 adb）
         Map<String, Object> ps = new TreeMap<>();
         ps.put("description", prop("string", DESC));
@@ -309,6 +310,10 @@ public final class ChatAgent {
                 Map<String, Object> ra = ChatReminders.mapArgs(a);
                 return ra == null ? null : new Object[] {"reminder", ra};
             }
+            case "app_control": { // [fix-1123-a]
+                Map<String, Object> ra = AppControl.mapArgs(a);
+                return ra == null ? null : new Object[] {"app_control", ra};
+            }
             case "screenshot": {
                 String tg = a.get("target") == null ? "" : String.valueOf(a.get("target")).trim();
                 out.put("target", tg.isEmpty() ? "pc" : tg);
@@ -410,6 +415,9 @@ public final class ChatAgent {
     }
 
     // ------------------------------------------------------------------ 提示词
+
+    /** [fix-1123-a] 认不全的下载命令第三次起的话：明说不会执行。 */
+    static final String DL_FINAL = "（这类混着别的语句的下载命令不管发几次都不会执行：把下载拆成一步 download，其余的再用 run_command；实在拆不开就停下，告诉用户需要他自己下载哪个文件。）";
 
     /** 模型把活推回给用户（「我无法直接操作电脑」「需要你手动」）：第一轮这样说就确定性地打回一次。 */
     static final Pattern PUNT = Pattern.compile("(无法|不能|没法|没有办法)(直接)?(操作|控制|访问|在)(你的|您的|这台)?(电脑|计算机|系统)|需要你(自己)?手动|请你手动|你可以按(下面|以下|这个)(的)?(顺序|步骤)");
@@ -531,7 +539,7 @@ public final class ChatAgent {
         int hedgeBlocks = 0;
         boolean uiRead = false;   // [overnight-1119 第 7 条] 这次任务读过安卓界面没有（android_ui）
         int coordBlocks = 0;
-        int dlHints = 0; // [preview-1120] 命令里下载文件 → 提示改用下载工具的次数
+        int dlHints = 0; // [preview-1120] 命令里下载文件 → 提示改用下载工具的次数（[fix-1123-a] 不再有「第三次照原样执行」）
         boolean schedHinted = false; // [fix-1120 晚] 建 Windows 计划任务 → 提示改用提醒工具（一次）
         String lastKey = "";
         int repeat = 0;
@@ -678,10 +686,16 @@ public final class ChatAgent {
                     steps.step(Map.of("phase", "note", "desc", "提醒改用 OneSay 的提醒（不建 Windows 计划任务），这条命令先不执行"));
                     continue;
                 }
-                if ("sys_exec".equals(cmd) && dlHints < 2 && DownloadRewrite.mentions(String.valueOf(args.get("command")))) {
-                    // [preview-1120] 命令里混着下载、认不全：先不执行，提示模型改用下载工具（两次后照原命令执行，免得卡死）
+                if ("sys_exec".equals(cmd) && DownloadRewrite.mentions(String.valueOf(args.get("command")))) {
+                    // [preview-1120] 命令里混着下载、认不全：先不执行，提示模型改用下载工具。
+                    // [fix-1123-a] 以前提示两次后第三次照原命令执行（绕过「认得出的下载默认断网」）；现在一直不执行，第三次起明说不会执行，
+                    // 让模型拆成「下载工具 + 别的命令」或者如实告诉用户（卡住时由「没有进展」收尾）
                     dlHints++;
-                    msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "use_download", "text", DownloadRewrite.hint()))));
+                    if (dlHints > 4) { // 拆了四次还是混着下载：别再空转，停下如实说
+                        msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "use_download", "text", "不执行。" + DL_FINAL))));
+                        return wrapUp(msgs, brain, new Outcome("下载那一步一直是混着别的语句的命令，我认不全、不会照原样执行，先停下。你可以告诉我要下载的网址和存到哪，我用下载工具单独下；或者你自己下好再让我接着做。", "no_progress", done));
+                    }
+                    msgs.add(toolMsg(c.id, Json.stringify(Map.of("ok", false, "reason", "use_download", "text", dlHints <= 2 ? DownloadRewrite.hint() : DownloadRewrite.hint() + DL_FINAL))));
                     // [preview-1120 真机] 卡上带出被拦下的原命令（以前看不到是哪条，没法判断该不该认）
                     steps.step(Map.of("phase", "note", "desc", "下载文件改用下载工具（任务卡上有进度条），这条命令先不执行：" + clip(LinkPolicy.oneLine(String.valueOf(args.get("command"))), 160)));
                     continue;

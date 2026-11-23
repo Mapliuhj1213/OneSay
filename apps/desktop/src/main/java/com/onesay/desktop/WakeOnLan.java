@@ -152,12 +152,17 @@ public final class WakeOnLan {
 
     // ------------------------------------------------------------------ Windows 只读检查
 
+    /** [fix-1123-a] 结果行的开头：只认这一行（进度、警告、CLIXML 都不算）。 */
+    static final String MARK = "ONESAY-WOL:";
+
     /**
      * 只读的 PowerShell：网卡电源管理（WakeOnMagicPacket）、「允许此设备唤醒计算机」（powercfg /devicequery wake_armed）、
      * 网卡高级属性里和唤醒有关的几项、快速启动（HiberbootEnabled）。只有 Get-* / powercfg 查询，不改任何设置。
      */
     static final String CHECK_PS = String.join("\n",
             "$ErrorActionPreference='SilentlyContinue'",
+            "$ProgressPreference='SilentlyContinue'",
+            "try { [Console]::OutputEncoding=[Text.Encoding]::UTF8 } catch { }",
             "$armed = @(powercfg /devicequery wake_armed)",
             "$fs = (Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Power' -Name HiberbootEnabled).HiberbootEnabled",
             "$list = foreach ($a in @(Get-NetAdapter -Physical)) {",
@@ -165,24 +170,41 @@ public final class WakeOnLan {
             "  $adv = @(Get-NetAdapterAdvancedProperty -Name $a.Name | Where-Object { $_.RegistryKeyword -match 'WakeOnMagicPacket|WakeFromS5|S5WakeOnLan|WakeOnLan|EnablePME' } | ForEach-Object { @{k=[string]$_.RegistryKeyword; d=[string]$_.DisplayName; v=[string]$_.DisplayValue} })",
             "  @{ name=[string]$a.Name; desc=[string]$a.InterfaceDescription; mac=[string]$a.MacAddress; media=[string]$a.PhysicalMediaType; status=[string]$a.Status; magic=[string]$pm.WakeOnMagicPacket; armed=[bool]($armed -contains $a.InterfaceDescription); adv=$adv }",
             "}",
-            "@{ fast_startup=$fs; nics=@($list) } | ConvertTo-Json -Depth 4 -Compress");
+            "'" + MARK + "' + (@{ fast_startup=$fs; nics=@($list) } | ConvertTo-Json -Depth 4 -Compress)");
 
-    /** 跑只读检查（只在 Windows 上；15 秒超时）。返回原始 JSON 文本，失败返回 null。 */
+    /**
+     * 跑只读检查（只在 Windows 上；15 秒超时）。返回原始 JSON 文本，失败返回 null。
+     * <p>[fix-1123-a] 真机 1121：输出被重定向时 PowerShell 把模块加载进度写成 {@code #< CLIXML} 到 stderr，以前和 stdout 合并后从第一个「{」截，
+     * 截出来的不是 JSON → 显示「PowerShell 没有输出」。改法同 4860769（凭据库）：丢掉 stderr、关进度、只认 {@link #MARK} 开头的结果行。
+     */
     public static String runWindowsCheck() {
         if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) return null;
         try {
             String enc = Base64.getEncoder().encodeToString(CHECK_PS.getBytes(StandardCharsets.UTF_16LE));
             Process p = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc)
-                    .redirectErrorStream(true).start();
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
             p.getOutputStream().close();
             byte[] out = p.getInputStream().readNBytes(256 * 1024);
             if (!p.waitFor(15, TimeUnit.SECONDS)) { p.destroyForcibly(); return null; }
-            String s = new String(out, StandardCharsets.UTF_8).trim();
-            int i = s.indexOf('{');
-            return i < 0 ? null : s.substring(i);
+            return resultJson(new String(out, StandardCharsets.UTF_8));
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** 从检查脚本的输出里取结果行的 JSON（最后一条 {@link #MARK} 开头的行）；没有返回 null。 */
+    static String resultJson(String out) {
+        if (out == null) return null;
+        String[] ls = out.split("\\r?\\n");
+        for (int i = ls.length - 1; i >= 0; i--) {
+            String l = ls[i].trim();
+            if (l.startsWith("\uFEFF")) l = l.substring(1);
+            if (l.startsWith(MARK)) {
+                String j = l.substring(MARK.length()).trim();
+                return j.startsWith("{") ? j : null;
+            }
+        }
+        return null;
     }
 
     /**

@@ -223,6 +223,7 @@ public class Preview1120FixTest {
         assertTrue("工具说明也写了", Json.stringify(ChatAgent.tools()).contains("下载文件不要用它"));
     }
 
+    /** [fix-1123-a] 以前「前两次提示、第三次照原命令执行」；现在一直不执行（第三次起明说不会执行），见 Fix1123ATest.mixedDownloadIsNeverRunAsIs。 */
     @Test public void mixedDownloadGetsHintThenFallsBack() {
         String mixed = "Invoke-WebRequest -Uri $u -OutFile a.zip; Expand-Archive a.zip";
         List<Llm.Turn> turns = List.of(
@@ -239,9 +240,8 @@ public class Preview1120FixTest {
                     @Override public void step(Map<String, Object> ev) { evs.add(ev); }
                 });
         assertEquals("done", o.status);
-        assertEquals("前两次提示改用下载工具、第三次照原命令执行", 1, ran.size());
-        assertTrue(ran.get(0).contains("-Verbose"));
-        assertEquals(2, evs.stream().filter(e -> String.valueOf(e.get("desc")).contains("改用下载工具")).count());
+        assertEquals("三次都不执行（不再第三次照原命令执行）", 0, ran.size());
+        assertEquals(3, evs.stream().filter(e -> String.valueOf(e.get("desc")).contains("改用下载工具")).count());
     }
 
     @Test public void rewrittenDownloadShowsNote() {

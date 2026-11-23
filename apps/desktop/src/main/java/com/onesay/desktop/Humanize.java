@@ -47,6 +47,7 @@ public final class Humanize {
         TOOLS.put("open_target", "打开程序 / 网站");
         TOOLS.put("write_file", "写文件");
         TOOLS.put("show_file", "显示文件");
+        TOOLS.put("app_control", "操作 OneSay 自己（换页 / 改设置）"); // [fix-1123-a]
         TOOLS.put("android_ui", "读 / 点安卓界面");
         TOOLS.put("ask_choice", "让你选");
         TOOLS.put("screen_look", "截屏");

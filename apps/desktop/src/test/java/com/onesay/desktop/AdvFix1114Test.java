@@ -422,7 +422,7 @@ public class AdvFix1114Test {
                 if (before.endsWith("await ")) n++;
                 else assertTrue("confirm( 只出现在注释里：" + h.substring(Math.max(0, i - 40), i + 20), h.substring(Math.max(0, i - 12), i).contains("浏览器") || h.substring(Math.max(0, i - 12), i).contains("原生"));
             }
-            assertEquals("20 处确认都 await 页面自己的框（[app-whitelist-1116] 白名单加入 / 删除 / 清空重建 / 确认生效 +4；[approvals-1118] 对话改完全访问 / 撤销前缀规则 +2；[overnight-1119] 权限审批记录次数清零 +1；在手机上运行快捷指令 +1；[preview-1120] 删除可打开的程序 / 删除主题包 / 移除 MCP 服务器 +3；[always-on-1120] 删除常驻任务 +1）", 26, n);
+            assertEquals("20 处确认都 await 页面自己的框（[app-whitelist-1116] 白名单加入 / 删除 / 清空重建 / 确认生效 +4；[approvals-1118] 对话改完全访问 / 撤销前缀规则 +2；[overnight-1119] 权限审批记录次数清零 +1；在手机上运行快捷指令 +1；[preview-1120] 删除可打开的程序 / 删除主题包 / 移除 MCP 服务器 +3；[always-on-1120] 删除常驻任务 +1；[fix-1123-a] 手机页：关 Wi-Fi / 开飞行模式、覆盖手机上的文件、运行手机脚本、卸载 App 各 +1，系统命令从弹框挪进面板 ±0）", 30, n);
             assertTrue("默认焦点在取消", h.contains("$('ask-no');if(n)n.focus()"));
         });
         r.add("UI 预览后选格式不清空、显示整理后的链接", (Check) () -> {
