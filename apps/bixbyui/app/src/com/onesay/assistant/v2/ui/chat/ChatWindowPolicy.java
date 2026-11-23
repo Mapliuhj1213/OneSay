@@ -21,6 +21,28 @@ public final class ChatWindowPolicy {
     public static final int BG = 0xFF0B0B0C;
     /** 用户问句气泡底色（截图的棕色）。 */
     public static final int BUBBLE = 0xFF3A2F27;
+    /** ★ feat/console-ui（设计稿 ②）：对话控制台的底色 / 用户蓝气泡 / 回答灰气泡 / 卡片底与描边。 */
+    public static final int CONSOLE_BG = 0xFF0E0F12, CONSOLE_BUBBLE = 0xFF0A5BFF, CONSOLE_ANSWER = 0xFF1A1C21,
+            CONSOLE_CARD = 0xFF1A1C21, CONSOLE_CARD_LINE = 0xFF2C2F36, CONSOLE_BTN = 0xFF22252B;
+    /** 对话控制台的状态字色：开着 / 好了（苔绿）、等你点头（黄）、没成（红）、没做（灰）。 */
+    public static final int CONSOLE_OK = 0xFF84AE64, CONSOLE_WARN = 0xFFE3B341, CONSOLE_BAD = 0xFFE5534B, CONSOLE_OFF = 0xFF6B7079;
+
+    public static int bg(boolean console) {
+        return console ? CONSOLE_BG : BG;
+    }
+
+    public static int bubble(boolean console) {
+        return console ? CONSOLE_BUBBLE : BUBBLE;
+    }
+
+    /** 对话窗顶栏标题（设计稿「今晚」）：按钟点说这次对话是什么时候的。 */
+    public static String sessionTitle(int hour) {
+        if (hour >= 5 && hour < 11) return "今早";
+        if (hour >= 11 && hour < 13) return "中午";
+        if (hour >= 13 && hour < 18) return "下午";
+        if (hour >= 18) return "今晚";
+        return "深夜";
+    }
     /** 「以上由 AI 生成」那行灰字。 */
     public static final String DISCLAIMER = "以上由 AI 生成，可能包含不准确的信息";
     /**
@@ -65,7 +87,9 @@ public final class ChatWindowPolicy {
         /** 展开（或保持）对话窗。 */
         EXPAND,
         /** 会话已超时：清掉对话窗历史，按第一次处理（底部卡）。 */
-        RESET_CARD
+        RESET_CARD,
+        /** ★ feat/console-ui：对话控制台模式下会话已超时：清掉旧历史，新会话直接进对话窗。 */
+        RESET_EXPAND
     }
 
     /**
@@ -78,7 +102,25 @@ public final class ChatWindowPolicy {
      */
     public static Decision decide(Trigger trigger, boolean v2, boolean fullWindow, boolean chatActive, int rounds,
                                   boolean panelOnScreen, boolean memoryHasContext) {
+        return decide(trigger, v2, fullWindow, chatActive, rounds, panelOnScreen, memoryHasContext, false);
+    }
+
+    /**
+     * ★ feat/console-ui：对话控制台（设计稿 ②）—— 第一轮起就进对话窗，不再先弹小卡片：
+     * 新一条输入 / 接着说 → 展开（会话超时的先清旧历史）；新唤醒本身不展开（全屏聆听盖在上面，说完提交时再展开）。
+     * console = false 时与原规则逐条一致。
+     */
+    public static Decision decide(Trigger trigger, boolean v2, boolean fullWindow, boolean chatActive, int rounds,
+                                  boolean panelOnScreen, boolean memoryHasContext, boolean console) {
         if (!v2 || !fullWindow || trigger == null) return Decision.CARD;
+        if (console) {
+            boolean stale = !chatActive && rounds > 0 && !panelOnScreen && !memoryHasContext;
+            if (trigger == Trigger.WAKE) {
+                if (chatActive) return Decision.EXPAND;
+                return stale ? Decision.RESET_CARD : Decision.CARD;
+            }
+            return stale ? Decision.RESET_EXPAND : Decision.EXPAND;
+        }
         if (chatActive) return Decision.EXPAND;
         if (rounds <= 0) return Decision.CARD;
         if (!panelOnScreen && !memoryHasContext) return Decision.RESET_CARD;

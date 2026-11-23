@@ -213,6 +213,14 @@ final class DesignPages {
                     com.onesay.assistant.v2.ui.wake.WakeUiSettings.setTypeFirst(c.act, on);
                 }
             });
+            // ★ feat/console-ui：对话控制台（默认开）。关掉 = 首页回到原来的开关页、说话用原来的聆听卡片（旧路径保留，可回退）
+            k.switchRow(gm, "对话控制台", "首页就是对话；说话时全屏听，结果都进同一个对话里。关掉回到原来的小卡片",
+                    com.onesay.assistant.v2.ui.wake.WakeUiSettings.consoleMode(c.act), new ConsoleHost.Toggle() {
+                @Override public void onToggle(boolean on) {
+                    com.onesay.assistant.v2.ui.wake.WakeUiSettings.setConsoleMode(c.act, on);
+                    c.toast(on ? "已打开：下次唤起就是全屏对话，首页重新打开 App 后换成对话" : "已关掉：下次唤起回到小卡片，首页重新打开 App 后换回开关页");
+                }
+            });
             LinearLayout gd = k.group(col, "设备");
             // ★ feat/assist-role：设为系统默认助理（长按电源键 / 角落上滑叫出唤醒卡片）；显示现在是不是
             final Boolean isDef = com.onesay.assistant.v2.assist.AssistRoleHost.isDefault(c.act);

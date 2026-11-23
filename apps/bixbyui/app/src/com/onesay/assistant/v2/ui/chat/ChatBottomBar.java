@@ -57,7 +57,8 @@ public final class ChatBottomBar extends LinearLayout {
     private final ImageView mPlus;
     private final ImageView mMic;
     private final WaveDots mDots;
-    private ChatIcons mMicIcon, mSendIcon;
+    private ChatIcons mMicIcon;
+    private android.graphics.drawable.Drawable mSendIcon, mSendIconDefault;
     private com.onesay.assistant.v2.ui.widget.SendMicPolicy.Mode mSendMic = com.onesay.assistant.v2.ui.widget.SendMicPolicy.Mode.MIC;
     private Listener mListener;
     private boolean mListening;
@@ -141,6 +142,7 @@ public final class ChatBottomBar extends LinearLayout {
         pb.setCornerRadius(dp(26));
         pb.setColor(FILL);
         pill.setBackground(pb);
+        mPillBg = pb;
         ImageView logo = new ImageView(c);
         logo.setImageDrawable(new ChatIcons(ChatIcons.BIXBY, GLYPH));
         LayoutParams llp = new LayoutParams(dp(24), dp(24));
@@ -245,6 +247,7 @@ public final class ChatBottomBar extends LinearLayout {
         mMic = iconButton(c, ChatIcons.MIC, com.onesay.assistant.v2.ui.widget.SendMicPolicy.DESC_MIC);
         mMicIcon = (ChatIcons) mMic.getDrawable();
         mSendIcon = new ChatIcons(ChatIcons.SEND, GLYPH).setCutColor(OUTER);
+        mSendIconDefault = mSendIcon;
         mMic.setOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
                 // ★ feat/api-first：任务执行中且没打字 = 停止键（真中断当前任务）
@@ -413,6 +416,37 @@ public final class ChatBottomBar extends LinearLayout {
 
     public void hideMenu() {
         mMenu.setVisibility(GONE);
+    }
+
+    /** ★ feat/console-ui：首页「＋」直达 —— 打开「拍照 / 从相册选图」那一排。 */
+    public void showMenu() {
+        mMenu.setVisibility(VISIBLE);
+    }
+
+    private GradientDrawable mPillBg;
+    private boolean mConsoleStyle;
+
+    /**
+     * ★ feat/console-ui（设计稿 ②）：对话控制台配色 —— 输入胶囊 #22252B、麦克风位换成蓝色实心圆（白色图标）。
+     * 行为一点不变（贴底、贴键盘上沿、点麦克风只录音、收键盘不发送都是原来的代码）。off = 原配色。
+     */
+    public void setConsoleStyle(boolean on) {
+        if (on == mConsoleStyle) return;
+        mConsoleStyle = on;
+        if (mPillBg != null) mPillBg.setColor(on ? ChatWindowPolicy.CONSOLE_BTN : FILL);
+        if (on) {
+            GradientDrawable mb = new GradientDrawable();
+            mb.setShape(GradientDrawable.OVAL);
+            mb.setColor(ChatWindowPolicy.CONSOLE_BUBBLE);
+            mMic.setBackground(mb);
+            // ★ 有字时换成白色纸飞机「发送」（矢量图标，不用汉字）；清空换回麦克风 —— 切换时机仍是原来的 SendMicPolicy
+            mSendIcon = new com.onesay.assistant.v2.ui.console.ConsoleGlyph(com.onesay.assistant.v2.ui.console.ConsoleGlyph.PLANE, 0xFFFFFFFF).stroke(1.9f);
+        } else {
+            mMic.setBackground(null);
+            mSendIcon = mSendIconDefault;
+        }
+        mSendMic = null;   // 强制按当前模式重画一次
+        refreshSendMic();
     }
 
     private void submit() {

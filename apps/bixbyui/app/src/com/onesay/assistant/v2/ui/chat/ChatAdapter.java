@@ -51,6 +51,27 @@ public final class ChatAdapter {
         mActions = actions;
     }
 
+    /** ★ feat/console-ui（设计稿 ②）：对话控制台样式 —— 用户蓝色气泡靠右、回答灰色气泡靠左。off = 原样式。 */
+    private boolean mConsole;
+
+    public void setConsole(boolean on) {
+        mConsole = on;
+    }
+
+    public boolean console() {
+        return mConsole;
+    }
+
+    /** 回答灰气泡（历史里的回答、屏上这一轮的回答卡共用）。 */
+    public void styleAnswerBubble(View v) {
+        GradientDrawable b = new GradientDrawable();
+        float r = dp(18), s = dp(6);
+        b.setCornerRadii(new float[]{r, r, r, r, r, r, s, s});
+        b.setColor(ChatWindowPolicy.CONSOLE_ANSWER);
+        v.setBackground(b);
+        v.setPadding(dp(14), dp(11), dp(14), dp(11));
+    }
+
     /** 整段重排历史（轮数少，直接重建；返回最后一个子 View 便于做入场动画）。 */
     public View render(LinearLayout into, ChatTranscript t) {
         into.removeAllViews();
@@ -70,7 +91,16 @@ public final class ChatAdapter {
                         last = add(into, tv, dp(14), false);
                     }
                     lastAnswer = answerView(it.round.answer);
-                    last = add(into, lastAnswer, dp(16), false);
+                    if (mConsole) {   // ★ feat/console-ui：灰气泡跟字宽走，最宽 82%
+                        lastAnswer.setMaxWidth(Math.round(mCtx.getResources().getDisplayMetrics().widthPixels * 0.82f));
+                        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                        alp.topMargin = dp(12);
+                        alp.gravity = Gravity.START;
+                        into.addView(lastAnswer, alp);
+                        last = lastAnswer;
+                    } else {
+                        last = add(into, lastAnswer, dp(16), false);
+                    }
                     for (Object o : it.round.cards) {
                         if (o instanceof Bitmap) last = add(into, cardShot((Bitmap) o), dp(10), false);
                     }
@@ -113,12 +143,22 @@ public final class ChatAdapter {
     public void styleBubble(TextView tv) {
         GradientDrawable b = new GradientDrawable();
         b.setCornerRadius(dp(24));
-        b.setColor(ChatWindowPolicy.BUBBLE);
+        b.setColor(ChatWindowPolicy.bubble(mConsole));
+        if (mConsole) {   // ★ feat/console-ui：右下角收尖（设计稿）
+            float r = dp(18), s = dp(6);
+            b.setCornerRadii(new float[]{r, r, r, r, s, s, r, r});
+        }
         tv.setBackground(b);
-        tv.setTextColor(T1);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f);
-        tv.setPadding(dp(18), dp(11), dp(14), dp(11));
-        tv.setMaxWidth(Math.round(mCtx.getResources().getDisplayMetrics().widthPixels * 0.78f));
+        tv.setTextColor(mConsole ? 0xFFFFFFFF : T1);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, mConsole ? 16f : 17f);
+        tv.setPadding(dp(mConsole ? 14 : 18), dp(11), dp(14), dp(11));
+        tv.setMaxWidth(Math.round(mCtx.getResources().getDisplayMetrics().widthPixels * (mConsole ? 0.82f : 0.78f)));
+        if (mConsole) {   // 设计稿的气泡不带铅笔（点气泡照样能改了重发）
+            tv.setCompoundDrawables(null, null, null, null);
+            tv.setGravity(Gravity.CENTER_VERTICAL);
+            tv.setLineSpacing(dp(2), 1.1f);
+            return;
+        }
         ChatIcons pen = new ChatIcons(ChatIcons.PENCIL, T2);
         int s = dp(18);
         pen.setBounds(0, 0, s, s);
@@ -138,6 +178,10 @@ public final class ChatAdapter {
         CharSequence body = styled(answer);
         tv.setText(body);
         armFollowups(tv, body);   // ★ feat/api-first
+        if (mConsole) {   // ★ feat/console-ui：回答灰色气泡
+            styleAnswerBubble(tv);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15.5f);
+        }
         return tv;
     }
 

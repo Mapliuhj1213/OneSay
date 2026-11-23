@@ -34,15 +34,31 @@ final class HomePage extends ConsoleNav.Page {
     private String mPcState = "";
     private boolean mQuickNoteOn = true;
 
+    /** ★ feat/console-ui：true = 从对话控制台首页 ⚙ 进来的「设置」页（原来首页的开关 / 设置整页，分组不变，只是顶上换成返回 +「设置」）。 */
+    private final boolean mSettings;
+
     HomePage(Console c) {
+        this(c, false);
+    }
+
+    HomePage(Console c, boolean settings) {
         this.c = c;
+        this.mSettings = settings;
     }
 
     @Override protected View create() {
         k = c.kit;
         LinearLayout col = k.column();
         mScroll = k.scroll(col);
-        col.addView(k.largeTitle(com.onesay.assistant.v2.BuildVariant.APP_TITLE, "v2 · " + Console.RELEASE));
+        if (mSettings) {
+            col.addView(k.topBar("设置", new Runnable() {
+                @Override public void run() {
+                    c.nav.back();
+                }
+            }, null, null));
+        } else {
+            col.addView(k.largeTitle(com.onesay.assistant.v2.BuildVariant.APP_TITLE, "v2 · " + Console.RELEASE));
+        }
         col.addView(hero());
         mBanners = k.column();
         col.addView(mBanners, k.lpMatch(0, 0));

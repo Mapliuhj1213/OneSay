@@ -80,6 +80,8 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         com.onesay.assistant.v2.timeline.ExecTimeline liveTimeline();
         /** ★ feat/api-first：底栏停止键（交给服务真中断当前任务）。 */
         void stopTask();
+        /** ★ feat/console-ui：对话窗顶栏「‹」= 用户关面板（会话结束，同拖拽条）。 */
+        void close();
     }
 
     /** 服务侧能力（FloatingSheetService 实现）。 */
@@ -212,6 +214,82 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         return mTranscript;
     }
 
+    // ------------------------------------------------------------------ ★ feat/console-ui（设计稿 ②）
+
+    private boolean consoleOn() {
+        return com.onesay.assistant.v2.ui.wake.WakeUiSettings.consoleMode(mCtx);
+    }
+
+    private LinearLayout mHeader;
+    private TextView mHeaderTitle;
+    /** 顶栏的 tag（宿主列「插件卡」时跳过它）。 */
+    public static final String TAG_HEADER = "console_chat_header";
+
+    /** 对话窗顶栏：左「‹」= 收起对话（= 用户关面板，会话结束）；中间是这次对话的时段（今晚 / 下午…）。 */
+    private void attachHeader(boolean on) {
+        if (!on) {
+            if (mHeader != null && mHeader.getParent() == mP.root) mP.root.removeView(mHeader);
+            return;
+        }
+        if (mHeader == null) {
+            mHeader = new LinearLayout(mCtx);
+            mHeader.setTag(TAG_HEADER);
+            mHeader.setOrientation(LinearLayout.HORIZONTAL);
+            mHeader.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            ImageView back = new ImageView(mCtx);
+            back.setImageDrawable(new com.onesay.assistant.v2.ui.console.ConsoleGlyph(com.onesay.assistant.v2.ui.console.ConsoleGlyph.BACK, 0xFF9AA0A8));
+            android.graphics.drawable.GradientDrawable bb = new android.graphics.drawable.GradientDrawable();
+            bb.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            bb.setColor(ChatWindowPolicy.CONSOLE_CARD);
+            back.setBackground(bb);
+            back.setPadding(dp(8), dp(8), dp(8), dp(8));
+            back.setContentDescription("收起对话");
+            back.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    Log.i(TAG, "[CHAT] 顶栏返回 → 收起对话");
+                    mHost.close();
+                }
+            });
+            mHeader.addView(back, new LinearLayout.LayoutParams(dp(36), dp(36)));
+            mHeaderTitle = new TextView(mCtx);
+            mHeaderTitle.setTextColor(0xFFF2F3F5);
+            mHeaderTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f);
+            mHeaderTitle.getPaint().setFakeBoldText(true);
+            mHeaderTitle.setGravity(android.view.Gravity.CENTER);
+            mHeader.addView(mHeaderTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            View spacer = new View(mCtx);   // 右边留同宽，标题居中
+            mHeader.addView(spacer, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        }
+        mHeaderTitle.setText(ChatWindowPolicy.sessionTitle(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)));
+        if (mHeader.getParent() == null) {
+            LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            hl.bottomMargin = dp(6);
+            mP.root.addView(mHeader, 0, hl);
+        }
+    }
+
+    /**
+     * 全屏聆听点「打字」/ 首页「＋」：进对话窗（没展开就就地展开，同一个会话）并弹键盘打字。menu = 顺手打开「拍照 / 从相册选图」。
+     */
+    public void openTyping(boolean menu) {
+        if (!mActive && mHost.fullWindow()) {
+            Log.i(TAG, "[CHAT] 对话控制台：直接进对话窗打字");
+            enter();
+        }
+        mBar.focusForTyping();
+        mHost.requestTyping();
+        if (menu) mBar.showMenu();
+    }
+
+    public void openTyping() {
+        openTyping(false);
+    }
+
+    /** 当前对话有几轮（☰ 历史用）。 */
+    public int rounds() {
+        return mTranscript.size();
+    }
+
     // ------------------------------------------------------------------ 会话 / 轮次
 
     /**
@@ -225,12 +303,18 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
             memory = !com.onesay.assistant.v2.router.ConversationMemory.getInstance().isEmpty();
         } catch (Throwable ignore) {
         }
+        boolean console = consoleOn();   // ★ feat/console-ui：对话控制台 → 第一轮起就进对话窗
         ChatWindowPolicy.Decision d = ChatWindowPolicy.decide(trigger, true, mHost.fullWindow(), mActive,
-                mTranscript.size(), panel, memory);
+                mTranscript.size(), panel, memory, console);
         if (d == ChatWindowPolicy.Decision.RESET_CARD) {
             Log.i(TAG, "[CHAT] 会话已超时 → 清空对话窗历史（" + mTranscript.size() + " 轮），本次照旧底部卡");
             mTranscript.clear();
             return false;
+        }
+        if (d == ChatWindowPolicy.Decision.RESET_EXPAND) {
+            Log.i(TAG, "[CHAT] 会话已超时 → 清空旧历史（" + mTranscript.size() + " 轮），新会话直接进对话窗");
+            mTranscript.clear();
+            d = ChatWindowPolicy.Decision.EXPAND;
         }
         ChatTranscript.Round frozen = freezeLive();
         mJustFroze = frozen != null;
@@ -351,6 +435,10 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
     private void enter() {
         mActive = true;
         ViewGroup root = mP.root;
+        boolean console = consoleOn();   // ★ feat/console-ui：蓝气泡 / 灰回答 / 顶栏 / 蓝麦克风
+        mAdapter.setConsole(console);
+        mBar.setConsoleStyle(console);
+        attachHeader(console);
         if (mHistory.getParent() == null) mP.contentInner.addView(mHistory, 0, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         if (mLiveImage.getParent() == null) {
@@ -443,6 +531,8 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         mLiveImage.setVisibility(View.GONE);
         mBar.setVisibility(View.GONE);
         mBar.hideMenu();
+        mBar.setConsoleStyle(false);   // ★ feat/console-ui：回卡片排布 = 原样式
+        attachHeader(false);
         unstyleBubble();
         restorePluginCards();
         com.onesay.assistant.v2.ui.ActionChipsView chips = mHost.chips();

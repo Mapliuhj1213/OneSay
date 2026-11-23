@@ -69,6 +69,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
     /** ★ feat/api-first：点「调用中：X」前台通知 → 安静地挂回面板（不清内容、不放唤醒水光）。 */
     public static final String ACTION_OPEN_PANEL = "com.onesay.assistant.v2.action.OPEN_PANEL";
     public static final String EXTRA_QUERY = "query";
+    /** ★ feat/console-ui：首页「＋」/ ☰「接着聊」冷启动时用（服务还没在跑）。 */
+    public static final String ACTION_OPEN_CHAT = "com.onesay.assistant.v2.action.OPEN_CHAT";
+    public static final String EXTRA_MENU = "menu";
     public static final String EXTRA_PROMPT = "prompt";
 
     private static volatile FloatingSheetService sInstance;
@@ -510,8 +513,47 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (mSheetView == null) return;
         SafeLog.i(TAG, "[TYPE-OPEN] 唤起即打字" + (msg != null ? "（附说明）" : ""));
         if (mUseV2 && mSheetView.chatActive()) chatRewake();
+        if (mUseV2 && msg == null && hint == null && mSheetView.chatOpenTyping(false)) {   // ★ feat/console-ui：对话控制台 → 直接进对话窗打字
+            onTextModeRequested();
+            return;
+        }
         if (mUseV2) mSheetView.v2Wake();
         mSheetView.openTyping(msg, hint);
+        onTextModeRequested();   // 放开窗口焦点 + 弹键盘（并停掉可能在开的收音）
+    }
+
+    /**
+     * ★ feat/console-ui：首页「＋」/ ☰「接着聊」—— 打开对话窗（②）直接打字（同一个会话；menu = 顺手打开「拍照 / 从相册选图」）。
+     * 任意线程。面板服务没在跑时先拉起，再由主线程打开。
+     */
+    public static void openChat(final Context ctx, final boolean menu) {
+        final FloatingSheetService s = sInstance;
+        if (s == null) {
+            Intent intent = new Intent(ctx, FloatingSheetService.class);
+            intent.setAction(ACTION_OPEN_CHAT);
+            intent.putExtra(EXTRA_MENU, menu);
+            startCompat(ctx, intent);
+            return;
+        }
+        s.mMainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                s.openChatOnMain(menu);
+            }
+        });
+    }
+
+    private void openChatOnMain(boolean menu) {
+        showSheet();
+        cancelAutoHide();
+        mMainHandler.removeCallbacks(mErrorNeutralRunnable);
+        mMainHandler.removeCallbacks(mErrorHideRunnable);
+        if (mSheetView == null) return;
+        SafeLog.i(TAG, "[CONSOLE] 首页打开对话窗打字" + (menu ? "（带图片菜单）" : ""));
+        if (!mUseV2 || !mSheetView.chatOpenTyping(menu)) {
+            if (mUseV2) mSheetView.v2Wake();
+            mSheetView.openTyping(null, null);
+        }
         onTextModeRequested();   // 放开窗口焦点 + 弹键盘（并停掉可能在开的收音）
     }
 
@@ -1224,6 +1266,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
             } else if (ACTION_OPEN_PANEL.equals(action)) {
                 SafeLog.i(TAG, "[TASK-NOTIFY] 点了任务通知 → 挂回面板");
                 s1AttachSheet();   // ★ feat/api-first：回到面板看时间轴（任务照跑）
+            } else if (ACTION_OPEN_CHAT.equals(action)) {   // ★ feat/console-ui
+                openChatOnMain(intent.getBooleanExtra(EXTRA_MENU, false));
             } else if (ACTION_SHOW.equals(action)) {
                 // 只有明确 ACTION_SHOW 才弹出面板（防止预启动/系统重启时意外弹出）
                 showSheet();

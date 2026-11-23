@@ -843,6 +843,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     /** ★ 1123e：语音出错 / 没配时把焦点交给底栏输入框（不改卡片状态，错误那句留着）。 */
     public void focusInputForTyping() {
         if (!mV2 || mChat == null || chatActive()) return;
+        if (listenScreenActive()) return;   // ★ feat/console-ui：全屏聆听出错画面不弹键盘（给「重说」；要打字点键盘钮）
         showSoftKeyboard();
         v2TrackIme(true);
     }
@@ -1667,6 +1668,314 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     // =====================================================================
 
     /** 新界面的宿主回调（FloatingSheetService 实现：光晕 / 触感 / 点外部）。 */
+    // ------------------------------------------------------------------ ★ feat/console-ui：全屏聆听（设计稿 ③）+ 对话控制台卡片（设计稿 ②）
+
+    private com.onesay.assistant.v2.ui.wake.ListenScreen mLs;
+    /** 设置「对话控制台」（唤醒 / 新请求 / 挂窗时重读；画帧时不读设置）。 */
+    private boolean mConsoleOn;
+    /** 这一轮聆听盖过全屏层（出错时留着说原因）；用户在出错画面点了停止 / 打字。 */
+    private boolean mLsRound, mLsClosed, mLsWas;
+    private int mLsInset = -1;
+    private final int[] mLsLoc = new int[2];
+    private final android.graphics.Rect mLsVis = new android.graphics.Rect();
+
+    public void refreshConsoleMode() {
+        mConsoleOn = com.onesay.assistant.v2.ui.wake.WakeUiSettings.consoleMode(getContext());
+    }
+
+    public boolean consoleMode() {
+        return mConsoleOn;
+    }
+
+    /** 此刻盖着全屏聆听层（测试 / 服务判断用）。 */
+    public boolean listenScreenActive() {
+        return com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.shows(mConsoleOn, mV2, mV2FullWindow, mStage.stage(), mLsRound, mLsClosed);
+    }
+
+    /** 每次阶段变化：记这一轮有没有盖过、显隐变了就重排（触摸区域跟着变：盖着时整窗收触摸）。 */
+    private void lsTrack(com.onesay.assistant.v2.ui.wake.WakeStage.Transition t) {
+        com.onesay.assistant.v2.ui.wake.WakeStage.Stage to = mStage.stage();
+        if (to == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.LISTENING) {
+            if (t != null && t.from != com.onesay.assistant.v2.ui.wake.WakeStage.Stage.LISTENING) mLsClosed = false;   // 新的一次聆听
+            mLsRound = true;
+        } else if (to != com.onesay.assistant.v2.ui.wake.WakeStage.Stage.ERROR && to != com.onesay.assistant.v2.ui.wake.WakeStage.Stage.DISMISSING) {
+            mLsRound = false;
+            mLsClosed = false;
+        }
+        boolean now = listenScreenActive();
+        if (now == mLsWas) return;
+        mLsWas = now;
+        android.util.Log.i("WakeUI", "[CONSOLE-LISTEN] 全屏聆听 " + (now ? "盖上" : "收掉") + " stage=" + to);
+        if (now) {
+            if (mLs == null) mLs = new com.onesay.assistant.v2.ui.wake.ListenScreen(getResources().getDisplayMetrics().density);
+            mLs.reset();
+            mLsInset = -1;
+            hideSoftKeyboard();
+        }
+        mV2LastFrame = 0L;
+        requestLayout();
+        postInvalidateOnAnimation();
+    }
+
+    /** 导航栏高度（窗口底边到可见区底边）：底部三颗钮落在导航栏上面。每次盖上量一次。 */
+    private int lsInset() {
+        if (mLsInset >= 0) return mLsInset;
+        try {
+            getWindowVisibleDisplayFrame(mLsVis);
+            getLocationOnScreen(mLsLoc);
+            int gap = mLsLoc[1] + getHeight() - mLsVis.bottom;
+            mLsInset = Math.max(0, Math.min(gap, getHeight() / 4));
+        } catch (Throwable e) {
+            mLsInset = 0;
+        }
+        return mLsInset;
+    }
+
+    private void lsDraw(android.graphics.Canvas c) {
+        if (mLs == null) mLs = new com.onesay.assistant.v2.ui.wake.ListenScreen(getResources().getDisplayMetrics().density);
+        String[] tx = com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.liveText(mV2Listen, mV2ErrorLine, mStage.stage());
+        boolean listening = mStage.stage() == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.LISTENING;
+        if (mLs.draw(c, getWidth(), getHeight(), lsInset(), tx[0], tx[1], listening, mV2Instant)) postInvalidateOnAnimation();
+        mV2LastFrame = 0L;
+    }
+
+    private void lsTouch(android.view.MotionEvent ev) {
+        if (mLs == null) return;
+        float dens = getResources().getDisplayMetrics().density;
+        int a = ev.getActionMasked();
+        com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.Button b = com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.hit(
+                ev.getX(), ev.getY(), getWidth(), getHeight(), dens, lsInset());
+        if (a == android.view.MotionEvent.ACTION_DOWN) {
+            mLs.setPressed(b);
+            if (b == com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.Button.NONE) mLsOrbDown = lsOnOrb(ev.getX(), ev.getY(), dens);
+            postInvalidateOnAnimation();
+        } else if (a == android.view.MotionEvent.ACTION_UP) {
+            com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.Button d = mLs.pressed();
+            mLs.setPressed(com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.Button.NONE);
+            postInvalidateOnAnimation();
+            if (d != com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.Button.NONE && d == b) {
+                lsAct(d);
+            } else if (mLsOrbDown && lsOnOrb(ev.getX(), ev.getY(), dens)
+                    && mStage.stage() == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.LISTENING && mListener != null) {
+                mListener.onFinishListening();   // 点圆球 = 说完了（还没开口时服务自己忽略）
+            }
+            mLsOrbDown = false;
+        } else if (a == android.view.MotionEvent.ACTION_CANCEL) {
+            mLs.setPressed(com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.Button.NONE);
+            mLsOrbDown = false;
+            postInvalidateOnAnimation();
+        }
+    }
+
+    private boolean mLsOrbDown;
+
+    private boolean lsOnOrb(float x, float y, float dens) {
+        float dx = x - getWidth() / 2f, dy = y - com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.orbCenterY(getHeight());
+        float r = com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.orbRadius(dens, 1f) + 24f * dens;
+        return dx * dx + dy * dy <= r * r;
+    }
+
+    private void lsAct(com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.Button b) {
+        com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.Action act = com.onesay.assistant.v2.ui.wake.ListenScreenPolicy.action(b, mStage.stage(), chatActive());
+        android.util.Log.i("WakeUI", "[CONSOLE-LISTEN] 点了 " + b + " → " + act);
+        switch (act) {
+            case RESTART_LISTEN:
+                lsRestart();
+                break;
+            case STOP_LISTEN:
+                if (mListener != null) mListener.onStopListening();   // 停止收音不发；有对话就回对话，没有就收起
+                break;
+            case CLOSE_TO_CHAT:
+                mLsClosed = true;
+                lsTrack(null);
+                break;
+            case CLOSE_PANEL:
+                if (mListener != null) mListener.onDismiss();
+                break;
+            case TYPE:
+                lsType();
+                break;
+            default:
+                break;
+        }
+    }
+
+    /** 重说：作废这一句（不发），马上重新开始听，同一个会话。 */
+    private void lsRestart() {
+        mV2Listen = null;
+        mLsClosed = false;
+        com.onesay.assistant.v2.wake.WakeService.cancelCaptureFromUi();
+        if (mStage.stage() != com.onesay.assistant.v2.ui.wake.WakeStage.Stage.LISTENING) {
+            v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.LISTEN_UPDATE);
+        } else {
+            v2Render(null);
+        }
+        postDelayed(new Runnable() {
+            @Override public void run() {
+                if (mListener != null) mListener.onVoiceModeRequested();
+            }
+        }, 150);
+    }
+
+    /** 打字：停止收音，进对话窗（②）打字、弹键盘（这是明确要打字，才弹键盘）。 */
+    private void lsType() {
+        mLsClosed = true;
+        v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.TEXT_MODE);
+        if (mChat != null && mV2FullWindow) {
+            mChat.openTyping();
+        } else {
+            switchToTextMode();
+            if (mListener != null) mListener.onTextModeRequested();
+        }
+    }
+
+    // ---- 对话控制台卡片样式（设计稿 ②：要确认的事 = 带按钮的卡片，结果 = 带状态色的卡片；不点不执行，逻辑全是原来的）
+
+    private LinearLayout mConfirmHead, mResultHead;
+    private TextView mConfirmHeadL, mConfirmHeadR, mResultHeadL, mResultHeadR;
+    /** 当前这一轮是执行结果（不是问答）：结果画成卡片。 */
+    private boolean mV2Exec, mV2ExecOk;
+    private String mV2ExecLabel;
+    private boolean mConsoleStyled;
+
+    private LinearLayout consoleHead(LinearLayout into, int index, TextView[] out) {
+        LinearLayout h = new LinearLayout(getContext());
+        h.setOrientation(HORIZONTAL);
+        h.setGravity(Gravity.CENTER_VERTICAL);
+        h.setVisibility(GONE);
+        TextView l = new TextView(getContext());
+        l.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        l.setTextColor(0xFF9AA0A8);
+        l.setSingleLine(true);
+        l.setEllipsize(TextUtils.TruncateAt.END);
+        h.addView(l, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView r = new TextView(getContext());
+        r.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        r.setSingleLine(true);
+        h.addView(r, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(6);
+        into.addView(h, index, lp);
+        out[0] = l;
+        out[1] = r;
+        return h;
+    }
+
+    /**
+     * 首页「＋」/ ☰「接着聊」：直接进对话窗打字（不先弹小卡片、不开麦）。只有新界面 + 全屏窗 + 对话控制台开着才这么做，返回 true；
+     * 否则返回 false，调用方照旧开打字卡片。
+     */
+    public boolean chatOpenTyping(boolean menu) {
+        refreshConsoleMode();
+        if (!mV2 || !mV2FullWindow || mChat == null || !mConsoleOn) return false;
+        if (mSearchBar != null) mSearchBar.setVisibility(GONE);
+        if (mStage.stage() != com.onesay.assistant.v2.ui.wake.WakeStage.Stage.TEXT) v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.TEXT_MODE);
+        mChat.openTyping(menu);
+        return true;
+    }
+
+    /** 当前对话有几轮（☰ 历史判断有没有进行中的对话）。 */
+    public int chatRounds() {
+        return mChat == null ? 0 : mChat.rounds();
+    }
+
+    /** 每次重排末尾调用（幂等）：对话控制台 + 对话窗开着 → 卡片样式；否则复原成原来的样子。 */
+    private void consoleStyle() {
+        boolean on = mV2 && mConsoleOn && chatActive();
+        if (!on && !mConsoleStyled) return;
+        if (mConfirmHead == null) {
+            TextView[] a = new TextView[2], b = new TextView[2];
+            mConfirmHead = consoleHead(mConfirmBox, 0, a);
+            mConfirmHeadL = a[0];
+            mConfirmHeadR = a[1];
+            mResultHead = consoleHead(mResultCard, 0, b);
+            mResultHeadL = b[0];
+            mResultHeadR = b[1];
+        }
+        mConsoleStyled = on;
+        com.onesay.assistant.v2.ui.chat.ConsoleCardCopy.Status cs;
+        if (on) {
+            // 确认卡：深色卡片 + 「要你确认 · 等你点头」，主按钮蓝色（高风险的仍是红色确认）
+            mConfirmBox.setCardStyle(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CONSOLE_CARD, com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CONSOLE_CARD_LINE);
+            mConfirmBox.setCornerRadiusDp(16);
+            mConfirmBox.setPadding(dp(14), dp(12), dp(14), dp(12));
+            cs = com.onesay.assistant.v2.ui.chat.ConsoleCardCopy.confirm(mConfirmDecided, mConfirmRowRed.getVisibility() == VISIBLE);
+            mConfirmHeadL.setText(cs.label);
+            mConfirmHeadR.setText(cs.status);
+            mConfirmHeadR.setTextColor(cs.color);
+            mConfirmHead.setVisibility(VISIBLE);
+            mConfirmTitle.setVisibility(GONE);
+            mConfirmDesc.setTextColor(mConfirmDecided ? T3 : T1);
+            mConfirmDesc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
+            for (CurvedCapsuleButton btn : new CurvedCapsuleButton[] {mBtnCancel, mBtnAlways, mBtnReject}) {
+                btn.setCustomColors(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CONSOLE_BTN, com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CONSOLE_BTN);
+                btn.setTextColor(T1);
+                btn.setCornerRadiusDp(12);
+            }
+            mBtnOnce.setCustomColors(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CONSOLE_BUBBLE, com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CONSOLE_BUBBLE);
+            mBtnOnce.setTextColor(0xFFFFFFFF);
+            mBtnOnce.setCornerRadiusDp(12);
+            mBtnConfirm.setCustomColors(0xCCE5534B, 0xCCE5534B);
+            mBtnConfirm.setTextColor(0xFFFFFFFF);
+            mBtnConfirm.setCornerRadiusDp(12);
+            // 结果：执行类 = 卡片（标题 + 状态色）；问答 = 左侧灰色气泡
+            boolean card = mV2Exec && mV2Final && mResultText.getVisibility() == VISIBLE;
+            if (card) {
+                cs = com.onesay.assistant.v2.ui.chat.ConsoleCardCopy.result(mV2ExecOk, mV2ExecLabel);
+                mResultHeadL.setText(cs.label);
+                mResultHeadR.setText(cs.status);
+                mResultHeadR.setTextColor(cs.color);
+                mResultHead.setVisibility(VISIBLE);
+                mResultCard.setCardStyle(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CONSOLE_CARD, com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CONSOLE_CARD_LINE);
+                mResultCard.setCornerRadiusDp(16);
+                mResultCard.setPadding(dp(14), dp(12), dp(14), dp(12));
+                mResultText.setBackground(null);
+                mResultText.setPadding(0, 0, 0, 0);
+                mResultText.setMaxWidth(Integer.MAX_VALUE);
+                setResultTextWidth(ViewGroup.LayoutParams.MATCH_PARENT);
+            } else {
+                mResultHead.setVisibility(GONE);
+                mResultCard.setBackground(null);
+                mResultCard.setPadding(0, 0, 0, 0);
+                if (mResultText.getVisibility() == VISIBLE && mRichBox.getVisibility() != VISIBLE) {
+                    GradientDrawable g = new GradientDrawable();
+                    float r = dp(18), sm = dp(6);
+                    g.setCornerRadii(new float[]{r, r, r, r, r, r, sm, sm});
+                    g.setColor(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.CONSOLE_ANSWER);
+                    mResultText.setBackground(g);
+                    mResultText.setPadding(dp(14), dp(11), dp(14), dp(11));
+                    mResultText.setMaxWidth(Math.round(getResources().getDisplayMetrics().widthPixels * 0.82f));
+                    setResultTextWidth(ViewGroup.LayoutParams.WRAP_CONTENT);
+                } else {
+                    mResultText.setBackground(null);
+                    mResultText.setPadding(0, 0, 0, 0);
+                    mResultText.setMaxWidth(Integer.MAX_VALUE);
+                    setResultTextWidth(ViewGroup.LayoutParams.MATCH_PARENT);
+                }
+            }
+        } else {
+            mConfirmHead.setVisibility(GONE);
+            mConfirmTitle.setVisibility(VISIBLE);
+            mConfirmBox.setPadding(dp(16), dp(14), dp(16), dp(14));
+            v2StyleConfirm(true, mConfirmDecided);
+            mResultHead.setVisibility(GONE);
+            mResultCard.setBackground(null);
+            mResultCard.setPadding(0, 0, 0, 0);
+            mResultText.setBackground(null);
+            mResultText.setPadding(0, 0, 0, 0);
+            mResultText.setMaxWidth(Integer.MAX_VALUE);
+            setResultTextWidth(ViewGroup.LayoutParams.MATCH_PARENT);
+        }
+    }
+
+    private void setResultTextWidth(int w) {
+        ViewGroup.LayoutParams lp = mResultText.getLayoutParams();
+        if (lp == null || lp.width == w) return;
+        lp.width = w;
+        if (lp instanceof LinearLayout.LayoutParams) ((LinearLayout.LayoutParams) lp).gravity = Gravity.START;
+        mResultText.setLayoutParams(lp);
+    }
+
     public interface V2Host {
         void onStageTransition(com.onesay.assistant.v2.ui.wake.WakeStage.Transition t);
         void onOutsideTapV2();
@@ -1793,6 +2102,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     int[] v2TouchRect() {
         if (!mV2 || !mV2FullWindow) return null;
         if (chatActive()) return null;   // ★ ui-K1：对话窗全屏收触摸
+        if (listenScreenActive()) return null;   // ★ feat/console-ui：全屏聆听整窗收触摸
         if (com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.touchArea(true, mStage.stage(), mV2ShortResult)
                 != com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.TouchArea.CARD) return null;
         return com.onesay.assistant.v2.ui.wake.WindowFlowPolicy.cardTouchRect(v2Side(), mBgTop.t, v2CardBottomGap(), getWidth(), getHeight());
@@ -1802,6 +2112,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         mChatAttachedAt = android.os.SystemClock.uptimeMillis();   // ★ ui-K1：刚挂上 ≠「面板一直在屏上」
+        refreshConsoleMode();   // ★ feat/console-ui
         mImeBaseVis = 0;
         if (mV2 && mV2FullWindow && mTouchToken == null) {
             mTouchLogged = null;
@@ -2282,6 +2593,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     /** 新唤醒（ACTION_LISTEN）：清掉上一轮的卡片内容，状态机走 WAKE。 */
     public void v2Wake() {
         if (!mV2) return;
+        refreshConsoleMode();   // ★ feat/console-ui
+        mV2Exec = false;
         chatBoundary(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.Trigger.WAKE);   // ★ ui-K1：清卡片内容之前
         mV2Listen = null;
         mV2Echo = null;
@@ -2440,6 +2753,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         if (mV2) chatBoundary(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.Trigger.SUBMIT);   // ★ ui-K1（已在「正在解析」处冻结过则无事）
         timelineClear();   // ★ feat/api-first：上一轮的时间轴已随这一轮冻结进对话历史
         if (mV2) {
+            mV2Exec = false;
             mV2Body = null;
             mV2Task = null;
             mV2ErrorLine = null;
@@ -2455,6 +2769,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     /** ★ LC-5：卡片在岛上时来了新请求 —— 清掉上一张卡（岛上任务）的内容，状态机走 NEW_REQUEST（→ THINKING）。 */
     public void v2BeginRequest() {
         if (!mV2) return;
+        refreshConsoleMode();   // ★ feat/console-ui
+        mV2Exec = false;
         chatBoundary(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.Trigger.SUBMIT);   // ★ ui-K1
         mV2Listen = null;
         mV2Echo = null;
@@ -2477,6 +2793,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         if (e == com.onesay.assistant.v2.ui.wake.WakeStage.Event.RESET && mChat != null) mChat.exitImmediate();   // ★ ui-K1：摘窗复位 → 回卡片排布（历史保留）
         com.onesay.assistant.v2.ui.wake.WakeStage.Transition t = mStage.on(e);
         if (t.changed()) android.util.Log.i("WakeUI", "[WAKE-STAGE] " + t);
+        lsTrack(t);   // ★ feat/console-ui：全屏聆听跟着阶段走（在 v2Render 之前，重排时已知道盖没盖）
         v2Render(t);
         if (mV2Host != null) mV2Host.onStageTransition(t);
     }
@@ -2528,6 +2845,9 @@ public class FloatingSheetView extends CurvedEdgeContainer {
 
     private void v2ShowResult(ExecutionResult result) {
         mAskStreaming = false;
+        mV2Exec = true;   // ★ feat/console-ui：执行结果在对话窗里画成卡片
+        mV2ExecOk = result.ok;
+        mV2ExecLabel = result.capability != null ? result.capability.summary : null;
         clearToggles();
         clearAlarmCards();
         mConfirmBox.setVisibility(GONE);
@@ -2546,6 +2866,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     }
 
     private void v2ShowAskReply(String question, String answer) {
+        mV2Exec = false;
         if (com.onesay.assistant.v2.leakguard.LeakGuardHost.blockOutput(getContext(), "v2ShowAskReply", answer)) {   // ★ fix/leak-guard（入口已判过；直调兜底）
             showLeakBlocked();
             return;
@@ -2747,6 +3068,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         mV2ShownBody = body;
         v2ProgressTrack(st);   // ★ 11-04 午 进度反馈：思考 / 任务阶段计时 + 呼吸动画
         if (chat) mChat.styleLive();   // ★ ui-K1：问句气泡 / 页脚 / 底栏录音态
+        consoleStyle();   // ★ feat/console-ui：对话控制台卡片样式（关着 / 没展开 = 原样）
         // 内发光 / 外晕目标（v2.4）
         mInner.t = com.onesay.assistant.v2.ui.wake.WakeStage.innerGlow(st);
         mHalo.t = (st == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.THINKING || st == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.ANSWERING) ? 0.17f
@@ -3187,6 +3509,10 @@ public class FloatingSheetView extends CurvedEdgeContainer {
             super.dispatchDraw(c);
             return;
         }
+        if (listenScreenActive()) {   // ★ feat/console-ui：全屏聆听盖在最上面（卡片 / 对话窗照常在下面，只是不画）
+            lsDraw(c);
+            return;
+        }
         long now = android.os.SystemClock.uptimeMillis();
         float dt = mV2LastFrame == 0L ? 0.016f : Math.min(0.033f, (now - mV2LastFrame) / 1000f);
         mV2LastFrame = now;
@@ -3225,6 +3551,10 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     @Override
     public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
         if (!mV2) return super.dispatchTouchEvent(ev);
+        if (listenScreenActive()) {   // ★ feat/console-ui：全屏聆听接走所有点按（重说 / 停止 / 打字 / 返回 / 键盘 / 点球 = 说完了）
+            lsTouch(ev);
+            return true;
+        }
         int a = ev.getActionMasked();
         float x = ev.getX(), y = ev.getY();
         if (chatActive()) {   // ★ ui-K1：顶部拖拽条 —— 下拉或点按 = 收起对话窗
@@ -3366,6 +3696,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
                 postInvalidateOnAnimation();
             }
             @Override public void onChatActive(boolean on) {
+                mChatBg.setColor(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.bg(on && mConsoleOn));   // ★ feat/console-ui：#0E0F12
+                consoleStyle();   // ★ feat/console-ui：进 / 出对话窗时卡片样式跟着换
                 if (mV2IconRow != null) mV2IconRow.setVisibility(on ? GONE : v2IconRowVisibility(mStage.stage()));
                 if (!on) v2RefreshCardBar(mStage.stage());   // 回到卡片排布 → 按阶段重新挂结果态底栏
                 if (on) {
@@ -3403,7 +3735,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
                 for (int i = 0; i < getChildCount(); i++) {
                     View c = getChildAt(i);
                     if (c == mHeaderRow || c == mChipsRow || c == mContentScroll || c == mSearchBar || c == mSuggestionScroll
-                            || c == mV2IconRow || c == mChat.bar() || ActionChipsView.TAG_IN_SHEET.equals(c.getTag())) continue;
+                            || c == mV2IconRow || c == mChat.bar() || ActionChipsView.TAG_IN_SHEET.equals(c.getTag())
+                            || com.onesay.assistant.v2.ui.chat.ChatWindowController.TAG_HEADER.equals(c.getTag())) continue;
                     l.add(c);
                 }
                 return l;
@@ -3414,6 +3747,7 @@ public class FloatingSheetView extends CurvedEdgeContainer {
             }
             @Override public com.onesay.assistant.v2.timeline.ExecTimeline liveTimeline() { return mTimeline; }   // ★ feat/api-first
             @Override public void stopTask() { requestStopTask("对话窗停止键"); }
+            @Override public void close() { if (mListener != null) mListener.onDismiss(); }   // ★ feat/console-ui
         });
         if (mChatSvc != null) mChat.setServiceHost(mChatSvc);
         mChatBg.setColor(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.BG);

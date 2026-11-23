@@ -118,6 +118,26 @@ public final class WakeUiSettings {
         sp(ctx).edit().putBoolean(KEY_TYPE_FIRST, on).apply();
     }
 
+    /**
+     * ★ feat/console-ui：「对话控制台」（默认开）—— 说话时全屏聆听（设计稿 ③），说完 / 打字 / 点建议都直接进全屏对话窗（②），
+     * 不再先弹小卡片。关掉 = 回到原来的聆听卡片 + 第二轮才展开（旧代码路径一行没删，随时切回）。
+     */
+    public static final String KEY_CONSOLE = "console";
+    public static final boolean CONSOLE_DEFAULT = true;
+
+    public static boolean consoleMode(Context ctx) {
+        if (ctx == null) return false;
+        try {
+            return sp(ctx).getBoolean(KEY_CONSOLE, CONSOLE_DEFAULT);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setConsoleMode(Context ctx, boolean on) {
+        sp(ctx).edit().putBoolean(KEY_CONSOLE, on).apply();
+    }
+
     public static void setStyle(Context ctx, String style) {
         sp(ctx).edit().putString(KEY_STYLE, style).apply();
     }

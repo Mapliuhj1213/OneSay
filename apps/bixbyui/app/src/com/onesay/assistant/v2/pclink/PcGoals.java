@@ -252,6 +252,11 @@ public final class PcGoals {
         return d;
     }
 
+    /** ★ feat/console-ui：首页「今天 · 电脑任务」—— 电脑交来、还在做的目标件数（这个进程里的真实状态，没有就是 0）。 */
+    public static synchronized int runningCount() {
+        return active != null && RUNNING.equals(active.state()) ? 1 : 0;
+    }
+
     public static synchronized int pending() {
         return outbox.size();
     }

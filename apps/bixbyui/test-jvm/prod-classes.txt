@@ -785,3 +785,10 @@ com/onesay/assistant/v2/events/EventPickHint.java
 # ★ feat/assist-role：系统默认助理（唤起防重 / 跳转顺序 / 是否默认）
 com/onesay/assistant/v2/assist/AssistTriggerGate.java
 com/onesay/assistant/v2/assist/AssistRole.java
+# ★ feat/console-ui：对话控制台（状态标签 / 今天块 / 首页模型 / 配色 / 全屏聆听策略 / 卡片状态字）
+com/onesay/assistant/v2/ui/console/ConsolePalette.java
+com/onesay/assistant/v2/ui/console/ConsoleChips.java
+com/onesay/assistant/v2/ui/console/ConsoleToday.java
+com/onesay/assistant/v2/ui/console/ConsoleHomeModel.java
+com/onesay/assistant/v2/ui/wake/ListenScreenPolicy.java
+com/onesay/assistant/v2/ui/chat/ConsoleCardCopy.java

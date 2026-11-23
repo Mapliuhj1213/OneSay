@@ -81,6 +81,12 @@ public final class Console implements ConsoleHost {
     }
 
     public void start() {
+        // ★ feat/console-ui（设计稿 ①）：首页 = 对话控制台；原来的开关 / 设置首页整页挪进右上 ⚙（HomePage 设置模式）。
+        //   设置里关掉「对话控制台」→ 首页回到原来的开关页（旧代码路径保留，可回退）。
+        if (com.onesay.assistant.v2.ui.wake.WakeUiSettings.consoleMode(act)) {
+            nav.setRoot(new ConsoleHomePage(this));
+            return;
+        }
         mHome = new HomePage(this);
         nav.setRoot(mHome);
     }
@@ -378,7 +384,7 @@ public final class Console implements ConsoleHost {
             return;
         }
         kit.dialog().setTitle("暂停助手？")
-                .setMessage("暂停后唤醒键（含长按记一记）和唤醒词都不响应；灵动岛、定时任务、取件码照常。\n随时在首页右上角恢复。")
+                .setMessage("暂停后唤醒键（含长按记一记）和唤醒词都不响应；灵动岛、定时任务、取件码照常。\n随时打开设置页最上面的总开关恢复。")
                 .setPositiveButton("暂停", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         com.onesay.assistant.v2.wake.AssistantPause.set(act, true);
