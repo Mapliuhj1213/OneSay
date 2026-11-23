@@ -262,6 +262,13 @@ public final class ScreenRefHooks {
             }
 
             if (!DeixisResolver.hasDeixis(command)) return false;
+            // [fix-1123-dexec B10] 「删掉刚才那条（记忆）」里的「那条」不是屏幕指代：记忆管理句式一律不接管，交路由层走本地记忆删除
+            //   （真机魅族：记忆开关这一层的放行没生效时，被识屏接走 → 截屏失败 → 交给智能体去点 OneSay 的界面，还拉起了别的 App）
+            if (com.onesay.assistant.v2.s2.S2Engine.bypassScreenRef(command, new com.onesay.assistant.v2.s2.S2Engine.Flags(true, false, true))) {
+                clearPending();
+                Log.i(TAG, "[DEIXIS] 记忆管理句式，不当屏幕指代: " + com.onesay.assistant.v2.util.LogText.u(command));
+                return false;
+            }
             // [round7] 「看看屏幕上写的什么然后打开微信」这类复合任务：识屏只会做单实体动作（10-10 真机：被当成
             //   「打开链接」→ NO_MATCH「屏幕上没找到链接」，后半句丢了、也不出红卡）→ 不接管，交路由层分诊 → AgentLoop
             //   （AgentLoop 仍追加 screen.* 工具 / 注入屏幕上下文；读屏后置污点，app.launch 弹红卡）。

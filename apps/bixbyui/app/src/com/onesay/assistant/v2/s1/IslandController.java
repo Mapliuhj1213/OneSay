@@ -391,10 +391,12 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
 
     public void execStarted(final String owner, final String id, final String title, final String pkg) {
         own(owner, id);
+        mExecActive = true;   // [fix-1123-dexec B38]
         runMain(new Runnable() {
             @Override public void run() {
                 refreshMode("execStarted");
                 apply(mModel.execStarted(id, title, pkg, System.currentTimeMillis()), "execStarted(" + id + ")");
+                replaceForExec();   // [fix-1123-dexec B38]
             }
         });
     }
@@ -425,9 +427,12 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
     }
 
     public void execDone(final String id, final boolean ok, final String title, final String detail) {
+        mExecActive = false;   // [fix-1123-dexec B38] 收尾后岛回到原位（下一次摆放时）
+        yieldTouch(false);
         runMain(new Runnable() {
             @Override public void run() {
                 apply(mModel.execDone(id, ok, title, detail, System.currentTimeMillis()), "execDone(" + id + ",ok=" + ok + ")");
+                replaceForExec();   // [fix-1123-dexec B38]
             }
         });
     }
@@ -1116,8 +1121,67 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
         }
     }
 
-    private void placeIsland(Rect r) {
+    /** [fix-1123-dexec B38] 执行任务中（岛要始终点得到：Android 12+ 挪到状态栏下面）。 */
+    private volatile boolean mExecActive;
+    /** [fix-1123-dexec B38] 代操作正在点岛所在的位置：岛临时不接触摸。 */
+    private volatile boolean mYield;
+    /** 岛最近一次要的窗口（没挪之前），执行开始 / 结束时按它重新摆。 */
+    private final Rect mLastReq = new Rect();
+
+    private void replaceForExec() {
+        if (mIsland != null && mIsland.getParent() != null && !mLastReq.isEmpty()) placeIsland(new Rect(mLastReq));
+    }
+
+    /**
+     * [fix-1123-dexec B38] 代操作注入的点按落在岛上时让开（任意线程，主线程同步改窗口；之后护罩开孔会等两帧，WMS 已生效）。
+     */
+    public void yieldTouch(final boolean on) {
+        runMainSyncShort(new Runnable() {
+            @Override public void run() {
+                if (mYield == on || mIslandParams == null || mIsland == null || mIsland.getParent() == null) {
+                    mYield = on && mIslandParams != null;
+                    return;
+                }
+                mYield = on;
+                if (on) mIslandParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                else mIslandParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                try {
+                    mWm.updateViewLayout(mIsland, mIslandParams);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+    }
+
+    private void runMainSyncShort(final Runnable r) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            r.run();
+            return;
+        }
+        final java.util.concurrent.CountDownLatch l = new java.util.concurrent.CountDownLatch(1);
+        mMain.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    r.run();
+                } finally {
+                    l.countDown();
+                }
+            }
+        });
+        try {
+            l.await(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ignored) {
+        }
+    }
+
+    private void placeIsland(Rect r0) {
         if (mIsland == null) return;
+        mLastReq.set(r0);
+        Rect r = new Rect(r0);
+        // [fix-1123-dexec B38] 执行中、Android 12+：岛整体挪到状态栏下面（状态栏那一条的触摸悬浮窗收不到）
+        int dodgeTop = com.onesay.assistant.v2.island.IslandTouchDodge.windowTop(r.top, statusBarHeight(),
+                com.onesay.assistant.v2.island.IslandTouchDodge.needBelowStatusBar(Build.VERSION.SDK_INT, mExecActive, mModel.isFullscreen()));
+        if (dodgeTop != r.top) r.offset(0, dodgeTop - r.top);
         boolean attached = mIsland.getParent() != null;
         if (!attached && mIsland.targetHidden()) {
             mIsland.windowDropped();

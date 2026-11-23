@@ -247,7 +247,7 @@ public final class PcRxAndroid implements PcRx.Env, PcRx.Handler, PcRx.Guard, Pc
         }
         f.appLabel = label;
         // [approve-not-block] 自己（OneSay）：远程卸载 / 停用是硬规则（改自己的权限），打开不算
-        f.appSelf = app.getPackageName().equals(pkg);
+        f.appSelf = app.getPackageName().equals(pkg) || LinkPolicy.isSelfPackage(pkg);   // [fix-1123-dexec B19] 按「是不是 OneSay 自己」判，含 .debug
         f.appBlocked = f.appBlocked || LinkPolicy.blockedApp(pkg, label);
     }
 

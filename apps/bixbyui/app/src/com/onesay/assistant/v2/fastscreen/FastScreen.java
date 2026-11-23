@@ -365,7 +365,12 @@ public final class FastScreen {
     }
 
     public boolean tap(int x, int y) {
-        return text(FsProtocol.OP_TAP, i(x), i(y)) != null;
+        boolean h = com.onesay.assistant.v2.exec.ShieldOverlay.holeForInject(x - 32, y - 32, x + 32, y + 32);   // [fix-1123-dexec B40] 注入不被自家护罩吞
+        try {
+            return text(FsProtocol.OP_TAP, i(x), i(y)) != null;
+        } finally {
+            com.onesay.assistant.v2.exec.ShieldOverlay.unholeInject(h);
+        }
     }
 
     /** 无障碍点击 (x,y) 处可点节点；返回 false = 没有可点节点或失败（调用方可退回 {@link #tap}）。 */
@@ -379,16 +384,33 @@ public final class FastScreen {
     }
 
     public boolean longPress(int x, int y, int ms) {
-        return text(FsProtocol.OP_LONG, i(x), i(y), i(ms)) != null;
+        boolean h = com.onesay.assistant.v2.exec.ShieldOverlay.holeForInject(x - 32, y - 32, x + 32, y + 32);   // [fix-1123-dexec B40]
+        try {
+            return text(FsProtocol.OP_LONG, i(x), i(y), i(ms)) != null;
+        } finally {
+            com.onesay.assistant.v2.exec.ShieldOverlay.unholeInject(h);
+        }
     }
 
     public boolean swipe(int x1, int y1, int x2, int y2, int ms) {
-        return text(FsProtocol.OP_SWIPE, i(x1), i(y1), i(x2), i(y2), i(ms)) != null;
+        int[] r = com.onesay.assistant.v2.exec.ShieldHoles.around(x1, y1, x2, y2, 48);
+        boolean h = com.onesay.assistant.v2.exec.ShieldOverlay.holeForInject(r[0], r[1], r[2], r[3]);   // [fix-1123-dexec B40]
+        try {
+            return text(FsProtocol.OP_SWIPE, i(x1), i(y1), i(x2), i(y2), i(ms)) != null;
+        } finally {
+            com.onesay.assistant.v2.exec.ShieldOverlay.unholeInject(h);
+        }
     }
 
     /** @return "scrolled" / "edge" / "swipe:…"；null = 失败 */
     public String scroll(int x, int y, int dir) {
-        return text(FsProtocol.OP_SCROLL, i(x), i(y), i(dir));
+        // [fix-1123-dexec B40] 助手找不到可滚节点时会退成注入滑动 → 落点上下一大段开孔
+        boolean h = com.onesay.assistant.v2.exec.ShieldOverlay.holeForInject(x - 80, y - 900, x + 80, y + 900);
+        try {
+            return text(FsProtocol.OP_SCROLL, i(x), i(y), i(dir));
+        } finally {
+            com.onesay.assistant.v2.exec.ShieldOverlay.unholeInject(h);
+        }
     }
 
     public boolean key(int code) {

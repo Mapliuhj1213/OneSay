@@ -769,3 +769,13 @@ com/onesay/assistant/v2/phongent/PgApprove.java
 com/onesay/assistant/v2/fastscreen/FsStdio.java
 com/onesay/assistant/v2/search/ParallelSearchProvider.java
 com/onesay/assistant/v2/search/WebSearchClient.java
+com/onesay/assistant/v2/exec/ShieldHoles.java
+com/onesay/assistant/v2/exec/EdgeGesture.java
+com/onesay/assistant/v2/exec/ExecStopGate.java
+com/onesay/assistant/v2/exec/RiskyApps.java
+com/onesay/assistant/v2/phone/ObserveFallback.java
+com/onesay/assistant/v2/phone/JumpConfirm.java
+com/onesay/assistant/v2/phone/StateFirst.java
+com/onesay/assistant/v2/phone/ScreenReadTool.java
+com/onesay/assistant/v2/island/IslandTouchDodge.java
+com/onesay/assistant/v2/executor/backend/TimerIntentBackend.java

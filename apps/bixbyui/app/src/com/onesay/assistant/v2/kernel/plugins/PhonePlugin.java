@@ -102,14 +102,28 @@ public final class PhonePlugin extends FeaturePlugin {
         Capability c = toolFor(PhoneHooks.enabled(ctx), query);
         if (c == null) return;
         try {
-            JSONArray mine = CapabilityRegistry.getInstance().exportToolsSchema(java.util.Collections.singletonList(c));
+            // [fix-1123-dexec B29] 只读的「读当前屏幕」常驻候选（以前只有识屏截图，没 Key 时模型说看不到屏幕）
+            java.util.List<Capability> list = new java.util.ArrayList<Capability>();
+            list.add(c);
+            if (!hasTool(tools, "screen__read_now") && !hasTool(tools, com.onesay.assistant.v2.phone.ScreenReadTool.SIGN)) list.add(com.onesay.assistant.v2.phone.ScreenReadTool.cap());
+            JSONArray mine = CapabilityRegistry.getInstance().exportToolsSchema(list);
             for (int i = 0; i < mine.length(); i++) tools.put(mine.get(i));
         } catch (Throwable ignored) {
         }
     }
 
+    static boolean hasTool(JSONArray tools, String name) {
+        for (int i = 0; i < tools.length(); i++) {
+            JSONObject t = tools.optJSONObject(i);
+            JSONObject fn = t == null ? null : t.optJSONObject("function");
+            if (fn != null && name.equals(fn.optString("name"))) return true;
+        }
+        return false;
+    }
+
     @Override public Capability describeForAgent(Context ctx, String name) {
         if (name == null) return null;
+        if (com.onesay.assistant.v2.phone.ScreenReadTool.isMine(name)) return com.onesay.assistant.v2.phone.ScreenReadTool.cap();   // [fix-1123-dexec B29]
         if (name.equals(SIGN) || name.equals(SIGN.replace('.', '_')) || name.equals("phone__operate")) return cap();
         if (name.equals(ToolTiers.SIGN_GUI_ENTRY) || name.equals("gui__unfold") || name.equals("gui_unfold")) return entryCap();
         return null;
@@ -123,10 +137,17 @@ public final class PhonePlugin extends FeaturePlugin {
             return ExecutionResult.success(c, args, "点界面工具已展开", ExecutionResult.Verification.VERIFIED,
                     "{\"unfolded\":\"phone.operate\",\"why\":" + JSONObject.quote(why) + "}");
         }
+        if (com.onesay.assistant.v2.phone.ScreenReadTool.SIGN.equals(c.sign)) return com.onesay.assistant.v2.phone.ScreenReadTool.run(ctx, c, args);   // [fix-1123-dexec B29]
         if (!SIGN.equals(c.sign)) return null;
         String goal = args == null ? "" : args.optString("goal", "");
         String app = PhoneHooks.normalizePkg(args == null ? "" : args.optString("app", ""));   // ★ 11-04 B：「三星浏览器（com.sec…）」→ 包名，开局直接拉起目标 App
+        long runT0 = android.os.SystemClock.elapsedRealtime();
         PhoneAgent.Result r = PhoneHooks.runBlocking(ctx, goal, app, false, true);
+        // [fix-1123-dexec B9] 用户在这次点界面里点了停止 = 整个任务停：报 CANCELLED，外层循环直接收尾，不再换别的工具接着点
+        if (r.status == PhoneAgent.Status.STOPPED && com.onesay.assistant.v2.exec.ExecStopGate.stoppedSince(runT0)) {
+            return ExecutionResult.failed(com.onesay.assistant.v2.executor.ErrorCode.CANCELLED, "已停止：你点了停止，这个任务不再继续",
+                    "用户停止", "用户点了停止，整个任务结束，不要再调用任何工具", c, args);
+        }
         String text = r.status == PhoneAgent.Status.DONE ? r.answer : com.onesay.assistant.v2.agent.PhoneFailure.resultPrefix(r.status == PhoneAgent.Status.STOPPED, r.reason) + r.reason;   // ★ plan-1118：卡住停下不说「已停止」
         String detail = "模型 " + r.modelCalls + " 次、动作 " + r.actions + " 个、" + (r.ms / 1000) + " 秒";
         if (r.status == PhoneAgent.Status.DONE) return ExecutionResult.success(c, args, text, ExecutionResult.Verification.VERIFIED, detail);

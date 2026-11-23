@@ -304,7 +304,11 @@ public final class PhoneHooks {
     }
 
     /** 读屏时顺手把岛上的 App 图标换成当前前台。 */
-    static final class TrackingDriver implements PhoneAgent.MikaDriver {
+    static final class TrackingDriver implements PhoneAgent.MikaDriver, PhoneAgent.LaunchInfo {
+        @Override public boolean lastLaunchSkipped() {   // [fix-1123-dexec B40]
+            return d.lastLaunchSkipped();
+        }
+
         final FastScreenDriver d;
         final ExecModeController e;
 

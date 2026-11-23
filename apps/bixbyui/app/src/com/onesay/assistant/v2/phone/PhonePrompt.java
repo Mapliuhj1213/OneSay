@@ -64,8 +64,15 @@ public final class PhonePrompt {
 
     public static String user(String goal, UiTree screen, String visionDesc, List<String> history, String lastReport,
                               String budgetInfo, int maxLines) {
+        return user(goal, screen, visionDesc, history, lastReport, budgetInfo, maxLines, "");
+    }
+
+    /** [fix-1123-dexec B40] 带「开局现状」一句（空 = 不写，和老口径一样）。 */
+    public static String user(String goal, UiTree screen, String visionDesc, List<String> history, String lastReport,
+                              String budgetInfo, int maxLines, String stateNote) {
         StringBuilder b = new StringBuilder();
         b.append("任务：").append(goal).append('\n');
+        if (stateNote != null && stateNote.length() > 0) b.append(stateNote).append('\n');
         if (history != null && !history.isEmpty()) {
             b.append("已经做过：\n");
             for (String h : history) b.append("- ").append(PhoneAgent.clip(h, 200)).append('\n');
