@@ -1162,7 +1162,9 @@ public final class App {
             m.put("dir", cfg.workspace().resolve(FileXfer.DIR_FROM_PHONE).toString());
             return m;
         });
-        ui.on("chat_clear", b -> { if (chat.running()) return fail("任务还在做，先点「停止」"); store.clear("chat"); return ok("已清空对话，记忆保留"); });
+        ui.on("chat_clear", b -> { if (chat.running()) return fail("任务还在做，先点「停止」"); store.clear("chat"); chat.clearArchive(); return ok("已清空对话，记忆保留"); });
+        // [longctx-1123] 新对话：开干净的一段（前面的消息留在上面，长期记忆照旧）
+        ui.on("chat_new", b -> { Actions.Result r = chat.newChat(); return r.ok ? ok(r.text) : fail(r.text); });
         ui.on("chat_stop", b -> { boolean again = chat.running() && chat.stopping(); return chat.stop() ? ok(again ? "直接结束，不再收尾" : "正在停下：中断当前这一步，再简短收尾（再点一次停止就直接结束）") : ok("没有在做的任务"); });
         ui.on("dl_cancel", b -> chat.cancelTransfer() ? ok("已取消，任务会接着往下") : ok("现在没有在下载 / 传的")); // [overnight-1119]
         ui.on("artifact", b -> chat.artifact(str(b, "path", ""))); // [devtools-1118] 任务卡里的截图 / 文件（只给对话里登记过的路径）
