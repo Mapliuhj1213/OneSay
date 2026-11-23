@@ -44,7 +44,8 @@ public final class SysActionBackend implements ExecutorBackend {
         if (cap == null || !"custom".equals(cap.executorType)) return false;
         return FastCaps.SIGN_RECENTS_CLEAR.equals(cap.sign) || FastCaps.SIGN_DND_ON.equals(cap.sign)
                 || FastCaps.SIGN_DND_OFF.equals(cap.sign) || FastCaps.SIGN_NOTIF_CLEAR_ALL.equals(cap.sign)
-                || FastCaps.SIGN_NFC_TRANSIT.equals(cap.sign) || isTorch(cap.sign);
+                || FastCaps.SIGN_NFC_TRANSIT.equals(cap.sign) || isTorch(cap.sign)
+                || com.onesay.assistant.v2.router.longctx.ArchiveClear.SIGN.equals(cap.sign);
     }
 
     static boolean isTorch(String sign) {
@@ -90,6 +91,12 @@ public final class SysActionBackend implements ExecutorBackend {
         if (FastCaps.SIGN_NOTIF_CLEAR_ALL.equals(req.cap.sign)) return BackendOutcome.terminal(clearNotifications(req));
         if (FastCaps.SIGN_NFC_TRANSIT.equals(req.cap.sign)) return BackendOutcome.terminal(nfcTransit(req));
         if (isTorch(req.cap.sign)) return BackendOutcome.terminal(torch(req));
+        if (com.onesay.assistant.v2.router.longctx.ArchiveClear.SIGN.equals(req.cap.sign)) {
+            // ★ 2026-11-23：执行到这里 = 用户已在确认卡上点了允许；只删聊天存档，长期记忆不动
+            String t = com.onesay.assistant.v2.router.longctx.ArchiveClear.run(com.onesay.assistant.v2.router.ConversationMemory.getInstance().archive());
+            Log.i(TAG, "[LONGCTX] 清空聊天存档（语音，已确认）");
+            return BackendOutcome.terminal(ExecutionResult.success(req.cap, req.args, t, ExecutionResult.Verification.VERIFIED, "archive.clear"));
+        }
         return BackendOutcome.terminal(dnd(req, FastCaps.SIGN_DND_ON.equals(req.cap.sign)));
     }
 

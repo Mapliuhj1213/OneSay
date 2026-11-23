@@ -99,6 +99,21 @@ final class DesignPages {
                     c.push(new GroupPages.PermPage(c, true));
                 }
             });
+            // ★ 2026-11-23：聊天存档（单纯的聊天记录）和长期记忆分开；这里只清存档，先弹确认框
+            k.actionRow(gp, com.onesay.assistant.v2.router.longctx.ArchiveClear.ROW_TITLE, com.onesay.assistant.v2.router.longctx.ArchiveClear.ROW_SUB,
+                    com.onesay.assistant.v2.router.longctx.ArchiveClear.ROW_ACTION, new Runnable() {
+                @Override public void run() {
+                    com.onesay.assistant.v2.router.longctx.ArchiveClear.request(new com.onesay.assistant.v2.router.longctx.ArchiveClear.Asker() {
+                        @Override public void ask(String title, String body, String ok, Runnable onYes) {
+                            k.confirm(title, body, ok, onYes);
+                        }
+                    }, com.onesay.assistant.v2.router.ConversationMemory.getInstance().archive(), new com.onesay.assistant.v2.router.longctx.ArchiveClear.Done() {
+                        @Override public void done(String text) {
+                            c.toast(text);
+                        }
+                    });
+                }
+            });
             k.footer(col, "权限和密钥状态在「权限配置」；功能开关在「插件」；一般不用改的在「高级」。");
         }
     }

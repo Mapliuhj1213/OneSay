@@ -538,6 +538,14 @@ com/onesay/assistant/v2/wake/MicReentry.java
 com/onesay/assistant/v2/router/ctx/TokenEstimator.java
 com/onesay/assistant/v2/router/ctx/ModelWindows.java
 com/onesay/assistant/v2/router/ContextBudget.java
+com/onesay/assistant/v2/router/longctx/LongCtx.java
+com/onesay/assistant/v2/router/longctx/TurnLedger.java
+com/onesay/assistant/v2/router/longctx/FactNotes.java
+com/onesay/assistant/v2/router/longctx/TurnArchive.java
+com/onesay/assistant/v2/router/longctx/HeavyIsolation.java
+com/onesay/assistant/v2/router/longctx/ReplyCheck.java
+com/onesay/assistant/v2/router/longctx/TextSim.java
+com/onesay/assistant/v2/router/longctx/ArchiveClear.java
 com/onesay/assistant/v2/router/FollowupEdit.java
 com/onesay/assistant/v2/net/LlmModels.java
 com/onesay/assistant/v2/net/ThinkingMode.java

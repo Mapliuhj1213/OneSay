@@ -266,20 +266,17 @@ public class L2LLMCompiler implements IRouter {
             system = com.onesay.assistant.v2.mikaplug.SkillPack.append(system, com.onesay.assistant.v2.mikaplug.SkillPack.forAsk(mContext, query,
                     ConversationMemory.getInstance().snapshot().isEmpty()));
             userContent = com.onesay.assistant.v2.soul.SoulHooks.withHits(query, userContent);
-            java.util.List<ConversationMemory.Turn> history =
-                    ConversationMemory.getInstance().snapshot();
-            String content = callLlm(system, history, userContent, com.onesay.assistant.plug.richout.host.RichOutHost.askMaxTokens(ASK_MAX_TOKENS), com.onesay.assistant.v2.net.ThinkingMode.Purpose.ASK);
-            if (content == null) return null;
-
-            String answer = extractAnswerText(content);
-            if (answer == null || answer.length() == 0) return null;
-
-            answer = polishKeepChoice(answer);   // [r2/bike-chooser]
-            if (answer.length() == 0) return null;
-
+            // ★ fix/1123-longctx-phone：组请求 → 调模型 → 出口自检（复述 / 复读 / 偏题重答一次）→ 记终稿，全在 askTurn（评测走同一份代码）
             // 记录本轮：下一问才能接上（记的是**终稿**，不是原始输出）
             // ★ LOGIC-1：带了联网搜索资料的答复 = 外部内容 → tainted
-            ConversationMemory.getInstance().record(query, com.onesay.assistant.v2.roles.AppChoiceSpec.stripForDisplay(answer), searchCtx != null);
+            String answer = askTurn(system, userContent, query, ConversationMemory.getInstance(),
+                    com.onesay.assistant.plug.richout.host.RichOutHost.askMaxTokens(ASK_MAX_TOKENS), com.onesay.assistant.v2.net.ThinkingMode.Purpose.ASK,
+                    new BodyCaller() {
+                        @Override public String call(String body) {
+                            return postBody(body);
+                        }
+                    }, searchCtx != null);
+            if (answer == null || answer.length() == 0) return null;
 
             JSONObject args = new JSONObject();
             putTextAndChoice(args, answer);
@@ -364,7 +361,8 @@ public class L2LLMCompiler implements IRouter {
                         + (hint == null ? "" : hint)
                         + "【用户问题】" + query;
             }
-            final String userContent = com.onesay.assistant.v2.soul.SoulHooks.withHits(query, userContent0);   // [soul]
+            final String userContentRaw = com.onesay.assistant.v2.soul.SoulHooks.withHits(query, userContent0);   // [soul]
+            final String userContent = composeAskUser(ConversationMemory.getInstance(), query, userContentRaw, null);   // ★ fix/1123-longctx-phone：最新一句放最后
 
             // 会话上下文（与 ask() 同一套）
             final java.util.List<ConversationMemory.Turn> history =
@@ -404,6 +402,16 @@ public class L2LLMCompiler implements IRouter {
                 if (answer.length() > 0) {
                     Log.i(TAG, "[ASK-STREAM] 流式作答完成 (" + sr.frames + " 段 / "
                             + answer.length() + " 字" + (sr.ok ? "" : "，尾部不完整") + ")");
+                    // ★ fix/1123-longctx-phone：出口自检 —— 复述 / 复读 / 偏题 → 带提示非流式重答一次，终稿替换流式半成品
+                    if (cancel == null || !cancel.isCancelled()) {
+                        answer = recheck(system, userContentRaw, query, answer, ConversationMemory.getInstance(),
+                                com.onesay.assistant.plug.richout.host.RichOutHost.askMaxTokens(ASK_MAX_TOKENS), com.onesay.assistant.v2.net.ThinkingMode.Purpose.ASK,
+                                new BodyCaller() {
+                                    @Override public String call(String body) {
+                                        return postBody(body);
+                                    }
+                                });
+                    }
                     // ★ 记入会话（终稿），下一问才接得上
                     ConversationMemory.getInstance().record(query, com.onesay.assistant.v2.roles.AppChoiceSpec.stripForDisplay(answer), searchCtx != null);   // ★ LOGIC-1
                     cb.onDone(answer);
@@ -1150,6 +1158,90 @@ public class L2LLMCompiler implements IRouter {
 
     private String callLlm(String systemPrompt, String userQuery, int maxTokens) {
         return callLlm(systemPrompt, null, userQuery, maxTokens);
+    }
+
+    // ---------- ★ fix/1123-longctx-phone：自由问答一轮（组请求 / 自检重答 / 记终稿），纯静态，评测与单测直接调 ----------
+
+    /** 发一份组好的请求体，返回模型正文（失败 / 空 = null）。 */
+    public interface BodyCaller {
+        String call(String body) throws Exception;
+    }
+
+    /** 发一份已组好的请求体（非流式）。 */
+    String postBody(String body) {
+        try {
+            com.onesay.assistant.v2.net.LlmResponse res = mClient.post(body);
+            if (!res.ok()) {
+                Log.w(TAG, "HTTP 请求失败: " + res.error + (res.rawBody != null ? ", 响应: " + com.onesay.assistant.v2.util.LogText.u(res.rawBody) : ""));
+                return null;
+            }
+            String content = res.content();
+            return content == null || content.trim().length() == 0 ? null : content;
+        } catch (Throwable t) {
+            Log.e(TAG, "LLM 请求失败: " + t.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 本轮用户消息：会话里有历史且长对话总开关开 → 原有内容（检索资料 / 时间换算 / 记忆命中…）后面接账本、按需调出的存档原文、
+     * 每轮守则、[自检提示]，<b>最后一行单独标出最新一句</b>；第一轮 / 总开关关 = 原样（与改前逐字一致）。
+     */
+    static String composeAskUser(ConversationMemory mem, String query, String userContent, String redo) {
+        String tail = mem == null ? null : mem.tailFor(query, redo);
+        if (tail == null) return userContent;
+        String aux = userContent == null || userContent.trim().equals(query == null ? "" : query.trim()) ? "" : userContent;
+        return aux.length() == 0 ? tail : aux + "\n————\n" + tail;
+    }
+
+    /** 组请求体 → 调模型 → 抽正文 + 润色；拿不到 = null。 */
+    static String askOnce(String system, String user, ConversationMemory mem, int maxTokens, com.onesay.assistant.v2.net.ThinkingMode.Purpose p, BodyCaller caller) throws Exception {
+        String content = caller.call(buildBody(system, mem.snapshot(), user, maxTokens, false, p));
+        if (content == null) return null;
+        String answer = extractAnswerText(content);
+        if (answer == null || answer.length() == 0) return null;
+        answer = polishKeepChoice(answer);   // [r2/bike-chooser]
+        return answer.length() == 0 ? null : answer;
+    }
+
+    /**
+     * 一轮自由问答：{@link #composeAskUser} → 调模型 → {@link #recheck 出口自检} → 记终稿（ConversationMemory.record）。
+     * @return 终稿；拿不到 = null（不记）
+     */
+    static String askTurn(String system, String userContent, String query, ConversationMemory mem, int maxTokens,
+                          com.onesay.assistant.v2.net.ThinkingMode.Purpose p, BodyCaller caller, boolean tainted) {
+        try {
+            String answer = askOnce(system, composeAskUser(mem, query, userContent, null), mem, maxTokens, p, caller);
+            if (answer == null) return null;
+            answer = recheck(system, userContent, query, answer, mem, maxTokens, p, caller);
+            mem.record(query, com.onesay.assistant.v2.roles.AppChoiceSpec.stripForDisplay(answer), tainted);
+            return answer;
+        } catch (Throwable t) {
+            Log.e(TAG, "问答一轮异常: " + t.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * ★ fix/1123-longctx-phone 第 6 条：出口自检。会话里有历史、总开关开时，答复被判复述 / 复读旧答 / 偏题 → 带提示重答<b>一次</b>；
+     * 重答拿不到就用原答复（不让用户空手）。只判一次、只重答一次。
+     */
+    static String recheck(String system, String userContent, String query, String answer, ConversationMemory mem, int maxTokens,
+                          com.onesay.assistant.v2.net.ThinkingMode.Purpose p, BodyCaller caller) {
+        if (mem == null || answer == null || !com.onesay.assistant.v2.router.longctx.LongCtx.selfCheck() || mem.isEmpty()) return answer;
+        try {
+            com.onesay.assistant.v2.router.longctx.ReplyCheck.Result r = com.onesay.assistant.v2.router.longctx.ReplyCheck.check(query, answer, mem.priorPairs());
+            if (!r.bad()) return answer;
+            Log.i(TAG, "[LONGCTX] 出口自检：" + r + " → 带提示重答一次");
+            mem.noteRetry();
+            String again = askOnce(system, composeAskUser(mem, query, userContent, com.onesay.assistant.v2.router.longctx.LongCtx.redoNote(r)), mem, maxTokens, p, caller);
+            if (again == null) return answer;
+            Log.i(TAG, "[LONGCTX] 重答后自检：" + com.onesay.assistant.v2.router.longctx.ReplyCheck.check(query, again, mem.priorPairs()));
+            return again;
+        } catch (Throwable t) {
+            Log.w(TAG, "[LONGCTX] 出口自检异常（用原答复）: " + t.getMessage());
+            return answer;
+        }
     }
 
     /**

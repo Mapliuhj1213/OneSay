@@ -229,9 +229,12 @@ public final class SkillMatcher {
         List<Scored> held = new ArrayList<Scored>();
         Set<String> freshIds = new HashSet<String>();
         for (Scored s : fresh) freshIds.add(s.skill.id);
+        List<String> pins = session == null ? new ArrayList<String>() : session.takePinned();
         if (session != null) {
             boolean followUp = session.isFollowUp(in.query, nowMs, fresh.isEmpty());
-            for (String id : session.loaded()) {
+            List<String> pool = session.loaded();
+            for (String id : pins) if (!pool.contains(id)) pool.add(id);
+            for (String id : pool) {
                 if (freshIds.contains(id)) continue;
                 Scored s = byId.get(id);
                 if (s == null) {
@@ -243,7 +246,9 @@ public final class SkillMatcher {
                     log.add("[SKILL] " + id + " " + s.score + " unload:" + bad);
                     continue;
                 }
-                if (session.stale(id, nowMs)) {
+                if (pins.contains(id)) {
+                    held.add(new Scored(s.skill, s.score, "hold:reload_after_compact"));   // ★ fix/1123-longctx-phone
+                } else if (session.stale(id, nowMs)) {
                     log.add("[SKILL] " + id + " " + s.score + " unload:stale");
                 } else if (s.score >= cfg.keepThreshold) {
                     held.add(new Scored(s.skill, s.score, "hold:" + s.reason));
@@ -293,7 +298,7 @@ public final class SkillMatcher {
             List<String> ids = new ArrayList<String>();
             for (Scored s : picked) {
                 ids.add(s.skill.id);
-                if (freshIds.contains(s.skill.id)) hitIds.add(s.skill.id);
+                if (freshIds.contains(s.skill.id) || pins.contains(s.skill.id)) hitIds.add(s.skill.id);
             }
             session.update(ids, hitIds, nowMs);
         }
