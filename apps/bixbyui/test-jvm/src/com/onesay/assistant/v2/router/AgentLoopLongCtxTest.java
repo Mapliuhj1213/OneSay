@@ -41,6 +41,7 @@ public class AgentLoopLongCtxTest {
         ConversationMemory.getInstance().beginTurn("天空为什么是蓝色的");
         ConversationMemory.getInstance().record("天空为什么是蓝色的", "天空是蓝色，是因为阳光里的蓝光被空气散射得最多。");
         ConversationMemory.getInstance().beginTurn("鸡蛋煮几分钟最好");
+        final int retries0 = ConversationMemory.getInstance().retries();   // ★ rel/fix-1123 第二轮：单例的重答计数不随 clear 清零（别的测试类也会加），按增量算
         AgentLoopTest.ScriptedLlm llm = new AgentLoopTest.ScriptedLlm();
         llm.replies.add(AgentLoopTest.say("你问的是「鸡蛋煮几分钟最好」。"));
         llm.replies.add(AgentLoopTest.say("水开后煮六分钟是溏心，九分钟全熟。"));
@@ -53,7 +54,7 @@ public class AgentLoopLongCtxTest {
         assertTrue(redo, redo.startsWith("【系统提示】上一次回答一开头就把用户的话复述了一遍"));
         assertTrue(redo.endsWith(LongCtx.LATEST + "鸡蛋煮几分钟最好"));
         assertTrue(r.answer, r.answer.contains("六分钟"));
-        assertEquals(1, ConversationMemory.getInstance().retries());
+        assertEquals(1, ConversationMemory.getInstance().retries() - retries0);
     }
 
     @Test public void onlyOnceAndOffSwitch() {

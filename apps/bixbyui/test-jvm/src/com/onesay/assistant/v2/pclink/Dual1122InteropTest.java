@@ -50,7 +50,7 @@ import static org.junit.Assert.*;
  *   <li>快捷指令：打开后能列、能跑；</li>
  *   <li>文件：手机 → 电脑 5 MB 多块字节一致；校验不对 / 跳块被拒、不落半截；电脑 → 手机 3 MB 多块字节一致；</li>
  *   <li>断线重连：电脑进程退出 → 手机常连掉线 → 同一配置重启 → 手机自己连回来，指令照常（证书没变，不用重配）；</li>
- *   <li>预览版默认端口：配置里不写端口时配对串带 47920（正式版 47820 不受影响）。</li>
+ *   <li>默认端口跟着版本走：配置里不写端口时预览版 47920、正式版 47820（按 jar 里的 flavor 判定）。</li>
  * </ol>
  * 电脑端 jar 同 {@link PcDesktopInteropTest}（ONESAY_DESKTOP_JAR，缺 jar 整类跳过）。
  */
@@ -626,20 +626,37 @@ public class Dual1122InteropTest {
         assertTrue("证书没变，旧配对继续能用：" + r, r.ok);
     }
 
-    // ================================================================== 9 预览版默认端口
+    // ================================================================== 9 默认端口跟着版本走（预览版 47920 / 正式版 47820）
 
-    @Test public void i1_previewDefaultPortIs47920() throws Exception {
+    /** ★ rel/fix-1123 第二轮：这次出正式版，互通测试用正式版 jar 跑 —— 按 jar 里有没有 onesay/flavor.properties（flavor=preview）判定版本。 */
+    static boolean jarIsPreview(File f) throws Exception {
+        try (java.util.jar.JarFile jf = new java.util.jar.JarFile(f)) {
+            java.util.jar.JarEntry e = jf.getJarEntry("onesay/flavor.properties");
+            if (e == null) return false;
+            java.util.Properties p = new java.util.Properties();
+            try (java.io.InputStream in = jf.getInputStream(e)) {
+                p.load(new java.io.InputStreamReader(in, StandardCharsets.UTF_8));
+            }
+            return "preview".equalsIgnoreCase(p.getProperty("flavor", "release").trim());
+        }
+    }
+
+    @Test public void i1_defaultPortMatchesFlavor() throws Exception {
+        final boolean preview = jarIsPreview(jar);
+        final int port = preview ? 47920 : 47820;
+        final int other = preview ? 47820 : 47920;
+        final String name = preview ? "预览版" : "正式版";
         boolean free;
         try {
-            ServerSocket s = new ServerSocket(47920);
+            ServerSocket s = new ServerSocket(port);
             s.close();
-            java.net.DatagramSocket d = new java.net.DatagramSocket(47921);
+            java.net.DatagramSocket d = new java.net.DatagramSocket(port + 1);
             d.close();
             free = true;
         } catch (Exception e) {
             free = false;
         }
-        Assume.assumeTrue("47920 / 47921 被占，跳过", free);
+        Assume.assumeTrue(port + " / " + (port + 1) + " 被占，跳过", free);
         Path d2 = Files.createTempDirectory("dual1122-def");
         Process p2 = null;
         try {
@@ -663,14 +680,14 @@ public class Dual1122InteropTest {
             }
             assertTrue(listening);
             String conf = new String(Files.readAllBytes(c2), StandardCharsets.UTF_8);
-            assertFalse("预览版不应该默认用正式版端口：" + conf, conf.contains("lan_port=47820"));
-            PcLanClient.Peer pp = new PcLanClient.Peer("phone-def", "pc-def", KEY, "127.0.0.1:47920", 47920, "", "", null);
+            assertFalse(name + "不应该默认用另一个版本的端口：" + conf, conf.contains("lan_port=" + other));
+            PcLanClient.Peer pp = new PcLanClient.Peer("phone-def", "pc-def", KEY, "127.0.0.1:" + port, port, "", "", null);
             InetSocketAddress a = null;
             for (int i = 0; i < 10 && a == null; i++) a = PcLanClient.locate(pp, 1500, null);
-            assertNotNull("预览版默认端口 47920 / 发现 47921 上找不到电脑", a);
-            assertEquals(47920, a.getPort());
-            assertTrue("47920 上的局域网服务能答 healthz", PcLanClient.healthz(new InetSocketAddress("127.0.0.1", 47920), 2000));
-            System.out.println("[dual] 预览版默认端口：局域网 47920 / 发现 47921 OK");
+            assertNotNull(name + "默认端口 " + port + " / 发现 " + (port + 1) + " 上找不到电脑", a);
+            assertEquals(port, a.getPort());
+            assertTrue(port + " 上的局域网服务能答 healthz", PcLanClient.healthz(new InetSocketAddress("127.0.0.1", port), 2000));
+            System.out.println("[dual] " + name + "默认端口：局域网 " + port + " / 发现 " + (port + 1) + " OK");
         } finally {
             if (p2 != null) {
                 p2.destroy();

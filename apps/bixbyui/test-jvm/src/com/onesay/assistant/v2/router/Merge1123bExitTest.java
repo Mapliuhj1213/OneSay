@@ -69,16 +69,17 @@ public class Merge1123bExitTest {
 
     /** 问答通道（非流式）：askTurn 里复述 → 重答一次，出口只交付一次，交付的是重答。 */
     @Test public void askRedoIsTheOneDelivery() throws Exception {
-        ConversationMemory m = ConversationMemory.getInstance();
+        ConversationMemory m = ConversationMemory.newForTest();   // 自己的一份，不动单例
         m.beginTurn("天空为什么是蓝色的");
         m.record("天空为什么是蓝色的", "阳光里的蓝光被空气散射得最多。");
         m.beginTurn("鸡蛋煮几分钟最好");
+        final int retries0 = m.retries();   // 单例的重答计数不随 clear 清零，按增量算
         Scripted s = new Scripted();
         s.replies.add("你问的是「鸡蛋煮几分钟最好」。");
         s.replies.add("水开后煮六分钟是溏心，九分钟全熟。");
         String answer = L2LLMCompilerAccess.askTurn("系统", "鸡蛋煮几分钟最好", "鸡蛋煮几分钟最好", m, 300, s, false);
         assertEquals("自检打回、重答了一次", 2, s.calls);
-        assertEquals(1, m.retries());
+        assertEquals("只重答一次", 1, m.retries() - retries0);
 
         Sink raw = new Sink();
         UnifiedRouter.StreamHandler h = RouteArbiter.once(raw, "鸡蛋煮几分钟最好");
