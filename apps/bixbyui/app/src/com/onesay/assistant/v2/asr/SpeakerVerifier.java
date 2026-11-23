@@ -114,7 +114,8 @@ public class SpeakerVerifier {
             if (f.exists() && f.length() > 0) { modelFile = f; break; }
         }
         if (modelFile == null) {
-            mLoadError = "模型未就绪（需推送到 " + mVpDir.getAbsolutePath() + "/）";
+            mLoadError = "声纹模型还没装到手机上";   // ★ 1123d B37：声音页别露内部路径（路径只进日志）
+            Log.w(TAG, "[SPK] 声纹模型缺失，目录 " + mVpDir.getAbsolutePath());
             return false;
         }
         mModelPath = modelFile.getAbsolutePath();

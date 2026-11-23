@@ -116,7 +116,7 @@ public class Device1102NavTest {
         assertTrue(m, m.startsWith("打开地图导航被手机上的系统特权守护拦下了"));
         assertTrue(m, m.contains("旧写法") && m.contains("更新"));
         String w = ShellBackend.userDenyMessage(nav, "PROG_NOT_WHITELISTED(foo)");
-        assertTrue(w, w.contains("白名单") && w.contains("PROG_NOT_WHITELISTED"));
+        assertTrue(w, w.contains("白名单") && !w.contains("PROG_NOT_WHITELISTED"));   // ★ 1123d：内部码不给用户看
         assertTrue(ShellBackend.userDenyMessage(null, "SIG_MISMATCH").contains("身份"));
     }
 }

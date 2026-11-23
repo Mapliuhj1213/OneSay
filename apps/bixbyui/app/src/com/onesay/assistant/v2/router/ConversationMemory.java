@@ -212,7 +212,11 @@ public final class ConversationMemory {
         answer = UntrustedTags.strip(answer);   // ★ audit-J 6：回喂会话前剥掉标签（不然下一轮模型更会照抄）
         // ★ device-1102：被回吐守卫拦掉的文字不进历史（问句是热词表 / 提示词回吐 → 整轮不记；答复是回吐 → 只记一句占位）
         if (leakInput(question)) return;
-        if (leakOutput(answer)) answer = "（这一轮的回答被安全守卫拦下，未展示）";
+        if (leakOutput(answer)) {
+            // ★ 1123d B20：整段判回吐时，先按句子挑出不回吐的部分留下（「Android 8.0.0」这种正常结论别跟着丢，追问才接得上）
+            String kept = salvageNonLeak(answer);
+            answer = kept != null ? kept : LEAK_PLACEHOLDER;
+        }
         expireIfIdleLocked();   // 超时的旧会话先结束，再开新的一轮
         mClosedAt = 0L;
         mLastActivityAt = mClock.now();
@@ -499,6 +503,26 @@ public final class ConversationMemory {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    static final String LEAK_PLACEHOLDER = "（这一轮的回答被安全守卫拦下，未展示）";
+
+    /**
+     * ★ 1123d B20：回答整段被判回吐时，按句切开，只留本身不回吐的句子；留下的拼起来再判一次，还回吐或一句不剩 = null。
+     */
+    static String salvageNonLeak(String a) {
+        if (a == null || a.length() == 0) return null;
+        String[] parts = a.split("(?<=[。！？!?\n])");
+        StringBuilder sb = new StringBuilder();
+        int dropped = 0;
+        for (String p : parts) {
+            if (p.trim().length() == 0) continue;
+            if (leakOutput(p)) { dropped++; continue; }
+            sb.append(p);
+        }
+        String kept = sb.toString().trim();
+        if (kept.length() == 0 || dropped == 0 || leakOutput(kept)) return null;
+        return kept;
     }
 
     static boolean leakOutput(String a) {

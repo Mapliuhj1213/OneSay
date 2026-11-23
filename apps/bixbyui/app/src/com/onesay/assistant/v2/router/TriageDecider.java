@@ -270,7 +270,7 @@ public final class TriageDecider {
     /** 票类口令的分诊规则 id（PlannerPlugin.triageRules 声明）。 */
     public static final String RULE_TICKET_SAVE = "6k-ticket-save";
     private static final java.util.regex.Pattern MEMORY_WRITE = java.util.regex.Pattern.compile(
-            "^(记一下|记住|记下来|记下|记个|记着|备忘一下|备忘|别忘了|存一下)");
+            "^(记一下|记住|记下来|记下|记个|记着|备忘一下|备忘(?!录)|别忘了|存一下)");
     /** 回忆问句：「我车停哪了」「我把护照放哪了」「上次记的…」「我记了什么」。 */
     private static final java.util.regex.Pattern MEMORY_RECALL = java.util.regex.Pattern.compile(
             "(停|放|搁|存|塞|藏|锁|丢)(在|到)?(哪儿|哪里|哪个位置|哪个地方|哪一?[层个楼排格区号]|几号|几层|什么地方|什么位置|哪)(了|呢|啦|来着|呀|啊)*$"

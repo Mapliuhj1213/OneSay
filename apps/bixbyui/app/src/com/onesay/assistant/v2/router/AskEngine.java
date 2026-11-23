@@ -187,7 +187,13 @@ public class AskEngine {
     /**
      * 常用生活单位换算
      */
+    /** ★ 1123d B27：换算问句只许有单位 / 数词 / 问法字；多出别的内容（「一公里跑步消耗多少热量」）就不是换算，交给模型。 */
+    static final Pattern UNIT_ONLY = Pattern.compile(
+            "^(?:请问)?(?:一|1)(?:斤|公斤|千克|公里|千米|英里|磅|寸|英寸)(?:等于|是|有|合|折合|换算成|换成|相当于)?(?:多少|几)?"
+                    + "(?:个)?(?:克|千克|公斤|斤|米|千米|公里|华里|里|厘米|毫米)?(?:啊|呀|呢|吗)?$");
+
     private static String tryUnitConversion(String q) {
+        if (!UNIT_ONLY.matcher(q).matches()) return null;
         if (q.contains("一斤") && (q.contains("克") || q.contains("千克") || q.contains("多少"))) {
             return "1 斤等于 500 克（即 0.5 千克）。1 公斤等于 2 斤（1000 克）。";
         }

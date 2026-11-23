@@ -492,6 +492,8 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
             if (askAnswer == null && d.core != null && d.core.length() > 0) askAnswer = AskEngine.tryAnswer(d.core);
             if (askAnswer != null) {
                 SafeLog.i(TAG, "[ROUTE-2] 本地即时问答命中（零成本层）: " + com.onesay.assistant.v2.util.LogText.u(askAnswer));
+                // ★ 1123d B28：本地即时问答也进会话历史（不然下一句「那要不要放糖」接不上）
+                try { ConversationMemory.getInstance().record(query, askAnswer); } catch (Throwable ignore) {}
                 h.onFinal(askReply(askAnswer, query));
                 return;
             }
@@ -562,6 +564,8 @@ public class UnifiedRouter implements IRouter, IOfflineProbe {
             }
             if (askAnswer != null) {
                 SafeLog.i(TAG, "[ROUTE-2] 本地即时问答命中（零成本层）: " + com.onesay.assistant.v2.util.LogText.u(askAnswer));
+                // ★ 1123d B28：本地即时问答也进会话历史（不然下一句「那要不要放糖」接不上）
+                try { ConversationMemory.getInstance().record(query, askAnswer); } catch (Throwable ignore) {}
                 h.onFinal(askReply(askAnswer, query));
                 return;
             }

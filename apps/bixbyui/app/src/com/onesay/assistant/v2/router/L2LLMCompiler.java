@@ -248,7 +248,7 @@ public class L2LLMCompiler implements IRouter {
             String system = buildAskPrompt(searchCtx != null, deviceData) + AskStyle.rule(query);   // 长度 / 翻译约束
             // 相对时间（“40分钟后”）先由本机换算成绝对时刻再交给模型。
             //   见 {@link TimeContext}：模型对日期算术不可靠，能算的不让它猜。
-            String hint = TimeContext.hint(query);
+            String hint = withFollowUpHint(TimeContext.hint(query), query);   // ★ 1123d B26
             String userContent;
             if (searchCtx == null) {
                 userContent = (hint == null) ? query : (hint + "————\n【用户原话】" + query);
@@ -295,6 +295,21 @@ public class L2LLMCompiler implements IRouter {
      * （{@link com.onesay.assistant.v2.search.FollowUpQuery}）。只影响检索词；给模型的原话、记进历史的问题不变。
      * 面板收起后历史为空 → 原样返回（与旧版逐字一致）。
      */
+    static String withFollowUpHint(String timeHint, String query) {
+        String f = followUpHint(query);
+        if (f == null) return timeHint;
+        return timeHint == null ? f : timeHint + f;
+    }
+
+    /** ★ 1123d B26：省略式追问提示（{@link com.onesay.assistant.v2.search.FollowUpQuery#llmHint}），历史为空 = null。 */
+    static String followUpHint(String query) {
+        java.util.List<ConversationMemory.Turn> turns = ConversationMemory.getInstance().snapshot();
+        if (turns.isEmpty()) return null;
+        java.util.List<String> qs = new java.util.ArrayList<String>();
+        for (ConversationMemory.Turn t : turns) qs.add(t.question);
+        return com.onesay.assistant.v2.search.FollowUpQuery.llmHint(query, qs);
+    }
+
     static String searchQueryFor(String query) {
         java.util.List<ConversationMemory.Turn> turns = ConversationMemory.getInstance().snapshot();
         if (turns.isEmpty()) return query;
@@ -352,7 +367,7 @@ public class L2LLMCompiler implements IRouter {
             final String system = com.onesay.assistant.v2.mikaplug.SkillPack.append(   // ★ skill-pack：自由问答技能（插件关 / 没命中 = 原样）
                     com.onesay.assistant.v2.soul.SoulHooks.withPrefix(com.onesay.assistant.v2.soul.SoulHooks.PATH_STREAM, buildAskPrompt(searchCtx != null)) + AskStyle.rule(query),   // [soul]  AskStyle（本轮形态约束）
                     com.onesay.assistant.v2.mikaplug.SkillPack.forAsk(mContext, query, ConversationMemory.getInstance().snapshot().isEmpty()));
-            final String hint = TimeContext.hint(query);
+            final String hint = withFollowUpHint(TimeContext.hint(query), query);   // ★ 1123d B26
             final String userContent0;
             if (searchCtx == null) {
                 userContent0 = (hint == null) ? query : (hint + "————\n【用户原话】" + query);
