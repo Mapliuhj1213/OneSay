@@ -305,8 +305,15 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         com.onesay.assistant.v2.ui.ErrorStatePolicy.Plan plan = com.onesay.assistant.v2.ui.ErrorStatePolicy.plan(source,
                 isPanelOnScreen(), isConfirmPendingAnywhere(), com.onesay.assistant.v2.s1.S1Hooks.isTaskRunning(),
                 mSheetView.isTextModeActive());
+        // ★ 1123e：新界面出错不自动收起（用户点外面或返回才收），焦点交给底栏输入框
+        if (mUseV2) plan = com.onesay.assistant.v2.ui.ErrorStatePolicy.keepCard(plan);
         SafeLog.i(TAG, "[ERR-UI] " + source + " → " + plan);
         if (!plan.apply) return;
+        if (mUseV2 && com.onesay.assistant.v2.ui.ErrorStatePolicy.focusInputOnError(plan, isConfirmPendingAnywhere(),
+                com.onesay.assistant.v2.s1.S1Hooks.isTaskRunning(), mSheetView.chatActive())) {
+            mSheetView.focusInputForTyping();
+            onTextModeRequested();
+        }
         if (plan.clearSuggestions) mSheetView.setSuggestionsVisible(false);
         mErrorClearTranscript = plan.clearTranscriptOnNeutral;
         if (plan.neutralAfterMs >= 0) mMainHandler.postDelayed(mErrorNeutralRunnable, plan.neutralAfterMs);
@@ -472,6 +479,40 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
     public static FloatingSheetService getInstance() {
         return sInstance;
+    }
+
+    /**
+     * ★ 1123e：唤起即打字。设置里开了「默认打字唤起」，或收不了音（引擎坏了 / 没有麦克风权限）时由 WakeService 调。
+     * msg 非空 = 卡片上说明原因（不自动收起，用户点外面或返回才收）；hint = 输入框里的短提示。任意线程。
+     */
+    public static void openForTyping(Context ctx, final String msg, final String hint) {
+        final FloatingSheetService s = sInstance;
+        if (s == null) {
+            SafeLog.w(TAG, "[TYPE-OPEN] 面板服务未运行，打不开打字卡片");
+            if (msg != null && ctx != null) {
+                try { android.widget.Toast.makeText(ctx.getApplicationContext(), msg, android.widget.Toast.LENGTH_LONG).show(); } catch (Throwable ignore) {}
+            }
+            return;
+        }
+        s.mMainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                s.openForTypingOnMain(msg, hint);
+            }
+        });
+    }
+
+    private void openForTypingOnMain(String msg, String hint) {
+        showSheet();
+        cancelAutoHide();
+        mMainHandler.removeCallbacks(mErrorNeutralRunnable);
+        mMainHandler.removeCallbacks(mErrorHideRunnable);
+        if (mSheetView == null) return;
+        SafeLog.i(TAG, "[TYPE-OPEN] 唤起即打字" + (msg != null ? "（附说明）" : ""));
+        if (mUseV2 && mSheetView.chatActive()) chatRewake();
+        if (mUseV2) mSheetView.v2Wake();
+        mSheetView.openTyping(msg, hint);
+        onTextModeRequested();   // 放开窗口焦点 + 弹键盘（并停掉可能在开的收音）
     }
 
     public static void show(Context context, String initialQuery) {
@@ -642,7 +683,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 final boolean open = com.onesay.assistant.v2.net.OfflineSettingsPolicy.shouldOpen(now, mLastOfflineSettingsAt);
                 if (open) mLastOfflineSettingsAt = now;
                 String line = open ? com.onesay.assistant.v2.ui.wake.WakeCopy.OFFLINE_OPEN_SETTINGS
-                        : "没有网络：语音识别要联网，可以点「⌨ 文字」输入本地指令";
+                        : "没有网络：语音识别要联网，可以直接在下面打字说本地指令";
                 if (!quiet || open) mSheetView.updateState(badge, Color.parseColor("#F2B33D"), line);
                 mSheetView.markTerminalState(Color.parseColor("#F2B33D"), badge,
                         open ? "正在打开网络设置" : "本次唤醒已结束（没有网络）");
@@ -741,7 +782,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                 if (mSheetView == null) return;
                 if (!mIsAttached && mSheetView.getParent() == null) return;
                 mSheetView.markTerminalState(Color.parseColor("#F2B33D"), "没听清",
-                        sub != null ? sub : "可再说一次，或点「⌨ 文字」输入");
+                        sub != null ? sub : "可再说一次，或直接在下面打字");
                 cancelAutoHide();
                 applyErrorPolicy(com.onesay.assistant.v2.ui.ErrorStatePolicy.Source.NO_SPEECH_CONTINUE);   // ★ M-2
             }
@@ -1630,7 +1671,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         // ★ fix/leak-guard：L2 编译 / 计划结果里带系统提示词回吐 → 不执行、不显示，按「没听清」收尾
         if (inv.source == Invocation.RouteSource.L2_LLM
                 && com.onesay.assistant.v2.leakguard.LeakGuardHost.blockOutput(this, "L2.final", leakText(inv))) {
-            showTerminalPromptQuiet("没听清，可再说一次或点「⌨ 文字」输入");
+            showTerminalPromptQuiet("没听清，可再说一次或直接在下面打字");
             return;
         }
 

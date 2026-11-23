@@ -41,7 +41,7 @@ public final class LiveVisionClient {
             key = null;
         }
         if (key == null || key.trim().length() == 0) {
-            return new Result(false, "还没有配置百炼（DashScope）Key，相机对话用不了");
+            return new Result(false, "还没有配置语音服务 Key，相机对话用不了");
         }
         String model = ScreenVisionEngine.effectiveModel(ctx);
         byte[] body;

@@ -430,7 +430,12 @@ public final class FastIntents {
         Hit arel = alarmRel(c);   // ★ 11-04 E：「三十分钟后叫醒我」= 闹钟（用户 11-03 定：xx 分钟后叫醒我一律走闹钟），零 LLM、不确认
         if (arel != null) return arel;
         Long sec = timerSeconds(c);
-        if (sec != null) return new Hit("clock.timer.set", args("seconds", sec.intValue()), "timer");
+        if (sec != null) {
+            JSONObject ta = args("seconds", sec.intValue());
+            String lb = timerLabel(c);   // ★ 1123e：「1 分钟后提醒我喝水」→ 计时器上写「喝水」
+            if (lb != null) try { ta.put("label", lb); } catch (Exception ignored) { }
+            return new Hit("clock.timer.set", ta, "timer");
+        }
         Hit a = alarm(c);
         if (a != null) return a;
         Hit ar = alarmRepeat(c);
@@ -755,6 +760,17 @@ public final class FastIntents {
             return (int) Math.round(n * max / 100.0);
         }
         return (int) n;
+    }
+
+    /** ★ 1123e：「N 分钟后提醒我喝水」里要提醒的事（喝水）；没有 / 只剩语气词 → null。最多 20 字。 */
+    static String timerLabel(String c) {
+        if (c == null) return null;
+        Matcher m = TIMER_REL.matcher(c);
+        if (!m.matches()) return null;
+        String t = m.group(3) == null ? "" : m.group(3).trim();
+        t = t.replaceAll("^(?:一下|一声|下|要|去|该|记得|我)+", "").replaceAll("[。！!，,.？?~～]+$", "").trim();
+        if (t.length() == 0 || t.matches("^(?:吧|啊|哦|呀|哈|一下)+$")) return null;
+        return t.length() > 20 ? t.substring(0, 20) : t;
     }
 
     static Long timerSeconds(String c) {

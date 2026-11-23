@@ -1772,10 +1772,10 @@ public final class IslandController implements com.onesay.assistant.v2.kernel.Is
         } else if ("rdone".equals(cmd)) {
             apply(mModel.remindDone(null), "demo-remindDone");
         } else if ("bg".equals(cmd)) {
-            apply(mModel.bgStarted("demo-bg1", text != null && text.length() > 0 ? text : "读一下QQ邮箱未读", now - 5000L), "demo-bgStarted");
+            apply(mModel.bgStarted("demo-bg1", text != null && text.length() > 0 ? text : "读一下邮箱未读", now - 5000L), "demo-bgStarted");
             apply(mModel.bgStep("demo-bg1", "读取邮件"), "demo-bgStep");
         } else if ("bgwait".equals(cmd)) {
-            if (!mModel.hasBg("demo-bg1")) apply(mModel.bgStarted("demo-bg1", "读一下QQ邮箱未读", now - 5000L), "demo-bgStarted");
+            if (!mModel.hasBg("demo-bg1")) apply(mModel.bgStarted("demo-bg1", "读一下邮箱未读", now - 5000L), "demo-bgStarted");
             apply(mModel.bgConfirm("demo-bg1", "发送短信给 妈妈", "邮件摘要已读完"), "demo-bgConfirm");
         } else if ("bgdone".equals(cmd) || "bgfail".equals(cmd)) {
             apply(mModel.bgEnded("demo-bg1", "bgdone".equals(cmd), "bgfail".equals(cmd) ? "确认超时，已安全中止" : null, now), "demo-" + cmd);

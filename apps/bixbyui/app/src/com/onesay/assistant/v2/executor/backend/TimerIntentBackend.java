@@ -49,6 +49,15 @@ public final class TimerIntentBackend implements ExecutorBackend {
         return h + " 小时" + (m > 0 ? " " + m + " 分钟" : "");
     }
 
+    /**
+     * ★ 1123e：系统计时器接口发出去读不回结果，有的系统还要用户先点「打开」——如实说交给时钟了，不说「已开始」。
+     * 有标签就带上（「喝水」）。
+     */
+    public static String handedReply(int sec, String label) {
+        String l = label == null ? "" : label.trim();
+        return "已把 " + human(sec) + (l.length() > 0 ? "「" + l + "」" : "") + "倒计时交给时钟；如果弹出提示，点「打开」就开始";
+    }
+
     @Override
     public BackendOutcome run(ExecRequest req) {
         int sec = seconds(req.args);
@@ -68,7 +77,7 @@ public final class TimerIntentBackend implements ExecutorBackend {
                         "SET_TIMER 无人接", req.cap, req.args));
             }
             req.context.startActivity(i);
-            return BackendOutcome.terminal(ExecutionResult.success(req.cap, req.args, "已开始 " + human(sec) + "倒计时",
+            return BackendOutcome.terminal(ExecutionResult.success(req.cap, req.args, handedReply(sec, label),
                     ExecutionResult.Verification.UNVERIFIED, "SET_TIMER " + sec + "s（App 自己发，不走特权通道）"));
         } catch (Throwable t) {
             return BackendOutcome.terminal(ExecutionResult.failed(ErrorCode.EXEC_FAILED, "倒计时没开起来，可以打开时钟自己定一个",

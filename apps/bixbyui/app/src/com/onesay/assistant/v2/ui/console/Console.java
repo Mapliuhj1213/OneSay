@@ -309,7 +309,7 @@ public final class Console implements ConsoleHost {
         et.setSingleLine(true);
         et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         String masked = KeyMask.mask(cfg.getDashScopeKey());
-        et.setHint("粘贴百炼（DashScope）API Key（留空 = 不改）");
+        et.setHint("粘贴语音识别 API Key（留空 = 不改）");
         et.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         et.setTextColor(kit.t.text1);
         et.setHintTextColor(kit.t.text3);

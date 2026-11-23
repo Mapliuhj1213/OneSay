@@ -49,6 +49,44 @@ final class EventPickData {
         }
     }
 
+    /** ★ 1123e：定位权限（只看权限，不看开关）。 */
+    static boolean locationPerm(Context c) {
+        try {
+            return android.os.Build.VERSION.SDK_INT < 23
+                    || c.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** ★ 1123e：定位总开关（Android 9 起能直接问；更早当开着）。 */
+    static boolean locationOn(Context c) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                android.location.LocationManager lm = (android.location.LocationManager) c.getSystemService(Context.LOCATION_SERVICE);
+                return lm == null || lm.isLocationEnabled();
+            }
+            return true;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** ★ 1123e：这个权限之前在这里弹过系统框没有（弹过还没给 = 用户拒了，改引导去设置）。 */
+    static boolean asked(Context c, String perm) {
+        try {
+            return c.getSharedPreferences("event_pick", Context.MODE_PRIVATE).getBoolean("asked_" + perm, false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    static void markAsked(Context c, String perm) {
+        try {
+            c.getSharedPreferences("event_pick", Context.MODE_PRIVATE).edit().putBoolean("asked_" + perm, true).apply();
+        } catch (Throwable ignored) { }
+    }
+
     /** ★ 1123d B35：蓝牙开着没。读不到当开着（只影响提示用词）。 */
     static boolean bluetoothOn() {
         try {

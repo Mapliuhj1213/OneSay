@@ -94,7 +94,7 @@ public class MainModelEndpointTest {
         MainModelEndpoint.setForProcess(null, false);
         assertTrue(MainModelEndpoint.isDefault());
         assertEquals("默认与改前完全一样", LlmClient.DEEPSEEK_URL, MainModelEndpoint.chatUrl());
-        assertEquals("默认（DeepSeek）", MainModelEndpoint.summary());
+        assertEquals("默认主模型", MainModelEndpoint.summary());   // 1123e：用户可见处不写服务商名
     }
 
     @Test public void httpsAcceptedAndNormalized() {

@@ -89,7 +89,7 @@ public final class AsrFailure {
         String retry = canRetry ? "可以点「重试」用刚才的录音再识别一次，" : "";
         switch (k) {
             case NOT_CONFIGURED:
-                return "还没配置语音识别 Key，听不懂说的话。点「去配置」填好就能用；也可以点「⌨ 文字」输入。";
+                return "还没配置语音识别 Key，听不懂说的话。点「去配置」填好就能用；也可以直接在下面打字。";
             case AUTH:
                 return "语音识别 Key 失效（鉴权失败），点「去配置」换一个新的 Key。";
             case TIMEOUT:
@@ -101,7 +101,7 @@ public final class AsrFailure {
             case NETWORK:
                 return "连不上语音识别服务（网络或域名解析失败）。" + retry + (canRetry ? "或者检查网络后再说。" : "检查网络后再说一次。");
             default:
-                return "没听清，可以再说一次，或点「⌨ 文字」输入。";
+                return "没听清，可以再说一次，或直接在下面打字。";
         }
     }
 

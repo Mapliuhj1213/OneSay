@@ -73,7 +73,7 @@ public final class BackupModelConfig implements LlmFallback.Source {
     @Override public LlmFallback.Backup current() {
         String p = provider();
         if (P_OFF.equals(p)) return null;
-        String label = P_DASHSCOPE.equals(p) ? "通义千问 " + model() : model();
+        String label = P_DASHSCOPE.equals(p) ? "备用模型 " + model() : model();
         return new LlmFallback.Backup(url(), model(), label, new LlmClient.KeyProvider() {
             @Override public String apiKey() {
                 return key();
@@ -87,6 +87,6 @@ public final class BackupModelConfig implements LlmFallback.Source {
         if (P_OFF.equals(p)) return "未配置 · 主模型出错就照旧报错";
         LlmFallback.Backup b = current();
         if (b == null || !b.usable()) return "配置不完整（缺 Key / 地址 / 模型名）";
-        return (P_DASHSCOPE.equals(p) ? "通义千问（百炼）" : "自定义") + " · " + model();
+        return (P_DASHSCOPE.equals(p) ? "备用通用模型" : "自定义") + " · " + model();
     }
 }

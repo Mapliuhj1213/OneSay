@@ -78,7 +78,7 @@ final class StatusPage extends Console.BuiltPage {
 
         LinearLayout m = k.group(col, "云端");
         if (Boolean.FALSE.equals(s.llmConfigured)) {
-            k.actionRow(m, "DeepSeek", "复杂问题 / 智能体", "去配置", new Runnable() {
+            k.actionRow(m, "主模型", "复杂问题 / 智能体", "去配置", new Runnable() {
                 @Override public void run() {
                     c.editApiKey(new Runnable() {
                         @Override public void run() {
@@ -88,7 +88,7 @@ final class StatusPage extends Console.BuiltPage {
                 }
             });
         } else {
-            k.valueRow(m, "DeepSeek", "复杂问题 / 智能体", s.llmConfigured == null ? unknown(s) : "已配置", tone(ConsoleStatus.llm(s).level));
+            k.valueRow(m, "主模型", "复杂问题 / 智能体", s.llmConfigured == null ? unknown(s) : "已配置", tone(ConsoleStatus.llm(s).level));
         }
         k.valueRow(m, "视觉模型", "识屏 / 看图总结", s.visionModel != null ? s.visionModel : unknown(s), ConsoleHost.TONE_NORMAL);
         if (Boolean.FALSE.equals(s.asrConfigured) || Boolean.TRUE.equals(s.asrKeyInvalid)) {   // r2/p0 P0-2：能直接去填
@@ -102,7 +102,7 @@ final class StatusPage extends Console.BuiltPage {
                 }
             }).setSubTone(ConsoleHost.TONE_WARN);
         } else {
-            k.valueRow(m, "云端语音识别", "阿里云 / DashScope", s.asrConfigured == null ? unknown(s) : "已配置",
+            k.valueRow(m, "云端语音识别", "语音识别服务", s.asrConfigured == null ? unknown(s) : "已配置",
                     s.asrConfigured == null ? ConsoleHost.TONE_MUTED : ConsoleHost.TONE_OK);
         }
 

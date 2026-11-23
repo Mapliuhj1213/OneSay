@@ -338,7 +338,7 @@ public final class PcLinkUi {
                         try {
                             PcPairing p = PcLink.pair(act, o.pairing);
                             new AlertDialog.Builder(act).setTitle("配好了")
-                                    .setMessage("已配对「" + f.name + "」（" + p.peer + "）。要让电脑随时找得到手机，打开「接受电脑指令」。")
+                                    .setMessage("已配对「" + f.name + "」。要让电脑随时找得到手机，打开「接受电脑指令」。")
                                     .setPositiveButton("好", null).show();
                             refresh(host);
                         } catch (IllegalArgumentException e) {
@@ -485,6 +485,7 @@ public final class PcLinkUi {
                                 last.length() > 0 ? last.substring(0, Math.max(0, last.lastIndexOf(':'))) : "");
                         row.setValue(pv[0], PcLinkText.OK.equals(pv[1]) ? ConsoleHost.TONE_OK : PcLinkText.BAD.equals(pv[1]) ? ConsoleHost.TONE_BAD : ConsoleHost.TONE_WARN);
                         row.setSub(pv[2]);
+                        row.setTitle(name);   // ★ 1123e：电脑名和首页同一来源（PcLink.pcName），探测到真名后详情页跟着改
                     }
                 });
             }
@@ -687,7 +688,7 @@ public final class PcLinkUi {
                             String in = et.getText().toString();
                             if (in.trim().length() == 0) in = clipText(act); // 没填就用剪贴板
                             PcPairing p = PcLink.pair(act, in);
-                            Toast.makeText(act, "已配对 " + p.peer + "，正在找电脑…", Toast.LENGTH_LONG).show();
+                            Toast.makeText(act, "已配对，正在找电脑…", Toast.LENGTH_LONG).show();
                             if (onPaired != null) onPaired.run();
                         } catch (IllegalArgumentException e) {
                             Toast.makeText(act, e.getMessage(), Toast.LENGTH_LONG).show();

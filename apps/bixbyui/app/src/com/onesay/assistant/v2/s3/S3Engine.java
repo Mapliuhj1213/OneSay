@@ -280,7 +280,7 @@ public final class S3Engine {
 
     private String listText0(long now) {
         List<S3Store.Task> l = activeTasks();
-        if (l.isEmpty()) return "现在没有定时任务。可以说「每天早上8点读一下QQ邮箱未读」或「明天下午3点提醒我取快递」。";
+        if (l.isEmpty()) return "现在没有定时任务。可以说「每天早上8点读一下邮箱未读」或「明天下午3点提醒我取快递」。";
         StringBuilder sb = new StringBuilder("你有 " + l.size() + " 个定时任务：");
         int i = 0;
         for (S3Store.Task t : l) {

@@ -49,6 +49,9 @@ public interface ConsoleHost {
 
         void setSub(String sub);
 
+        /** ★ 1123e：改行标题（电脑名探测到以后详情页跟着改，和首页同一来源）。 */
+        void setTitle(String title);
+
         void setSubTone(int tone);
 
         void setValue(String value, int tone);

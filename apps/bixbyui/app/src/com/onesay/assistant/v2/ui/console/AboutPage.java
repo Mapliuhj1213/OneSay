@@ -68,7 +68,7 @@ final class AboutPage extends Console.BuiltPage {
         k.valueRow(os, "Mika", "部分移植自 Mika：读屏 / 动作 / 守卫 / 证据 / App 知识（Copyright 2026 wangzan101，NOTICE.txt）", "Apache-2.0", ConsoleHost.TONE_MUTED);   // ★ mika-plug
         k.valueRow(os, "phongent", "多设备执行端协议与部分改写（mylea1/phongent，基于 Mika）", "Apache-2.0", ConsoleHost.TONE_MUTED);
         k.footer(col, "Mika / phongent 改写部分的许可、署名与改动说明见 APK 内 assets/NOTICE.txt。");
-        k.footer(col, "连点版本号 7 次打开开发者模式（调试按钮、自测、关停文件）。");
+        k.footer(col, "连点版本号 7 次进入开发者模式（调试按钮、自测、关停文件）；在「高级」里的「开发者模式」开关关掉即退出。");
     }
 
     /** Android 8 没有 GET_SIGNING_CERTIFICATES（API 28 起），只能用旧接口。 */

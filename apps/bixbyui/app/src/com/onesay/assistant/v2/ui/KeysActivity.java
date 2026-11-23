@@ -94,7 +94,7 @@ public class KeysActivity extends Activity {
         col.addView(text("API 密钥", 22, TEXT));
         col.addView(text("Key 只存在本机（系统密钥库加密），只发往对应服务的官方地址或你填写的地址。", 13, SUB));
 
-        LinearLayout c = card(col, "大模型 · DeepSeek", "必填", "理解指令、回答问题、多步任务");
+        LinearLayout c = card(col, "大模型 · 主模型", "必填", "理解指令、回答问题、多步任务");
         status.put(S_LLM, row(c, "API Key", new Runnable() { public void run() { editSecret(S_LLM); } }));
         llmBaseSub = row(c, "接口地址（Base URL）"   /* ★ console-align：与「模型与密钥 › 主模型 › 接口地址」同名 */, new Runnable() { public void run() { editBase(true); } });
         fieldRow(c, "对话模型", "模型名，例如 deepseek-flash；留空 = 预置", new Field() {
@@ -107,9 +107,9 @@ public class KeysActivity extends Activity {
             }
         });
         row(c, "测试连通性", "", new Runnable() { public void run() { testLlm(); } });
-        row(c, "去申请", "DeepSeek 开放平台", new Runnable() { public void run() { open(URL_DEEPSEEK); } });
+        row(c, "去申请", "主模型申请页", new Runnable() { public void run() { open(URL_DEEPSEEK); } });
 
-        c = card(col, "阿里云百炼 · DashScope", "必填", "语音识别、云端朗读、识屏 / 看图");
+        c = card(col, "语音与识屏服务", "必填", "语音识别、云端朗读、识屏 / 看图");
         status.put(S_DS, row(c, "API Key", new Runnable() { public void run() { editSecret(S_DS); } }));
         dsBaseSub = row(c, "兼容模式地址（Base URL）", new Runnable() { public void run() { editBase(false); } });
         final AliyunAsrConfig asr = new AliyunAsrConfig(this);
@@ -125,7 +125,7 @@ public class KeysActivity extends Activity {
             public boolean custom() { return !current().equals(preset()); }
             public String save(String v) { if (v.length() > 0 && !com.onesay.assistant.v2.net.UserEndpoint.validId(v)) return "模型名只能是字母、数字和 . _ -"; asr.setRealtimeModel(v); return null; }
         });
-        fieldRow(c, "实时识别地址（wss）", "兼容百炼 realtime 协议的 WebSocket 地址，只收 wss://；不含 model 参数", new Field() {
+        fieldRow(c, "实时识别地址（wss）", "兼容实时识别协议的 WebSocket 地址，只收 wss://；不含 model 参数", new Field() {
             public String current() { return asr.getRealtimeEndpoint(); }
             public String preset() { return com.onesay.assistant.v2.asr.RealtimeAsrSession.DEFAULT_ENDPOINT; }
             public boolean custom() { return asr.hasCustomRealtimeEndpoint(); }
@@ -144,16 +144,16 @@ public class KeysActivity extends Activity {
             public String save(String v) { if (v.length() > 0 && !com.onesay.assistant.v2.net.UserEndpoint.validId(v)) return "模型名只能是字母、数字和 . _ -"; asr.setVisionModel(v); return null; }
         });
         row(c, "测试连通性", "", new Runnable() { public void run() { testDashScope(); } });
-        row(c, "去申请", "阿里云百炼控制台", new Runnable() { public void run() { open(URL_BAILIAN); } });
+        row(c, "去申请", "语音服务申请页", new Runnable() { public void run() { open(URL_BAILIAN); } });
 
-        c = card(col, "云端朗读（用上面的百炼 Key）", "必填 · 未配置则不朗读", "回答与提醒念出来；没有 Key 或没选音色就不出声");
+        c = card(col, "云端朗读（用上面的语音服务 Key）", "必填 · 未配置则不朗读", "回答与提醒念出来；没有 Key 或没选音色就不出声");
         ttsEndpointSub = row(c, "服务地址", new Runnable() { public void run() { editTtsEndpoint(); } });
         ttsVoiceSub = row(c, "音色", new Runnable() { public void run() { pickVoice(); } });
         ttsModelSub = row(c, "模型", new Runnable() { public void run() { editTtsModel(); } });
         status.put(S_TTS, row(c, "测试连通性", new Runnable() { public void run() { testTts(); } }));
         row(c, "试听", "用所选音色合成一句示例", new Runnable() { public void run() { preview(); } });
 
-        c = card(col, "阿里云智能语音 NLS（备用识别）", "可选", "一句话识别的另一条通道；不填就不用");
+        c = card(col, "备用语音识别", "可选", "一句话识别的另一条通道；不填就不用");
         status.put(S_NLS_APPKEY, row(c, "项目 AppKey", new Runnable() { public void run() { editSecret(S_NLS_APPKEY); } }));
         status.put(S_NLS_AKID, row(c, "AccessKey ID", new Runnable() { public void run() { editSecret(S_NLS_AKID); } }));
         status.put(S_NLS_AKSECRET, row(c, "AccessKey Secret", new Runnable() { public void run() { editSecret(S_NLS_AKSECRET); } }));
@@ -169,7 +169,7 @@ public class KeysActivity extends Activity {
             public boolean custom() { return asr.hasCustomTokenEndpoint(); }
             public String save(String v) { return asr.setTokenEndpoint(v); }
         });
-        row(c, "去申请", "阿里云智能语音交互控制台", new Runnable() { public void run() { open(URL_NLS); } });
+        row(c, "去申请", "备用识别申请页", new Runnable() { public void run() { open(URL_NLS); } });
 
         c = card(col, "联网搜索 · Tavily", "可选", "查实时信息（新闻、价格等）；不填用免 Key 的网页搜索");
         status.put(S_TAVILY, row(c, "API Key", new Runnable() { public void run() { editSecret(S_TAVILY); } }));
@@ -244,19 +244,19 @@ public class KeysActivity extends Activity {
 
     static String label(String s) {
         if (S_LLM.equals(s)) return "主模型 API Key";   // ★ console-align：原「DeepSeek API Key」（主模型地址可改了）
-        if (S_DS.equals(s)) return "百炼 API Key";
+        if (S_DS.equals(s)) return "语音服务 API Key";
         if (S_TAVILY.equals(s)) return "Tavily API Key";
         if (S_BOCHA.equals(s)) return "博查 API Key";
         if (S_PARALLEL.equals(s)) return "Parallel API Key";
         if (S_NLS_APPKEY.equals(s)) return "智能语音 NLS 项目 AppKey";
-        if (S_NLS_AKID.equals(s)) return "阿里云 AccessKey ID";
-        if (S_NLS_AKSECRET.equals(s)) return "阿里云 AccessKey Secret";
+        if (S_NLS_AKID.equals(s)) return "备用识别 AccessKey ID";
+        if (S_NLS_AKSECRET.equals(s)) return "备用识别 AccessKey Secret";
         return "和风天气 API Key";
     }
 
     void refresh() {
-        llmBaseSub.setText(com.onesay.assistant.v2.net.LlmEndpoints.deepseekBase().equals(com.onesay.assistant.v2.net.LlmEndpoints.DEEPSEEK_PRESET) ? "预置：DeepSeek " + com.onesay.assistant.v2.net.LlmEndpoints.DEEPSEEK_PRESET : com.onesay.assistant.v2.net.LlmEndpoints.deepseekBase());
-        dsBaseSub.setText(com.onesay.assistant.v2.net.LlmEndpoints.dashscopeBase().equals(com.onesay.assistant.v2.net.LlmEndpoints.DASHSCOPE_PRESET) ? "预置：百炼 " + com.onesay.assistant.v2.net.LlmEndpoints.DASHSCOPE_PRESET : com.onesay.assistant.v2.net.LlmEndpoints.dashscopeBase());
+        llmBaseSub.setText(com.onesay.assistant.v2.net.LlmEndpoints.deepseekBase().equals(com.onesay.assistant.v2.net.LlmEndpoints.DEEPSEEK_PRESET) ? "预置：主模型 " + com.onesay.assistant.v2.net.LlmEndpoints.DEEPSEEK_PRESET : com.onesay.assistant.v2.net.LlmEndpoints.deepseekBase());
+        dsBaseSub.setText(com.onesay.assistant.v2.net.LlmEndpoints.dashscopeBase().equals(com.onesay.assistant.v2.net.LlmEndpoints.DASHSCOPE_PRESET) ? "预置：语音服务 " + com.onesay.assistant.v2.net.LlmEndpoints.DASHSCOPE_PRESET : com.onesay.assistant.v2.net.LlmEndpoints.dashscopeBase());
         for (Object[] fr : fields) {
             Field f = (Field) fr[1];
             ((TextView) fr[0]).setText(f.custom() ? f.current() : "预置：" + f.preset());
@@ -311,7 +311,7 @@ public class KeysActivity extends Activity {
         e.setSingleLine(true);
         e.setText(cfg.hasCustomEndpoint() ? cfg.getEndpoint() : CloudTtsConfig.DASHSCOPE_WS_URL);
         secure(new AlertDialog.Builder(this).setTitle("云端朗读服务地址")
-                .setMessage("DashScope 兼容的流式语音合成 WebSocket 地址，必须 wss://。Key 只会发往这个地址的主机。")
+                .setMessage("兼容的流式语音合成 WebSocket 地址，必须 wss://。Key 只会发往这个地址的主机。")
                 .setView(e).setPositiveButton("保存", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         String why = cfg.setEndpoint(e.getText().toString());
@@ -340,7 +340,7 @@ public class KeysActivity extends Activity {
         e.setSingleLine(true);
         e.setHint(deepseek ? com.onesay.assistant.v2.net.LlmEndpoints.DEEPSEEK_PRESET : com.onesay.assistant.v2.net.LlmEndpoints.DASHSCOPE_PRESET);
         e.setText(deepseek ? com.onesay.assistant.v2.net.LlmEndpoints.deepseekBase() : com.onesay.assistant.v2.net.LlmEndpoints.dashscopeBase());
-        secure(new AlertDialog.Builder(this).setTitle(deepseek ? "主模型接口地址" : "百炼兼容模式地址")
+        secure(new AlertDialog.Builder(this).setTitle(deepseek ? "主模型接口地址" : "语音服务兼容模式地址")
                 .setMessage("OpenAI 兼容接口的 Base URL（不含 /chat/completions），只允许 https。留空恢复预置。对应的 Key 只会发往这个主机。")
                 .setView(e).setPositiveButton("保存", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
@@ -506,7 +506,7 @@ public class KeysActivity extends Activity {
     void testTts() {
         final String k = get(S_DS);
         final String vo = new CloudTtsConfig(this).getVoice();
-        if (k.length() == 0) { test.put(S_TTS, "失败：百炼 Key 未配置"); refresh(); return; }
+        if (k.length() == 0) { test.put(S_TTS, "失败：语音服务 Key 未配置"); refresh(); return; }
         runTest(S_TTS, new Probe() { public String run() throws Exception {
             if (vo.length() == 0) { listVoices(k); return "测试通过（Key 有效；还需选择音色）"; }
             byte[] b = synth(k, "测试。");
@@ -516,7 +516,7 @@ public class KeysActivity extends Activity {
 
     void fetchVoices() {
         final String k = get(S_DS);
-        if (k.length() == 0) { toast("先填百炼 API Key"); return; }
+        if (k.length() == 0) { toast("先填语音服务 API Key"); return; }
         toast("正在拉取…");
         com.onesay.assistant.v2.util.Threads.start("keys", new Runnable() {
             public void run() {
@@ -540,7 +540,7 @@ public class KeysActivity extends Activity {
 
     void preview() {
         final String k = get(S_DS);
-        if (k.length() == 0 || new CloudTtsConfig(this).getVoice().length() == 0) { toast("先配好百炼 Key 和音色"); return; }
+        if (k.length() == 0 || new CloudTtsConfig(this).getVoice().length() == 0) { toast("先配好语音服务 Key 和音色"); return; }
         toast("合成中…");
         com.onesay.assistant.v2.util.Threads.start("keys", new Runnable() {
             public void run() {

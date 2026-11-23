@@ -13,9 +13,12 @@ public class ResultBarTest {
         assertTrue(ChatWindowPolicy.cardBarVisible(Stage.RESULT, true, false));
         assertTrue("出错", ChatWindowPolicy.cardBarVisible(Stage.ERROR, true, false));
         assertTrue("打字", ChatWindowPolicy.cardBarVisible(Stage.TEXT, true, false));
-        for (Stage s : new Stage[]{Stage.LISTENING, Stage.THINKING, Stage.ANSWERING, Stage.TASK, Stage.CONFIRM, Stage.IDLE,
-                Stage.HANDOFF, Stage.ISLAND, Stage.DISMISSING}) {
-            assertFalse("第一次唤醒的聆听 / 思考卡片外观不变：" + s, ChatWindowPolicy.cardBarVisible(s, true, false));
+        // ★ 1123e 用户定：「输入框 + 麦克风」从唤起起就常驻卡片底（聆听 / 思考 / 作答 / 任务 / 确认也在），只有没卡片时不挂
+        for (Stage s : new Stage[]{Stage.LISTENING, Stage.THINKING, Stage.ANSWERING, Stage.TASK, Stage.CONFIRM}) {
+            assertTrue("唤起后常驻：" + s, ChatWindowPolicy.cardBarVisible(s, true, false));
+        }
+        for (Stage s : new Stage[]{Stage.IDLE, Stage.HANDOFF, Stage.ISLAND, Stage.DISMISSING}) {
+            assertFalse("没卡片：" + s, ChatWindowPolicy.cardBarVisible(s, true, false));
         }
         assertFalse("对话窗开着：底栏归对话窗", ChatWindowPolicy.cardBarVisible(Stage.RESULT, true, true));
         assertFalse("旧界面", ChatWindowPolicy.cardBarVisible(Stage.RESULT, false, false));

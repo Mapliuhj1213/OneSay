@@ -290,6 +290,11 @@ public class WakeService extends Service {
     //   开录后立即补发；超过 COLD_WAKE_TIMEOUT_MS 仍未就绪则丢弃并在面板上说明。排队逻辑见 util.ReadyQueue（JVM 单测）。
     /** 麦克风已进入录制状态（micLoop 就要开始）。 */
     private static volatile boolean sMicReady = false;
+    // ★ 1123e P1：引擎启动失败后唤醒时就地重建（MicEngineRecovery 退避）。主线程读写，引擎线程只置位。
+    private static volatile boolean sEngineFailed = false;
+    private static volatile boolean sEngineRebuilding = false;
+    private int mEngineFailures = 0;
+    private long mEngineLastAttemptAt = 0L;
     /** 冷启动唤醒最长等待：超过就丢弃（不在用户早就放弃之后突然开麦）。 */
     static final long COLD_WAKE_TIMEOUT_MS = 10000L;
     private static final com.onesay.assistant.v2.util.ReadyQueue<String[]> sColdWakes =
@@ -1115,9 +1120,12 @@ public class WakeService extends Service {
         syncGestureFlag(this);   // 记一记开关可能刚被改
         // ★ round3 #3：麦克风还没开录（引擎启动期）→ 排队，开录后补发（所有唤醒来源都汇到这里，一处守卫覆盖全部）
         if (!sMicReady) {
+            if (typeFirstOpens(source, conversation)) return;
             queueColdWake(source, conversation, "语音引擎未就绪");
+            maybeRebuildEngine("唤醒 " + source);   // ★ 1123e P1：引擎坏了就重建，别等进程重启
             return;
         }
+        if (typeFirstOpens(source, conversation)) return;
         // ★录制声纹期间**拒绝一切唤醒**（录制与唤醒互斥，用户明确要求）；
         //   录音功能迁移到 App 本体后，压制范围扩大到"注册会话全程"（含 READY 态，
         //   防用户提前跟读引导句触发唤醒面板）—— 见 mEnrollSession 注释。
@@ -1543,15 +1551,78 @@ public class WakeService extends Service {
             if (d.expired.isEmpty()) return;
             Log.w(TAG, "[COLD] 语音引擎 " + COLD_WAKE_TIMEOUT_MS + "ms 内未就绪，丢弃排队唤醒 " + d.expired.size()
                     + " 次（状态：" + sStatus + "）");
-            FloatingSheetService fs = FloatingSheetService.getInstance();
-            if (fs != null) fs.showTerminalPrompt("语音引擎还在启动，这次没能开始收音，请稍后再按一次");
+            // ★ 1123e P1：不再只在面板已在屏上时提示（排队期间面板根本没开 = 悄悄丢）——直接开卡片说原因、交给打字
+            WakeService w = sInstance;
+            boolean perm = w == null || w.hasRecordPermission();
+            String msg = sEngineFailed ? MicEngineRecovery.userMessage(perm) : "语音还在启动，这次没能开始收音。先打字吧，稍后再按一次试试";
+            if (w != null) FloatingSheetService.openForTyping(w, msg, MicEngineRecovery.inputHint(perm));
         }
     };
+
+    /** ★ 1123e：设置里开了「默认打字唤起」→ 唤起即弹键盘，不开麦（续说 / 随口记仍走语音）。true = 已接管。 */
+    private boolean typeFirstOpens(String source, boolean conversation) {
+        if (conversation || source == null || source.endsWith("-hold") || !com.onesay.assistant.v2.ui.wake.WakeUiSettings.typeFirst(this)) return false;
+        Log.i(TAG, "[WAKE] 默认打字唤起 → 打开卡片弹键盘（src=" + source + "）");
+        FloatingSheetService.openForTyping(this, null, null);
+        return true;
+    }
+
+    boolean hasRecordPermission() {
+        if (Build.VERSION.SDK_INT < 23) return true;
+        try {
+            return checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** ★ 1123e P1：主线程。引擎启动失败过 + 退避到点 → 释放旧录音器，在引擎线程重新 bootEngine。 */
+    private void maybeRebuildEngine(String why) {
+        long now = SystemClock.elapsedRealtime();
+        if (!MicEngineRecovery.shouldRebuild(sMicReady, sEngineFailed, sEngineRebuilding, now, mEngineLastAttemptAt, mEngineFailures)) {
+            if (sEngineFailed && !sEngineRebuilding) Log.i(TAG, "[COLD] 引擎坏着，退避未到（已失败 " + mEngineFailures + " 次）");
+            return;
+        }
+        if (!hasRecordPermission()) {
+            // 没权限重建也是白建：马上说清楚，不让用户干等 10 秒
+            Log.w(TAG, "[COLD] 引擎坏着且没有录音权限 → 直接提示（" + why + "）");
+            mEngineLastAttemptAt = now;
+            mEngineFailures++;
+            failQueuedWakesNow(false);
+            return;
+        }
+        sEngineRebuilding = true;
+        mEngineLastAttemptAt = now;
+        Log.i(TAG, "[COLD] 语音引擎坏着 → 重建（第 " + (mEngineFailures + 1) + " 次，" + why + "）");
+        mAbort = false;
+        mExec.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    try { if (mAudioRecord != null) mAudioRecord.release(); } catch (Throwable ignore) {}
+                    mAudioRecord = null;
+                    bootEngine();
+                } finally {
+                    sEngineRebuilding = false;
+                }
+            }
+        });
+    }
+
+    /** 主线程：排着的唤醒现在就结束，开卡片说原因并交给打字（不等 10 秒超时）。 */
+    private void failQueuedWakesNow(boolean perm) {
+        sColdHandler.removeCallbacks(sColdWakeTimeout);
+        com.onesay.assistant.v2.util.ReadyQueue.Drain<String[]> d = sColdWakes.expire(Long.MAX_VALUE / 4, false);
+        Log.w(TAG, "[COLD] 收不了音，结束排队唤醒 " + d.expired.size() + " 次，改为打字");
+        FloatingSheetService.openForTyping(this, MicEngineRecovery.userMessage(perm), MicEngineRecovery.inputHint(perm));
+    }
 
     /** ★ round3 #3：麦克风开录（引擎线程）→ 主线程补发排队的唤醒。 */
     private void onMicReady() {
         if (mAbort) return;
         sMicReady = true;
+        sEngineFailed = false;
+        mEngineFailures = 0;
         mMainHandler.post(new Runnable() {
             @Override
             public void run() {
@@ -1792,6 +1863,18 @@ public class WakeService extends Service {
             if (mMicState.onStopped("读循环退出")) updateWakeLock("mic-loop-exit");
 
         } catch (Throwable t) {
+            // ★ 1123e P1：记下「坏了」，释放录音器；这次是唤醒触发的重建又失败 → 马上告诉用户，不等超时
+            try { if (mAudioRecord != null) mAudioRecord.release(); } catch (Throwable ignore) {}
+            mAudioRecord = null;
+            sEngineFailed = true;
+            final boolean wasRebuild = sEngineRebuilding;
+            mMainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mEngineFailures++;
+                    if (wasRebuild && !sMicReady && sColdWakes.size() > 0) failQueuedWakesNow(hasRecordPermission());
+                }
+            });
             if (mMicState.onStopped("启动异常")) updateWakeLock("mic-boot-failed");
             Log.e(TAG, "WakeService 启动异常: " + t.getMessage(), t);
             sStatus = "启动故障: " + t.getMessage();
@@ -2705,7 +2788,7 @@ public class WakeService extends Service {
             return;
         }
         if (mLastContinueSession) {
-            fs.showTerminalPromptQuiet("没听清，可再说一次或点「⌨ 文字」输入");
+            fs.showTerminalPromptQuiet("没听清，可再说一次或直接在下面打字");
         } else {
             fs.showTerminalPrompt("没听清指令，请重新唤醒...");
             fs.playVoiceCue(com.onesay.assistant.v2.s1.VoiceSync.nextMiss());   // ★ r2/voice-templates：新唤醒没听清说一句（续听窗没人说仍安静收起）；★ arch/voice-sync：连续第 1/2/≥3 次换 v3 ASR_MISS_1/2/MAX
@@ -2930,7 +3013,7 @@ public class WakeService extends Service {
                     if (authFail) {
                         com.onesay.assistant.v2.asr.AsrHealth.markAuthFailed(WakeService.this, mAsrRouter.config());   // 控制台提醒条读它（只存指纹）
                         Log.e(TAG, "[ASR-CLOUD] ★★★ 云端凭据已失效：后续云端调用将**全部**失败，"
-                                + "语音识别不可用。请更新 DashScope API Key。"
+                                + "语音识别不可用。请更新语音识别 API Key。"
                                 + " err=" + r.error);
                         mCloudKeyWarned = true;
                         updateNotification("⚠ 云端 API Key 失效，语音识别不可用");

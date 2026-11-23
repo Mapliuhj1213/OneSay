@@ -14,6 +14,9 @@ import com.onesay.assistant.v2.capability.SideEffect;
  */
 public final class ClockCaps {
 
+    /** ★ 1123e：倒计时的回答（不在用户点「打开」之前就说已设好）。 */
+    public static final String TIMER_HANDED_REPLY = "已把 {seconds} 秒倒计时交给时钟；如果弹出提示，点「打开」就开始";
+
     private ClockCaps() {}
 
     public static void register(CapabilityRegistry reg) {
@@ -157,6 +160,7 @@ public final class ClockCaps {
                 .reply("闹钟已全部处理")
                 .build());
 
+        // ★ 1123e：系统计时器接口发出去没有回音，有的系统还要用户先点「打开」才开始 → 不说「已启动」，说交给时钟了
         reg.register(new Capability.Builder("clock.timer.set", "开启倒计时计时器")
                 .domain("settings")
                 .verbs("设置", "定", "计时")
@@ -164,12 +168,12 @@ public final class ClockCaps {
                 .examples("倒计时六十秒", "计时五分钟")
                 .category("clock")
                 .sideEffect(SideEffect.DEVICE_CONTROL)
-                .schema(new ParamsSchema().addInteger("seconds", true, 1, 86400, null))
+                .schema(new ParamsSchema().addInteger("seconds", true, 1, 86400, null).addString("label", false, null))   // ★ 1123e：计时器标签（「喝水」）
                 .risk(0, false)
                 .executor("intent")
                 .cmd("am start -a android.intent.action.SET_TIMER --ei android.intent.extra.alarm.LENGTH {seconds} --ez android.intent.extra.alarm.SKIP_UI true")
                 .say("倒计时{n}秒", "定时{n}秒", "计时{n}秒")
-                .reply("已启动 {seconds} 秒倒计时")
+                .reply(TIMER_HANDED_REPLY)
                 .build());
     }
 }

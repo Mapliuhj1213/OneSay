@@ -134,7 +134,7 @@ public final class ChatBottomBar extends LinearLayout {
 
         LinearLayout pill = new LinearLayout(c);
         pill.setOrientation(HORIZONTAL);
-        pill.setGravity(Gravity.BOTTOM);
+        pill.setGravity(Gravity.CENTER_VERTICAL);   // ★ 1123e P2：配合输入框 WRAP_CONTENT 高度（见下）
         pill.setPadding(dp(14), 0, dp(8), 0);
         pill.setMinimumHeight(dp(52));
         final GradientDrawable pb = new GradientDrawable();
@@ -144,7 +144,7 @@ public final class ChatBottomBar extends LinearLayout {
         ImageView logo = new ImageView(c);
         logo.setImageDrawable(new ChatIcons(ChatIcons.BIXBY, GLYPH));
         LayoutParams llp = new LayoutParams(dp(24), dp(24));
-        llp.bottomMargin = dp(14);
+        llp.bottomMargin = 0;   // 1123e：胶囊改居中
         pill.addView(logo, llp);
         mEdit = new EditText(c);
         mEdit.setBackground(null);
@@ -211,7 +211,11 @@ public final class ChatBottomBar extends LinearLayout {
                 return false;
             }
         });
-        pill.addView(mEdit, new LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        // ★ 1123e P2：真机（Android 16）上多行输入框配 MATCH_PARENT 高度时打进去的字不显示 → 改回 WRAP_CONTENT（随行数长高），
+        //   字色用整套状态色（禁用 / 获焦都是亮字），光标跟字色走
+        mEdit.setTextColor(android.content.res.ColorStateList.valueOf(GLYPH));
+        mEdit.setMinWidth(dp(64));
+        pill.addView(mEdit, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         // ★ 1123d B24：超过 3 行出「展开」，点了输入框长到 14 行好改长文；「收起」回 5 行。同一个输入框，字和光标都不动
         mExpand = new android.widget.TextView(c);
         mExpand.setText(ChatWindowPolicy.EXPAND_LABEL);
@@ -277,7 +281,7 @@ public final class ChatBottomBar extends LinearLayout {
         });
         micSlot.addView(mDots, new FrameLayout.LayoutParams(dp(38), dp(38), Gravity.CENTER));
         LayoutParams micLp = new LayoutParams(dp(40), dp(40));
-        micLp.bottomMargin = dp(6);
+        micLp.bottomMargin = 0;   // 1123e：胶囊改居中
         pill.addView(micSlot, micLp);
         LayoutParams plp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         plp.leftMargin = dp(8);
@@ -318,10 +322,18 @@ public final class ChatBottomBar extends LinearLayout {
     }
 
     /** 录音中：占位「聆听中…」、麦克风换成跳动紫色波点（instant = 系统关闭动画 → 波点不跳）。 */
+    /** ★ 1123e：收不了音等情况下输入框里的短提示（null = 恢复默认）。 */
+    public void setNoticeHint(String hint) {
+        mNoticeHint = hint;
+        mEdit.setHint(ChatWindowPolicy.barHint(mListening, mNoticeHint));
+    }
+
+    private String mNoticeHint;
+
     public void setListening(boolean on, boolean instant) {
         if (mListening == on && mDots.isInstant() == instant) return;
         mListening = on;
-        mEdit.setHint(on ? ChatWindowPolicy.HINT_LISTENING : ChatWindowPolicy.HINT_IDLE);
+        mEdit.setHint(ChatWindowPolicy.barHint(on, mNoticeHint));
         mMic.setVisibility(on ? GONE : VISIBLE);
         mDots.setVisibility(on ? VISIBLE : GONE);
         mDots.setRunning(on, instant);

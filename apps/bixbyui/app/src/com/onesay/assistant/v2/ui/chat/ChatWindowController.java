@@ -176,6 +176,11 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
      * （替代旧图标行 / 旧输入条，杜绝分叉）。展开成对话窗时它原地留着当对话窗底栏，不重建、不淡出再淡入。
      */
     public void showOnCard(boolean on) {
+        showOnCard(on, false);
+    }
+
+    /** ★ 1123e：底栏从唤起起就常驻在卡片底（聆听中麦克风换波点，输入框照样可点）。 */
+    public void showOnCard(boolean on, boolean listening) {
         if (mActive) return;
         if (on) {
             if (mBar.getParent() == null) {
@@ -183,7 +188,7 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
                 bl.topMargin = dp(8);
                 mP.root.addView(mBar, bl);
             }
-            mBar.setListening(false, mHost.instant());
+            mBar.setListening(listening, mHost.instant());
             if (mBar.getVisibility() != View.VISIBLE) mBar.setVisibility(View.VISIBLE);
         } else if (mBar.getVisibility() != View.GONE) {
             mBar.hideMenu();

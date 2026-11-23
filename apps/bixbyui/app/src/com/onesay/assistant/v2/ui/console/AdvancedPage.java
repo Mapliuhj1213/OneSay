@@ -34,7 +34,7 @@ final class AdvancedPage extends Console.BuiltPage {
         final boolean basic = mode != MODE_EXPERT, expert = mode != MODE_BASIC;
         LinearLayout g = basic ? k.group(col, "主模型") : null;
         if (basic) {
-        k.linkRow(g, "接口地址", "OpenAI 兼容；留空 = 默认 DeepSeek · " + com.onesay.assistant.v2.net.MainModelEndpoint.summary(), 0, new Runnable() {
+        k.linkRow(g, "接口地址", "通用兼容接口；留空 = 默认主模型 · " + com.onesay.assistant.v2.net.MainModelEndpoint.summary(), 0, new Runnable() {
             @Override public void run() {
                 editMainUrl();
             }
@@ -73,7 +73,7 @@ final class AdvancedPage extends Console.BuiltPage {
         String prov;   // ★ priv-llm：自带 Key 服务商（主对话可改走 OpenAI 兼容 / Anthropic / Gemini）
         try {
             com.onesay.assistant.v2.llm.ProviderRoute r = com.onesay.assistant.v2.llm.ProviderRouting.active();
-            prov = r == null ? "主对话：DeepSeek（默认）" : "主对话：" + com.onesay.assistant.v2.llm.ProviderPreset.get(r.providerId).title + " · " + r.model;
+            prov = r == null ? "主对话：默认主模型" : "主对话：" + com.onesay.assistant.v2.llm.ProviderPreset.get(r.providerId).title + " · " + r.model;
         } catch (Throwable t) {
             prov = "未知";
         }
@@ -90,9 +90,9 @@ final class AdvancedPage extends Console.BuiltPage {
         } catch (Throwable t) {
             vm = "未知";
         }
-        if (expert) k.valueRow(go, "视觉模型", "识屏 / 看图总结用（百炼 Key）", vm, ConsoleHost.TONE_NORMAL);
-        if (basic) k.linkRow(go, "语音识别 Key", (ds ? "百炼 已配置" : "百炼 未配置") + " · " + (ds && voice ? "朗读 可用" : "朗读 未配置") + " · 在「API 密钥」面板里填", 0, keys);
-        if (expert) k.linkRow(go, "阿里云 NLS 语音识别（高级 · 可选）", "用 AccessKey / AppKey 代替百炼识别", 0, new Runnable() {
+        if (expert) k.valueRow(go, "视觉模型", "识屏 / 看图总结用（语音识别同一把 Key）", vm, ConsoleHost.TONE_NORMAL);
+        if (basic) k.linkRow(go, "语音识别 Key", (ds ? "语音识别 已配置" : "语音识别 未配置") + " · " + (ds && voice ? "朗读 可用" : "朗读 未配置") + " · 在「API 密钥」面板里填", 0, keys);
+        if (expert) k.linkRow(go, "备用语音识别（高级 · 可选）", "用另一组识别密钥代替默认识别", 0, new Runnable() {
             @Override public void run() {
                 c.editAsrKey(new Runnable() {
                     @Override public void run() {
@@ -186,7 +186,7 @@ final class AdvancedPage extends Console.BuiltPage {
                 .setNeutralButton("恢复默认", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         com.onesay.assistant.v2.net.MainModelEndpoint.save(c.act, "");
-                        c.toast("已恢复默认（DeepSeek）");
+                        c.toast("已恢复默认主模型");
                         fill();
                     }
                 }).setNegativeButton("取消", null).show();
@@ -224,7 +224,7 @@ final class AdvancedPage extends Console.BuiltPage {
         final ConsoleKit k = c.kit;
         final com.onesay.assistant.v2.net.BackupModelConfig cfg = new com.onesay.assistant.v2.net.BackupModelConfig(c.act);
         final String[] ids = {com.onesay.assistant.v2.net.BackupModelConfig.P_OFF, com.onesay.assistant.v2.net.BackupModelConfig.P_DASHSCOPE, com.onesay.assistant.v2.net.BackupModelConfig.P_CUSTOM};
-        final String[] names = {"不用备用模型", "通义千问（百炼，默认用语音识别同一把 Key）", "自定义（OpenAI 兼容地址）"};
+        final String[] names = {"不用备用模型", "备用通用模型（默认用语音识别同一把 Key）", "自定义（兼容接口地址）"};
         int cur = java.util.Arrays.asList(ids).indexOf(cfg.provider());
         k.dialog().setTitle("备用模型").setSingleChoiceItems(names, Math.max(0, cur), new android.content.DialogInterface.OnClickListener() {
             @Override public void onClick(android.content.DialogInterface d, int which) {
@@ -253,7 +253,7 @@ final class AdvancedPage extends Console.BuiltPage {
         if (custom) box.addView(url, k.lpMatch(8, 0));
         box.addView(model, k.lpMatch(8, 0));
         box.addView(key, k.lpMatch(8, 0));
-        k.dialog().setTitle(custom ? "自定义备用模型" : "通义千问（百炼）").setView(box)
+        k.dialog().setTitle(custom ? "自定义备用模型" : "备用通用模型").setView(box)
                 .setPositiveButton("保存", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface d, int w) {
                         String u = url.getText().toString().trim();

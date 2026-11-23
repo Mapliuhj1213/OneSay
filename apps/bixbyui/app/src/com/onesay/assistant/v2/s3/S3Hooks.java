@@ -288,7 +288,7 @@ public final class S3Hooks {
         }
         final LinearLayout list = host.group(root, isTasks ? "全部任务" : "未完成");
         final android.widget.TextView foot = host.footer(root, isTasks
-                ? "说「每天早上8点读一下QQ邮箱未读」「明天下午3点提醒我取快递」建任务；点每条右边的「删除」，或说「取消早上8点的任务」删除。"
+                ? "说「每天早上8点读一下邮箱未读」「明天下午3点提醒我取快递」建任务；点每条右边的「删除」，或说「取消早上8点的任务」删除。"
                 : "说「记个待办 买牛奶」「我的待办」「买牛奶做完了」。");
         final List<S3Store.Task>[] tasks0 = newTaskHolder();
         com.onesay.assistant.v2.util.Threads.start("s3-console-list", new Runnable() {

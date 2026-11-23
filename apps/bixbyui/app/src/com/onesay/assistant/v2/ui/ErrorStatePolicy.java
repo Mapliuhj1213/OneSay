@@ -104,6 +104,17 @@ public final class ErrorStatePolicy {
     }
 
     /** 延时收起到点时复核：这期间出现确认卡 / 任务开始 / 用户转文字输入 / 面板已不在屏上 → 不收。 */
+    /** ★ 1123e：新界面出错 → 卡片留着（不回中性态、不自动收起），错误那句一直在，用户点外面 / 返回才收。 */
+    public static Plan keepCard(Plan p) {
+        if (p == null || !p.apply) return p;
+        return new Plan(true, p.clearSuggestions, -1, -1, false, p.reason + "；新界面出错不自动收起");
+    }
+
+    /** ★ 1123e：出错后自动聚焦底栏输入框（确认卡未决 / 任务在跑 / 对话窗里不抢焦点）。 */
+    public static boolean focusInputOnError(Plan p, boolean confirmPending, boolean taskRunning, boolean chatActive) {
+        return p != null && p.apply && !confirmPending && !taskRunning && !chatActive;
+    }
+
     public static boolean stillHide(boolean panelOnScreen, boolean confirmPending, boolean taskRunning, boolean textMode) {
         return panelOnScreen && !confirmPending && !taskRunning && !textMode;
     }

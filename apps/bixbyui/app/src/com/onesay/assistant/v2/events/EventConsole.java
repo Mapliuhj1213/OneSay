@@ -132,31 +132,41 @@ public final class EventConsole {
             @Override public void onClick(android.view.View v) {
                 final EventTask.Source s = sources[Math.max(0, src.getSelectedItemPosition())];
                 List<String> names = s == EventTask.Source.WIFI ? EventPickData.wifiNames(act) : EventPickData.bluetoothNames(act);
-                // ★ 1123d B34/B35：列表空时说清为什么（Wi‑Fi 缺定位权限就顺手弹系统授权；蓝牙关着就叫开蓝牙）
-                boolean isWifi = s == EventTask.Source.WIFI;
-                boolean locOk = !isWifi || EventPickData.locationOk(act);
-                boolean btOn = isWifi || EventPickData.bluetoothOn();
-                boolean btPermOk = isWifi || EventPickData.bluetoothConnectOk(act);
-                String hint = EventPickHint.emptyHint(isWifi, names, btOn, locOk, btPermOk);
-                if (hint != null) {
-                    host.toast(hint);
-                    if (isWifi && !locOk && android.os.Build.VERSION.SDK_INT >= 23) {
-                        try { act.requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, 4711); } catch (Throwable ignored) { }
+                // ★ 1123e：列表空时在页面里（提示框）说清为什么、给一颗去处理的按钮，不再用会被系统授权框挡住的 toast；
+                //   Wi‑Fi 先看定位总开关（关着 → 去打开定位，不再申请权限）；拒绝过权限 → 去设置，不再弹系统框
+                final boolean isWifi = s == EventTask.Source.WIFI;
+                final String perm = isWifi ? android.Manifest.permission.ACCESS_FINE_LOCATION : EventPickHint.PERM_BT_CONNECT;
+                final EventPickHint.Fix fix = EventPickHint.fix(isWifi, names,
+                        !isWifi || EventPickData.locationOn(act), !isWifi || EventPickData.locationPerm(act), EventPickData.asked(act, perm),
+                        isWifi || EventPickData.bluetoothOn(), isWifi || EventPickData.bluetoothConnectOk(act), EventPickData.asked(act, perm));
+                final String hint = EventPickHint.fixHint(isWifi, names, fix);
+                final List<String> fNames = names;
+                final Runnable openPicker = new Runnable() {
+                    @Override public void run() {
+                        Pickers.one(act, isWifi ? "选 Wi‑Fi（已保存 / 附近的）" : "选蓝牙设备（已配对的）", FormChoices.targetChoices(fNames),
+                                target[0].length() == 0 ? FormChoices.ANY : target[0],
+                                isWifi ? "Wi‑Fi 名称" : "蓝牙设备名或 MAC 地址", new Pickers.OnText() {
+                                    @Override public void pick(String c) {
+                                        String t = FormChoices.targetOf(c);
+                                        target[0] = t == null ? c : t;
+                                        sync.run();
+                                    }
+                                });
                     }
-                    // ★ 1123d B35：Android 12 以上缺「附近的设备」就顺手弹系统授权（蓝牙关着时先让用户开蓝牙，不弹）
-                    if (!isWifi && btOn && !btPermOk) {
-                        try { act.requestPermissions(new String[]{EventPickHint.PERM_BT_CONNECT}, 4712); } catch (Throwable ignored) { }
-                    }
+                };
+                if (hint == null) {
+                    openPicker.run();
+                    return;
                 }
-                Pickers.one(act, s == EventTask.Source.WIFI ? "选 Wi‑Fi（已保存 / 附近的）" : "选蓝牙设备（已配对的）", FormChoices.targetChoices(names),
-                        target[0].length() == 0 ? FormChoices.ANY : target[0],
-                        s == EventTask.Source.WIFI ? "Wi‑Fi 名称" : "蓝牙设备名或 MAC 地址", new Pickers.OnText() {
-                            @Override public void pick(String c) {
-                                String t = FormChoices.targetOf(c);
-                                target[0] = t == null ? c : t;
-                                sync.run();
-                            }
+                AlertDialog.Builder hb = new AlertDialog.Builder(act).setTitle(isWifi ? "Wi‑Fi 列表是空的" : "蓝牙列表是空的").setMessage(hint)
+                        .setNegativeButton("继续选", new DialogInterface.OnClickListener() {
+                            @Override public void onClick(DialogInterface d, int w) { openPicker.run(); }
                         });
+                String btn = EventPickHint.fixButton(fix);
+                if (btn != null) hb.setPositiveButton(btn, new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) { applyPickFix(act, fix, perm); }
+                });
+                hb.show();
             }
         });
         appsBtn.setOnClickListener(new android.view.View.OnClickListener() {
@@ -226,6 +236,33 @@ public final class EventConsole {
                 }
             });
             row.addView(add);
+        }
+    }
+
+    /** ★ 1123e：列表空提示框上的主按钮：弹系统授权（只弹一次）/ 去定位开关 / 去蓝牙 / 去本应用权限页。 */
+    private static void applyPickFix(Activity act, EventPickHint.Fix fix, String perm) {
+        try {
+            switch (fix) {
+                case REQUEST_LOCATION:
+                case REQUEST_BT:
+                    EventPickData.markAsked(act, perm);
+                    if (android.os.Build.VERSION.SDK_INT >= 23) act.requestPermissions(new String[]{perm}, fix == EventPickHint.Fix.REQUEST_BT ? 4712 : 4711);
+                    return;
+                case OPEN_LOCATION_SETTINGS:
+                    act.startActivity(new android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                    return;
+                case TURN_ON_BT:
+                    act.startActivity(new android.content.Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS));
+                    return;
+                case OPEN_APP_SETTINGS:
+                    act.startActivity(new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.fromParts("package", act.getPackageName(), null)));
+                    return;
+                default:
+                    return;
+            }
+        } catch (Throwable t) {
+            android.widget.Toast.makeText(act, "打不开系统设置，请到系统设置里手动打开", android.widget.Toast.LENGTH_LONG).show();
         }
     }
 

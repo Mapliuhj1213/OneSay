@@ -209,6 +209,10 @@ public final class ConsoleKit {
 
     /** 行的实现：标题 + 副标题 + 尾部（开关 / 状态字 / ›/ 胶囊按钮）。 */
     public final class RowImpl implements ConsoleHost.Row {
+        @Override public void setTitle(String t) {
+            if (title != null && t != null && !t.contentEquals(title.getText())) title.setText(t);
+        }
+
         final LinearLayout root;
         final LinearLayout textCol;
         final TextView title;

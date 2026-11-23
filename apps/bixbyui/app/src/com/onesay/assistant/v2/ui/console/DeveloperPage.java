@@ -32,14 +32,9 @@ final class DeveloperPage extends Console.BuiltPage {
         super(c, "开发者");
     }
 
+    // ★ 1123e：去掉右上角隐蔽的「关闭」；退出开发者模式走「高级 › 开发者模式」开关（DevMode.developerPageRightAction）
     @Override String rightAction() {
-        return "关闭";
-    }
-
-    @Override void onRight() {
-        c.setDevMode(false);
-        c.toast("已关闭开发者模式");
-        c.nav.popToRoot();
+        return DevMode.developerPageRightAction();
     }
 
     @Override void build(LinearLayout col) {

@@ -816,6 +816,37 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         v2TrackIme(true);
     }
 
+    /**
+     * ★ 1123e：唤起即打字（设置「默认打字唤起」/ 收不了音时）。msg 非空 = 卡片上说明原因（出错态，不自动收起），
+     * hint 非空 = 输入框里的短提示。之后由服务放开窗口焦点、弹键盘。
+     */
+    public void openTyping(String msg, String hint) {
+        if (mChat != null) mChat.bar().setNoticeHint(hint);
+        if (!mV2) {
+            switchToTextMode();
+            if (msg != null && mStatusSub != null) mStatusSub.setText(msg);
+            return;
+        }
+        mSearchBar.setVisibility(GONE);
+        if (msg != null) {
+            mV2ErrorLine = msg;
+            v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.ERROR);
+            mV2ErrorLine = msg;
+            v2Render(null);
+        } else {
+            v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.TEXT_MODE);
+        }
+        showSoftKeyboard();
+        v2TrackIme(true);
+    }
+
+    /** ★ 1123e：语音出错 / 没配时把焦点交给底栏输入框（不改卡片状态，错误那句留着）。 */
+    public void focusInputForTyping() {
+        if (!mV2 || mChat == null || chatActive()) return;
+        showSoftKeyboard();
+        v2TrackIme(true);
+    }
+
     public void switchToTextMode() {
         if (chatActive()) {   // ★ ui-K1：对话窗里打字用底栏输入框
             showSoftKeyboard();
@@ -849,6 +880,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
             InputMethodManager imm = (InputMethodManager)
                     getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) {
+                // ★ 1123e P2：窗口刚从不可获焦改成可获焦时，输入法可能还连着别的输入框（字打进去看不见）→ 重连到这个框再弹
+                if (edit.hasFocus()) imm.restartInput(edit);
                 imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT);
             }
         } catch (Throwable ignore) {}
@@ -1478,8 +1511,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
             if (mResultCard != null) mResultCard.setVisibility(GONE);
         }
         FloatingSheetService fs = FloatingSheetService.getInstance();
-        if (fs != null) fs.showTerminalPromptQuiet("没听清，可再说一次或点「⌨ 文字」输入");
-        else markTerminalState(Color.parseColor("#FF9F0A"), "没听清", "可再说一次，或点「⌨ 文字」输入");
+        if (fs != null) fs.showTerminalPromptQuiet("没听清，可再说一次或直接在下面打字");
+        else markTerminalState(Color.parseColor("#FF9F0A"), "没听清", "可再说一次，或直接在下面打字");
     }
 
     // 「去填写邮箱授权码」入口（邮件未配置/认证失败，或方案里提到授权码且确未配置时出现）
@@ -2235,7 +2268,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
     /** 卡片模式下出结果 / 出错 / 打字时，底部换成与对话窗同一个 ChatBottomBar（ChatWindowPolicy.cardBarVisible）。 */
     private void v2RefreshCardBar(com.onesay.assistant.v2.ui.wake.WakeStage.Stage st) {
         if (mChat == null || chatActive()) return;
-        mChat.showOnCard(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.cardBarVisible(st, mV2, false));
+        mChat.showOnCard(com.onesay.assistant.v2.ui.chat.ChatWindowPolicy.cardBarVisible(st, mV2, false),
+                st == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.LISTENING);
     }
 
 
@@ -2260,6 +2294,8 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         clearToggles();
         clearAlarmCards();
         if (mSearchBar != null) mSearchBar.setVisibility(GONE);
+        // ★ 1123e P2：上一轮没发出去的输入框残留（卡片自动收起时不清）不跟这一轮的问句混在一起
+        if (mChat != null && !chatActive()) { mChat.bar().setText(""); mChat.bar().setNoticeHint(null); }
         v2Event(com.onesay.assistant.v2.ui.wake.WakeStage.Event.WAKE);
     }
 

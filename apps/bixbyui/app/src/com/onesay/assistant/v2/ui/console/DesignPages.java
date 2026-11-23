@@ -206,6 +206,13 @@ final class DesignPages {
                     c.push(new VoicePage(c, VoicePage.MODE_FEEL));
                 }
             });
+            // ★ 1123e：默认打字唤起（默认关）：开了唤起即弹键盘、不开麦
+            k.switchRow(gm, "默认打字唤起", "唤起后直接弹键盘打字，不先听你说",
+                    com.onesay.assistant.v2.ui.wake.WakeUiSettings.typeFirst(c.act), new ConsoleHost.Toggle() {
+                @Override public void onToggle(boolean on) {
+                    com.onesay.assistant.v2.ui.wake.WakeUiSettings.setTypeFirst(c.act, on);
+                }
+            });
             LinearLayout gd = k.group(col, "设备");
             k.linkRow(gd, "设备能力与执行后端", "这台手机能做什么 · 唤起入口细项 · 隐私与外部请求", 0, new Runnable() {
                 @Override public void run() {
@@ -228,6 +235,17 @@ final class DesignPages {
                     c.push(new AdvancedPage.PluginsPage(c));
                 }
             });
+            if (DevMode.showSwitch(c.devMode())) {
+                // ★ 1123e：和系统设置一样，开着时这里有一行开关，关掉即退出并隐藏调试工具
+                k.switchRow(gx, DevMode.SWITCH_TITLE, DevMode.SWITCH_SUB, true, new ConsoleHost.Toggle() {
+                    @Override public void onToggle(boolean on) {
+                        if (on) return;
+                        c.setDevMode(false);
+                        c.toast(DevMode.CLOSED);
+                        c.nav.rebuildAll();
+                    }
+                });
+            }
             if (c.devMode()) {
                 k.linkRow(gx, "调试工具", "调试按钮 · 自测 · 关停文件 · 阈值 · 日志", 0, new Runnable() {
                     @Override public void run() {

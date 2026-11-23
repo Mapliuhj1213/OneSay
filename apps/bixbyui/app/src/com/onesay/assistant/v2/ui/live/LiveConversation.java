@@ -247,7 +247,7 @@ final class LiveConversation implements RealtimeAsrSession.Listener, WakeService
             key = null;
         }
         if (c == null || key == null || key.trim().length() == 0) {
-            notice("还没有配置百炼（DashScope）Key，听不了你说话");
+            notice("还没有配置语音服务 Key，听不了你说话");
             return;
         }
         RealtimeAsrSession s = new RealtimeAsrSession(c.getRealtimeUrl(), key.trim(),

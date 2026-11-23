@@ -63,15 +63,15 @@ public class LlmProvidersActivity extends Activity {
         col.removeAllViews();
         col.addView(text("大模型服务商（自带 Key）", 22, TEXT));
         col.addView(text("选一家做「主对话」：理解指令、回答问题、多步任务都走它。Key 只存在本机（系统密钥库加密），只发往该服务的 https 地址，"
-                + "不跟随跳转。没选别家时照旧用 DeepSeek。", 13, SUB));
+                + "不跟随跳转。没选别家时照旧用默认主模型。", 13, SUB));
         String active = ProviderStore.activeId(this);
-        String using = ProviderRouting.active() == null ? "DeepSeek（默认通道）" : ProviderPreset.get(ProviderRouting.active().providerId).title
+        String using = ProviderRouting.active() == null ? "默认主模型" : ProviderPreset.get(ProviderRouting.active().providerId).title
                 + " · " + ProviderRouting.active().model;
         TextView now = text("正在用：" + using, 14, OK);
         now.setPadding(dp(4), dp(10), 0, 0);
         col.addView(now);
         if (active.length() > 0 && !ProviderPreset.DEEPSEEK.equals(active) && ProviderRouting.active() == null) {
-            col.addView(text("已选 " + ProviderPreset.get(active).title + "，但模型名或地址还没填好 —— 先照旧用 DeepSeek。", 12, WARN));
+            col.addView(text("已选 " + ProviderPreset.get(active).title + "，但模型名或地址还没填好 —— 先照旧用默认主模型。", 12, WARN));
         }
         for (ProviderPreset p : ProviderPreset.all()) addCard(p, active);
     }
@@ -100,7 +100,7 @@ public class LlmProvidersActivity extends Activity {
         row(c, "测试", t == null ? "查一次模型列表 / 模型详情（不花 token）" : t,
                 t == null ? SUB : (Boolean.TRUE.equals(testOk.get(p.id)) ? OK : WARN), new Runnable() { public void run() { test(p); } });
         if (!isActive) {
-            row(c, "设为主对话", ProviderPreset.DEEPSEEK.equals(p.id) ? "回到默认 DeepSeek 通道" : "之后的对话改走这家", SUB, new Runnable() {
+            row(c, "设为主对话", ProviderPreset.DEEPSEEK.equals(p.id) ? "回到默认主模型" : "之后的对话改走这家", SUB, new Runnable() {
                 public void run() {
                     ProviderStore.setActive(LlmProvidersActivity.this, ProviderPreset.DEEPSEEK.equals(p.id) ? "" : p.id);
                     build();

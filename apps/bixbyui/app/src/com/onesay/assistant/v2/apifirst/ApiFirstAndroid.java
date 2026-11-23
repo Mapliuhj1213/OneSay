@@ -144,6 +144,7 @@ public final class ApiFirstAndroid implements ApiFirstRouter.Env, ApiFirstRouter
                 if (sec <= 0) return ApiFirstRouter.Attempt.fail("缺少时长");
                 Intent i = new Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, sec)
                         .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
+                if (in.has("title")) i.putExtra(AlarmClock.EXTRA_MESSAGE, in.slot("title"));   // ★ 1123e：计时器带上要提醒的事
                 return start(i, com.onesay.assistant.v2.phone.RiskLabel.requested("已开 " + (sec / 60) + " 分钟计时（系统闹钟接口）", ApiFirstRouter.UNVERIFIED_TIMER));
             }
             if (ApiIntent.CALENDAR_ADD.equals(k)) {

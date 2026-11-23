@@ -64,7 +64,7 @@ alarm.toggle | 2e457b48176a4a98
 alarm.cancel | 3208566368b4f101
 alarm.cancel.all | 64b7680aabc8eb64
 alarm.toggle.all | a7d9680617323c4c
-clock.timer.set | b1a2cab53c24d192
+clock.timer.set | f236b6c33c96d7a0
 torch.on | ac0a493b2012e077
 torch.off | a7a9a3aa6f2276f2
 torch.toggle | 2e64e8eaef876c89

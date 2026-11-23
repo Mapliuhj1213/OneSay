@@ -102,6 +102,22 @@ public final class WakeUiSettings {
         }
     }
 
+    /** ★ 1123e：设置「默认打字唤起」（默认关）：开了唤起即弹键盘、不开麦。 */
+    public static final String KEY_TYPE_FIRST = "type_first";
+    public static final boolean TYPE_FIRST_DEFAULT = false;
+
+    public static boolean typeFirst(Context ctx) {
+        try {
+            return sp(ctx).getBoolean(KEY_TYPE_FIRST, TYPE_FIRST_DEFAULT);
+        } catch (Throwable t) {
+            return TYPE_FIRST_DEFAULT;
+        }
+    }
+
+    public static void setTypeFirst(Context ctx, boolean on) {
+        sp(ctx).edit().putBoolean(KEY_TYPE_FIRST, on).apply();
+    }
+
     public static void setStyle(Context ctx, String style) {
         sp(ctx).edit().putString(KEY_STYLE, style).apply();
     }

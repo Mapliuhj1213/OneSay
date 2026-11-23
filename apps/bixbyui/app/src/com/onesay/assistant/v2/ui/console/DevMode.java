@@ -7,6 +7,21 @@ package com.onesay.assistant.v2.ui.console;
 public final class DevMode {
 
     public static final int TAPS = 7;
+    /** ★ 1123e：和系统设置一样的说法；关在「高级 › 开发者模式」开关。 */
+    public static final String OPENED = "已进入开发者模式";
+    public static final String CLOSED = "已退出开发者模式";
+    public static final String SWITCH_TITLE = "开发者模式";
+    public static final String SWITCH_SUB = "调试工具、自测、关停文件；关掉即退出并隐藏调试工具";
+
+    /** ★ 1123e：「高级」里要不要出「开发者模式」开关行（开着才出，和系统一样；关了就藏起来，再连点版本号打开）。 */
+    public static boolean showSwitch(boolean on) {
+        return on;
+    }
+
+    /** ★ 1123e：调试页右上角不再放隐蔽的「关闭」（退出走「高级」里的开关）。 */
+    public static String developerPageRightAction() {
+        return null;
+    }
     /** 两次点击间隔超过这个就重新数（防止隔很久的误触累加）。 */
     public static final long RESET_GAP_MS = 3000L;
     /** 剩这么多次时开始提示「再点 N 次」（和 Android 系统一样，前几下不吭声）。 */
@@ -43,7 +58,7 @@ public final class DevMode {
     /** 给用户看的提示（null = 不提示）。 */
     public static String hint(int left) {
         if (left < 0) return "已经处于开发者模式";
-        if (left == 0) return "已打开开发者模式（首页最下面「开发者」里）";
+        if (left == 0) return OPENED;
         if (left <= HINT_FROM) return "再点 " + left + " 次进入开发者模式";
         return null;
     }

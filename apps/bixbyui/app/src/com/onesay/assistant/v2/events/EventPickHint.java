@@ -22,6 +22,58 @@ public final class EventPickHint {
         return sdk >= SDK_BT_CONNECT && !granted;
     }
 
+    // ★ 1123e P2/P3：分清「定位总开关关着」和「没给定位权限」；拒绝过就引导去设置（不再弹系统框）
+    public static final String WIFI_LOCATION_OFF = "手机定位关着，系统不给看 Wi‑Fi 名。点「去打开定位」，打开后再点一次；也可以选「列表里没有，自己填…」。";
+    public static final String WIFI_LOCATION_DENIED = "看不到 Wi‑Fi 名：OneSay 还没有定位权限。点「去设置」，在权限里允许「位置信息」；也可以选「列表里没有，自己填…」。";
+    public static final String BT_PERM_DENIED = "看不到已配对的蓝牙设备：要到设置给「附近的设备」权限。点「去设置」打开 OneSay 的权限页；也可以选「列表里没有，自己填…」。";
+
+    /** 列表空时页面上给的那一步。 */
+    public enum Fix { NONE, REQUEST_LOCATION, OPEN_LOCATION_SETTINGS, OPEN_APP_SETTINGS, TURN_ON_BT, REQUEST_BT }
+
+    /**
+     * ★ 1123e：列表空时该做哪一步。Wi‑Fi 先看定位总开关（关着就引导开定位，<b>不</b>再申请权限——target 28 在新系统上会弹后台定位升级框），
+     * 再看权限（没问过 → 弹系统框；问过还没给 → 去设置）。蓝牙先看开关，再看「附近的设备」权限（同样问过一次后改去设置）。
+     */
+    public static Fix fix(boolean wifi, List<String> names, boolean locOn, boolean locPerm, boolean locAsked,
+                          boolean btOn, boolean btPerm, boolean btAsked) {
+        if (hasReal(names)) return Fix.NONE;
+        if (wifi) {
+            if (!locOn) return Fix.OPEN_LOCATION_SETTINGS;
+            if (!locPerm) return locAsked ? Fix.OPEN_APP_SETTINGS : Fix.REQUEST_LOCATION;
+            return Fix.NONE;
+        }
+        if (!btOn) return Fix.TURN_ON_BT;
+        if (!btPerm) return btAsked ? Fix.OPEN_APP_SETTINGS : Fix.REQUEST_BT;
+        return Fix.NONE;
+    }
+
+    /** 那一步配的一句话（列表空且没有可做的事 → 只说为什么空）。有可选项返回 null。 */
+    public static String fixHint(boolean wifi, List<String> names, Fix f) {
+        if (hasReal(names)) return null;
+        if (f == null) f = Fix.NONE;
+        switch (f) {
+            case OPEN_LOCATION_SETTINGS: return WIFI_LOCATION_OFF;
+            case REQUEST_LOCATION: return WIFI_NEED_LOCATION;
+            case OPEN_APP_SETTINGS: return wifi ? WIFI_LOCATION_DENIED : BT_PERM_DENIED;
+            case TURN_ON_BT: return BT_OFF;
+            case REQUEST_BT: return BT_NEED_PERMISSION;
+            default: return wifi ? WIFI_EMPTY : BT_EMPTY;
+        }
+    }
+
+    /** 提示框上那颗主按钮（null = 只有「继续选」）。 */
+    public static String fixButton(Fix f) {
+        if (f == null) return null;
+        switch (f) {
+            case OPEN_LOCATION_SETTINGS: return "去打开定位";
+            case TURN_ON_BT: return "去打开蓝牙";
+            case OPEN_APP_SETTINGS: return "去设置";
+            case REQUEST_LOCATION:
+            case REQUEST_BT: return "允许";
+            default: return null;
+        }
+    }
+
     public static final String BT_EMPTY = "没读到已配对的蓝牙设备。可以先在系统蓝牙里配对，或者选「列表里没有，自己填…」。";
 
     /** 列表里有能选的真名字吗（去掉空串和「&lt;unknown ssid&gt;」）。 */

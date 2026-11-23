@@ -121,7 +121,7 @@ public final class MainModelEndpoint {
 
     /** 设置页那一行的摘要：默认 / 主机名（http 时注明「调试」）。 */
     public static String summary() {
-        if (isDefault()) return "默认（DeepSeek）";
+        if (isDefault()) return "默认主模型";
         String h = host(sBase);
         return (h == null ? sBase : h) + (sBase.regionMatches(true, 0, "http://", 0, 7) ? " · http（仅调试包）" : "");
     }

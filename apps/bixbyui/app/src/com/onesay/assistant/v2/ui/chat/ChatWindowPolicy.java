@@ -156,8 +156,23 @@ public final class ChatWindowPolicy {
     /** 卡片模式下底栏（与对话窗同一个 ChatBottomBar）在哪些阶段替代旧图标行：出结果 / 出错 / 打字。聆听 / 思考阶段保持原卡外观。 */
     public static boolean cardBarVisible(com.onesay.assistant.v2.ui.wake.WakeStage.Stage st, boolean v2, boolean chatActive) {
         if (!v2 || chatActive || st == null) return false;
-        return st == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.RESULT || st == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.ERROR
-                || st == com.onesay.assistant.v2.ui.wake.WakeStage.Stage.TEXT;
+        // ★ 1123e：「输入框 + 麦克风」从唤起起就常驻卡片底（聆听 / 思考 / 作答 / 结果 / 出错 / 打字 / 任务 / 确认都在），
+        //   输入框一直可点；只有没卡片（空闲 / 飞进岛 / 住在岛上 / 退场）时不挂。原来的 ⌨ 小图标随之不再出现。
+        switch (st) {
+            case IDLE:
+            case HANDOFF:
+            case ISLAND:
+            case DISMISSING:
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    /** ★ 1123e：底栏输入框占位：有提示（如收不了音）优先，其次聆听中 / 默认。 */
+    public static String barHint(boolean listening, String notice) {
+        if (notice != null && notice.length() > 0) return notice;
+        return listening ? HINT_LISTENING : HINT_IDLE;
     }
 
     /** 卡片底栏上点麦克风 / 发送 / 输入框：卡片上已经有一轮回答 → 先就地展开成对话窗（同一会话、原形变动画）再执行。 */
