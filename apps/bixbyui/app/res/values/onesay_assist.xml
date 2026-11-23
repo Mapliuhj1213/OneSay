@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ★ feat/assist-role：识别服务二选一（Android 11 及以下用不加权限的老组件；12+ 见 values-v31） -->
+<resources>
+    <bool name="onesay_rs_legacy">true</bool>
+    <bool name="onesay_rs_v31">false</bool>
+</resources>

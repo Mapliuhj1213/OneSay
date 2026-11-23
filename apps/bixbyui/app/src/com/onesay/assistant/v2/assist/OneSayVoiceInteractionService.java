@@ -43,9 +43,21 @@ public class OneSayVoiceInteractionService extends VoiceInteractionService {
     /** 锁屏上按 ASSIST / 长按 Home（supportsLaunchVoiceAssistFromKeyguard）：交给现有唤醒，息屏分支的托底 Activity 负责浮在锁屏上。 */
     @Override
     public void onLaunchVoiceAssistFromKeyguard() {
-        Log.i(TAG, "[VIS] 锁屏上召唤 → 现有唤醒（托底 Activity）");
-        ensureWakeService(this);
-        WakeService.requestWake(AssistEntryPolicy.SRC_KEYGUARD, false);
+        // ★ feat/assist-role：和 session 路径共用时间窗（锁屏上同一次长按可能两边都来），入口关了不唤起
+        if (!com.onesay.assistant.v2.entry.Entries.canFire(this, com.onesay.assistant.v2.entry.BuiltinEntries.ASSISTANT)) {
+            Log.i(TAG, "[VIS] 锁屏上召唤，但「默认数字助理」入口已关闭 → 忽略");
+            return;
+        }
+        if (!new AssistTriggerGate.Once().tryFire(AssistTriggerGate.SHARED, android.os.SystemClock.elapsedRealtime())) {
+            Log.i(TAG, "[VIS] 锁屏上召唤重复 → 忽略");
+            return;
+        }
+        Log.i(TAG, "[VIS] 锁屏上召唤 → 唤醒卡片（锁屏托底 Activity）");
+        try {
+            com.onesay.assistant.v2.entry.Entries.summonVoice(this, AssistEntryPolicy.SRC_KEYGUARD);
+        } catch (Throwable t) {
+            Log.w(TAG, "[VIS] 锁屏唤起失败: " + t);
+        }
     }
 
     /** 本 App 现在是不是默认助理（VIS 已就绪 + 系统设置指向我们）。 */

@@ -138,7 +138,22 @@ public final class Console implements ConsoleHost {
 
     private boolean mResumedOnce;
 
+    /** ★ feat/assist-role：「设为默认助理」——按顺序打开系统设置（请求角色 → 助理设置页 → 默认应用 → 应用信息）。 */
+    public void openAssistRole() {
+        com.onesay.assistant.v2.assist.AssistRoleHost.open(act, new com.onesay.assistant.v2.assist.AssistRoleHost.Hint() {
+            @Override public void show(String text) {
+                toast(text);
+            }
+        });
+    }
+
     public void onResume() {
+        // ★ feat/assist-role：请求助理角色被系统秒拒（原生系统不让 App 直接请求）→ 接着打开系统助理设置页
+        com.onesay.assistant.v2.assist.AssistRoleHost.resumeIfBounced(act, new com.onesay.assistant.v2.assist.AssistRoleHost.Hint() {
+            @Override public void show(String text) {
+                toast(text);
+            }
+        });
         com.onesay.assistant.v2.suggest.SuggestHost.permissionPoke();   // ★ fix/shot-1104：从系统权限页回来 → 截图源立刻重查存储权限
         if (!mResumedOnce) {   // 第一次 onResume 紧跟 start()（setRoot 已经刷新过）
             mResumedOnce = true;

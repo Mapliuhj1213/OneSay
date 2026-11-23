@@ -178,9 +178,7 @@ final class PermSetupPage extends Console.BuiltPage {
                 }
             });
         } else if (PermSetup.ASSISTANT.equals(id)) {
-            if (!open(new Intent("android.settings.MANAGE_DEFAULT_APPS_SETTINGS"), "在「数字助理应用」里选本 App")) {
-                open(new Intent(Settings.ACTION_VOICE_INPUT_SETTINGS), "在「数字助理应用」里选本 App");
-            }
+            c.openAssistRole();   // ★ feat/assist-role：和「高级 › 设为默认助理」同一套跳转顺序
         } else if (PermSetup.BATTERY.equals(id)) {
             batteryAction();
         } else if (PermSetup.CLOUD_TTS.equals(id)) {

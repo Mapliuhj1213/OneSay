@@ -353,7 +353,10 @@
             android:excludeFromRecents="true" />
 
         <!-- ★ r2/sysux P2-1：默认数字助理三件套（混合式：系统入口 + 屏幕上下文；界面仍是悬浮面板）。
-             VIS 与 session 服务只允许系统绑定（BIND_VOICE_INTERACTION）；RecognitionService 是助理必需的最小实现。 -->
+             VIS 与 session 服务只允许系统绑定（BIND_VOICE_INTERACTION）；RecognitionService 是助理必需的最小实现。
+             ★ feat/assist-role：系统召唤 → 现有唤醒卡片（Entries.summonVoice），onShow / onHandleAssist / 锁屏回调只唤起一次。
+             识别服务二选一：Android 12+ 用带 BIND_RECOGNITION_SERVICE 的 OneSayRecognitionServiceV31（res/xml-v31 指向它）；
+             11 及以下仍用不加权限的老组件 —— 那些版本别的 App 直接绑定识别服务，加了权限它们会绑不上。 -->
         <service
             android:name="com.onesay.assistant.v2.assist.OneSayVoiceInteractionService"
             android:exported="true"
@@ -372,8 +375,23 @@
             android:permission="android.permission.BIND_VOICE_INTERACTION" />
         <service
             android:name="com.onesay.assistant.v2.assist.OneSayRecognitionService"
+            android:enabled="@bool/onesay_rs_legacy"
             android:exported="true"
             android:label="OneSay 语音识别">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech"
+                android:resource="@xml/onesay_recognition_service" />
+        </service>
+        <service
+            android:name="com.onesay.assistant.v2.assist.OneSayRecognitionServiceV31"
+            android:enabled="@bool/onesay_rs_v31"
+            android:exported="true"
+            android:label="OneSay 语音识别"
+            android:permission="android.permission.BIND_RECOGNITION_SERVICE">
             <intent-filter>
                 <action android:name="android.speech.RecognitionService" />
                 <category android:name="android.intent.category.DEFAULT" />

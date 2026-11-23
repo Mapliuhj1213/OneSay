@@ -97,12 +97,21 @@ public final class Entries {
                 FloatingSheetService.show(app, com.onesay.assistant.v2.entry.keywake.KeyWake.SCREEN_COMMAND);   // 识屏：读当前屏幕并回答
                 return;
             }
-            Intent i = new Intent(app, WakeService.class);
-            if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(i); else app.startService(i);
-            WakeService.requestWake(source, false);
+            summonVoice(app, source);
         } catch (Throwable t) {
             Log.w(TAG, "[ENTRY] 唤起失败 src=" + source + ": " + t);
         }
+    }
+
+    /**
+     * 语音唤起（快捷开关 / 小部件 / 快捷方式点一下用的就是这条）：拉起 WakeService 再 {@code requestWake}，弹出唤醒卡片开始听。
+     * ★ feat/assist-role：系统助理入口（长按电源 / 角落上滑）也走这里，不另做界面。
+     */
+    public static void summonVoice(Context ctx, String source) {
+        Context app = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
+        Intent i = new Intent(app, WakeService.class);
+        if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(i); else app.startService(i);
+        WakeService.requestWake(source, false);
     }
 
     static void switchComponent(Context app, String id, boolean on) {

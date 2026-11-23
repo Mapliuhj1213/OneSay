@@ -12,9 +12,10 @@ import android.os.SystemClock;
 import android.service.voice.VoiceInteractionSession;
 import android.util.Log;
 
+import com.onesay.assistant.v2.entry.BuiltinEntries;
+import com.onesay.assistant.v2.entry.Entries;
 import com.onesay.assistant.v2.vision.screenref.ScreenContext;
 import com.onesay.assistant.v2.vision.screenref.ScreenContextCapture;
-import com.onesay.assistant.v2.wake.WakeService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +24,8 @@ import java.util.TimeZone;
 /**
  * ★ r2/sysux P2-1/P2-2：不画界面的 session（setUiEnabled(false)）。
  * <ol>
- *   <li>系统召唤（长按 Home / ASSIST 键）→ {@code WakeService.requestWake("assist-system")}，唤起现有面板；</li>
+ *   <li>系统召唤（长按 Home / 电源键 / 角落上滑）→ {@link Entries#summonVoice}（和快捷开关 / 小部件点一下同一条路），弹出现有唤醒卡片；
+ *       ★ feat/assist-role：onShow 和 onHandleAssist 都可能来，经 {@link AssistTriggerGate} 只唤起一次；</li>
  *   <li>{@link #onHandleAssist}：AssistStructure → {@link AssistNodeFlattener} → {@link ScreenContext#fromAssistNodes} →
  *       {@link ScreenContextCapture#put}（识屏管线优先用它；拿不到 / 太空时 ScreenRefHooks 照旧 root uiautomator 回退）；</li>
  *   <li>{@link #onHandleScreenshot}：截图只留在内存（{@link AssistScreenshot}，给 VL 兜底用，过期即丢，不落盘）；</li>
@@ -37,6 +39,9 @@ public class OneSaySession extends VoiceInteractionSession {
     private boolean mGotAssist, mGotShot;
     private long mShownAt;
     private String mSrc;
+    /** ★ feat/assist-role：这次显示是不是系统召唤（要唤起卡片）；只取上下文的显示不唤起。 */
+    private boolean mWakeMode;
+    private AssistTriggerGate.Once mOnce = new AssistTriggerGate.Once();
 
     public OneSaySession(Context ctx) {
         super(ctx);
@@ -55,17 +60,14 @@ public class OneSaySession extends VoiceInteractionSession {
         mGotAssist = (showFlags & SHOW_WITH_ASSIST) == 0;
         mGotShot = (showFlags & SHOW_WITH_SCREENSHOT) == 0;
         String ctxSrc = args != null ? args.getString(AssistEntryPolicy.ARG_SRC) : null;
+        mOnce = new AssistTriggerGate.Once();
         if (AssistEntryPolicy.onShow(ctxSrc) == AssistEntryPolicy.OnShow.WAKE) {
             mSrc = AssistEntryPolicy.SRC_SYSTEM;
-            if (!com.onesay.assistant.v2.entry.Entries.canFire(getContext(), com.onesay.assistant.v2.entry.BuiltinEntries.ASSISTANT)) {
-                Log.i(TAG, "[SESSION] 系统召唤，但「默认数字助理」入口已在设置里关闭 → 忽略");
-            } else {
-                Log.i(TAG, "[SESSION] 系统召唤（flags=0x" + Integer.toHexString(showFlags) + "）→ 唤起现有面板");
-                OneSayVoiceInteractionService.ensureWakeService(getContext());
-                WakeService.requestWake(mSrc, false);
-            }
+            mWakeMode = true;
+            summonOnce("onShow flags=0x" + Integer.toHexString(showFlags));
         } else {
             mSrc = ctxSrc;
+            mWakeMode = false;
             Log.i(TAG, "[SESSION] 只取上下文（唤醒 src=" + ctxSrc + "，flags=0x" + Integer.toHexString(showFlags) + "）");
         }
         mMain.removeCallbacks(mHideRunnable);
@@ -83,6 +85,7 @@ public class OneSaySession extends VoiceInteractionSession {
     @Override
     public void onHandleAssist(Bundle data, AssistStructure structure, AssistContent content) {
         long t0 = SystemClock.elapsedRealtime();
+        if (mWakeMode) summonOnce("onHandleAssist");   // 个别系统不走 onShow 直接给数据：这里兜一次（已唤起过会被闸门挡掉）
         try {
             if (structure == null) {
                 Log.i(TAG, "[ASSIST] 系统没给 AssistStructure（安全窗口 / 设置关 / 锁屏）→ 识屏回退 uiautomator");
@@ -110,6 +113,25 @@ public class OneSaySession extends VoiceInteractionSession {
         }
         mGotShot = true;
         maybeHide();
+    }
+
+    /** ★ feat/assist-role：系统召唤 → 唤起现有唤醒卡片，同一次按键只唤起一次。 */
+    private void summonOnce(String why) {
+        Context c = getContext();
+        if (!Entries.canFire(c, BuiltinEntries.ASSISTANT)) {
+            Log.i(TAG, "[SESSION] 系统召唤（" + why + "），但「默认数字助理」入口已在设置里关闭 → 忽略");
+            return;
+        }
+        if (!mOnce.tryFire(AssistTriggerGate.SHARED, SystemClock.elapsedRealtime())) {
+            Log.i(TAG, "[SESSION] 系统召唤（" + why + "）重复，已唤起过 → 忽略");
+            return;
+        }
+        Log.i(TAG, "[SESSION] 系统召唤（" + why + "）→ 唤起唤醒卡片");
+        try {
+            Entries.summonVoice(c, AssistEntryPolicy.SRC_SYSTEM);
+        } catch (Throwable t) {
+            Log.w(TAG, "[SESSION] 唤起失败: " + t);
+        }
     }
 
     private void maybeHide() {

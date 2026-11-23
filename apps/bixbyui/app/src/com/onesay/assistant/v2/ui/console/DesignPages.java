@@ -214,6 +214,14 @@ final class DesignPages {
                 }
             });
             LinearLayout gd = k.group(col, "设备");
+            // ★ feat/assist-role：设为系统默认助理（长按电源键 / 角落上滑叫出唤醒卡片）；显示现在是不是
+            final Boolean isDef = com.onesay.assistant.v2.assist.AssistRoleHost.isDefault(c.act);
+            k.actionRow(gd, com.onesay.assistant.v2.assist.AssistRole.ROW_TITLE, com.onesay.assistant.v2.assist.AssistRole.rowSub(isDef),
+                    com.onesay.assistant.v2.assist.AssistRole.rowAction(isDef), new Runnable() {
+                @Override public void run() {
+                    c.openAssistRole();
+                }
+            });
             k.linkRow(gd, "设备能力与执行后端", "这台手机能做什么 · 唤起入口细项 · 隐私与外部请求", 0, new Runnable() {
                 @Override public void run() {
                     c.push(new DeviceCapsPage(c));

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ★ feat/assist-role：Android 12+ 用带 BIND_RECOGNITION_SERVICE 保护的识别服务 -->
+<resources>
+    <bool name="onesay_rs_legacy">false</bool>
+    <bool name="onesay_rs_v31">true</bool>
+</resources>

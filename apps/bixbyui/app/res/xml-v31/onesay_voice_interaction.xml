@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ★ feat/assist-role：Android 12+ 版默认助理声明，和 res/xml/ 同名同内容，只有识别服务换成带
+     BIND_RECOGNITION_SERVICE 保护的 OneSayRecognitionServiceV31。sessionService 与 recognitionService 必须同时存在，
+     缺一个系统就判无效并清掉设置。类名写全限定（debug 包改了包名但 Java 包不变）。 -->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.onesay.assistant.v2.assist.OneSaySessionService"
+    android:recognitionService="com.onesay.assistant.v2.assist.OneSayRecognitionServiceV31"
+    android:settingsActivity="com.onesay.assistant.v2.ui.MainActivity"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true"
+    android:supportsLocalInteraction="false" />
