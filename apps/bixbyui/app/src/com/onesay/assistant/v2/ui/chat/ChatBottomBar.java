@@ -24,6 +24,14 @@ import android.widget.TextView;
  * 录音时占位「聆听中…」、麦克风换成跳动的紫色波点）；右 通话（= 相机对话）。「+」展开 拍照 / 从相册选图，选完缩略图附在输入框上方。
  */
 public final class ChatBottomBar extends LinearLayout {
+    /** ★ 1123-dui B24：输入框最多长到几行，再多在框里滚。 */
+    static final int MAX_LINES = 5;
+
+    /** ★ 1123-dui B24：胶囊圆角：单行 26dp，多行收到 20dp。 */
+    static float pillRadiusDp(int lines) {
+        return lines > 1 ? 20f : 26f;
+    }
+
 
     public interface Listener {
         void onCircleSelect();
@@ -109,7 +117,7 @@ public final class ChatBottomBar extends LinearLayout {
         // 外层悬浮圆角条
         LinearLayout bar = new LinearLayout(c);
         bar.setOrientation(HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setGravity(Gravity.BOTTOM);   // ★ 1123-dui B24：输入框长高时左右按钮靠底
         bar.setPadding(dp(8), dp(8), dp(8), dp(8));
         GradientDrawable ob = new GradientDrawable();
         ob.setCornerRadius(dp(34));
@@ -124,26 +132,45 @@ public final class ChatBottomBar extends LinearLayout {
 
         LinearLayout pill = new LinearLayout(c);
         pill.setOrientation(HORIZONTAL);
-        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setGravity(Gravity.BOTTOM);
         pill.setPadding(dp(14), 0, dp(8), 0);
-        GradientDrawable pb = new GradientDrawable();
+        pill.setMinimumHeight(dp(52));
+        final GradientDrawable pb = new GradientDrawable();
         pb.setCornerRadius(dp(26));
         pb.setColor(FILL);
         pill.setBackground(pb);
         ImageView logo = new ImageView(c);
         logo.setImageDrawable(new ChatIcons(ChatIcons.BIXBY, GLYPH));
-        pill.addView(logo, new LayoutParams(dp(24), dp(24)));
+        LayoutParams llp = new LayoutParams(dp(24), dp(24));
+        llp.bottomMargin = dp(14);
+        pill.addView(logo, llp);
         mEdit = new EditText(c);
         mEdit.setBackground(null);
-        mEdit.setSingleLine(true);
+        // ★ 1123-dui B24：1 行起、随字长高到 5 行，超出在框里滚；不设多行输入类型，保住键盘「发送」、回车不发送
+        mEdit.setSingleLine(false);
+        mEdit.setHorizontallyScrolling(false);
+        mEdit.setMinLines(1);
+        mEdit.setMaxLines(MAX_LINES);
+        mEdit.setVerticalScrollBarEnabled(true);
+        mEdit.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        mEdit.setMinHeight(dp(52));
         mEdit.setTextColor(GLYPH);
         mEdit.setHintTextColor(HINT);
         mEdit.setHint(ChatWindowPolicy.HINT_IDLE);
         mEdit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
-        mEdit.setEllipsize(android.text.TextUtils.TruncateAt.END);   // ★ fix-1118：放不下时省略号收尾，不再截半个字
         mEdit.setInputType(InputType.TYPE_CLASS_TEXT);
         mEdit.setImeOptions(EditorInfo.IME_ACTION_SEND);
-        mEdit.setPadding(dp(8), 0, dp(4), 0);
+        // setInputType 会把单行打开；这里关掉单行后再用 raw 去掉多行标记（键盘仍显示「发送」），最后重设行数
+        mEdit.setSingleLine(false);
+        mEdit.setRawInputType(InputType.TYPE_CLASS_TEXT);
+        mEdit.setHorizontallyScrolling(false);
+        mEdit.setMaxLines(MAX_LINES);
+        mEdit.setPadding(dp(8), dp(12), dp(4), dp(12));
+        mEdit.addOnLayoutChangeListener(new OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob2) {
+                pb.setCornerRadius(dp(pillRadiusDp(mEdit.getLineCount())));
+            }
+        });
         mEdit.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
@@ -226,8 +253,10 @@ public final class ChatBottomBar extends LinearLayout {
             @Override public void onClick(View v) { if (mListener != null) mListener.onMic(); }
         });
         micSlot.addView(mDots, new FrameLayout.LayoutParams(dp(38), dp(38), Gravity.CENTER));
-        pill.addView(micSlot, new LayoutParams(dp(40), dp(40)));
-        LayoutParams plp = new LayoutParams(0, dp(52), 1f);
+        LayoutParams micLp = new LayoutParams(dp(40), dp(40));
+        micLp.bottomMargin = dp(6);
+        pill.addView(micSlot, micLp);
+        LayoutParams plp = new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         plp.leftMargin = dp(8);
         plp.rightMargin = dp(8);
         bar.addView(pill, plp);

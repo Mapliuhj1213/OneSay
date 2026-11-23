@@ -169,7 +169,7 @@ public class VoiceprintEnrollController {
                     com.onesay.assistant.v2.asr.SpeakerVerifier.get(mAppCtx);
             if (!sv.isAvailable()) {
                 msg(Color.parseColor("#FF9F0A"),
-                        "声纹引擎不可用：" + sv.getLoadError());
+                        "声纹引擎不可用：" + com.onesay.assistant.v2.util.UserErrText.scrub(sv.getLoadError(), "声纹引擎没加载起来，重启 OneSay 再试"));   // ★ 1123-dui B37
                 return;
             }
             mSession++;

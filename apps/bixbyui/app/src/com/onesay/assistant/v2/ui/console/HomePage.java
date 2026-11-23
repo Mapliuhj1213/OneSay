@@ -69,6 +69,7 @@ final class HomePage extends ConsoleNav.Page {
 
         // ---- [fix-1123-c] 连接电脑：配对入口直接放在首页（扫码 / 粘贴配对码一步到位），不用先进「插件 › 电脑联动」
         mPcGroup = k.group(col, "连接电脑");
+        mPcState = "";   // ★ 1123-dui B17'：页面重建（后台切回）时新组是空的，别沿用旧状态跳过填充
         fillPc();
 
         // ---- 计划：日程 / 定时任务 / 待办 / 票 / 取件码 / 自动任务统一入口（一行「打开计划」+ 一排直达页签）
@@ -338,13 +339,18 @@ final class HomePage extends ConsoleNav.Page {
      * [fix-1123-c] 首页「连接电脑」：没开 → 一行「打开」；没配对 → 「扫码连电脑」「粘贴配对码」两行直接做；配对了 → 一行显示连的是哪台电脑，点进去管理。
      * 行为都是电脑联动原来的（同一个扫码页、同一个粘贴框、同一个开关），只是入口挪到首页。
      */
+    /** ★ 1123-dui B17'：状态没变且组里已有内容才跳过；组是空的（重建过）一定重填。 */
+    static boolean needFill(String st, String prev, int childCount) {
+        return childCount == 0 || !st.equals(prev);
+    }
+
     void fillPc() {
         if (mPcGroup == null) return;
         final android.app.Activity act = c.act;
         final com.onesay.assistant.v2.kernel.FeatureSwitch sw = com.onesay.assistant.v2.pclink.PcLink.SWITCH;
         String st = PcEntry.state(sw.on(act), sw.killed(act), com.onesay.assistant.v2.pclink.PcLink.paired(act), com.onesay.assistant.v2.pclink.PcLink.keyLost(act))
                 + "|" + com.onesay.assistant.v2.pclink.PcLink.pcName(act);
-        if (st.equals(mPcState)) return;
+        if (!needFill(st, mPcState, mPcGroup.getChildCount())) return;
         mPcState = st;
         mPcGroup.removeAllViews();
         String state = PcEntry.state(sw.on(act), sw.killed(act), com.onesay.assistant.v2.pclink.PcLink.paired(act), com.onesay.assistant.v2.pclink.PcLink.keyLost(act));

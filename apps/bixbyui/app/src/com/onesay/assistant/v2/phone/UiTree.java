@@ -33,6 +33,8 @@ public final class UiTree {
         public String cls = "";
         public int l, t, r, b;
         public boolean click, edit, scroll, check, checked, selected, focused, password, enabled = true;
+        /** ★ 1123-dui B11：可获焦点但没标可点的整行（Flyme 设置行）。 */
+        public boolean focusRow;
         /** 稳定键（不含编号）。 */
         String key = "";
         /** ★ mika-plug：后端句柄（助手树里的节点下标）；-1 = 没有。 */
@@ -211,6 +213,10 @@ public final class UiTree {
             boolean edit = x.has(FsTree.F_EDIT);
             boolean scroll = x.has(FsTree.F_SCROLL);
             boolean check = x.has(FsTree.F_CHECKABLE);
+            // ★ 1123-dui B11：Flyme 设置行只标 focusable 不标 clickable，按可点的整行对待（取子孙文字当名字）
+            boolean focusRow = !click && !edit && !check && !scroll && x.has(FsTree.F_FOCUSABLE) && hasText[i] && !kids.get(i).isEmpty()
+                    && area / screenArea < 0.3f && !kidClickable(t, kids, i);
+            if (focusRow) click = true;
             String own = joinLabel(x.text, x.desc);
             if (own.length() == 0 && !click && !edit && !scroll && !check) continue;
             if (own.length() > 0 && !click && !edit && !check && usedAsLabel.contains(i)) continue;   // 已并进可点父节点的名字
@@ -225,6 +231,7 @@ public final class UiTree {
             e.r = x.r;
             e.b = x.b;
             e.click = click;
+            e.focusRow = focusRow;
             e.edit = edit;
             e.scroll = scroll;
             e.check = check;
@@ -244,6 +251,16 @@ public final class UiTree {
         }
         u.blindArea = blind;
         return u;
+    }
+
+    /** ★ 1123-dui B11：子孙里已有可点节点就不把整行当可点。 */
+    static boolean kidClickable(FsTree t, List<List<Integer>> kids, int i) {
+        for (int c : kids.get(i)) {
+            FsTree.Node y = t.nodes.get(c);
+            if (y.has(FsTree.F_CLICK) || y.has(FsTree.F_LONG) || y.has(FsTree.F_CHECKABLE) || y.has(FsTree.F_EDIT)) return true;
+            if (kidClickable(t, kids, c)) return true;
+        }
+        return false;
     }
 
     private static int namedInside(FsTree t, List<List<Integer>> kids, int i) {

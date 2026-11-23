@@ -769,3 +769,5 @@ com/onesay/assistant/v2/phongent/PgApprove.java
 com/onesay/assistant/v2/fastscreen/FsStdio.java
 com/onesay/assistant/v2/search/ParallelSearchProvider.java
 com/onesay/assistant/v2/search/WebSearchClient.java
+com/onesay/assistant/v2/util/UserErrText.java
+com/onesay/assistant/v2/phone/SettingsAlias.java

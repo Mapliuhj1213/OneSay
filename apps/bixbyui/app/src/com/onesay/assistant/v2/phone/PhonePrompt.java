@@ -66,6 +66,7 @@ public final class PhonePrompt {
                               String budgetInfo, int maxLines) {
         StringBuilder b = new StringBuilder();
         b.append("任务：").append(goal).append('\n');
+        b.append(SettingsAlias.hintFor(goal));   // ★ 1123-dui B3：厂商叫法别名 + 找不到就搜
         if (history != null && !history.isEmpty()) {
             b.append("已经做过：\n");
             for (String h : history) b.append("- ").append(PhoneAgent.clip(h, 200)).append('\n');

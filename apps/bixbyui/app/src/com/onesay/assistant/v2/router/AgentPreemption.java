@@ -34,6 +34,14 @@ public final class AgentPreemption {
         return agentOwnsCard(dispatchSeq, currentSeq);
     }
 
+    /**
+     * ★ 1123-dui B18：面板开着按返回键 = 只收起面板。任务已经在岛上跑着时不连带取消（要停去点岛上的「停止」）；
+     * 没上岛的任务照旧当用户关掉面板处理。
+     */
+    public static boolean backKeyKeepsTask(boolean agentRunning, boolean islandTaskRunning) {
+        return agentRunning && islandTaskRunning;
+    }
+
     /** ★ 11-04 B：执行模式让位（面板收起给 App 操作腾地方）不是用户取消 → 不连带取消。 */
     public static boolean teardownCancelsAgent(int dispatchSeq, int currentSeq, boolean yieldForExec) {
         return !yieldForExec && agentOwnsCard(dispatchSeq, currentSeq);

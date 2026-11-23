@@ -873,7 +873,9 @@ public class FloatingSheetView extends CurvedEdgeContainer {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
                 hideSoftKeyboard();
-                if (mListener != null) {
+                if (mListener instanceof FloatingSheetService) {
+                    ((FloatingSheetService) mListener).onBackKey();   // ★ 1123-dui B18：返回键只收面板，岛上任务不取消
+                } else if (mListener != null) {
                     mListener.onDismiss();
                 }
             }
