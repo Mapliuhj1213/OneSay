@@ -156,8 +156,13 @@ public class LinkV2Test {
             assertNotNull(r);
             assertEquals(Boolean.TRUE, r.get("ok"));
             assertEquals("电脑记住了这台手机的证书", ph.tls().fp, Config.load(s.cfg.file).pinOf("phone-aaa"));
-            assertEquals("局域网·加密", s.agent.peers().get("phone-aaa"));
+            // [rel-1123-b] 只有常连算在线：一次性连接不进 peers（以前算，导致电脑每 10 秒刷一次上线 / 离线）
+            assertNull("一次性连接不算在线", s.agent.peers().get("phone-aaa"));
             c.lc.stop();
+            Conn h = new Conn(ph, true, null);
+            assertTrue(h.why.get(), h.up);
+            assertEquals("局域网·加密", s.agent.peers().get("phone-aaa"));
+            h.lc.stop();
         }
     }
 

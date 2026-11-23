@@ -192,7 +192,7 @@ public class Link1119PhoneTest {
         assertFalse("查按目标操作进展跟着按目标操作", PcRxPolicy.defaultOn("operate_status"));
         assertEquals("shortcut_run", PcRxPolicy.toggleOf("shortcut_list"));
         assertEquals("operate", PcRxPolicy.toggleOf("operate_status"));
-        assertEquals(19, PcRxPolicy.ALL.length);
+        assertEquals("[rel-1123-b] +1：看手机上装了哪些 App", 20, PcRxPolicy.ALL.length);
         Stub h = new Stub();
         assertFalse(PcRx.handle(h, "shortcut_list", m()).ok);
         assertTrue(PcRx.handle(h, "shortcut_list", m()).text.contains("运行手机上的快捷指令"));

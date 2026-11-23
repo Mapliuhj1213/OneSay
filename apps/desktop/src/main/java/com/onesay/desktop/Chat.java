@@ -63,6 +63,14 @@ public final class Chat {
     /** [phone-tools-1118] 现在连着的配对设备（设备 id → 通道名；App 接到 Agent.peers）和最近常连过的手机 id。 */
     public volatile Supplier<Map<String, String>> phones = TreeMap::new;
     public volatile Supplier<String> lastPhone = () -> "";
+    /** [rel-1123-b] 没有手机在线时的原因（App 接到 Agent.offlineWhy）；空 = 不知道 / 在线。 */
+    public volatile Supplier<String> phoneWhy = () -> "";
+    /** [rel-1123-b] 交给手机的目标：登记 (goal_id, 目标) 并拿到等结果的 future（App 接到 Agent.goalStarted / goalFuture）；null = 没接（只说交过去了）。 */
+    public volatile java.util.function.BiFunction<String, String, java.util.concurrent.CompletableFuture<Agent.Goal>> phoneGoal;
+    /** 不等了（停止 / 超时）：App 接到 Agent.goalUnwait（结果之后回来照样记下、发电脑通知）。 */
+    public volatile Consumer<String> phoneGoalUnwait = g -> { };
+    /** [rel-1123-b] 等手机做完最多多久（之后结果回来会发电脑通知）。 */
+    static volatile long goalWaitMs = 5 * 60_000L;
     /** 工作区、用户目录（写进系统提示）。 */
     volatile String workspace = "", home = System.getProperty("user.home", "");
 
@@ -876,7 +884,7 @@ public final class Chat {
     }
 
     static final String PHONE_HOWTO = "连手机的办法：在手机 OneSay 的「控制台 › 电脑联动」里打开「接受电脑指令」，用「扫码配对」扫电脑 OneSay「设置 › 连接」里的配对二维码；"
-            + "配好后手机和电脑在同一个局域网（或都开了中转）就会自动连上。要让电脑把目标交给手机去做，还要在手机「电脑联动」里打开「按目标操作手机」这一项。";
+            + "或在手机上点「找附近的电脑」、再在电脑上点「允许」；配好后手机和电脑在同一个局域网（或都开了中转）就会自动连上。要让电脑把目标交给手机去做，还要在手机「电脑联动」里打开「按目标操作手机」这一项。";
 
     /** 现在连着的手机（没有返回空表）。 */
     Map<String, String> phonesNow() {
@@ -898,8 +906,8 @@ public final class Chat {
         Map<String, String> on = phonesNow();
         String last = "";
         try { last = String.valueOf(lastPhone.get()); } catch (RuntimeException ignored) { }
-        if (on.isEmpty() && (last == null || last.isBlank() || "null".equals(last))) return Actions.Result.fail("现在没有手机连着这台电脑。" + PHONE_HOWTO);
-        if (!"phone_status".equals(cmd) && ChatPolicy.Preset.of(cfg.chatPreset) == ChatPolicy.Preset.READ_ONLY)
+        if (on.isEmpty() && (last == null || last.isBlank() || "null".equals(last))) return Actions.Result.fail("现在没有手机连着这台电脑。" + why() + PHONE_HOWTO);
+        if (!"phone_status".equals(cmd) && !"phone_apps".equals(cmd) && ChatPolicy.Preset.of(cfg.chatPreset) == ChatPolicy.Preset.READ_ONLY)
             return Actions.Result.fail("现在的权限预设是「只读」，不让手机做动作；要的话在对话框上方把预设改成「默认」。");
         try {
             Actions.Result r;
@@ -958,7 +966,15 @@ public final class Chat {
                     String bad = PhoneCmds.check("operate", x);
                     if (bad != null) return Actions.Result.fail(bad);
                     r = p.apply("operate", x);
-                    return r.ok ? r : offline(r, "operate");
+                    if (!r.ok) return offline(r, "operate");
+                    return awaitGoal(r, String.valueOf(x.get("goal")));
+                }
+                case "phone_apps": { // [rel-1123-b] 手机上装了哪些 App（受手机「看手机上装了哪些 App」开关管）
+                    Map<String, Object> x = new TreeMap<>();
+                    Object q = a.get("query");
+                    if (q != null && !String.valueOf(q).isBlank()) x.put("query", String.valueOf(q).trim());
+                    r = p.apply("app_list", x);
+                    return r.ok ? r : offline(r, "app_list");
                 }
                 default:
                     return Actions.Result.fail("不认识的手机工具：" + cmd);
@@ -966,6 +982,71 @@ public final class Chat {
         } catch (Exception e) {
             return Actions.Result.fail("手机出错：" + e.getClass().getSimpleName());
         }
+    }
+
+    /** [rel-1123-b] 离线原因（带句号；没有返回空串）。 */
+    String why() {
+        try {
+            String w = phoneWhy.get();
+            return w == null || w.isBlank() ? "" : w.trim() + "。";
+        } catch (RuntimeException e) {
+            return "";
+        }
+    }
+
+    /**
+     * [rel-1123-b] 手机收下目标以后，等它做完把结果回传（手机做完 / 没做成 / 被拒 / 停了都会回一帧 goal_result）。
+     * 等的时候任务卡上显示「手机正在做…」，「停止」/「取消」不等了；最多等 {@link #goalWaitMs}，之后的结果回来会发电脑通知。
+     * 手机版本太旧（不回 goal_id）就照旧只说交过去了。
+     */
+    Actions.Result awaitGoal(Actions.Result handed, String goal) {
+        Object gidO = handed.data == null ? null : handed.data.get("goal_id");
+        java.util.function.BiFunction<String, String, java.util.concurrent.CompletableFuture<Agent.Goal>> pg = phoneGoal;
+        if (gidO == null || pg == null) return handed;
+        String gid = String.valueOf(gidO);
+        java.util.concurrent.CompletableFuture<Agent.Goal> f = pg.apply(gid, goal);
+        Consumer<Map<String, Object>> sink = Progress.SINK.get();
+        AtomicBoolean cancel = Progress.begin(); // 任务卡上的「取消」/ 任务「停止」：不等了（全局开关先清掉，别吃到上一次的取消）
+        long t0 = System.currentTimeMillis(), end = t0 + goalWaitMs;
+        try {
+            while (true) {
+                Agent.Goal g;
+                try {
+                    g = f.get(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.TimeoutException te) {
+                    long now = System.currentTimeMillis();
+                    if (cancel != null && cancel.get())
+                        return new Actions.Result(false, "不等了：手机上可能还在做「" + Notify.clip(goal, 40) + "」，做完的结果会发到电脑通知里", goalData(gid, "running", List.of()));
+                    if (now >= end)
+                        return new Actions.Result(false, "手机做了 " + (goalWaitMs / 60_000) + " 分钟还没做完，先不等了；做完的结果会发到电脑通知里", goalData(gid, "running", List.of()));
+                    if (sink != null) {
+                        Map<String, Object> pv = Progress.view("手机正在做", 0, -1, now - t0);
+                        pv.put("text", "手机正在做「" + Notify.clip(goal, 30) + "」，已经 " + ((now - t0) / 1000) + " 秒（要你确认的会在手机上弹卡）");
+                        try { sink.accept(pv); } catch (RuntimeException ignored) { }
+                    }
+                    continue;
+                }
+                Map<String, Object> d = goalData(gid, g.state, g.steps);
+                d.put("goal", goal);
+                String line = Humanize.goalLine(g.state, g.text);
+                return g.ok() ? Actions.Result.ok(line, d) : new Actions.Result(false, line, d);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Actions.Result(false, "不等了：手机上可能还在做", goalData(gid, "running", List.of()));
+        } catch (java.util.concurrent.ExecutionException e) {
+            return new Actions.Result(false, "等手机结果时出错：" + e.getClass().getSimpleName(), goalData(gid, "running", List.of()));
+        } finally {
+            try { phoneGoalUnwait.accept(gid); } catch (RuntimeException ignored) { }
+        }
+    }
+
+    static Map<String, Object> goalData(String gid, String state, List<Object> steps) {
+        Map<String, Object> d = new TreeMap<>();
+        d.put("goal_id", gid);
+        d.put("goal_state", state);
+        if (steps != null && !steps.isEmpty()) d.put("steps", new ArrayList<>(steps));
+        return d;
     }
 
     static Actions.Result offline(Actions.Result r) { return offline(r, ""); }
@@ -991,7 +1072,7 @@ public final class Chat {
             String last = "";
             try { last = String.valueOf(lastPhone.get()); } catch (RuntimeException ignored) { }
             boolean known = last != null && !last.isBlank() && !"null".equals(last);
-            b.append("- 现在没有手机连着这台电脑").append(known ? "（最近连过 " + last + "，调用手机工具时会叫它连回来，等几秒）" : "").append("。用户要操作手机时，")
+            b.append("- 现在没有手机连着这台电脑").append(known ? "（最近连过 " + last + "，调用手机工具时会叫它连回来，等几秒）" : "").append("。").append(why()).append("用户要操作手机时，")
                     .append(known ? "先试 phone_status；连不上就" : "").append("告诉用户：").append(PHONE_HOWTO).append('\n');
         }
         return b.toString();

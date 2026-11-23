@@ -34,6 +34,8 @@ public final class PcWs {
     private final OutputStream out;
     /** 这条连接走的是 TLS。 */
     public volatile boolean tls;
+    /** [rel-1123-b] TLS 时对方证书的指纹（免扫码配对：先记下看到的电脑证书，配对串回来后核对）；明文为空串。 */
+    public volatile String peerFp = "";
     /** 收到对方 close 帧时的状态码（-1 = 没收到）。 */
     public volatile int closeCode = -1;
 
@@ -63,6 +65,7 @@ public final class PcWs {
         Socket raw = new Socket();
         Socket s = raw;
         boolean ok = false;
+        String seenFp = "";
         try {
             raw.setTcpNoDelay(true);
             raw.connect(a, connectMs);
@@ -77,6 +80,12 @@ public final class PcWs {
                     ss.startHandshake();
                 } catch (SSLException e) {
                     throw new TlsException(e);
+                }
+                try {
+                    java.security.cert.Certificate[] pc = ss.getSession().getPeerCertificates();
+                    if (pc.length > 0) seenFp = PcTls.fingerprint(pc[0].getEncoded());
+                } catch (Exception ignored) {
+                    // 拿不到指纹：免扫码配对那边会因为指纹对不上而拒绝
                 }
             }
             InputStream in = new BufferedInputStream(s.getInputStream());
@@ -102,6 +111,7 @@ public final class PcWs {
             ok = true;
             PcWs ws = new PcWs(s, in, out);
             ws.tls = tls != null;
+            ws.peerFp = seenFp;
             return ws;
         } finally {
             if (!ok) {

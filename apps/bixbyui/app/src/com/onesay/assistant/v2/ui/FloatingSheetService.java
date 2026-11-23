@@ -1468,6 +1468,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         cancelActiveStream(true);   // 新一轮指令到达 → 上一轮在途流式作废；r2/fixes 14：复合任务只在新请求也进 AgentLoop 时取消
         beginForegroundRequest();   // ★ LC-5：卡片在岛上时新建卡片接住这条请求（岛上任务不动）
         SafeLog.i(TAG, "收到前端输入指令: " + com.onesay.assistant.v2.util.LogText.u(command));
+        com.onesay.assistant.v2.pclink.PcGoals.submitted(command, mRequestSeq);   // [rel-1123-b] 电脑交来的目标：认领这一轮 / 被新指令打断
         mSheetView.setSuggestionsVisible(true);   // ★ M-2：离开错误态，恢复推荐芯片
         mSheetView.updateState("正在解析", Color.parseColor("#A9A7A2"), "“" + command + "”");
         // [kernel] 插件输入拦截：[s1] 「圈一下 / 框选（这是什么）」→ 圈选即问；
@@ -1838,6 +1839,7 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
         if (mSheetView != null) mSheetView.chatNoteRoute("AgentLoop");   // ★ ui-K1
         mActiveAgent = cancel;
         mActiveAgentSeq = agentSeq;
+        com.onesay.assistant.v2.pclink.PcGoals.agentStarted(agentSeq);   // [rel-1123-b] 电脑交来的目标走了复合任务：等循环结束再回传
         mSheetView.updateState("正在处理", Color.parseColor("#A9A7A2"), "这是一条复合任务，正在逐步执行…");
         mSheetView.setDismissLabel("✕ 取消");
         com.onesay.assistant.v2.s1.S1Hooks.onTaskStart(this, command, islandNow);   // [s1] 长任务开始：稍后可收成胶囊（★ arch/island-progress：单步不上岛）
@@ -2095,6 +2097,9 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
                                 fr == null ? null : (alarmCap[0] != null ? "alarm" : fr.answer),
                                 fr == null ? "任务处理失败" : islandWhy, needsCard);   // [island]
                         com.onesay.assistant.v2.s1.S1Hooks.onTaskEnded(FloatingSheetService.this, cancel.isCancelled(), navExecuted[0]);
+                        // [rel-1123-b] 电脑交来的目标：把最终回答 / 没做完的原因回传电脑（只传文字，不传屏幕）
+                        com.onesay.assistant.v2.pclink.PcGoals.agentEnded(agentSeq, fr != null && fr.finished, cancel.isCancelled(),
+                                fr == null ? null : fr.answer, fr == null ? "任务处理失败" : islandWhy, tl.lines());
                         if (mActiveAgent == cancel) mActiveAgent = null;   // r2/fixes 14
                         // ★ feat/api-first：时间轴收尾（取消 = 已停止；否则按结局折叠成「已完成 / 没完成」），通知复原
                         if (cancel.isCancelled()) tl.stopped();

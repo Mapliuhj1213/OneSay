@@ -182,7 +182,12 @@ public final class ChatAgent {
         Map<String, Object> po = new TreeMap<>();
         po.put("description", prop("string", DESC));
         po.put("goal", prop("string", "要手机做的事，一句完整的中文目标（如「打开设置查一下系统版本」「在微信里打开文件传输助手」），最多 500 字"));
-        l.add(fn("phone_operate", "把一个目标交给手机上的 OneSay，由手机自己看屏幕、规划、点按去做（和用户在手机上说这句话一样）。打电话、发短信、付款、给别人发消息手机上会弹卡让用户确认。只负责交过去，结果要再用 phone_status 或截图确认。", po, List.of("description", "goal")));
+        l.add(fn("phone_operate", "把一个目标交给手机上的 OneSay，由手机自己看屏幕、规划、点按去做（和用户在手机上说这句话一样）。打电话、发短信、付款、给别人发消息手机上会弹卡让用户确认。交过去以后会等手机做完（最多 5 分钟），返回手机自己说的最终结果或没做成的原因；照实转告用户，别自己编结果。", po, List.of("description", "goal")));
+        // [rel-1123-b] 手机上装了哪些 App
+        Map<String, Object> pq = new TreeMap<>();
+        pq.put("description", prop("string", DESC));
+        pq.put("query", prop("string", "可选：只看名字里带这几个字的（如「地图」「京东」），不填就列全部"));
+        l.add(fn("phone_apps", "列出已配对手机上装了哪些 App（桌面上的名字和包名）。用户问「手机上有哪些 App」「装没装某个 App」时用它，不要去试 adb。", pq, List.of("description")));
         // [overnight-1119] 下载文件（任务卡上有进度条、可取消）
         Map<String, Object> dl = new TreeMap<>();
         dl.put("description", prop("string", DESC));
@@ -385,6 +390,11 @@ public final class ChatAgent {
             }
             case "phone_shortcuts":
                 return new Object[] {"phone_shortcuts", out};
+            case "phone_apps": { // [rel-1123-b]
+                Object q = a.get("query");
+                if (q != null && !String.valueOf(q).isBlank()) out.put("query", clip(String.valueOf(q).trim(), 40));
+                return new Object[] {"phone_apps", out};
+            }
             case "phone_run_shortcut": {
                 Object n = a.get("name");
                 if (n == null || String.valueOf(n).isBlank()) return null;
@@ -1161,6 +1171,7 @@ public final class ChatAgent {
             case "net_download": return "下载：" + clip(String.valueOf(a.get("url")), 160) + " → " + clip(String.valueOf(a.get("path")), 120);
             case "phone_send_file": return "发文件到手机：" + clip(String.valueOf(a.get("path")), 200);
             case "phone_shortcuts": return "看手机上的快捷指令";
+            case "phone_apps": return a.get("query") == null ? "看手机上装了哪些 App" : "看手机上有没有「" + clip(String.valueOf(a.get("query")), 40) + "」";
             case "phone_run_shortcut": return "在手机上运行快捷指令「" + clip(String.valueOf(a.get("name")), 60) + "」";
             default: return cmd;
         }

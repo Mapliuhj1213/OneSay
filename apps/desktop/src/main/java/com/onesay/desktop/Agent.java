@@ -46,6 +46,19 @@ public final class Agent {
         // [preview-1120] 环境变量 ONESAY_LAN=off：这次不开局域网监听（真机测预览版时用，免得新路径的 exe 弹防火墙询问；手机离线时也用不上）
         if (cfg.lanEnabled() && !"off".equalsIgnoreCase(String.valueOf(System.getenv("ONESAY_LAN")))) add(l -> new LanServer(cfg, l));
         if (cfg.relayEnabled()) add(l -> new RelayClient(cfg, l));
+        // [rel-1123-b] 免扫码配对：确认框走同一套 Confirms（只认电脑本机鼠标 / 键盘；不发到任何手机上去批）
+        for (Link l : links) if (l instanceof LanServer) {
+            LanServer ls = (LanServer) l;
+            ls.log = log;
+            ls.pairAsk = (name, id, code, ip, replaces, ms) -> confirms.ask(LanPair.FROM, "pair", LanPair.detail(name, id, code, ip, replaces), ms);
+        }
+    }
+
+    /** [rel-1123-b] 没有手机在线时的原因（有在线的、或没开局域网返回 null）。 */
+    public OfflineWhy.Why offlineWhy() {
+        if (!relayPeers.isEmpty()) return null;
+        for (Link l : links) if (l instanceof LanServer) return ((LanServer) l).offlineWhy(cfg.phoneLast, System.currentTimeMillis());
+        return null;
     }
 
     private void add(java.util.function.Function<Link.Listener, Link> make) {
@@ -100,7 +113,9 @@ public final class Agent {
         }
         if (type.equals("presence")) {
             boolean on = Boolean.TRUE.equals(f.get("online"));
-            if (on) relayPeers.add(String.valueOf(f.get("device"))); else relayPeers.remove(String.valueOf(f.get("device")));
+            if (via instanceof RelayClient) { // [rel-1123-b] 局域网的在线以常连为准（LanServer.clients），这里只记中转的
+                if (on) relayPeers.add(String.valueOf(f.get("device"))); else relayPeers.remove(String.valueOf(f.get("device")));
+            }
             log.accept("设备 " + f.get("device") + (on ? " 上线" : " 离线") + "（" + via.name() + "）");
             return;
         }
@@ -123,6 +138,7 @@ public final class Agent {
         Map<String, Object> body = (Map<String, Object>) f.get("body");
         if ("result".equals(body.get("kind"))) { onResult(from, id, body); return; } // 电脑 → 手机下令的回复
         if ("confirm_answer".equals(body.get("kind"))) { onConfirmAnswer(from, id, body); return; } // 手机屏幕上确认卡的回答
+        if ("goal_result".equals(body.get("kind"))) { onGoalResult(from, id, body); return; } // [rel-1123-b] 电脑交给手机的目标做完了
         if (!"cmd".equals(body.get("kind"))) return;
 
         Protocol.Check c = Protocol.verify(cfg.pairKey, id, from, cfg.deviceId, body, System.currentTimeMillis(), replay);
@@ -338,6 +354,7 @@ public final class Agent {
      */
     boolean offerToPhone(PcGuard.PhoneOffer o) {
         if (o == null || o.from == null || o.from.isEmpty() || ChatAgent.FROM.equals(o.from) || !cfg.peerAllowed(o.from)) return false; // 本机对话的确认只在电脑上点
+        if (LanPair.FROM.equals(o.from)) return false; // [rel-1123-b] 新手机配对只在电脑本机上点，不发到任何手机
         Link via = route(o.from);
         if (via == null) return false;
         Map<String, Object> b = new TreeMap<>();
@@ -437,7 +454,11 @@ public final class Agent {
                     via = route(device);
                 }
             }
-            if (via == null) { out.complete(Actions.Result.fail("手机离线（局域网里没连上 " + device + "），没发出去")); return; }
+            if (via == null) {
+                OfflineWhy.Why w = offlineWhy(); // [rel-1123-b] 离线写原因
+                out.complete(Actions.Result.fail("手机离线（局域网里没连上 " + device + "），没发出去" + (w == null ? "" : "。" + w.text)));
+                return;
+            }
             String id = Protocol.newId();
             pending.put(id, out);
             pendingTo.put(id, device);
@@ -458,6 +479,109 @@ public final class Agent {
         t.setDaemon(true);
         t.start();
         return out;
+    }
+
+    // ------------------------------------------------------------------ [rel-1123-b] 电脑交给手机的目标：结果回传
+
+    /** 一次交给手机的目标（operate）的结果。 */
+    public static final class Goal {
+        public final String id, device, goal;
+        public volatile String state = "running", text = "";
+        public volatile List<Object> steps = List.of();
+        public final long at;
+        public volatile long endAt;
+
+        Goal(String id, String device, String goal, long at) { this.id = id; this.device = device; this.goal = goal; this.at = at; }
+
+        public boolean done() { return !"running".equals(state); }
+
+        public boolean ok() { return "done".equals(state); }
+
+        public Map<String, Object> view() {
+            Map<String, Object> m = new TreeMap<>();
+            m.put("id", id);
+            m.put("device", device);
+            m.put("goal", goal);
+            m.put("state", state);
+            m.put("text", text);
+            m.put("steps", new ArrayList<>(steps));
+            m.put("at", at);
+            m.put("end_at", endAt);
+            return m;
+        }
+    }
+
+    private final Map<String, Goal> goals = java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<String, Goal>(16, 0.75f, false) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Goal> e) { return size() > 50; }
+    });
+    private final Map<String, java.util.concurrent.CompletableFuture<Goal>> goalWait = new ConcurrentHashMap<>();
+    private final Protocol.ReplayGuard goalReplay = new Protocol.ReplayGuard();
+    /** 结果回来了（App 接上：没人在等的就发一条电脑通知）。参数：结果、当时有没有人在等。 */
+    public volatile java.util.function.BiConsumer<Goal, Boolean> onGoalDone;
+
+    /** 手机收下目标后登记（id 是手机回的 goal_id）。 */
+    public Goal goalStarted(String device, String gid, String goal) {
+        Goal g = new Goal(gid, device, goal == null ? "" : goal, System.currentTimeMillis());
+        goals.put(gid, g);
+        return g;
+    }
+
+    /** 等这个目标的结果（已经回来了就马上完成）。 */
+    public java.util.concurrent.CompletableFuture<Goal> goalFuture(String gid) {
+        Goal g = goals.get(gid);
+        java.util.concurrent.CompletableFuture<Goal> f = goalWait.computeIfAbsent(gid, k -> new java.util.concurrent.CompletableFuture<>());
+        if (g != null && g.done()) f.complete(g);
+        return f;
+    }
+
+    public void goalUnwait(String gid) { goalWait.remove(gid); }
+
+    /** 最近一次交给手机的目标（没有返回 null）。 */
+    public Goal lastGoal() {
+        synchronized (goals) {
+            Goal last = null;
+            for (Goal g : goals.values()) last = g;
+            return last;
+        }
+    }
+
+    static final java.util.Set<String> GOAL_STATES = java.util.Set.of("done", "failed", "denied", "stopped", "timeout", "interrupted", "unknown");
+
+    @SuppressWarnings("unchecked")
+    private void onGoalResult(String from, String id, Map<String, Object> body) {
+        Protocol.Check c = Protocol.verify(cfg.pairKey, id, from, cfg.deviceId, body, System.currentTimeMillis(), goalReplay);
+        if (c != Protocol.Check.OK || !cfg.peerAllowed(from)) {
+            log.accept("手机 " + from + " 回传的任务结果没通过校验：" + (c != Protocol.Check.OK ? c : "设备未被允许"));
+            return;
+        }
+        String gid = String.valueOf(body.get("gid"));
+        if (!gid.matches("[A-Za-z0-9_-]{4,64}")) return;
+        String st = String.valueOf(body.get("state"));
+        if (!GOAL_STATES.contains(st)) st = "failed";
+        Goal g = goals.get(gid);
+        if (g == null) { // 电脑重启过 / 等过了期：照样记下（手机自己说的目标）
+            g = new Goal(gid, from, Notify.clip(String.valueOf(body.getOrDefault("goal", "")), 500), System.currentTimeMillis());
+            goals.put(gid, g);
+        } else if (!from.equals(g.device)) {
+            log.accept("任务结果来自另一台手机 " + from + "，不认");
+            return;
+        }
+        if (g.done()) return; // 重发的同一条
+        g.text = Notify.clip(String.valueOf(body.getOrDefault("text", "")), 2000);
+        Object steps = body.get("steps");
+        if (steps instanceof List) {
+            List<Object> l = new ArrayList<>();
+            for (Object o : (List<Object>) steps) if (l.size() < 12) l.add(Notify.clip(String.valueOf(o), 120));
+            g.steps = l;
+        }
+        g.endAt = System.currentTimeMillis();
+        g.state = st;
+        log.accept("手机 " + from + " 回传了任务结果：" + Humanize.goalState(st));
+        java.util.concurrent.CompletableFuture<Goal> f = goalWait.get(gid);
+        boolean waited = f != null && !f.isDone();
+        if (f != null) f.complete(g);
+        java.util.function.BiConsumer<Goal, Boolean> h = onGoalDone;
+        if (h != null) try { h.accept(g, waited); } catch (RuntimeException ignored) { }
     }
 
     /** 能到这台设备的通道：局域网常连优先，其次中转。 */

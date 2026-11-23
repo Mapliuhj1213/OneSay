@@ -664,6 +664,10 @@ com/onesay/assistant/v2/pclink/PcRxPolicy.java
 com/onesay/assistant/v2/pclink/LinkPolicy.java
 # approve-not-block（2026-11-10）：手机屏幕上的确认卡（纯 Java 规则）
 com/onesay/assistant/v2/pclink/PcConfirm.java
+com/onesay/assistant/v2/pclink/PcGoals.java
+com/onesay/assistant/v2/pclink/PcAppList.java
+com/onesay/assistant/v2/pclink/PcPairNearby.java
+com/onesay/assistant/v2/pclink/PcLinkText.java
 # feat/api-first（2026-11-11）：接口优先路由层 / 执行时间轴 / 停止键真中断 / 可点追问短语（纯 Java）
 com/onesay/assistant/v2/apifirst/RouteTier.java
 com/onesay/assistant/v2/apifirst/ApiIntent.java

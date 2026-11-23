@@ -241,7 +241,7 @@ public class PcLinkV2Test {
     @Test public void ossExtraDefaultsOff() {
         assertFalse(PcRxPolicy.MASTER_DEFAULT);
         assertEquals(8, PcRxPolicy.EXTRA.length);
-        assertEquals(19, PcRxPolicy.ALL.length); // [phone-tools-1118] + 按目标操作；[overnight-1119] + 收电脑发来的文件 / 运行快捷指令
+        assertEquals(20, PcRxPolicy.ALL.length); // [phone-tools-1118] + 按目标操作；[overnight-1119] + 收电脑发来的文件 / 运行快捷指令；[rel-1123-b] + 看已装 App
         for (String c : PcRxPolicy.EXTRA) {
             assertTrue(c, PcRxPolicy.known(c) && PcRxPolicy.extra(c));
             assertFalse("开源版默认关：" + c, PcRxPolicy.defaultOn(c));

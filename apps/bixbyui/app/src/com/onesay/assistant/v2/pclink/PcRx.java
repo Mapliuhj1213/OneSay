@@ -387,6 +387,47 @@ public final class PcRx {
         return PcJson.stringify(env);
     }
 
+    /**
+     * [rel-1123-b] 电脑交给手机的目标做完了：签名的 goal_result（gid、状态、手机自己说的最终回答、几行步骤、目标原文）。
+     * 不带屏幕内容。电脑按 gid 写回同一张任务卡。
+     */
+    static String goalFrame(PcLanClient.Peer p, PcGoals.Goal g, long nowMs) {
+        Map<String, Object> b = new TreeMap<String, Object>();
+        b.put("kind", "goal_result");
+        b.put("gid", g.id);
+        b.put("state", g.state());
+        b.put("ok", Boolean.valueOf(PcGoals.DONE.equals(g.state())));
+        b.put("text", g.text());
+        b.put("steps", new ArrayList<Object>(g.steps()));
+        b.put("goal", PcGoals.clip(g.goal, 200));
+        String rid = PcProtocol.newId();
+        Map<String, Object> env = new TreeMap<String, Object>();
+        env.put("type", "msg");
+        env.put("to", p.peer);
+        env.put("id", rid);
+        env.put("body", PcProtocol.seal(p.key, rid, p.me, p.peer, b, nowMs));
+        return PcJson.stringify(env);
+    }
+
+    /** [rel-1123-b] 现在的常连（没有 = null）：目标结果从这里发回电脑。 */
+    private static volatile PcWs heldWs;
+    private static volatile PcLanClient.Peer heldPeer;
+
+    static final PcGoals.Sink GOAL_SINK = new PcGoals.Sink() {
+        @Override public boolean send(PcGoals.Goal g) {
+            PcWs ws = heldWs;
+            PcLanClient.Peer p = heldPeer;
+            if (ws == null || p == null) return false;
+            if (g.pc.length() > 0 && !g.pc.equals(p.peer)) return false; // 只回给交来目标的那台电脑
+            try {
+                ws.sendText(goalFrame(p, g, System.currentTimeMillis()));
+                return true;
+            } catch (IOException e) {
+                return false;
+            }
+        }
+    };
+
     /** 同时在处理的指令最多几条（要确认的可能等 60 秒，每条一个线程，免得挡住后面的 ping / 找手机）。 */
     static final int MAX_INFLIGHT = 6;
 
@@ -400,6 +441,13 @@ public final class PcRx {
         };
         final java.util.concurrent.atomic.AtomicInteger inflight = new java.util.concurrent.atomic.AtomicInteger();
         long lastPing = System.currentTimeMillis();
+        heldWs = ws; // [rel-1123-b] 目标结果从常连发回去；连上先补发没发出去的
+        heldPeer = p;
+        PcGoals.setSink(GOAL_SINK);
+        try {
+            PcGoals.flush();
+        } catch (Throwable ignored) {
+        }
         try {
             while (!stop.stopped()) {
                 ws.setReadTimeout(1000);
@@ -444,6 +492,10 @@ public final class PcRx {
         } catch (IOException e) {
             return "io " + e.getClass().getSimpleName();
         } finally {
+            if (heldWs == ws) {
+                heldWs = null;
+                heldPeer = null;
+            }
             s.close();
         }
     }

@@ -124,6 +124,12 @@ public final class PcTls {
     /** 服务端（电脑）：出示自己的证书，要求对方出示任意证书（是谁由签名的 hello + 记住的指纹决定）。 */
     public SSLContext serverContext() { return context(null); }
 
+    /**
+     * [rel-1123-b] 免扫码配对用的客户端：出示自己的证书，先接受对方任何证书（还不认识电脑）。看到的指纹记在 {@link PcWs#peerFp}，
+     * 之后电脑回的配对串里的指纹必须就是它；两边屏幕上的核对码也是用这两张证书的指纹算的。
+     */
+    public SSLContext firstContactContext() { return context(null); }
+
     /** 客户端：出示自己的证书，只认指纹为 pinnedFp 的服务端。 */
     public SSLContext clientContext(String pinnedFp) {
         if (!validFp(pinnedFp)) throw new IllegalArgumentException("指纹格式不对");

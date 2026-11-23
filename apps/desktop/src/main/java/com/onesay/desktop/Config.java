@@ -52,6 +52,8 @@ public final class Config {
     public String pins = "";          // 记住的对方设备证书指纹：设备id=指纹,...（首次 TLS 连上时记，换钥匙清空）
     public boolean lanPlain = false;   // ★ fix-1118 SEC M6：默认不再接受旧版（v1，明文）手机；lan_plain=on 明确打开才收，已经用 TLS 连过的设备照旧不接受明文
     public String phoneLast = "";     // 最近一台常连（hold）的手机 id，电脑→手机下令时找它
+    /** [rel-1123-b] 免扫码配对：同一局域网里没配对的手机能发现这台电脑并发起配对请求（每次都要在电脑上点「允许」）；lan_pair_invite=off 关掉。 */
+    public boolean pairInvite = true;
     public String pcLevel = "auto";   // 旧版的三档（read_only / auto / full）：只为兼容旧配置和旧手机；现在以下面两轴为准
     public String pcSandbox = "workspace_write"; // 沙箱档：read_only / workspace_write（默认）/ full_access（LinkPolicy.Sandbox）
     public String pcApproval = "untrusted";      // 审批策略：untrusted 分类（默认）/ on_request 按需 / never 从不（LinkPolicy.Approval）
@@ -142,6 +144,7 @@ public final class Config {
         // 没有 lan_plain_v=2 标记的旧配置一律按关处理（下次保存写上标记）；要连 0.4.x 手机得重新明确打开（设置 / 配置文件写 lan_plain=on）。
         c.lanPlain = "2".equals(p.getProperty("lan_plain_v", "").trim()) && "on".equalsIgnoreCase(p.getProperty("lan_plain", "off").trim());
         c.phoneLast = p.getProperty("phone_last", "").trim();
+        c.pairInvite = !"off".equalsIgnoreCase(p.getProperty("lan_pair_invite", "on").trim());
         c.wolEnabled = "on".equalsIgnoreCase(p.getProperty("wol_enabled", "off").trim());
         c.wolAuto = "on".equalsIgnoreCase(p.getProperty("wol_auto", "off").trim());
         c.wolMac = WakeOnLan.normMac(p.getProperty("wol_mac", ""));
@@ -260,6 +263,7 @@ public final class Config {
         p.setProperty("lan_plain", lanPlain ? "on" : "off");
         p.setProperty("lan_plain_v", "2");   // ★ fix-1118 SEC M6：迁移标记（见 load）
         p.setProperty("phone_last", phoneLast);
+        p.setProperty("lan_pair_invite", pairInvite ? "on" : "off");
         p.setProperty("wol_enabled", wolEnabled ? "on" : "off");
         p.setProperty("wol_auto", wolAuto ? "on" : "off");
         p.setProperty("wol_mac", wolMac);

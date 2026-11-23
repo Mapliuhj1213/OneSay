@@ -23,7 +23,8 @@ public final class PhoneCmds {
     public static final List<String> ALL = List.of("ping", "caps", "status", "find_phone", "open_url", "open_app", "screen_on", "volume_set", "clipboard_set", "notify",
             "flashlight", "setting_set", "file_write", "file_list", "uninstall_app", "script_list", "script_run", "sys_exec",
             "operate", // [phone-tools-1118] 按目标操作：交给手机上的 OneSay 自己规划执行（手机端默认关）
-            "file_put", "shortcut_list", "shortcut_run", "operate_status"); // [overnight-1119] 发文件到手机（分块）、手机上的快捷指令、按目标操作的进展
+            "file_put", "shortcut_list", "shortcut_run", "operate_status", // [overnight-1119] 发文件到手机（分块）、手机上的快捷指令、按目标操作的进展
+            "app_list"); // [rel-1123-b] 手机上装了哪些 App（名字 + 包名，最多 300 条；手机上单独一个开关）
 
     /** 加回来的 8 项（手机上每项一个开关，挂在「接受电脑指令」总开关下）。 */
     public static final List<String> EXTRA = List.of("flashlight", "setting_set", "file_write", "file_list", "uninstall_app", "script_list", "script_run", "sys_exec");
@@ -34,6 +35,7 @@ public final class PhoneCmds {
         long base;
         if (cmd.equals("sys_exec") || cmd.equals("script_run")) base = 20_000; // 手机特权通道执行，命令本身要时间
         else if (cmd.equals("file_put")) base = 30_000; // [overnight-1119] 一块 512 KB，慢 Wi-Fi 也够
+        else if (cmd.equals("app_list")) base = 15_000; // [rel-1123-b] 装得多的手机读名字要几秒
         else base = cmd.equals("find_phone") || cmd.equals("open_app") || cmd.equals("uninstall_app") || cmd.equals("setting_set") || cmd.equals("shortcut_run") ? 12_000 : 8_000;
         return mayConfirmOnPhone(cmd) ? base + LinkPolicy.CONFIRM_TIMEOUT_MS + 5_000 : base;
     }
@@ -88,6 +90,8 @@ public final class PhoneCmds {
                 return str(a, "xfer").isEmpty() || a.get("seq") == null || a.get("b64") == null ? "分块不全" : null;
             case "shortcut_run":
                 return str(a, "name").isEmpty() ? "要给快捷指令名" : null;
+            case "app_list":
+                return str(a, "query").length() > 40 ? "要找的名字太长" : null;
             default: return null;
         }
     }
