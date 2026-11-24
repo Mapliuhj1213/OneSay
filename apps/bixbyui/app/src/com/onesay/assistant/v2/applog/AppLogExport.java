@@ -15,7 +15,7 @@ import java.util.zip.ZipOutputStream;
  * [settings-diag-1124] 「导出日志」打包（纯 Java，JVM 可测）：一个 zip，里面是
  * <ul>
  *   <li>{@code OneSay日志.txt}：开头一段「这台手机 / 这个版本 / 设置清单」，后面是应用内日志（从旧到新）；</li>
- *   <li>{@code 本应用logcat.txt}（有才放）：只抓 OneSay 自己进程的系统日志。</li>
+ *   <li>{@code 本应用系统日志.txt}（有才放）：只抓 OneSay 自己进程的系统日志。</li>
  * </ul>
  * 每一段内容进 zip 前都再过一次 {@link AppLogSanitizer}：头部信息、logcat 都不例外。
  * 导出文件放在私有目录 {@code files/applog/export/}，每次导出先删掉上一次的。
@@ -25,7 +25,7 @@ public final class AppLogExport {
     private AppLogExport() {}
 
     public static final String LOG_ENTRY = "OneSay日志.txt";
-    public static final String LOGCAT_ENTRY = "本应用logcat.txt";
+    public static final String LOGCAT_ENTRY = "本应用系统日志.txt";
 
     /** 打包结果。 */
     public static final class Result {

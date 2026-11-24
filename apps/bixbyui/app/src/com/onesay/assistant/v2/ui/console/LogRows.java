@@ -14,7 +14,7 @@ final class LogRows {
     private LogRows() {}
 
     static final String EXPORT_TITLE = "导出日志";
-    static final String EXPORT_SUB = "出问题时用：把最近的运行日志打成一个压缩包，用微信 / 邮件等发给开发者。不含聊天原文、Key 和个人信息";
+    static final String EXPORT_SUB = "出问题时用：把最近的运行日志打成一个压缩包，用聊天软件或邮件发给开发者。不含聊天原文、Key 和个人信息";
     static final String CLEAR_TITLE = "清空日志";
 
     static void add(final Console c, LinearLayout g) {

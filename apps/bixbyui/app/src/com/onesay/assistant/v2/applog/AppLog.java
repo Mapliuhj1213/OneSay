@@ -168,8 +168,16 @@ public final class AppLog {
     }
 
     private static final Object FILE_LOCK = new Object();
+    /** 取一批 + 写盘整段串行：flush() 要等后台那批写完才返回（否则导出 / 崩溃时刚记的行可能还没进文件）。 */
+    private static final Object DRAIN_LOCK = new Object();
 
     private static void drain() {
+        synchronized (DRAIN_LOCK) {
+            drainLocked();
+        }
+    }
+
+    private static void drainLocked() {
         File dir = sDir;
         if (dir == null) return;
         List<String[]> batch = new ArrayList<String[]>();
@@ -267,15 +275,17 @@ public final class AppLog {
 
     /** 清空全部日志文件（设置里「清空日志」，确认后才调）。@return 删掉的文件数 */
     public static int clear() {
-        synchronized (LOCK) {
-            PENDING.clear();
-            sDropped = 0;
+        synchronized (DRAIN_LOCK) {   // 等后台正在写的那批写完再删，删完不会又冒出旧行
+            synchronized (LOCK) {
+                PENDING.clear();
+                sDropped = 0;
+            }
+            int n = 0;
+            synchronized (FILE_LOCK) {
+                for (File f : files()) if (f.delete()) n++;
+            }
+            return n;
         }
-        int n = 0;
-        synchronized (FILE_LOCK) {
-            for (File f : files()) if (f.delete()) n++;
-        }
-        return n;
     }
 
     /** 体积给人看（「1.2 MB」「36 KB」）。 */
