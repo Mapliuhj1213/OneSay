@@ -124,7 +124,7 @@ final class HomePage extends ConsoleNav.Page {
                 c.push(new DesignPages.PluginsPage(c));
             }
         });
-        mAboutRow = k.linkRow(g1, "高级", "专家选项 · 运行状态 · 关于" + (c.devMode() ? " · 开发者" : ""), ConsoleIcon.SLIDERS, new Runnable() {
+        mAboutRow = k.linkRow(g1, "高级", "专家选项 · 运行状态 · 日志 · 关于" + (c.devMode() ? " · 开发者" : ""), ConsoleIcon.SLIDERS, new Runnable() {
             @Override public void run() {
                 c.push(new DesignPages.AdvancedHubPage(c));
             }
@@ -328,7 +328,7 @@ final class HomePage extends ConsoleNav.Page {
                         mQuickNoteOn = qnOn;
                         if (mSnap != null) mHint.setText(ConsoleStatus.heroHint(mSnap.paused, qnOn));
                         updateVoiceRow();
-                        mAboutRow.setSub("专家选项 · 运行状态 · 关于" + (c.devMode() ? " · 开发者" : ""));
+                        mAboutRow.setSub("专家选项 · 运行状态 · 日志 · 关于" + (c.devMode() ? " · 开发者" : ""));
                         mPluginsRow.setSub("已开 " + plugOn + " 个 · 开着才显示设置");
                     }
                 });

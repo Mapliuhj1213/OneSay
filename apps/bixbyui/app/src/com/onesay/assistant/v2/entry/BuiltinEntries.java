@@ -115,8 +115,9 @@ public final class BuiltinEntries {
                 EntryTrigger.Kind.SYSTEM, true, 25, null, sw));
         l.add(new Simple(WAKE_WORD, "本地唤醒词", "常驻监听你自己填写的唤醒词（需另行下载模型，见 README）",
                 EntryTrigger.Kind.LISTENER, false, 24, new String[]{"MIC", "ARM64"}, null));
-        l.add(new Simple(INTENT, "外部 App 唤起（公开 Intent）",
-                "允许其他 App 用 " + ACTION_SUMMON + " 唤起 OneSay；对方还必须申请「" + PERMISSION_SUMMON + "」并经你授权",
+        // ★ settings-diag-1124：界面上只说大白话；技术细节（action / 权限名）在 README「如何接入自定义入口」和本类常量里
+        l.add(new Simple(INTENT, "外部 App 唤起",
+                "允许别的 App 叫出 OneSay；对方还得先拿到你的授权。默认关，开发者接入方法见 README",
                 EntryTrigger.Kind.SYSTEM, false, 23, null, sw));
         l.add(new Simple(KEY_WAKE, com.onesay.assistant.v2.entry.keywake.KeyWake.LABEL, com.onesay.assistant.v2.entry.keywake.KeyWake.DESCRIPTION,
                 EntryTrigger.Kind.LISTENER, false, 24, new String[]{"ACCESSIBILITY"}, null));

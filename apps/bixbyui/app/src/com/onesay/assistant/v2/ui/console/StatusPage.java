@@ -106,39 +106,14 @@ final class StatusPage extends Console.BuiltPage {
                     s.asrConfigured == null ? ConsoleHost.TONE_MUTED : ConsoleHost.TONE_OK);
         }
 
+        // ★ settings-diag-1124：悬浮窗 / 电池白名单 / 麦克风三行和「权限配置」是同一份状态 —— 这里只留一行汇总，点进去配
         LinearLayout p = k.group(col, "权限");
-        if (Boolean.FALSE.equals(s.overlayOk)) {
-            k.actionRow(p, "悬浮窗", "灵动岛靠它显示", "去授权", new Runnable() {
-                @Override public void run() {
-                    c.openOverlaySettings();
-                }
-            });
-        } else {
-            k.valueRow(p, "悬浮窗", "灵动岛靠它显示", s.overlayOk == null ? unknown(s) : "已授权", s.overlayOk == null ? ConsoleHost.TONE_MUTED : ConsoleHost.TONE_OK);
-        }
-        if (Boolean.FALSE.equals(s.batteryWhitelisted)) {
-            k.actionRow(p, "电池优化白名单", "不在白名单，熄屏久了定时任务会晚", "加入", new Runnable() {
-                @Override public void run() {
-                    c.joinBatteryWhitelist(new Runnable() {
-                        @Override public void run() {
-                            probe();
-                        }
-                    });
-                }
-            }).setSubTone(ConsoleHost.TONE_WARN);
-        } else {
-            k.valueRow(p, "电池优化白名单", "定时任务准点", s.batteryWhitelisted == null ? unknown(s) : "已加入",
-                    s.batteryWhitelisted == null ? ConsoleHost.TONE_MUTED : ConsoleHost.TONE_OK);
-        }
-        if (Boolean.FALSE.equals(s.micPermission)) {
-            k.actionRow(p, "麦克风", "唤醒与听写", "去设置", new Runnable() {
-                @Override public void run() {
-                    c.openAppSettings();
-                }
-            });
-        } else {
-            k.valueRow(p, "麦克风", "唤醒与听写", s.micPermission == null ? unknown(s) : "已授权", s.micPermission == null ? ConsoleHost.TONE_MUTED : ConsoleHost.TONE_OK);
-        }
+        ConsoleKit.RowImpl pr = k.linkRow(p, "权限配置", PermSetup.headline(s), 0, new Runnable() {
+            @Override public void run() {
+                c.push(new PermSetupPage(c));
+            }
+        });
+        pr.setSubTone(PermSetup.anyBad(s) ? ConsoleHost.TONE_BAD : (PermSetup.problems(s).isEmpty() ? ConsoleHost.TONE_NORMAL : ConsoleHost.TONE_WARN));
         if (Boolean.FALSE.equals(s.voiceprint)) {
             k.actionRow(p, "声纹", "没注册时别人说唤醒词也会唤醒", "去录制", new Runnable() {
                 @Override public void run() {

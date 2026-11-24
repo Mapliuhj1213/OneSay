@@ -451,6 +451,13 @@ public final class Console implements ConsoleHost {
     }
 
     @Override public void openPage(String pageId, String title) {
+        // ★ settings-diag-1124：聊天里「自身设置」按钮直达的设置页（SelfCatalog.Target）
+        if ("settings.wake".equals(pageId)) { nav.push(new DeviceCapsPage(this, DeviceCapsPage.MODE_WAKE)); return; }
+        if ("settings.devcaps".equals(pageId)) { nav.push(new DeviceCapsPage(this, DeviceCapsPage.MODE_DEVICE)); return; }
+        if ("settings.basics".equals(pageId)) { nav.push(new DesignPages.BasicsPage(this)); return; }
+        if ("settings.plugins".equals(pageId)) { nav.push(new DesignPages.PluginsPage(this)); return; }
+        if ("settings.advanced".equals(pageId)) { nav.push(new DesignPages.AdvancedHubPage(this)); return; }
+        if ("settings.perm".equals(pageId)) { nav.push(new PermSetupPage(this)); return; }
         if (com.onesay.assistant.v2.asr.AsrFailure.CONSOLE_PAGE.equals(pageId)) {   // r2/p0 P0-2：唤醒卡片「去配置」→「模型与密钥」页 + Key 弹窗
             nav.push(new AdvancedPage(this));
             editAsrKey(null);

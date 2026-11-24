@@ -41,26 +41,7 @@ final class AboutPage extends Console.BuiltPage {
         k.valueRow(g, "签名证书", "SHA-256 前 8 位", certPrefix(), ConsoleHost.TONE_NORMAL);
         k.valueRow(g, "包名", null, c.act.getPackageName(), ConsoleHost.TONE_NORMAL);
 
-        // ★ console-align 2026-11-12：「外观」从「模型与密钥」搬来（开关、prefs 不变）
-        LinearLayout look = k.group(col, "外观");
-        k.switchRow(look, "浅色外观", "默认深色；灵动岛始终是黑色", !k.t.dark, new ConsoleHost.Toggle() {
-            @Override public void onToggle(final boolean on) {
-                // 等开关动画走完再整页换色
-                c.act.getWindow().getDecorView().postDelayed(new Runnable() {
-                    @Override public void run() {
-                        c.setThemeMode(on ? ConsoleTheme.MODE_LIGHT : ConsoleTheme.MODE_DARK);
-                    }
-                }, 220);
-            }
-        });
-
-        // ★ refactor/oss：设备能力探测 + 功能注册表生成的开关页（只读写原有开关，不改默认值）
-        LinearLayout caps = k.group(col, null);
-        k.linkRow(caps, "设备能力与功能", "root / 按键 / 厂商 / 系统版本决定哪些功能可用", 0, new Runnable() {
-            @Override public void run() {
-                c.push(new DeviceCapsPage(c));
-            }
-        });
+        // ★ settings-diag-1124：「浅色外观」只留在「基础设置 › 外观」，「设备能力与功能」只留在「高级 › 设备能力与执行后端」（这里不再各放一份）
 
         LinearLayout os = k.group(col, "开源组件");
         k.valueRow(os, "sherpa-onnx", "离线唤醒词 / 声纹", "Apache-2.0", ConsoleHost.TONE_MUTED);

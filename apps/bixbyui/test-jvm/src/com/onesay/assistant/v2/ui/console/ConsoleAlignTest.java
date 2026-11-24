@@ -99,8 +99,11 @@ public class ConsoleAlignTest {
         String f = src(CON + "FeaturesPage.java");
         assertTrue("灵动岛 / 主动建议两行在功能页最上面", f.indexOf("\"灵动岛\"") < f.indexOf("k.group(col, \"功能\")")
                 && f.indexOf("new GroupPages.SuggestPage(c)") < f.indexOf("k.group(col, \"功能\")"));
+        // ★ settings-diag-1124：「浅色外观」只留在「基础设置 › 外观」，关于页那份去掉（不重复）
         String about = src(CON + "AboutPage.java");
-        assertTrue("外观在关于", about.contains("k.group(col, \"外观\")") && about.contains("c.setThemeMode("));
+        assertFalse("关于页不再重复外观", about.contains("\"浅色外观\""));
+        String basics = src(CON + "DesignPages.java");
+        assertTrue("外观在基础设置", basics.contains("k.group(col, \"外观\")") && basics.contains("c.setThemeMode("));
         String pc = src("app/src/com/onesay/assistant/v2/pclink/PcLinkUi.java");
         int dl = pc.indexOf("public static void addDownloadRows(");
         assertTrue(dl > 0 && pc.indexOf("\"把链接下到电脑\"", dl) > dl);

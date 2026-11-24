@@ -17,6 +17,7 @@ import com.onesay.assistant.v2.platform.Tri;
 import java.util.List;
 import java.util.Map;
 
+
 /**
  * [refactor/oss 2026-11-06] 关于 › 设备能力与功能：按 {@link FeatureRegistry} 生成。
  *
@@ -31,12 +32,25 @@ final class DeviceCapsPage extends Console.BuiltPage {
 
     private boolean mProbing, mAutoProbed;
 
+    /**
+     * ★ settings-diag-1124：一页拆成两页，不再在两个入口看到同一堆东西。
+     * MODE_WAKE =「基础设置 › 唤起方式」（唤起入口 + 按键唤醒细项 + 我的唤醒词）；
+     * MODE_DEVICE =「高级 › 设备能力与执行后端」（机型、执行后端、隐私与外部请求、功能在这台手机上能不能用）。
+     */
+    static final int MODE_WAKE = 1, MODE_DEVICE = 2;
+    final int mode;
+
     DeviceCapsPage(Console c) {
-        super(c, "设备能力与功能");
+        this(c, MODE_WAKE);
+    }
+
+    DeviceCapsPage(Console c, int mode) {
+        super(c, mode == MODE_DEVICE ? "设备能力与执行后端" : "唤起方式");
+        this.mode = mode;
     }
 
     @Override String rightAction() {
-        return "重新检测";
+        return mode == MODE_DEVICE ? "重新检测" : null;
     }
 
     @Override void onRight() {
@@ -45,92 +59,130 @@ final class DeviceCapsPage extends Console.BuiltPage {
 
     @Override void build(LinearLayout col) {
         final ConsoleKit k = c.kit;
+        if (mode == MODE_WAKE) {
+            addEntries(col);
+            return;
+        }
         DeviceProfile p = DeviceCapabilityProbe.cached(c.act);
         if (p == null && !mProbing && !mAutoProbed) {
             mAutoProbed = true;   // 只自动探一次；探不出来就停在「检测中」，用右上角「重新检测」再试
             reprobe();
         }
 
+        // ★ settings-diag-1124：「这台设备」只留机型 + 一行权限汇总。删掉的：Android 8.0+ / 11+ / 14+ / arm64 CPU 这类「有 / 没有」
+        //   （用户改不了、也不用看；真影响到哪个功能，那个功能的开关下面会写缺什么）；悬浮窗 / 麦克风 / 无障碍 / 通知使用权 / 默认助理这些
+        //   权限行并进「权限配置」（同一份状态，这里不再重复一遍）；root / 执行守护 / Shizuku 在下面「执行后端」里。
         LinearLayout dev = k.group(col, "这台设备");
         if (p == null) {
             k.valueRow(dev, "检测中", null, "…", ConsoleHost.TONE_MUTED);
         } else {
             k.valueRow(dev, "机型", null, p.summary(), ConsoleHost.TONE_NORMAL);
-            for (DeviceCap cap : DeviceCap.values()) {
-                Tri t = p.get(cap);
-                k.valueRow(dev, cap.title, t == Tri.NO ? "替代：" + cap.alternative : null, label(t), tone(t));
-            }
         }
+        k.linkRow(dev, "权限", "悬浮窗 · 麦克风 · 无障碍 · 通知 · 默认助理，都在「权限配置」里一步步开", 0, new Runnable() {
+            @Override public void run() {
+                c.push(new PermSetupPage(c));
+            }
+        });
 
-        addEntries(col);
         addExecBackends(col);
-        addWakeWords(col);
         addPrivacy(col);
 
+        // 功能在这台手机上能不能用：只列状态和缺什么（开关在「插件」里，这里不再放第二个同样的开关）；
+        // 「唤醒入口」那组在「唤起方式」页；「受限未实现」那组（永远置灰）对用户没用，不显示。
         Map<String, List<FeatureSpec>> groups = FeatureRegistry.byGroup();
+        LinearLayout g = k.group(col, "功能在这台手机上能不能用");
         for (Map.Entry<String, List<FeatureSpec>> e : groups.entrySet()) {
-            if (e.getValue().isEmpty()) continue;
-            LinearLayout g = k.group(col, e.getKey());
+            if (FeatureRegistry.G_WAKE.equals(e.getKey()) || FeatureRegistry.G_NOT_BUILT.equals(e.getKey())) continue;
             for (FeatureSpec f : e.getValue()) addFeatureRow(g, f, p);
         }
-        k.footer(col, "置灰的功能在这台设备上做不到，原因写在下面；「未确认」表示还没探到，不影响使用。"
-                + "开关和原设置页是同一个，默认值不变。");
+        Console.BuiltPage.dropIfEmpty(col, g);
+        k.footer(col, "「待授权」去「权限配置」打开对应权限；「不可用」是这台手机缺的条件补不上。功能开关都在「插件」里。");
+    }
+
+    /** ★ settings-diag-1124：缺的能力写成「缺 root、无障碍服务」（不写路径、不写系统接口名）。 */
+    static String missingText(FeatureAvailability a) {
+        if (a == null || a.missing == null || a.missing.isEmpty()) return null;
+        StringBuilder b = new StringBuilder("缺 ");
+        for (int i = 0; i < a.missing.size(); i++) {
+            if (i > 0) b.append("、");
+            b.append(a.missing.get(i).title);
+        }
+        return b.toString();
     }
 
     private void addFeatureRow(LinearLayout g, final FeatureSpec f, DeviceProfile p) {
         final ConsoleKit k = c.kit;
+        if (f.status == FeatureSpec.Status.NOT_BUILT) return;
         FeatureAvailability a = FeatureAvailability.evaluate(f, p);
-        String reason = a.reason();
-        String sub = reason;
-        if (f.status == FeatureSpec.Status.DEBUG_ONLY) sub = sub == null ? "只在 debug 包" : sub + " · 只在 debug 包";
-        if (!a.switchEnabled() && f.alternative != null) sub = (sub == null ? "" : sub + "\n") + "替代：" + f.alternative;
-        int subTone = a.state == FeatureAvailability.State.AVAILABLE ? ConsoleHost.TONE_NORMAL
-                : (a.state == FeatureAvailability.State.UNKNOWN ? ConsoleHost.TONE_MUTED : ConsoleHost.TONE_WARN);
-
-        if (f.hasSwitch()) {
-            boolean killed = false;
-            for (String kf : f.killFiles) killed |= FeatureSwitch.killFilePresent(c.act, kf);
-            final SharedPreferences sp = c.act.getApplicationContext().getSharedPreferences(f.prefs, Context.MODE_PRIVATE);
-            boolean on = !killed && sp.getBoolean(f.key, f.def);
-            ConsoleKit.RowImpl r = k.switchRow(g, f.title, killed ? "关停文件存在 → 已停用" : sub, on, new ConsoleHost.Toggle() {
-                @Override public void onToggle(boolean v) {
-                    // 复用原设置页的 setter 与即时副作用（见 DeviceCapsToggles），不只写 prefs
-                    DeviceCapsToggles.apply(c.act, f, v);
-                }
-            });
-            r.setSubTone(killed ? ConsoleHost.TONE_WARN : subTone);
-            if (killed || !a.switchEnabled()) r.setEnabled(false);
-        } else if (f.status == FeatureSpec.Status.NOT_BUILT) {
-            ConsoleKit.RowImpl r = k.switchRow(g, f.title, sub, false, null);
-            r.setSubTone(ConsoleHost.TONE_WARN);
-            r.setEnabled(false);
-        } else {
-            ConsoleKit.RowImpl r = k.valueRow(g, f.title, sub, stateLabel(a.state), stateTone(a.state));
-            r.setSubTone(subTone);
-        }
+        String sub = missingText(a);
+        if (a.state == FeatureAvailability.State.NEEDS_GRANT && sub != null) sub = sub + "，去「权限配置」打开";
+        if (f.status == FeatureSpec.Status.DEBUG_ONLY) sub = sub == null ? "只在调试包" : sub + " · 只在调试包";
+        ConsoleKit.RowImpl r = k.valueRow(g, plainTitle(f.title), sub, stateLabel(a.state), stateTone(a.state));
+        r.setSubTone(a.state == FeatureAvailability.State.AVAILABLE ? ConsoleHost.TONE_NORMAL
+                : (a.state == FeatureAvailability.State.UNKNOWN ? ConsoleHost.TONE_MUTED : ConsoleHost.TONE_WARN));
     }
 
-    /** 唤起入口（EntryTrigger 注册表）：每个入口一行开关；做不到的置灰并写明原因。 */
+    /** 功能名去掉括号里的技术说明（「识屏（截图 + 界面树问答）」→「识屏」）。 */
+    static String plainTitle(String t) {
+        if (t == null) return "";
+        int i = t.indexOf('（');
+        return i > 0 ? t.substring(0, i) : t;
+    }
+
+    /**
+     * 唤起入口（EntryTrigger 注册表）：每个入口一行开关。
+     * ★ settings-diag-1124：开关反映真实状态、写明还差哪步 —— 和聊天里「为什么 X 用不了」读的是同一份清单（SelfCatalog / SelfSettingsEngine）：
+     * <ul>
+     *   <li>缺的是自己能补的（麦克风、无障碍、默认助理、填唤醒词）→ 开关不置灰，下面紧跟一行「去打开 …」；</li>
+     *   <li>缺的是这台手机补不上的（处理器、没放唤醒词模型）且现在关着 → 开关置灰，写明原因；</li>
+     *   <li>默认助理入口：开关开着但 OneSay 还不是默认助理 → 写「开着，但还差一步」，「设为默认助理」就放在它下面（以前在高级页，和这里对不上）。</li>
+     * </ul>
+     * 本地唤醒词的开关和「我的唤醒词」合在这一组（以前另有一组「启用本地唤醒词」，和这里是同一个开关）。
+     */
     private void addEntries(LinearLayout parent) {
         final ConsoleKit k = c.kit;
         com.onesay.assistant.v2.entry.Entries.ensureInit(c.act);
+        final com.onesay.assistant.v2.selfset.SelfStore store = com.onesay.assistant.v2.selfset.SelfSettingsAndroid.store(c.act);
         LinearLayout g = k.group(parent, "唤起入口");
         for (final com.onesay.plugin.api.entry.EntryTrigger t : com.onesay.plugin.api.entry.EntryRegistry.all()) {
-            com.onesay.plugin.api.entry.EntryTrigger.Tri a = com.onesay.plugin.api.entry.EntryRegistry.availability(t.id());
-            String why = a == com.onesay.plugin.api.entry.EntryTrigger.Tri.YES ? null : t.unavailableReason(com.onesay.plugin.api.entry.EntryRegistry.env());
-            String sub = t.description() + (why == null ? "" : "\n" + why);
-            ConsoleKit.RowImpl r = k.switchRow(g, t.label(), sub, com.onesay.plugin.api.entry.EntryRegistry.isEnabled(t.id()), new ConsoleHost.Toggle() {
+            com.onesay.assistant.v2.selfset.SelfCatalog.Item item = com.onesay.assistant.v2.selfset.SelfCatalog.get(t.id());
+            com.onesay.assistant.v2.selfset.SelfSettingsEngine.Row row = item == null ? null : com.onesay.assistant.v2.selfset.SelfSettingsEngine.row(store, item);
+            boolean on = com.onesay.plugin.api.entry.EntryRegistry.isEnabled(t.id());
+            String sub = EntryRows.sub(t.id(), t.description(), on, row == null ? null : row.missing, row != null && row.blockedForever());
+            ConsoleKit.RowImpl r = k.switchRow(g, t.label(), sub, on, new ConsoleHost.Toggle() {
                 @Override public void onToggle(boolean v) {
                     com.onesay.assistant.v2.entry.Entries.setEnabled(c.act, t.id(), v);
                     if (col != null) fill();
                 }
             });
-            r.setSubTone(a == com.onesay.plugin.api.entry.EntryTrigger.Tri.NO ? ConsoleHost.TONE_WARN : ConsoleHost.TONE_MUTED);
-            if (a == com.onesay.plugin.api.entry.EntryTrigger.Tri.NO) r.setEnabled(false);
+            boolean warn = row != null && !row.missing.isEmpty();
+            r.setSubTone(warn ? ConsoleHost.TONE_WARN : ConsoleHost.TONE_MUTED);
+            if (!on && row != null && row.blockedForever()) r.setEnabled(false);
+            if (row != null) {
+                for (final com.onesay.assistant.v2.selfset.SelfCatalog.Need n : row.missing) {
+                    if (!n.fixable || n.target == com.onesay.assistant.v2.selfset.SelfCatalog.Target.NONE) continue;
+                    if (n.target == com.onesay.assistant.v2.selfset.SelfCatalog.Target.PAGE_WAKE) continue;   // 填唤醒词就在下面一行
+                    if (com.onesay.assistant.v2.selfset.SelfCatalog.N_ASSIST.equals(n.id)) {
+                        final Boolean isDef = com.onesay.assistant.v2.assist.AssistRoleHost.isDefault(c.act);
+                        k.actionRow(g, com.onesay.assistant.v2.assist.AssistRole.ROW_TITLE, com.onesay.assistant.v2.assist.AssistRole.rowSub(isDef),
+                                com.onesay.assistant.v2.assist.AssistRole.rowAction(isDef), new Runnable() {
+                            @Override public void run() {
+                                c.openAssistRole();
+                            }
+                        });
+                        continue;
+                    }
+                    k.actionRow(g, "去打开" + n.title, n.how, "去打开", new Runnable() {
+                        @Override public void run() {
+                            if (!com.onesay.assistant.v2.selfset.SelfSettingsAndroid.open(c.act, n.target)) c.toast("没能打开，请到系统设置里找一下");
+                        }
+                    });
+                }
+            }
+            if (com.onesay.assistant.v2.entry.BuiltinEntries.WAKE_WORD.equals(t.id())) addWakeWords(g);
         }
         addKeyWake(parent);
-        k.footer(parent, "关掉的入口触发一律丢弃。外部 App 唤起默认关；唤醒词改动后重启唤醒服务生效。"
-                + "接入自定义入口见 README「如何接入自定义入口」。");
+        k.footer(parent, "关掉的入口不会叫出 OneSay。外部 App 唤起默认关；怎么接入自己的入口见 README。");
     }
 
     /** 按键唤醒的触发方式 / 动作 / 时间窗，以及快捷开关、小部件、快捷方式点一下做什么。 */
@@ -220,7 +272,7 @@ final class DeviceCapsPage extends Console.BuiltPage {
                         });
                     }
                 });
-        k.switchRow(g, "联网反查所在城市", "问天气没说城市、也没手动设常用城市时，把约 1 km 精度的位置发给 BigDataCloud / OpenStreetMap Nominatim 反查城市名。默认关",
+        k.switchRow(g, "联网反查所在城市", "问天气没说城市、也没手动设常用城市时，把约 1 公里精度的位置发给公开的地名反查服务，查出城市名。默认关",
                 com.onesay.assistant.v2.city.HomeCityProvider.isNetReverseEnabled(app), new ConsoleHost.Toggle() {
                     @Override public void onToggle(boolean v) { com.onesay.assistant.v2.city.HomeCityProvider.setNetReverseEnabled(app, v); }
                 });
@@ -244,7 +296,7 @@ final class DeviceCapsPage extends Console.BuiltPage {
                         }).setNegativeButton("取消", null).show();
             }
         });
-        k.footer(parent, "OneSay 没有统计 / 遥测。其余联网都由你发起（提问、搜索、识别、朗读），只发往你在「API 密钥」里配置的服务或你问到的网站。");
+        k.footer(parent, "OneSay 不收集统计数据。其余联网都由你发起（提问、搜索、识别、朗读），只发往你在「API 密钥」里配置的服务或你问到的网站。");
     }
 
     /** OneSay 开源版：特权执行后端（插件，可选，默认不选）。只能选一个；选中且可用时快捷指令里的特权动作才点亮。 */
@@ -259,7 +311,7 @@ final class DeviceCapsPage extends Console.BuiltPage {
                 addShizukuRow(g, b, t);   // ★ priv-llm：Shizuku 是独立插件开关（中间档），不占「选一个后端」
                 continue;
             }
-            String sub = (b.level() == com.onesay.plugin.api.exec.ExecBackend.UidLevel.ROOT ? "root 身份" : "shell 身份（uid 2000）")
+            String sub = (b.level() == com.onesay.plugin.api.exec.ExecBackend.UidLevel.ROOT ? "root 身份" : "命令行身份")
                     + " · " + (t == com.onesay.plugin.api.exec.ExecBackend.Tri.YES ? "可用"
                     : (t == com.onesay.plugin.api.exec.ExecBackend.Tri.NO ? "不可用" : "未确认"))
                     + (b.reason() == null ? "" : "\n" + b.reason());
@@ -280,7 +332,7 @@ final class DeviceCapsPage extends Console.BuiltPage {
         final ConsoleKit k = c.kit;
         boolean on = com.onesay.assistant.v2.platform.ExecBackendHost.shizukuEnabled(c.act);
         String sub = "中间档：普通权限与 root 之间 · " + (t == com.onesay.plugin.api.exec.ExecBackend.Tri.YES
-                ? (b.level() == com.onesay.plugin.api.exec.ExecBackend.UidLevel.ROOT ? "可用（root 启动）" : "可用（shell 身份）")
+                ? (b.level() == com.onesay.plugin.api.exec.ExecBackend.UidLevel.ROOT ? "可用（root 启动）" : "可用（命令行身份）")
                 : (t == com.onesay.plugin.api.exec.ExecBackend.Tri.NO ? "不可用" : "未确认"))
                 + (b.reason() == null ? "" : "\n" + b.reason())
                 + "\n只执行白名单命令：后台读剪贴板授权 · 通知使用权 · 模拟按键 · 截屏";
@@ -293,7 +345,7 @@ final class DeviceCapsPage extends Console.BuiltPage {
         r.setSubTone(t == com.onesay.plugin.api.exec.ExecBackend.Tri.YES ? ConsoleHost.TONE_OK : ConsoleHost.TONE_MUTED);
         if (!on || t != com.onesay.plugin.api.exec.ExecBackend.Tri.YES) return;
         final String pkg = c.act.getPackageName();
-        k.actionRow(g, "授予后台读剪贴板", "电脑联动同步剪贴板用（appops READ_CLIPBOARD）", "授予", new Runnable() {
+        k.actionRow(g, "授予后台读剪贴板", "电脑联动同步剪贴板用", "授予", new Runnable() {
             @Override public void run() {
                 runShizuku(com.onesay.assistant.v2.platform.ShizukuActions.clipboardGrant(pkg), "后台读剪贴板");
             }
@@ -326,26 +378,19 @@ final class DeviceCapsPage extends Console.BuiltPage {
         });
     }
 
-    /** OneSay 开源版：本地唤醒词（可选，默认关；不内置任何唤醒词，用户自己填 token 序列）。 */
-    private void addWakeWords(LinearLayout parent) {
+    /** OneSay 开源版：「我的唤醒词」（不内置任何唤醒词，用户自己填 token 序列）。开关就是上面的「本地唤醒词」入口。 */
+    private void addWakeWords(LinearLayout g) {
         final ConsoleKit k = c.kit;
         final Context app = c.act.getApplicationContext();
-        LinearLayout g = k.group(parent, "本地唤醒词（可选）");
         final String words = com.onesay.assistant.v2.wake.WakeWordSettings.getLines(app);
-        boolean on = com.onesay.assistant.v2.wake.WakeWordSettings.isEnabled(app);
-        k.switchRow(g, "启用本地唤醒词", "默认关；入口是按钮 / 默认数字助理。需要唤醒词模型（见 README）", on, new ConsoleHost.Toggle() {
-            @Override public void onToggle(boolean v) {
-                com.onesay.assistant.v2.wake.WakeWordSettings.setEnabled(app, v);
-            }
-        });
-        k.actionRow(g, "我的唤醒词", words.length() == 0 ? "还没填写" : words.replace('\n', '；'), "编辑", new Runnable() {
+        k.actionRow(g, "我的唤醒词", words.length() == 0 ? "还没填写：填一条以后本地唤醒词才会听" : words.replace('\n', '；'), "编辑", new Runnable() {
             @Override public void run() {
                 final android.widget.EditText e = new android.widget.EditText(c.act);
                 e.setText(com.onesay.assistant.v2.wake.WakeWordSettings.getLines(app));
-                e.setHint("每行一条 token 序列，例如：HH EY1 W AH1 N S EY1 @HEY_ONESAY");
+                e.setHint("每行一条，例如：HH EY1 W AH1 N S EY1 @HEY_ONESAY");
                 e.setMinLines(3);
                 new android.app.AlertDialog.Builder(c.act).setTitle("我的唤醒词")
-                        .setMessage("中文用带声调拼音 token，英文用 CMU 音素；每个 token 都必须在模型的 tokens.txt 里。重启唤醒服务后生效。")
+                        .setMessage("中文用带声调的拼音，英文用音标；每个音都要在唤醒词模型的音表里（见 README）。保存后唤醒服务重新加载就生效。")
                         .setView(e).setPositiveButton("保存", new android.content.DialogInterface.OnClickListener() {
                             @Override public void onClick(android.content.DialogInterface d, int w) {
                                 String err = com.onesay.assistant.v2.wake.WakeWordSettings.saveLines(app, e.getText().toString());

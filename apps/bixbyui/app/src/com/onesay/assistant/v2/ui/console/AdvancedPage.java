@@ -104,8 +104,9 @@ final class AdvancedPage extends Console.BuiltPage {
 
         if (expert) {
         LinearLayout gs = k.group(col, "发送与回答");
-        // ★ borrow-1112：发给云端模型前本地隐藏个人信息（默认开）
-        k.switchRow(gs, "发给云端前隐藏个人信息", "手机号、身份证号、银行卡号、邮箱、验证码换成代号再发，要输入时在本机换回",
+        // ★ borrow-1112：发给云端模型前本地隐藏个人信息（默认开）。
+        // ★ settings-diag-1124：「高级 › 模型细项」里不再放第二个（同一个开关在「基础设置 › 隐私与审批」）；只有旧入口「模型与密钥」整页还显示
+        if (mode == MODE_ALL) k.switchRow(gs, "发给云端前隐藏个人信息", "手机号、身份证号、银行卡号、邮箱、验证码换成代号再发，要输入时在本机换回",
                 com.onesay.assistant.v2.privacy.PrivacySettings.REDACT.on(c.act), new ConsoleHost.Toggle() {
             @Override public void onToggle(boolean on) {
                 com.onesay.assistant.v2.privacy.PrivacySettings.REDACT.set(c.act, on);

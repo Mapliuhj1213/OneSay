@@ -126,7 +126,7 @@ public final class ConsoleGroups {
             {"模型与密钥 · 读数直答 / 发给云端前隐藏个人信息", "设置 · 模型与密钥 · 发送与回答", "ui/console/AdvancedPage.java", "\"读数类问题直接回答\""},
             {"模型与密钥 · 备用模型", "设置 · 模型与密钥 · 备用模型", "ui/console/AdvancedPage.java", "editBackup();"},
             {"模型与密钥 · 账户 · 邮箱（IMAP）", "设置 · 模型与密钥 · 账户（不变）", "ui/console/AdvancedPage.java", "MailSettingsActivity.class"},
-            {"模型与密钥 · 外观 · 浅色外观", "设置 · 关于 · 外观", "ui/console/AboutPage.java", "\"浅色外观\""},
+            {"模型与密钥 · 外观 · 浅色外观", "基础设置 · 外观（settings-diag-1124：关于页那份去掉）", "ui/console/DesignPages.java", "\"浅色外观\""},
             {"模型与密钥 · 插件 · 功能插件（2026-11-05 起在开发者）", "高级 · 开发者 · 插件状态（只读）", "ui/console/DesignPages.java", "new AdvancedPage.PluginsPage(c)"},
             {"模型与密钥 · 开发者（开发者模式）", "高级 · 开发者 · 调试工具（开发者模式）", "ui/console/DesignPages.java", "new DeveloperPage(c)"},
             // ---- ★ console-align 2026-11-12

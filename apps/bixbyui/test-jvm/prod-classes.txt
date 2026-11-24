@@ -813,3 +813,6 @@ com/onesay/assistant/v2/selfset/SelfSettingsHooks.java
 com/onesay/assistant/v2/selfset/SelfSettingsAndroid.java
 com/onesay/assistant/v2/executor/backend/SelfSettingsBackend.java
 com/onesay/assistant/v2/kernel/plugins/SelfSettingsPlugin.java
+com/onesay/assistant/v2/ui/console/EntryRows.java
+com/onesay/assistant/v2/ui/console/LogRows.java
+com/onesay/assistant/v2/ui/console/DeviceCapsPage.java

@@ -220,11 +220,13 @@ public class AssistRoleTest {
         assertTrue(h.contains("Settings.ACTION_VOICE_INPUT_SETTINGS") && h.contains("android.settings.MANAGE_DEFAULT_APPS_SETTINGS")
                 && h.contains("Settings.ACTION_APPLICATION_DETAILS_SETTINGS"));
         assertTrue("打开前先看系统有没有这一页", h.contains("resolveActivity(a.getPackageManager()) == null"));
-        String d = src("app/src/com/onesay/assistant/v2/ui/console/DesignPages.java");
-        int hub = d.indexOf("class AdvancedHubPage");
-        int row = d.indexOf("AssistRole.ROW_TITLE", hub);
-        assertTrue("「高级 › 设备」里有这一行", row > d.indexOf("k.group(col, \"设备\")", hub) && row < d.indexOf("\"设备能力与执行后端\"", hub));
+        // ★ settings-diag-1124：「设为默认助理」挪到「基础设置 › 唤起方式」，紧跟在「默认助理入口」开关下面（开关开着但还不是默认助理时出现）
+        String d = src("app/src/com/onesay/assistant/v2/ui/console/DeviceCapsPage.java");
+        int ent = d.indexOf("private void addEntries(");
+        int row = d.indexOf("AssistRole.ROW_TITLE", ent);
+        assertTrue("「唤起方式 › 唤起入口」里有这一行", ent > 0 && row > ent && row < d.indexOf("addKeyWake(parent);", ent));
         assertTrue(d.contains("AssistRoleHost.isDefault(c.act)"));
+        assertFalse("高级页不再另放一行", src("app/src/com/onesay/assistant/v2/ui/console/DesignPages.java").contains("AssistRole.ROW_TITLE"));
         String c = src("app/src/com/onesay/assistant/v2/ui/console/Console.java");
         int r = c.indexOf("public void onResume()");
         assertTrue("回到控制台时接着降级", c.indexOf("AssistRoleHost.resumeIfBounced(", r) > r);

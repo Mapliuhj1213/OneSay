@@ -62,7 +62,7 @@ public class ConsoleGroupsTest {
         String hub = src(CON + "DesignPages.java");
         String body = hub.substring(hub.indexOf("class AdvancedHubPage"));
         for (String x : new String[]{"\"诊断与摘要\"", "\"调试工具\"", "new GroupPages.DevFeaturesPage(c)", "new DeveloperPage(c)",
-                "new AdvancedPage.PluginsPage(c)", "new StatusPage(c)", "new AboutPage(c)", "new DeviceCapsPage(c)"}) {
+                "new AdvancedPage.PluginsPage(c)", "new StatusPage(c)", "new AboutPage(c)", "new DeviceCapsPage(c, DeviceCapsPage.MODE_DEVICE)", "LogRows.add(c, gl)"}) {
             assertTrue("高级里有 " + x, body.contains(x));
         }
         assertTrue("调试工具只在开发者模式", body.indexOf("new DeveloperPage(c)") > body.indexOf("if (c.devMode())"));
@@ -162,7 +162,8 @@ public class ConsoleGroupsTest {
         };
         String all = src(CON + "HomePage.java") + src(CON + "FeaturesPage.java") + src(CON + "GroupPages.java")
                 + src(CON + "VoicePage.java") + src(CON + "AdvancedPage.java") + src(CON + "DeveloperPage.java")
-                + src(CON + "AboutPage.java");   // [console-align]「外观」搬到「关于」页
+                + src(CON + "AboutPage.java")   // [console-align]「外观」搬到「关于」页
+                + src(CON + "DesignPages.java");   // ★ settings-diag-1124：「浅色外观」只留在「基础设置 › 外观」
         for (String t : old) assertTrue("旧入口「" + t + "」还找得到", all.contains("\"" + t + "\""));
         // 开发者页本身（调试动作 / 关停文件 / 日志）原样保留
         String dev = src(CON + "DeveloperPage.java");

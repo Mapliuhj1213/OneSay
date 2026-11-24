@@ -70,9 +70,9 @@ final class DesignPages {
                     c.push(new VoicePage(c, VoicePage.MODE_BASIC));
                 }
             });
-            k.linkRow(gv, "唤起方式", "按键唤醒 · 本地唤醒词 · 快捷开关", 0, new Runnable() {
+            k.linkRow(gv, "唤起方式", "默认助理 · 快捷开关 · 按键唤醒 · 本地唤醒词", 0, new Runnable() {
                 @Override public void run() {
-                    c.push(new DeviceCapsPage(c));
+                    c.push(new DeviceCapsPage(c, DeviceCapsPage.MODE_WAKE));
                 }
             });
 
@@ -222,17 +222,11 @@ final class DesignPages {
                 }
             });
             LinearLayout gd = k.group(col, "设备");
-            // ★ feat/assist-role：设为系统默认助理（长按电源键 / 角落上滑叫出唤醒卡片）；显示现在是不是
-            final Boolean isDef = com.onesay.assistant.v2.assist.AssistRoleHost.isDefault(c.act);
-            k.actionRow(gd, com.onesay.assistant.v2.assist.AssistRole.ROW_TITLE, com.onesay.assistant.v2.assist.AssistRole.rowSub(isDef),
-                    com.onesay.assistant.v2.assist.AssistRole.rowAction(isDef), new Runnable() {
+            // ★ settings-diag-1124：「设为默认助理」挪到「基础设置 › 唤起方式」里「默认助理入口」开关正下方（开关开着、但还不是默认助理时才出现），
+            //   不再在这里和那边各说一套；唤起入口细项也只在那一页。
+            k.linkRow(gd, "设备能力与执行后端", "这台手机 · 执行后端 · 隐私与外部请求 · 功能能不能用", 0, new Runnable() {
                 @Override public void run() {
-                    c.openAssistRole();
-                }
-            });
-            k.linkRow(gd, "设备能力与执行后端", "这台手机能做什么 · 唤起入口细项 · 隐私与外部请求", 0, new Runnable() {
-                @Override public void run() {
-                    c.push(new DeviceCapsPage(c));
+                    c.push(new DeviceCapsPage(c, DeviceCapsPage.MODE_DEVICE));
                 }
             });
             k.linkRow(gd, "运行状态", "唤醒服务 · 执行通道 · 云端", 0, new Runnable() {
@@ -240,6 +234,9 @@ final class DesignPages {
                     c.push(new StatusPage(c));
                 }
             });
+            // ★ settings-diag-1124：OneSay 自己的运行日志（魅族这类开不了无线调试的手机也能拿到日志）
+            LinearLayout gl = k.group(col, "日志");
+            LogRows.add(c, gl);
             LinearLayout gx = k.group(col, "开发者");
             k.linkRow(gx, "诊断与摘要", "设置诊断 · 长内容摘要 · 旧插件卡片", 0, new Runnable() {
                 @Override public void run() {
