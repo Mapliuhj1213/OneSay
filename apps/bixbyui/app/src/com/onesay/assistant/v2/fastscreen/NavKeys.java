@@ -39,6 +39,44 @@ public final class NavKeys {
         return r[o + 2] > r[o] && r[o + 3] > r[o + 1] && x >= r[o] && x < r[o + 2] && y >= r[o + 1] && y < r[o + 3];
     }
 
+    /**
+     * [exec-1124 B] 手势导航（没有三键）时，助手的真人触摸观察看哪几块：
+     * {左边缘返回带 l t r b, 底边回桌面带 l t r b, 右边缘返回带 l t r b}（和护罩上的 {@link com.onesay.assistant.v2.exec.EdgeGesture} 同一套边缘带）。
+     * 以前只认三键导航栏，手势导航下找不到返回键就报 NO_BACK_BUTTON 退出，只留光晕时用户的返回手势就没人看见。
+     */
+    public static int[] gestureZones(int screenW, int screenH, int edgePx, int bottomPx) {
+        if (screenW <= 0 || screenH <= 0 || edgePx <= 0 || bottomPx <= 0) return new int[12];
+        int bt = screenH - bottomPx;
+        return new int[]{0, 0, edgePx, bt, 0, bt, screenW, screenH, screenW - edgePx, 0, screenW, bt};
+    }
+
+    /** [exec-1124 B] 观察区：手势导航 = {@link #gestureZones}（12 个数），三键 = {@link #compute}（8 个数）。 */
+    public static int[] watchZones(boolean gestureNav, int screenW, int screenH, int navH, int keyOrder, float density) {
+        if (gestureNav) return gestureZones(screenW, screenH, Math.round(24 * density), Math.round(32 * density));
+        return compute(screenW, screenH, navH, keyOrder);
+    }
+
+    /** [exec-1124 B] 系统现在是不是全手势导航。 */
+    public static boolean gestureNav(Context ctx) {
+        try {
+            return com.onesay.assistant.v2.exec.EdgeGesture.gestureNav(android.provider.Settings.Secure.getInt(ctx.getContentResolver(), "navigation_mode", 0));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** [exec-1124 B] 本机的观察区。 */
+    public static int[] watchZones(Context ctx) {
+        if (!gestureNav(ctx)) return rects(ctx);
+        try {
+            Point p = new Point();
+            ((WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRealSize(p);
+            return watchZones(true, p.x, p.y, 0, 0, ctx.getResources().getDisplayMetrics().density);
+        } catch (Throwable t) {
+            return rects(ctx);
+        }
+    }
+
     public static int[] rects(Context ctx) {
         try {
             Resources r = ctx.getResources();

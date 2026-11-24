@@ -89,6 +89,20 @@ public final class ExecState {
     }
 
     /** [fix-1123-c] 导航键紧急接管后的一句提示：说清停了、下一下按键做什么、怎么让它接着做。 */
+    /**
+     * [exec-1124 B] 只留光晕（护罩不拦触摸）时，用户的返回 / 上划 / 按键已经真的生效了，不能再说「再划一次就是返回」。
+     */
+    /** [exec-1124 B] 助手的触摸观察计到一次导航：手势导航报边缘手势，三键报按键。 */
+    public static String navWord(boolean gestureNav, boolean back) {
+        if (gestureNav) return back ? EdgeGesture.BACK : EdgeGesture.HOME;
+        return back ? "按了返回键" : "按了主页键";
+    }
+
+    public static String navTakeoverToast(String which, boolean passedThrough) {
+        if (passedThrough) return "看到你在操作，我先停下。想让我接着做，点灵动岛上的「继续」。";
+        return navTakeoverToast(which);
+    }
+
     public static String navTakeoverToast(String which) {
         if (which != null && which.contains("划")) {   // [fix-1123-dexec B8] 手势导航
             return "我先停下，交给你来操作。" + (which.contains("桌面") ? "再上划一次就回桌面" : "再划一次就是返回") + "；想让我接着做，点灵动岛上的「继续」。";

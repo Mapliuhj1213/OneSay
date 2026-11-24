@@ -48,8 +48,36 @@ public final class ShieldOverlay extends View {
         void onStray(float x, float y);
     }
 
-    private final WindowManager mWm;
+    private WindowManager mWm;
     private final Env mEnv;
+    /** [exec-1124 B] 护罩用哪种窗口（{@link ShieldMode}）；默认原样。 */
+    private volatile ShieldMode.Mode mMode = ShieldMode.Mode.LEGACY;
+    /** [exec-1124 B] 无障碍浮层模式下拿无障碍服务的窗口管理（服务被重绑后要换新实例的）。 */
+    private volatile A11yWm mA11yWm;
+
+    /** [exec-1124 B] 提供无障碍服务的窗口管理；服务没连着返回 null。 */
+    public interface A11yWm {
+        /** 当前无障碍服务实例（不等；没连着 = null）。用来认出服务换了实例。 */
+        Object owner();
+
+        /** 当前实例的窗口管理；没连着最多等 waitMs，还没有 = null。 */
+        WindowManager get(long waitMs);
+    }
+
+    /** [exec-1124 B] 无障碍浮层挂在哪个服务实例上。 */
+    private volatile Object mOwner;
+
+    /**
+     * [exec-1124 B] 挂出之前定护罩模式（主线程，show 之前调）。A11Y_OVERLAY 要给 a11yWm；拿不到就退成只留光晕。
+     */
+    public void setMode(ShieldMode.Mode m, A11yWm a11yWm) {
+        mMode = m == null ? ShieldMode.Mode.LEGACY : m;
+        mA11yWm = a11yWm;
+    }
+
+    public ShieldMode.Mode mode() {
+        return mMode;
+    }
     private final Handler mMain = new Handler(Looper.getMainLooper());
     private WindowManager.LayoutParams mLp;
     private Object mRegionToken;
@@ -66,7 +94,7 @@ public final class ShieldOverlay extends View {
     /** 当前挂着、拦触摸的护罩；没有 = null。 */
     public static ShieldOverlay active() {
         ShieldOverlay s = sActive;
-        return s != null && s.mAttached && !s.mThin ? s : null;
+        return s != null && s.mAttached && !s.mThin && ShieldMode.blocksTouch(s.mMode) ? s : null;   // [exec-1124 B] 只留光晕时不用开孔
     }
 
     /**
@@ -142,6 +170,7 @@ public final class ShieldOverlay extends View {
     public ShieldOverlay(Context ctx, WindowManager wm, Env env) {
         super(ctx);
         mWm = wm;
+        mAppWm = wm;
         mEnv = env;
         mD = ctx.getResources().getDisplayMetrics().density;
         mLine.setStyle(Paint.Style.STROKE);
@@ -153,46 +182,135 @@ public final class ShieldOverlay extends View {
     public void show(boolean thin) {
         mThin = thin;
         if (!mAttached) {
-            mLp = new WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-                    com.onesay.assistant.v2.s1.S1Overlay.windowType(),
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                            | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-                            | (thin ? WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE : 0),
-                    PixelFormat.TRANSLUCENT);
-            mLp.gravity = Gravity.TOP | Gravity.START;
-            mLp.setTitle("OneSay-ExecShield");
-            mLp.alpha = com.onesay.assistant.v2.island.IslandGeometry.shieldWindowAlpha(android.os.Build.VERSION.SDK_INT);   // ★ meizu-1118 B10
-            try {
-                mWm.addView(this, mLp);
-                mAttached = true;
-                sActive = this;
-                mRegionToken = TouchRegionCompat.install(this, new TouchRegionCompat.Source() {
-                    @Override public boolean touchRegion(Region out) {
-                        return computeRegion(out);
-                    }
-                });
-                Log.i(TAG, "[SHIELD] 护罩已挂出 thin=" + thin + " region=" + (mRegionToken != null));
-            } catch (Throwable t) {
-                Log.w(TAG, "[SHIELD] 挂护罩失败: " + t);
-                return;
+            if (mMode == ShieldMode.Mode.A11Y_OVERLAY) {   // [exec-1124 B] 无障碍浮层：由无障碍服务挂，不算进新安卓的「遮挡」
+                A11yWm h = mA11yWm;
+                Object owner = h == null ? null : h.owner();
+                WindowManager w = h == null ? null : h.get(0);
+                if (w != null && attach(w, ShieldMode.TYPE_ACCESSIBILITY_OVERLAY, thin)) {
+                    mOwner = owner;
+                    afterShow();
+                    return;
+                }
+                Log.w(TAG, "[SHIELD] 无障碍浮层挂不上，改成只留光晕（不拦触摸）");
+                mMode = ShieldMode.Mode.GLOW_ONLY;
             }
+            if (!attach(mAppWm, com.onesay.assistant.v2.s1.S1Overlay.windowType(), thin)) return;
         } else {
             setTouchable(!thin);
         }
+        afterShow();
+    }
+
+    /** 原来构造时给的普通悬浮窗管理（只留光晕 / 原护罩用）。 */
+    private WindowManager mAppWm;
+
+    private void afterShow() {
         mMain.removeCallbacks(mTick);
         mMain.post(mTick);
         invalidate();
     }
+
+    /**
+     * 挂窗口。[exec-1124 B] 只留光晕的模式整窗 FLAG_NOT_TOUCHABLE（不接触摸、不挡读屏）；其余和原来一样。
+     */
+    private boolean attach(WindowManager wm, int type, boolean thin) {
+        boolean glow = mMode == ShieldMode.Mode.GLOW_ONLY;
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+                        | (thin || glow ? WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE : 0),
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.setTitle("OneSay-ExecShield");
+        lp.alpha = com.onesay.assistant.v2.island.IslandGeometry.shieldWindowAlpha(android.os.Build.VERSION.SDK_INT);   // ★ meizu-1118 B10
+        try {
+            wm.addView(this, lp);
+            mWm = wm;
+            mLp = lp;
+            mAttached = true;
+            sActive = this;
+            mRegionToken = glow ? null : TouchRegionCompat.install(this, new TouchRegionCompat.Source() {
+                @Override public boolean touchRegion(Region out) {
+                    return computeRegion(out);
+                }
+            });
+            Log.i(TAG, "[SHIELD] 护罩已挂出 thin=" + thin + " 模式=" + ShieldMode.zh(mMode) + " region=" + (mRegionToken != null));
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "[SHIELD] 挂护罩失败（" + ShieldMode.zh(mMode) + "）: " + t);
+            return false;
+        }
+    }
+
+    /**
+     * [exec-1124 B] 无障碍浮层的宿主（无障碍服务实例）还在不在。Flyme 会周期性地解绑 / 重绑无障碍服务，服务一断它挂的窗口就被系统拆掉
+     * （客户端不一定收到通知）。每秒看一次：实例换了 → 拆掉旧的、挂到新实例上；没了超过 {@link ShieldMode#REATTACH_WAIT_MS}
+     * → 退成只留光晕，不退回会挡读屏的普通护罩。主线程。
+     */
+    private void checkA11yHost() {
+        if (mMode != ShieldMode.Mode.A11Y_OVERLAY || !mAttached) return;
+        A11yWm h = mA11yWm;
+        Object now = h == null ? null : h.owner();
+        if (now != null && now == mOwner) {
+            mA11yGoneAt = 0;
+            return;
+        }
+        long t = SystemClock.uptimeMillis();
+        if (now == null) {
+            if (mA11yGoneAt == 0) mA11yGoneAt = t;
+            if (t - mA11yGoneAt < ShieldMode.REATTACH_WAIT_MS) return;
+        }
+        mA11yGoneAt = 0;
+        remount(now == null ? null : h.get(0), now);
+    }
+
+    private long mA11yGoneAt;
+
+    /** 拆掉当前窗口，挂到新的无障碍实例上（w == null 或挂不上 → 只留光晕）。主线程。 */
+    private void remount(WindowManager w, Object owner) {
+        TouchRegionCompat.uninstall(this, mRegionToken);
+        mRegionToken = null;
+        mDetaching = true;
+        try {
+            mWm.removeViewImmediate(this);
+        } catch (Throwable ignored) {
+        } finally {
+            mDetaching = false;
+        }
+        mAttached = false;
+        ShieldMode.Mode next = ShieldMode.afterA11yLost(w != null);
+        if (next == ShieldMode.Mode.A11Y_OVERLAY && attach(w, ShieldMode.TYPE_ACCESSIBILITY_OVERLAY, mThin)) {
+            mOwner = owner;
+            Log.i(TAG, "[SHIELD] 无障碍服务换了实例，护罩已挂回");
+            return;
+        }
+        Log.w(TAG, "[SHIELD] 无障碍服务没回来，护罩改成只留光晕（不拦触摸）");
+        mMode = ShieldMode.Mode.GLOW_ONLY;
+        mOwner = null;
+        synchronized (this) {
+            mHoles.clear();
+            mHole.setEmpty();
+        }
+        attach(mAppWm, com.onesay.assistant.v2.s1.S1Overlay.windowType(), mThin);
+    }
+
+    /** hide() 自己拆窗口时不要当成被系统拆。 */
+    private volatile boolean mDetaching;
+
 
     public void hide() {
         mMain.removeCallbacks(mTick);
         if (!mAttached) return;
         TouchRegionCompat.uninstall(this, mRegionToken);
         mRegionToken = null;
+        mDetaching = true;
         try {
             mWm.removeViewImmediate(this);
         } catch (Throwable ignored) {
+        } finally {
+            mDetaching = false;
         }
         mAttached = false;
         if (sActive == this) sActive = null;
@@ -231,6 +349,7 @@ public final class ShieldOverlay extends View {
 
     private void setTouchable(boolean on) {
         if (!mAttached || mLp == null) return;
+        if (on && !ShieldMode.blocksTouch(mMode)) return;   // [exec-1124 B] 只留光晕：永远不接触摸
         int f = mLp.flags;
         if (on) f &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         else f |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
@@ -246,6 +365,10 @@ public final class ShieldOverlay extends View {
     private final Runnable mTick = new Runnable() {
         @Override public void run() {
             if (!mAttached) return;
+            if (mMode == ShieldMode.Mode.A11Y_OVERLAY && ++mTicks % 16 == 0) {   // [exec-1124 B] 约每秒看一次无障碍宿主
+                checkA11yHost();
+                if (!mAttached) return;
+            }
             Rect r = mEnv.islandRect();
             if (r != null && !r.equals(mIsland)) {
                 mIsland.set(r);
@@ -256,8 +379,10 @@ public final class ShieldOverlay extends View {
         }
     };
 
+    private int mTicks;
+
     synchronized boolean computeRegion(Region out) {
-        if (mThin) return false;
+        if (mThin || !ShieldMode.blocksTouch(mMode)) return false;
         out.set(0, 0, Math.max(1, getWidth()), Math.max(1, getHeight()));
         int[] loc = new int[2];
         getLocationOnScreen(loc);
@@ -278,7 +403,7 @@ public final class ShieldOverlay extends View {
 
     /** 在 rect（屏幕坐标）开孔；返回时 WMS 已拿到新区域（等了两帧）。不支持 touchable region 时整窗放行。 */
     public void openHole(final Rect rect) {
-        if (!mAttached || mThin) return;
+        if (!mAttached || mThin || !ShieldMode.blocksTouch(mMode)) return;   // [exec-1124 B] 只留光晕：本来就不拦，不用开孔、不用等
         final CountDownLatch l = new CountDownLatch(1);
         mMain.post(new Runnable() {
             @Override public void run() {
@@ -318,7 +443,7 @@ public final class ShieldOverlay extends View {
     }
 
     public void closeHole() {
-        if (!mAttached) return;
+        if (!mAttached || !ShieldMode.blocksTouch(mMode)) return;   // [exec-1124 B] 只留光晕时没开过孔
         mMain.post(new Runnable() {
             @Override public void run() {
                 boolean empty;

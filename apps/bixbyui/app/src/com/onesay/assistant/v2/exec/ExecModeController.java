@@ -137,7 +137,8 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
                 // [fix-1123-dexec B8] 手势导航：边缘往里划（返回）/ 底边上划（回桌面）同样紧急接管，不再当误触吞掉
                 try {
                     int mode = android.provider.Settings.Secure.getInt(mApp.getContentResolver(), "navigation_mode", 0);
-                    if (EdgeGesture.gestureNav(mode)) {
+                    mGestureNav = EdgeGesture.gestureNav(mode);
+                    if (mGestureNav) {
                         android.graphics.Point p = new android.graphics.Point();
                         mWm.getDefaultDisplay().getRealSize(p);
                         float d = mApp.getResources().getDisplayMetrics().density;
@@ -147,14 +148,30 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
                 } catch (Throwable t) {
                     Log.w(TAG, "[EXEC] 读导航方式失败: " + t);
                 }
+                // [exec-1124 B] 护罩用哪种窗口：无障碍开着 → 无障碍浮层；只有 Shizuku → 只留光晕不拦触摸；root / 安卓 8 → 原样
+                ShieldMode.Mode sm = ShieldMode.choose(driver.route(), android.os.Build.VERSION.SDK_INT,
+                        com.onesay.assistant.v2.a11y.A11yBackend.connected());
+                mShield.setMode(sm, new ShieldOverlay.A11yWm() {
+                    @Override public Object owner() {
+                        return com.onesay.assistant.v2.a11y.A11yBackend.instance();
+                    }
+
+                    @Override public WindowManager get(long waitMs) {
+                        com.onesay.assistant.v2.a11y.A11yBackend b = waitMs > 0 ? com.onesay.assistant.v2.a11y.A11yBackend.awaitInstance(waitMs)
+                                : com.onesay.assistant.v2.a11y.A11yBackend.instance();
+                        return b == null ? null : (WindowManager) b.getSystemService(Context.WINDOW_SERVICE);
+                    }
+                });
+                ev("护罩：" + ShieldMode.zh(sm) + "（路线 " + driver.route() + "）");
                 mShield.show(false);
             }
         });
         driver.setShield(mShield);
         setWho(ControlColor.Who.AGENT);
         // ④ 导航键观察（返回 / 主页 = 紧急接管）
+        // [exec-1124 B] 手势导航时看左右边缘带 + 底边带（只留光晕时这是唯一能看到返回 / 上划手势的地方）
         String w = FastScreen.get(mApp).backWatch();
-        ev("导航键观察：" + w);
+        ev("导航键观察：" + (w != null ? w : "没开起来（" + FastScreen.get(mApp).lastError() + "）"));
         startNavPoll();
         ev("进入执行模式 " + mTitle + " pkg=" + mPkg);
     }
@@ -172,7 +189,7 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
                     if (b > 0 || h > 0) {
                         navBack += b;
                         navHome += h;
-                        navTakeover(b > 0 ? "按了返回键" : "按了主页键", "触摸观察");
+                        navTakeover(ExecState.navWord(mGestureNav, b > 0), "触摸观察");
                     }
                 }
             }
@@ -185,13 +202,18 @@ public final class ExecModeController implements PhoneAgent.Host, ExecBridge.Lis
             ev("导航键紧急接管（" + via + "）：" + which);
             applyPaused(which, true);
             final String w = which;
+            ShieldOverlay sh = mShield;
+            final boolean through = sh != null && !ShieldMode.blocksTouch(sh.mode());   // [exec-1124 B] 只留光晕：手势已经生效了
             mMain.post(new Runnable() {
                 @Override public void run() {
-                    Toast.makeText(mApp, ExecState.navTakeoverToast(w), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(mApp, ExecState.navTakeoverToast(w, through), Toast.LENGTH_SHORT).show();
                 }
             });
         } else ev("导航键（" + which + "，" + via + "）：当前状态 " + state.state() + "，不叠加接手");
     }
+
+    /** [exec-1124 B] 手势导航下触摸观察报的是边缘手势（提示文字跟着换）。 */
+    private volatile boolean mGestureNav;
 
     static int num(String s, String key) {
         int k = s.indexOf(key);

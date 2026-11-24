@@ -64,6 +64,8 @@ public final class FsTree {
     public boolean truncated;
     /** 输入法窗口是否在屏上。 */
     public boolean ime;
+    /** [exec-1124 B] 读屏时因为「用户看不见」跳过的节点数（只记数，跳过规则不变；0 不写进 JSON）。 */
+    public int hidden;
     public final List<Node> nodes = new ArrayList<Node>();
 
     /** ★ mika-plug：多窗口读法时的窗口表（从上到下）。旧助手 / 单窗口读法为空。 */
@@ -89,6 +91,7 @@ public final class FsTree {
             sb.append(']');
         }
         sb.append(']');
+        if (hidden > 0) sb.append(",\"hid\":").append(hidden);
         if (!windows.isEmpty()) {
             sb.append(",\"w\":[");
             for (int i = 0; i < windows.size(); i++) {
@@ -110,6 +113,7 @@ public final class FsTree {
         t.ms = o.optLong("ms", 0);
         t.truncated = o.optInt("tr", 0) == 1;
         t.ime = o.optInt("ime", 0) == 1;
+        t.hidden = o.optInt("hid", 0);
         JSONArray a = o.optJSONArray("n");
         if (a != null) {
             for (int i = 0; i < a.length(); i++) {

@@ -540,7 +540,10 @@ public final class HelperMain {
             t.truncated = true;
             return;
         }
-        if (parent >= 0 && !n.isVisibleToUser()) return;
+        if (parent >= 0 && !n.isVisibleToUser()) {
+            t.hidden++;   // [exec-1124 B] 只记数（执行模式读到的元素过少时看是不是被盖住了），跳过规则不变
+            return;
+        }
         FsTree.Node x = new FsTree.Node();
         x.parent = parent;
         x.childIdx = childIdx;
@@ -1089,6 +1092,8 @@ public final class HelperMain {
 
     static volatile int sBacks, sHomes;
     static Rect sBackR, sHomeR;
+    /** [exec-1124 B] 手势导航：右边缘返回带（左边缘在 sBackR，底边在 sHomeR）；三键 = null。 */
+    static Rect sBack2R;
     /** [fix-1123-c] 每次观察自己一个令牌：停的时候关掉它的输入流（以前一个全局开关停不掉卡在读上的旧线程，一个任务漏一个）。 */
     static final NavWatch sNav = new NavWatch();
 
@@ -1100,9 +1105,12 @@ public final class HelperMain {
         stopBackWatch();
         Rect back = new Rect(i(p[1]), i(p[2]), i(p[3]), i(p[4]));
         Rect home = p.length > 8 ? new Rect(i(p[5]), i(p[6]), i(p[7]), i(p[8])) : new Rect();
+        Rect back2 = p.length > 12 ? new Rect(i(p[9]), i(p[10]), i(p[11]), i(p[12])) : new Rect();
         sBackR = back.isEmpty() ? null : back;
         sHomeR = home.isEmpty() ? null : home;
-        try {
+        sBack2R = back2.isEmpty() ? null : back2;
+        // [exec-1124 B] 手势导航（带了右边缘带）：没有三键可找，直接看边缘带，不再因为找不到返回键报 NO_BACK_BUTTON 退出
+        if (sBack2R == null) try {
             for (AccessibilityWindowInfo w : ua().getWindows()) {
                 AccessibilityNodeInfo r = w.getRoot();
                 if (r == null || r.getPackageName() == null || !"com.android.systemui".contentEquals(r.getPackageName())) continue;
@@ -1136,7 +1144,7 @@ public final class HelperMain {
             }
         }, parser, new NavTouchParser.Sink() {
             @Override public void onDown(int sx, int sy) {
-                if (sBackR != null && sBackR.contains(sx, sy)) {
+                if (sBackR != null && sBackR.contains(sx, sy) || sBack2R != null && sBack2R.contains(sx, sy)) {
                     sBacks++;
                     log("nav back touch " + sx + "," + sy);
                 } else if (sHomeR != null && sHomeR.contains(sx, sy)) {
@@ -1147,7 +1155,7 @@ public final class HelperMain {
         }, new NavWatch.Log() {
             @Override public void log(String s) { HelperMain.log(s); }
         });
-        return "watching back=" + sBackR.toShortString() + " home=" + (sHomeR == null ? "-" : sHomeR.toShortString()) + " dev=" + dev
+        return "watching" + (sBack2R != null ? " gesture back2=" + sBack2R.toShortString() : "") + " back=" + sBackR.toShortString() + " home=" + (sHomeR == null ? "-" : sHomeR.toShortString()) + " dev=" + dev
                 + " max=" + max[0] + "x" + max[1] + " ev=" + parser.eventSize() + " live=" + sNav.live.get();
     }
 

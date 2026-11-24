@@ -452,9 +452,9 @@ public final class FastScreen {
 
     /** 开始观察导航栏返回 / 主页键的真人触摸（返回 "watching …"；null = 不可用）。区域按 {@link NavKeys} 从系统设置推算。 */
     public String backWatch() {
-        int[] r = NavKeys.rects(mApp);
-        String[] a = new String[8];
-        for (int k = 0; k < 8; k++) a[k] = String.valueOf(r[k]);
+        int[] r = NavKeys.watchZones(mApp);   // [exec-1124 B] 手势导航带上左右边缘带 + 底边带（12 个数）
+        String[] a = new String[r.length];
+        for (int k = 0; k < r.length; k++) a[k] = String.valueOf(r[k]);
         return text(FsProtocol.OP_BACKWATCH, a);
     }
 

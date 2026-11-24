@@ -795,3 +795,4 @@ com/onesay/assistant/v2/ui/wake/ListenScreenPolicy.java
 com/onesay/assistant/v2/ui/chat/ConsoleCardCopy.java
 com/onesay/assistant/v2/phone/ActionRoute.java
 com/onesay/assistant/v2/phone/LaunchCheck.java
+com/onesay/assistant/v2/exec/ShieldMode.java

@@ -263,7 +263,10 @@ public class A11yBackend extends AccessibilityService {
             t.truncated = true;
             return;
         }
-        if (parent >= 0 && !n.isVisibleToUser()) return;
+        if (parent >= 0 && !n.isVisibleToUser()) {
+            t.hidden++;   // [exec-1124 B] 只记数，跳过规则不变
+            return;
+        }
         FsTree.Node x = new FsTree.Node();
         x.parent = parent;
         x.childIdx = childIdx;

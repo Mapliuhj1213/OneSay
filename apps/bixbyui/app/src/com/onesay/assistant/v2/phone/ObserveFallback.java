@@ -12,6 +12,18 @@ public final class ObserveFallback {
     private ObserveFallback() {}
 
     /** 助手这次读到的树值不值得再用无障碍读一次。 */
+    /** [exec-1124 B] 执行模式下读到的元素少于这个数就记一条日志。 */
+    public static final int THIN_ELEMENTS = 8;
+
+    /**
+     * [exec-1124 B] 执行模式（护罩 / 光晕挂着）下这次读屏明显过少：元素不到 {@link #THIN_ELEMENTS} 个，或者跳过的「看不见」节点
+     * 比读到的多两倍以上（多半是被悬浮窗盖住、被系统标成看不见了）。只用来记日志，不改读屏行为。纯函数。
+     */
+    public static boolean thinInExec(boolean execMode, int elements, int hidden) {
+        if (!execMode) return false;
+        return elements < THIN_ELEMENTS || hidden >= 10 && hidden > elements * 2;
+    }
+
     public static boolean suspect(String quality, String pkg, String selfPkg) {
         if (!UiTree.Q_OK.equals(quality)) return true;
         if (pkg == null || pkg.length() == 0) return true;

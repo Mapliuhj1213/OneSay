@@ -247,7 +247,8 @@ public final class FsProtocol {
             if (op.equals(OP_IDLE)) return need(p, 3) ? (range(p[1], 50, 5000) != null ? range(p[1], 50, 5000) : range(p[2], 100, 30000)) : "ARGC";
             if (op.equals(OP_BACKWATCH)) {
                 if (!need(p, 9)) return "ARGC";
-                for (int i = 1; i <= 8; i++) if (range(p[i], 0, 10000) != null) return range(p[i], 0, 10000);
+                if (p.length != 9 && p.length != 13) return "ARGC";   // [exec-1124 B] 手势导航多带右边缘返回带 4 个数
+                for (int i = 1; i < p.length; i++) if (range(p[i], 0, 10000) != null) return range(p[i], 0, 10000);
                 return null;
             }
             return null;

@@ -209,7 +209,12 @@ public final class FastScreenDriver implements PhoneAgent.LaunchInfo, PhoneAgent
         }
         UiTree u = mx != null && mx.f.screen ? mx.build(t, ids, mW, mH) : UiTree.from(t, ids, mW, mH);   // ★ mika-plug：Mika 元素表
         SafeLog.i(TAG, "[PHONE] 读屏 " + ms + "ms（助手内 " + t.ms + "ms）pkg=" + u.pkg + " 元素=" + u.els.size() + " 质量=" + u.quality()
-                + (u.ime ? " ime" : ""));
+                + (u.ime ? " ime" : "") + (t.hidden > 0 ? " 跳过看不见=" + t.hidden : ""));
+        ShieldOverlay shNow = mShield;   // [exec-1124 B] 执行模式下读到的明显过少：记一条，方便查是不是被盖住了
+        if (ObserveFallback.thinInExec(shNow != null && shNow.attached(), u.els.size(), t.hidden)) {
+            SafeLog.w(TAG, "[PHONE] 执行模式读屏偏少：元素=" + u.els.size() + " 跳过看不见=" + t.hidden + " 后端=" + (mLastB2 ? "无障碍" : "助手")
+                    + " 护罩=" + com.onesay.assistant.v2.exec.ShieldMode.zh(shNow.mode()) + " pkg=" + u.pkg);
+        }
         // [fix-1123-dexec B7] 助手读到的不完整（被自家悬浮窗挡住、只读到最上层）且无障碍连着 → 用无障碍再读一次，更好就换
         if (!mLastB2 && ObserveFallback.suspect(u.quality(), u.pkg, mApp.getPackageName())) {
             try {
