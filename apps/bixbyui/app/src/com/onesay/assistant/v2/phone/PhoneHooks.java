@@ -309,6 +309,10 @@ public final class PhoneHooks {
             return d.lastLaunchSkipped();
         }
 
+        @Override public String lastLaunchNote() {   // [exec-1124 C]
+            return d.lastLaunchNote();
+        }
+
         final FastScreenDriver d;
         final ExecModeController e;
 

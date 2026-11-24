@@ -46,15 +46,22 @@ public final class A11yState {
         public final Backend backend;
         public final String reason;
         public final boolean offerA11ySettings;
+        /** [exec-1124 C] 按动作选后端时的大方向（{@link #route}）。 */
+        public final Route route;
 
         Choice(Backend b, String reason, boolean offer) {
+            this(b, reason, offer, b == Backend.HELPER ? Route.HELPER : b == Backend.A11Y ? Route.A11Y_ONLY : Route.NONE);
+        }
+
+        Choice(Backend b, String reason, boolean offer, Route r) {
             this.backend = b;
             this.reason = reason;
             this.offerA11ySettings = offer;
+            this.route = r;
         }
 
         @Override public String toString() {
-            return backend + (reason != null ? " (" + reason + ")" : "") + (offerA11ySettings ? " +entry" : "");
+            return backend + "/" + route + (reason != null ? " (" + reason + ")" : "") + (offerA11ySettings ? " +entry" : "");
         }
     }
 
@@ -71,7 +78,35 @@ public final class A11yState {
      * @param helperError       助手不可用的原因（FastScreen.lastError）
      */
     public static Choice choose(boolean helperOk, boolean a11yConnected, boolean a11yInSettings, boolean a11yKilled, String helperError) {
-        if (helperOk) return new Choice(Backend.HELPER, null, false);
+        return choose(helperOk, false, a11yConnected, a11yInSettings, a11yKilled, helperError);
+    }
+
+    /**
+     * [exec-1124 C] 按动作选后端的大方向。不再「整个任务二选一」：
+     * <ul>
+     *   <li>{@link #HELPER_ROOT}：助手是 root 守护拉起的（Note 8 这类）→ 动作顺序保持原样（助手为主），只有返回 / 主页先用无障碍全局动作；</li>
+     *   <li>{@link #A11Y_FIRST}：助手（Shizuku）和无障碍都在 → 以无障碍为主、助手兜底；点按 节点点击 → 无障碍手势 → 助手注入；</li>
+     *   <li>{@link #HELPER}：只有助手（无障碍没开）；</li>
+     *   <li>{@link #A11Y_ONLY}：只有无障碍（原来的兜底模式）；</li>
+     *   <li>{@link #NONE}：都不行。</li>
+     * </ul>
+     */
+    public enum Route { HELPER_ROOT, A11Y_FIRST, HELPER, A11Y_ONLY, NONE }
+
+    /** [exec-1124 C] 纯函数：大方向判定。被开发者显式关掉的无障碍后端不算「在」。 */
+    public static Route route(boolean helperOk, boolean helperRoot, boolean a11yConnected, boolean a11yKilled) {
+        boolean a = a11yConnected && !a11yKilled;
+        if (helperOk && helperRoot) return Route.HELPER_ROOT;
+        if (helperOk && a) return Route.A11Y_FIRST;
+        if (helperOk) return Route.HELPER;
+        if (a) return Route.A11Y_ONLY;
+        return Route.NONE;
+    }
+
+    /** [exec-1124 C] 同 {@link #choose(boolean, boolean, boolean, boolean, String)}，多一个「助手是不是 root 拉起的」。 */
+    public static Choice choose(boolean helperOk, boolean helperRoot, boolean a11yConnected, boolean a11yInSettings, boolean a11yKilled, String helperError) {
+        Route r = route(helperOk, helperRoot, a11yConnected, a11yKilled);
+        if (helperOk) return new Choice(Backend.HELPER, null, false, r);
         if (a11yConnected && !a11yKilled) return new Choice(Backend.A11Y, null, false);
         String he = helperError == null || helperError.trim().length() == 0 ? "" : "（" + scrub(helperError.trim()) + "）";
         if (a11yKilled) return new Choice(Backend.NONE, "读屏助手不可用" + he + "，无障碍读屏后端被关掉了", false);

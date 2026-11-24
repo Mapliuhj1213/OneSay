@@ -93,6 +93,14 @@ public final class FastScreen {
         return mLastError;
     }
 
+    /** [exec-1124 C] 当前连着的助手的 uid（-1 = 还没连过）。 */
+    private volatile int mPeerUid = -1;
+
+    /** [exec-1124 C] 连着的助手是 root 守护拉起的（uid 0）。root 路径的动作顺序保持原样。在 ping 之后调用才准。 */
+    public boolean rootHelper() {
+        return mPeerUid == 0;
+    }
+
     public String status() {
         return "connected=" + (mSock != null || mPipes != null) + (mPipes != null ? " via=stdio" : mSock != null ? " via=socket" : "") + " calls=" + calls + " fails=" + fails + " starts=" + starts + " lastStart=" + lastStartMs
                 + "ms err=" + mLastError;
@@ -128,6 +136,7 @@ public final class FastScreen {
                 return false;
             }
             s.setSoTimeout(SO_TIMEOUT_MS);
+            mPeerUid = peer;   // [exec-1124 C] 记下助手身份：0 = root 守护拉起，2000 = shell（Shizuku）
             mSock = s;
             mIn = new DataInputStream(new BufferedInputStream(s.getInputStream()));
             mOut = new DataOutputStream(s.getOutputStream());
@@ -180,6 +189,7 @@ public final class FastScreen {
                 return false;
             }
             mPipes = pp;
+            mPeerUid = 2000;   // [exec-1124 C] 标准输入输出只有 Shizuku 起的 shell 助手才走
             mIn = in;
             mOut = out;
             lastStartMs = SystemClock.elapsedRealtime() - t0;

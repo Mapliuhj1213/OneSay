@@ -199,6 +199,14 @@ public final class PhoneAgent {
     /** [fix-1123-dexec B40] 驱动可选实现：上一次 launch 因为目标已在前台而没重新拉起。 */
     public interface LaunchInfo {
         boolean lastLaunchSkipped();
+
+        /** [exec-1124 C] 上一次 launch 没打开时的大白话原因（打开后核对前台不对）；null = 没有。 */
+        String lastLaunchNote();
+    }
+
+    /** [exec-1124 C] 驱动给的「没打开」原因（没有就 null）。 */
+    private String launchNote() {
+        return mD instanceof LaunchInfo ? ((LaunchInfo) mD).lastLaunchNote() : null;
     }
 
     /** [fix-1123-dexec B6] 高风险 App 打开前的确认闸（测试可关）。 */
@@ -252,8 +260,13 @@ public final class PhoneAgent {
                 return finish(res, Status.STOPPED, "", "用户没有同意：打开 " + startPkg, budget, t0);
             }
             mH.onStep("打开应用", 0);
-            mD.launch(startPkg);
+            boolean opened = mD.launch(startPkg);
             mD.waitIdle(400, 4000);
+            String why = opened ? null : launchNote();
+            if (why != null) {   // [exec-1124 C] 开局没打开：写进轨迹和开局提示，让模型从现状接着判断（不硬停，B39 的确认框处理照旧）
+                res.trace.add("launch-unverified " + startPkg);
+                history.add("打开 " + startPkg + "：" + why);
+            }
         }
         UiTree screen = startPkg != null && startPkg.length() > 0 ? observeAfterAction("打开应用") : obs();
         String lastBatchReport = "";
@@ -707,7 +720,9 @@ public final class PhoneAgent {
         if (s.op.equals("key")) return mD.key(s.key) ? "已按 " + s.key : "按键失败";
         if (s.op.equals("launch")) {
             if (RISK_GATE && !riskyOk(s.app, s.app)) return "没打开 " + s.app + "：用户没同意";   // [fix-1123-dexec B6]
-            return mD.launch(s.app) ? "已打开 " + s.app : "打不开 " + s.app;
+            if (mD.launch(s.app)) return "已打开 " + s.app;
+            String why = launchNote();   // [exec-1124 C] 打开后核对没到前台：如实说，不在错的页面上空转
+            return why != null ? "打不开 " + s.app + "：" + why : "打不开 " + s.app;
         }
         if (s.op.equals("swipe")) {
             int w = cur == null ? 1080 : cur.screenW, h = cur == null ? 2220 : cur.screenH;
