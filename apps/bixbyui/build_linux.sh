@@ -174,6 +174,7 @@ if [ "$DEBUG" = "1" ]; then
       -e 's#com\.onesay\.assistant\.permission\.SUMMON#com.onesay.assistant.debug.permission.SUMMON#g' \
       -e 's#com\.onesay\.assistant\.action\.SUMMON#com.onesay.assistant.debug.action.SUMMON#g' \
       -e 's#android:authorities="com\.onesay\.assistant\.shizuku"#android:authorities="com.onesay.assistant.debug.shizuku"#' \
+      -e 's#android:authorities="com\.onesay\.assistant\.logshare"#android:authorities="com.onesay.assistant.debug.logshare"#' \
       -e 's#android:label="OneSay 控制台"#android:label="OneSay Debug 控制台"#' \
       -e 's#android:label="OneSay"#android:label="OneSay Debug"#' \
       -e 's#android:label="控制 OneSay"#android:label="控制 OneSay Debug"#' \
@@ -184,6 +185,7 @@ if [ "$DEBUG" = "1" ]; then
   fi
   grep -q 'android:label="OneSay Debug"' "$MANIFEST" || { echo "debug Manifest 应用名没换成 OneSay Debug" >&2; exit 1; }
   if grep -q 'android:authorities="com.onesay.assistant.shizuku"' "$MANIFEST"; then echo "debug Manifest 的 ShizukuProvider authority 没改成 .debug（会和正式包冲突）" >&2; exit 1; fi
+  if grep -q 'android:authorities="com.onesay.assistant.logshare"' "$MANIFEST"; then echo "debug Manifest 的 日志分享 authority 没改成 .debug（会和正式包冲突）" >&2; exit 1; fi
 else
   sed '/DEBUG-ONLY-BEGIN/,/DEBUG-ONLY-END/d' "$ROOT/app/AndroidManifest.xml" > "$MANIFEST"
   if grep -q "com.onesay.assistant.v2.test.TestRunReceiver" "$MANIFEST"; then echo "release Manifest 仍含 TestRunReceiver" >&2; exit 1; fi

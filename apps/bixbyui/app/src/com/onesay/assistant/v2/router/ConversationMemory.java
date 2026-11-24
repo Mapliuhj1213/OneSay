@@ -463,6 +463,7 @@ public final class ConversationMemory {
             if (!idleExpired()) return false;
             old = drainLocked();
         }
+        com.onesay.assistant.v2.applog.AppLogPoints.session("会话到期", old == null ? 0 : old.size());   // [settings-diag-1124]
         fireClear(old);
         return true;
     }
@@ -484,6 +485,7 @@ public final class ConversationMemory {
     private void expireIfIdleLocked() {
         if (!idleExpired()) return;
         final List<Turn> old = drainLocked();
+        com.onesay.assistant.v2.applog.AppLogPoints.session("会话到期", old.size());   // [settings-diag-1124]
         final Listener l = sListener;
         if (l != null && !old.isEmpty()) {
             com.onesay.assistant.v2.util.Threads.start("conv-expire", new Runnable() {
@@ -705,6 +707,7 @@ public final class ConversationMemory {
         synchronized (this) {
             old = drainLocked();
         }
+        com.onesay.assistant.v2.applog.AppLogPoints.session("会话清空", old == null ? 0 : old.size());   // [settings-diag-1124]
         Listener l = sListener;
         if (l != null) {
             try {

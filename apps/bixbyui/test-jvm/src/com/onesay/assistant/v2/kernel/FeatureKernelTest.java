@@ -33,7 +33,7 @@ public class FeatureKernelTest {
     @Test public void builtinRegistry() {
         List<String> ids = new ArrayList<String>();
         for (FeaturePlugin p : FeatureKernel.get().plugins()) ids.add(p.id());
-        assertEquals(Arrays.asList("s1", "island", "s2", "roles", "diag", "summary", "imgsave", "s3", "screenref", "quicknote", "brief", "conn", "errand", "callback", "notice", "sched", "planner", "rain", "phone", "phongent", "suggest", "askonce", "pclink", "apifirst", "vyrse", "hello"), ids);   // [integ] 2026-11-13 集成线：api-first +apifirst 与 compat-vyrse +vyrse 两边都保留（apifirst 在前）;   // [api-first] 2026-11-11 +apifirst；oss-device-1108 +pclink（移植电脑联动插件）;   // 2026-11-06 +rain，2026-11-05 +planner，2026-11-03 +askonce，2026-11-02 +phongent，B 线 +conn，lane C3 +errand，lane-a +callback +notice +sched
+        assertEquals(Arrays.asList("s1", "island", "s2", "roles", "diag", "summary", "imgsave", "s3", "screenref", "quicknote", "brief", "conn", "errand", "callback", "notice", "sched", "planner", "rain", "phone", "phongent", "suggest", "askonce", "pclink", "apifirst", "vyrse", "selfset", "hello"), ids);   // ★ settings-diag-1124 +selfset   // [integ] 2026-11-13 集成线：api-first +apifirst 与 compat-vyrse +vyrse 两边都保留（apifirst 在前）;   // [api-first] 2026-11-11 +apifirst；oss-device-1108 +pclink（移植电脑联动插件）;   // 2026-11-06 +rain，2026-11-05 +planner，2026-11-03 +askonce，2026-11-02 +phongent，B 线 +conn，lane C3 +errand，lane-a +callback +notice +sched
         assertEquals("id 唯一", ids.size(), new HashSet<String>(ids).size());
         for (FeaturePlugin p : FeatureKernel.get().plugins()) {
             assertNotNull(p.id() + " title", p.title());
@@ -99,7 +99,8 @@ public class FeatureKernelTest {
         // UnifiedExecutor：S2 → S3 → 诊断 → 连接器（B 线新增，都在 Intent / Shell 之前）
         List<String> be = new ArrayList<String>();
         for (com.onesay.assistant.v2.executor.backend.ExecutorBackend b : FeatureKernel.get().executorBackends()) be.add(b.getClass().getSimpleName());
-        assertEquals(Arrays.asList("S2Backend", "S3Backend", "DiagBackend", "ConnBackend"), be);
+        // ★ settings-diag-1124：自身设置（executor=selfset）排在诊断前，同样在 Intent / Shell 之前
+        assertEquals(Arrays.asList("S2Backend", "S3Backend", "SelfSettingsBackend", "DiagBackend", "ConnBackend"), be);
         // MainActivity：S2 → 默认应用 → 诊断 → 摘要 → 灵动岛 → 定时任务
         assertEquals(Arrays.asList("s2", "roles", "diag", "summary", "island", "s3"),
                 participants(FeatureHook.CONSOLE, "s2", "roles", "diag", "summary", "island", "s3"));

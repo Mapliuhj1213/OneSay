@@ -74,8 +74,9 @@ public class FeatureRegistryConsistencyTest {
         assertTrue(t.contains("S1Hooks.refreshIslandMode(\"console\")"));
         assertTrue(t.contains("WakeService.syncGestureFlag(act)"));
         assertTrue(t.contains("NoticePlugin.refresh(act)"));
+        // ★ settings-diag-1124：能力页不再放第二套功能开关（开关都在「插件」页，用的是同一组 setter），只列能不能用 + 缺什么
         String page = src("app/src/com/onesay/assistant/v2/ui/console/DeviceCapsPage.java");
-        assertTrue(page.contains("DeviceCapsToggles.apply("));
+        assertFalse("能力页不再有重复的功能开关", page.contains("DeviceCapsToggles.apply("));
         assertFalse("能力页不应直接写 prefs", page.contains("putBoolean("));
     }
 

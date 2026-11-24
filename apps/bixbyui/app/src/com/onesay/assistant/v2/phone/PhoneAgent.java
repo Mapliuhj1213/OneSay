@@ -103,7 +103,13 @@ public final class PhoneAgent {
         public int actions;
         public long ms;
         public int batches;
-        public final List<String> trace = new ArrayList<String>();
+        /** [settings-diag-1124] 每加一条同时写进应用内日志（release 口径见 AppLogPoints.phoneTrace）。 */
+        public final List<String> trace = new ArrayList<String>() {
+            @Override public boolean add(String line) {
+                com.onesay.assistant.v2.applog.AppLogPoints.phoneTrace(line);
+                return super.add(line);
+            }
+        };
         /** ★ borrow-1112：每一步的结构化回执（执行了的和停下的那一步；按发生顺序）。 */
         public final List<StepReceipt> receipts = new ArrayList<StepReceipt>();
     }

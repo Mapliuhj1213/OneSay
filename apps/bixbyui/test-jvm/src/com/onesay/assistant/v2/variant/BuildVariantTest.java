@@ -147,30 +147,45 @@ public class BuildVariantTest {
     /** Manifest 里随变体改名的只有签名级权限 com.onesay.assistant.permission.CONTROL 和测试 action；build_linux.sh 的 debug sed 覆盖它们。 */
     @Test public void manifestCustomNamesAreCoveredByDebugRewrite() {
         String m = src("app/AndroidManifest.xml");
-        // priv-llm：唯一允许的 provider 是 Shizuku 官方库的 Binder 接收端；它的 authority 必须是「正式包名.shizuku」，
-        // 且 build_linux.sh 的 debug 改写把它改成「debug 包名.shizuku」（并在改写后自检），两包不会抢同一 authority。
+        // priv-llm：允许的 provider 只有两个——Shizuku 官方库的 Binder 接收端（authority「正式包名.shizuku」），
+        // 和 settings-diag-1124 的日志分享 LogShareProvider（authority「正式包名.logshare」，不导出、只按次授权读）。
+        // 两者的 authority 都由 build_linux.sh 的 debug 改写换成「debug 包名.xxx」（并在改写后自检），两包不会抢同一 authority。
         // 任何别的 <provider> 仍然直接失败。
         Matcher prov = Pattern.compile("<provider\\b([^>]*)/?>").matcher(m);
-        int providers = 0;
+        int providers = 0, shizuku = 0, logshare = 0;
+        String shp = src("build_linux.sh");
         while (prov.find()) {
             providers++;
             String attrs = prov.group(1);
-            assertTrue("出现 <provider> 了：authorities 要按变体区分（例如 ${applicationId}.xxx），并补 build_linux.sh 的 debug 改写（只放行 rikka.shizuku.ShizukuProvider）: " + attrs,
-                    attrs.contains("android:name=\"rikka.shizuku.ShizukuProvider\""));
-            assertTrue("ShizukuProvider 的 authority 必须是 com.onesay.assistant.shizuku", attrs.contains("android:authorities=\"com.onesay.assistant.shizuku\""));
-            assertTrue("ShizukuProvider 必须只让持 INTERACT_ACROSS_USERS_FULL 的调用方进来",
-                    attrs.contains("android:permission=\"android.permission.INTERACT_ACROSS_USERS_FULL\""));
+            boolean isShizuku = attrs.contains("android:name=\"rikka.shizuku.ShizukuProvider\"");
+            boolean isLog = attrs.contains("android:name=\"com.onesay.assistant.v2.applog.LogShareProvider\"");
+            assertTrue("出现 <provider> 了：authorities 要按变体区分（例如 ${applicationId}.xxx），并补 build_linux.sh 的 debug 改写（只放行 ShizukuProvider / LogShareProvider）: " + attrs,
+                    isShizuku || isLog);
+            if (isShizuku) {
+                shizuku++;
+                assertTrue("ShizukuProvider 的 authority 必须是 com.onesay.assistant.shizuku", attrs.contains("android:authorities=\"com.onesay.assistant.shizuku\""));
+                assertTrue("ShizukuProvider 必须只让持 INTERACT_ACROSS_USERS_FULL 的调用方进来",
+                        attrs.contains("android:permission=\"android.permission.INTERACT_ACROSS_USERS_FULL\""));
+                assertTrue("build_linux.sh 缺 ShizukuProvider authority 的 debug 改写",
+                        shp.contains("s#android:authorities=\"com\\.onesay\\.assistant\\.shizuku\"#android:authorities=\"com.onesay.assistant.debug.shizuku\"#"));
+                assertTrue("build_linux.sh 缺改写后的 authority 自检", shp.contains("if grep -q 'android:authorities=\"com.onesay.assistant.shizuku\"' \"$MANIFEST\""));
+            } else {
+                logshare++;
+                assertTrue("LogShareProvider 的 authority 必须是 com.onesay.assistant.logshare", attrs.contains("android:authorities=\"com.onesay.assistant.logshare\""));
+                assertTrue("LogShareProvider 不能导出", attrs.contains("android:exported=\"false\""));
+                assertTrue("LogShareProvider 要按次授权读（grantUriPermissions）", attrs.contains("android:grantUriPermissions=\"true\""));
+                assertTrue("build_linux.sh 缺 LogShareProvider authority 的 debug 改写",
+                        shp.contains("s#android:authorities=\"com\\.onesay\\.assistant\\.logshare\"#android:authorities=\"com.onesay.assistant.debug.logshare\"#"));
+                assertTrue("build_linux.sh 缺日志分享 authority 改写后的自检", shp.contains("if grep -q 'android:authorities=\"com.onesay.assistant.logshare\"' \"$MANIFEST\""));
+                assertTrue("代码里的 authority 要随包名走（getPackageName() + \".logshare\"）",
+                        src("app/src/com/onesay/assistant/v2/applog/AppLogAndroid.java").contains("getPackageName() + \".logshare\""));
+            }
         }
-        assertTrue("最多一个 provider（ShizukuProvider）", providers <= 1);
-        if (providers == 1) {
-            String shp = src("build_linux.sh");
-            assertTrue("build_linux.sh 缺 ShizukuProvider authority 的 debug 改写",
-                    shp.contains("s#android:authorities=\"com\\.onesay\\.assistant\\.shizuku\"#android:authorities=\"com.onesay.assistant.debug.shizuku\"#"));
-            assertTrue("build_linux.sh 缺改写后的 authority 自检", shp.contains("if grep -q 'android:authorities=\"com.onesay.assistant.shizuku\"' \"$MANIFEST\""));
-            String dm = m.replace("android:authorities=\"com.onesay.assistant.shizuku\"", "android:authorities=\"com.onesay.assistant.debug.shizuku\"");
-            assertFalse(dm.contains("android:authorities=\"com.onesay.assistant.shizuku\""));
-            assertTrue(dm.contains("android:authorities=\"com.onesay.assistant.debug.shizuku\""));
-        }
+        assertTrue("最多一个 ShizukuProvider、一个 LogShareProvider", providers <= 2 && shizuku <= 1 && logshare <= 1);
+        String dm = m.replace("android:authorities=\"com.onesay.assistant.shizuku\"", "android:authorities=\"com.onesay.assistant.debug.shizuku\"")
+                .replace("android:authorities=\"com.onesay.assistant.logshare\"", "android:authorities=\"com.onesay.assistant.debug.logshare\"");
+        assertFalse(dm.contains("android:authorities=\"com.onesay.assistant.shizuku\""));
+        assertFalse(dm.contains("android:authorities=\"com.onesay.assistant.logshare\""));
         assertFalse("出现 sharedUserId：两个签名不同的包不能共用", m.contains("sharedUserId"));
         Matcher perm = Pattern.compile("android:(?:name|permission)=\"(com\\.onesay\\.assistant\\.[^\"]+)\"").matcher(m);
         while (perm.find()) {

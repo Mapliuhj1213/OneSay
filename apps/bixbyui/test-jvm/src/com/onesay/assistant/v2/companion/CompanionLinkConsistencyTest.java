@@ -252,6 +252,15 @@ public class CompanionLinkConsistencyTest {
             assertTrue("debug 包要改 ShizukuProvider 的 authority（否则 debug / release 会撞）",
                     src("build_linux.sh").contains("android:authorities=\"com.onesay.assistant.debug.shizuku\""));
         }
+        // ★ settings-diag-1124：日志分享 Provider（不导出，debug 包由 build_linux.sh 改成 .debug.logshare），同样剔掉再查
+        int lp = noShizuku.indexOf("android:name=\"com.onesay.assistant.v2.applog.LogShareProvider\"");
+        if (lp > 0) {
+            int a = noShizuku.lastIndexOf("<provider", lp), b = noShizuku.indexOf("/>", lp);
+            assertTrue(a >= 0 && b > lp);
+            assertTrue("日志分享 Provider 不导出", noShizuku.substring(a, b).contains("android:exported=\"false\""));
+            noShizuku = noShizuku.substring(0, a) + noShizuku.substring(b + 2);
+            assertTrue("debug 包要改日志分享的 authority", src("build_linux.sh").contains("android:authorities=\"com.onesay.assistant.debug.logshare\""));
+        }
         assertFalse("助手不放 provider（debug / release authority 会撞），反查走有序广播", noShizuku.contains("<provider"));
         int i = m.indexOf("v2.companion.CompanionLinkReceiver");
         assertTrue(i > 0);

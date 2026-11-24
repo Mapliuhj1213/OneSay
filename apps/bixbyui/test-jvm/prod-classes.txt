@@ -798,3 +798,18 @@ com/onesay/assistant/v2/phone/LaunchCheck.java
 com/onesay/assistant/v2/exec/ShieldMode.java
 com/onesay/assistant/v2/phone/AppNameMatch.java
 com/onesay/assistant/v2/router/RetryIntent.java
+# [settings-diag-1124] 应用内日志 + 自身设置
+com/onesay/assistant/v2/applog/AppLog.java
+com/onesay/assistant/v2/applog/AppLogSanitizer.java
+com/onesay/assistant/v2/applog/AppLogPoints.java
+com/onesay/assistant/v2/applog/AppLogExport.java
+com/onesay/assistant/v2/applog/AppLogAndroid.java
+com/onesay/assistant/v2/applog/LogShareProvider.java
+com/onesay/assistant/v2/selfset/SelfCatalog.java
+com/onesay/assistant/v2/selfset/SelfStore.java
+com/onesay/assistant/v2/selfset/SelfSettingsEngine.java
+com/onesay/assistant/v2/selfset/SelfSettingsCaps.java
+com/onesay/assistant/v2/selfset/SelfSettingsHooks.java
+com/onesay/assistant/v2/selfset/SelfSettingsAndroid.java
+com/onesay/assistant/v2/executor/backend/SelfSettingsBackend.java
+com/onesay/assistant/v2/kernel/plugins/SelfSettingsPlugin.java

@@ -518,6 +518,14 @@
         </receiver>
         <!-- DEBUG-ONLY-END -->
 
+        <!-- settings-diag-1124：应用内日志「导出日志」用的只读分享（不导出；分享时给对方一次性读授权）；
+             进程启动时顺带初始化应用内日志。debug 包的 authority 由 build_linux.sh 改成 com.onesay.assistant.debug.logshare。 -->
+        <provider
+            android:name="com.onesay.assistant.v2.applog.LogShareProvider"
+            android:authorities="com.onesay.assistant.logshare"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <!-- priv-llm：Shizuku 官方 API 库的 Binder 接收端（rikka.shizuku.ShizukuProvider，dev.rikka.shizuku:provider 13.1.5）。
              只有持 INTERACT_ACROSS_USERS_FULL 的系统 / Shizuku 服务能调用；插件「Shizuku 特权」默认关，关时不请求授权、不执行任何命令。
              debug 包的 authority 由 build_linux.sh 改成 com.onesay.assistant.debug.shizuku。 -->

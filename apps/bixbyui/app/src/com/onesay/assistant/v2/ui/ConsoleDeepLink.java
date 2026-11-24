@@ -32,7 +32,9 @@ public final class ConsoleDeepLink {
     /** 允许被深链打开的控制台页 id。 */
     static final Set<String> ALLOWED = Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
             "callback.history",   // NoticeHooks.postCallback 的「回调历史」动作
-            "asr.key"            // r2/p0 AsrFailure.CONSOLE_PAGE：唤醒卡「去配置」→ 语音识别 Key 弹窗（integrate 补）
+            "asr.key",           // r2/p0 AsrFailure.CONSOLE_PAGE：唤醒卡「去配置」→ 语音识别 Key 弹窗（integrate 补）
+            // ★ settings-diag-1124：聊天里「自身设置」的「去设置里看看」按钮（SelfCatalog.Target 的应用内页面）
+            "settings.wake", "settings.basics", "settings.plugins", "settings.advanced", "settings.devcaps", "settings.perm"
     )));
 
     /** 敏感配置页：外部（无口令）深链只能经页内再确认才打开。 */

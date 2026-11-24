@@ -115,6 +115,7 @@ public class UnifiedExecutor implements IExecutor {
     public ExecutionResult execute(Capability capability, JSONObject args) {
         ExecutionResult r = run(capability, args, false, false, null, false);
         logObservation(capability, args, r);
+        com.onesay.assistant.v2.applog.AppLogPoints.exec(capability, args, r, false);   // [settings-diag-1124] 应用内日志
         return r;
     }
 
@@ -129,6 +130,7 @@ public class UnifiedExecutor implements IExecutor {
                                    ExecutionGate.ConfirmToken token, boolean tainted) {
         ExecutionResult r = run(capability, args, true, false, token, tainted);
         logObservation(capability, args, r);
+        com.onesay.assistant.v2.applog.AppLogPoints.exec(capability, args, r, token != null);   // [settings-diag-1124] 应用内日志
         return r;
     }
 
@@ -201,6 +203,7 @@ public class UnifiedExecutor implements IExecutor {
                 // [chat-1124] 模型自己填的 pkg 和它写的 App 名对不上（app=美团、pkg=另一个 App 的包名）→ 不信 pkg，按名字解析
                 if (component != null && !args.has("role") && !pkgAgreesWithName(appName, hintPkg)) {
                     Log.w(TAG, "app.launch 的 pkg 和 App 名对不上，按名字解析: app=" + appName + " pkg=" + hintPkg);
+                    com.onesay.assistant.v2.applog.AppLog.w("Exec", "[LAUNCH] pkg 和 App 名对不上，按名字解析 pkg=" + hintPkg + " 名字" + com.onesay.assistant.v2.util.LogText.len(appName));   // [settings-diag-1124]
                     component = null;
                 }
             }

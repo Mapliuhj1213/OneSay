@@ -145,12 +145,19 @@ public final class ExecutionGate {
     public static Decision evaluate(Capability cap, JSONObject args, boolean tainted) {
         // ★ r2/screenoff-wake：锁屏时（面板可浮在锁屏上方语音回答）有副作用 / 读隐私的能力一律先解锁 —— 排在「始终允许」之前
         String lockWhy = com.onesay.assistant.v2.wake.ScreenOffPolicy.unlockDenyReason(cap);
-        if (lockWhy != null) return new Decision(ToolGate.Decision.DENY, lockWhy, false, 0, null);
+        if (lockWhy != null) {
+            com.onesay.assistant.v2.applog.AppLogPoints.gate(cap, "拦截（先解锁）", 0, tainted, null);   // [settings-diag-1124]
+            return new Decision(ToolGate.Decision.DENY, lockWhy, false, 0, null);
+        }
         ConsentPolicy.Outcome o = withWhitelist(cap, args, tainted, ConsentPolicy.gate(cap, args, tainted));
         if (o.decision == ToolGate.Decision.REQUIRE_CONFIRM) {
             ConfirmToken t = issue(cap, args, tainted);
-            return new Decision(o.decision, o.reason, false, ConsentPolicy.tierOf(cap, tainted), t);
+            int tier = ConsentPolicy.tierOf(cap, tainted);
+            com.onesay.assistant.v2.applog.AppLogPoints.gate(cap, "要确认", tier, tainted, null);   // [settings-diag-1124]
+            return new Decision(o.decision, o.reason, false, tier, t);
         }
+        com.onesay.assistant.v2.applog.AppLogPoints.gate(cap, o.decision == ToolGate.Decision.DENY ? "拦截" : (o.viaAlwaysAllow ? "放行（始终允许）" : "放行"),
+                0, tainted, o.decision == ToolGate.Decision.DENY ? o.reason : null);   // [settings-diag-1124]
         return new Decision(o.decision, o.reason, o.viaAlwaysAllow, 0, null);
     }
 
@@ -167,6 +174,7 @@ public final class ExecutionGate {
         synchronized (t) {
             if (t.state != TokenState.PENDING || sClock.now() > t.expiresAt) return false;
             t.state = TokenState.APPROVED;
+            com.onesay.assistant.v2.applog.AppLogPoints.confirm(t.sign, true);   // [settings-diag-1124]
             return true;
         }
     }
@@ -175,6 +183,7 @@ public final class ExecutionGate {
     public static void reject(ConfirmToken t) {
         if (t == null) return;
         synchronized (t) {
+            if (t.state == TokenState.PENDING) com.onesay.assistant.v2.applog.AppLogPoints.confirm(t.sign, false);   // [settings-diag-1124]
             if (t.state == TokenState.PENDING || t.state == TokenState.APPROVED) t.state = TokenState.REJECTED;
         }
         unregister(t);

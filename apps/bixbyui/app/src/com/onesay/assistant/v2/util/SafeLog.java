@@ -7,6 +7,8 @@ package com.onesay.assistant.v2.util;
  * <p>起因：2026-11-14 第三轮真机，用户原话里的全角手机号 / 邮箱 / 验证码被 L0RuleRouter、UnifiedRouter、FloatingSheetService、
  * AgentLoop、PhoneAgent「结束」行原样写进 logcat（logcat 谁都能读，bugreport 也会带走）。这些类的日志一律改走这里。
  * 带异常的重载把堆栈也拼进正文一起脱敏（异常信息里也可能有原话）。
+ *
+ * <p>[settings-diag-1124] i / w / e 三档同时写进应用内运行日志（设置 › 高级 › 导出日志），v / d 只进 logcat。
  */
 public final class SafeLog {
 
@@ -37,12 +39,24 @@ public final class SafeLog {
 
     public static int v(String tag, String msg) { return android.util.Log.v(tag, clean(msg)); }
     public static int d(String tag, String msg) { return android.util.Log.d(tag, clean(msg)); }
-    public static int i(String tag, String msg) { return android.util.Log.i(tag, clean(msg)); }
-    public static int w(String tag, String msg) { return android.util.Log.w(tag, clean(msg)); }
-    public static int e(String tag, String msg) { return android.util.Log.e(tag, clean(msg)); }
+    public static int i(String tag, String msg) { return android.util.Log.i(tag, tee('I', tag, clean(msg))); }
+    public static int w(String tag, String msg) { return android.util.Log.w(tag, tee('W', tag, clean(msg))); }
+    public static int e(String tag, String msg) { return android.util.Log.e(tag, tee('E', tag, clean(msg))); }
     public static int v(String tag, String msg, Throwable tr) { return android.util.Log.v(tag, clean(withTrace(msg, tr))); }
     public static int d(String tag, String msg, Throwable tr) { return android.util.Log.d(tag, clean(withTrace(msg, tr))); }
-    public static int i(String tag, String msg, Throwable tr) { return android.util.Log.i(tag, clean(withTrace(msg, tr))); }
-    public static int w(String tag, String msg, Throwable tr) { return android.util.Log.w(tag, clean(withTrace(msg, tr))); }
-    public static int e(String tag, String msg, Throwable tr) { return android.util.Log.e(tag, clean(withTrace(msg, tr))); }
+    public static int i(String tag, String msg, Throwable tr) { return android.util.Log.i(tag, tee('I', tag, clean(withTrace(msg, tr)))); }
+    public static int w(String tag, String msg, Throwable tr) { return android.util.Log.w(tag, tee('W', tag, clean(withTrace(msg, tr)))); }
+    public static int e(String tag, String msg, Throwable tr) { return android.util.Log.e(tag, tee('E', tag, clean(withTrace(msg, tr)))); }
+
+    /**
+     * [settings-diag-1124] info 及以上的行顺手写进 OneSay 自己的运行日志（{@link com.onesay.assistant.v2.applog.AppLog}，
+     * 写盘前再脱敏一次）。路由决策、AgentLoop 每步、[RETRY]、替你操作这些本来就走这里。写日志出错不影响原来的 logcat。
+     */
+    static String tee(char level, String tag, String cleaned) {
+        try {
+            com.onesay.assistant.v2.applog.AppLog.append(level, tag, cleaned);
+        } catch (Throwable ignored) {
+        }
+        return cleaned;
+    }
 }

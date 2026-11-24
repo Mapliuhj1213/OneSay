@@ -198,6 +198,8 @@ public class ConsentPolicy {
         if (CommsRisk.isComms(cap.sign)) return false;
         if (cap.sideEffect == com.onesay.assistant.v2.capability.SideEffect.PUBLIC_COMMS) return false;   // [conn] 对外发送每次都要确认
         if (isRemoteConnTool(cap)) return false;
+        // [settings-diag-1124] OneSay 自己的敏感设置（外部唤起 / 自动执行 / Shizuku 特权 / 隐私）每次都问，不能记住
+        if (com.onesay.assistant.v2.selfset.SelfSettingsCaps.SIGN_SET_GUARDED.equals(cap.sign)) return false;
         return true;
     }
 

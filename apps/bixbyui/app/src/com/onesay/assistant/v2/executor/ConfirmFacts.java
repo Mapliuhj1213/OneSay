@@ -66,6 +66,9 @@ public final class ConfirmFacts {
     public static String lines(Capability cap, JSONObject args) {
         List<String> out = new ArrayList<String>();
         if (cap == null) return null;
+        // [settings-diag-1124] OneSay 自己的设置：写中文名和改成什么，不露内部 id
+        String self = com.onesay.assistant.v2.selfset.SelfSettingsCaps.cardLines(cap, args);
+        if (self != null) return self;
         boolean remote = isRemote(cap);
         JSONObject a = args == null ? new JSONObject() : args;
         List<String> used = new ArrayList<String>();

@@ -48,6 +48,8 @@ public class CapabilityRegistry {
                     BuiltinCapabilities.registerAll(sInstance);
                     // ★ fix/triage-fast：快路径模板用到的系统动作（导航键 / 媒体键 / 清空后台 / 勿扰…），不进内置快照
                     com.onesay.assistant.v2.capability.caps.FastCaps.register(sInstance);
+                    // ★ settings-diag-1124：OneSay 自身设置（读清单 / 改 / 打开所在页），普通聊天和 AgentLoop 都检索得到；不进内置快照
+                    com.onesay.assistant.v2.selfset.SelfSettingsCaps.register(sInstance);
                     // 注册只读探针（probe.*，不进普通召回，供 AgentLoop 探索族使用）
                     try {
                         com.onesay.assistant.v2.probe.ProbeCapabilities.registerAll(sInstance);

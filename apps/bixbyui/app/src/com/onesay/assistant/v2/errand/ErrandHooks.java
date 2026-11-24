@@ -580,13 +580,13 @@ public final class ErrandHooks {
             if (svc == null || command == null) return false;
             final String rw = com.onesay.assistant.v2.router.TaskContinuation.rewrite(command, System.currentTimeMillis());
             if (rw == null) return false;
-            Log.i(TAG, "[CONTINUE] 「" + com.onesay.assistant.v2.util.LogText.u(command) + "」接回上一轮任务 → " + com.onesay.assistant.v2.util.LogText.u(rw));
+            com.onesay.assistant.v2.util.SafeLog.i(TAG, "[CONTINUE] 「" + com.onesay.assistant.v2.util.LogText.u(command) + "」接回上一轮任务 → " + com.onesay.assistant.v2.util.LogText.u(rw));   // [settings-diag-1124] 走 SafeLog：同时进应用内日志
             MAIN.post(new Runnable() {
                 @Override public void run() {
                     try {
                         svc.onSubmitCommand(rw);
                     } catch (Throwable t) {
-                        Log.w(TAG, "[CONTINUE] 重新提交失败: " + t.getMessage());
+                        com.onesay.assistant.v2.util.SafeLog.w(TAG, "[CONTINUE] 重新提交失败: " + t.getMessage());
                     }
                 }
             });
