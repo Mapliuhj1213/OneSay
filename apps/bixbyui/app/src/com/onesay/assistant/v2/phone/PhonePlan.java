@@ -89,7 +89,8 @@ public final class PhonePlan {
     public int collectPages = 8;
     public String error = "";
 
-    static final String[] OPS = {"tap", "long", "type", "scroll", "back", "home", "launch", "key", "wait", "swipe", "wait_until"};
+    static final String[] OPS = {"tap", "long", "type", "scroll", "back", "home", "launch", "key", "wait", "swipe", "wait_until",
+            /** [exec-ground-1124] 退回这个 App 的首页（返回键退，退不回就从桌面重新打开）。 */ "reset_app"};
 
     /** ★ borrow-1112 wait_until：默认等 10 秒，最多 30 秒（超过按 30 秒算）。 */
     public static final int UNTIL_DEFAULT_MS = 10000, UNTIL_MAX_MS = 30000;
@@ -115,6 +116,14 @@ public final class PhonePlan {
      * scroll 的 direction、end_not_done。mika = false 与改前逐字一致。
      */
     public static PhonePlan parse(String content, boolean mika) {
+        return parse(content, mika, mika);
+    }
+
+    /**
+     * [exec-ground-1124] xy = true：不开 Mika 写法也收 0–999 坐标（截图模式要用），{@code "x","y"} 或 {@code "xy":[x,y]}，外加 target。
+     * xy 与 mika 相同时和改前逐字一致。
+     */
+    public static PhonePlan parse(String content, boolean mika, boolean xy) {
         PhonePlan p = new PhonePlan();
         if (content == null) {
             p.error = "模型没有输出";
@@ -200,6 +209,7 @@ public final class PhonePlan {
                 if (st.op.equals("click")) st.op = "tap";
                 if (st.op.equals("input")) st.op = "type";
                 if (st.op.equals("open")) st.op = "launch";
+                if (st.op.equals("reset") || st.op.equals("restart_app") || st.op.equals("app_home") || st.op.equals("home_app")) st.op = "reset_app";   // [exec-ground-1124]
                 if (st.op.equals("long_press")) st.op = "long";
                 if (st.op.equals("wait_for") || st.op.equals("until") || st.op.equals("waituntil")) st.op = "wait_until";
                 boolean known = false;
@@ -224,6 +234,19 @@ public final class PhonePlan {
                     if (x.has("package") && !x.has("app")) x.put("app", x.optString("package"));
                     if (x.has("pressEnter")) x.put("enter", x.optBoolean("pressEnter"));
                     if (x.has("expect_app") == false && x.has("expectApp")) x.put("expect_app", x.optString("expectApp"));
+                }
+                if (xy && !mika) {   // [exec-ground-1124] 截图模式的坐标点
+                    org.json.JSONArray xa = x.optJSONArray("xy");
+                    if (xa != null && xa.length() >= 2 && !x.has("x")) {
+                        x.put("x", xa.optInt(0, -1));
+                        x.put("y", xa.optInt(1, -1));
+                    }
+                    if (x.has("x") && x.has("y") && x.optInt("x", -1) >= 0 && x.optInt("y", -1) >= 0) {
+                        st.x = Math.max(0, Math.min(999, x.optInt("x", -1)));
+                        st.y = Math.max(0, Math.min(999, x.optInt("y", -1)));
+                    }
+                    st.target = x.optString("target", "");
+                    if (x.has("package") && !x.has("app")) x.put("app", x.optString("package"));
                 }
                 st.text = x.optString("text", "");
                 st.enter = x.optBoolean("enter", x.optBoolean("submit", false));

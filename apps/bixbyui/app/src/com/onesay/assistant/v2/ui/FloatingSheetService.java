@@ -1435,7 +1435,8 @@ public class FloatingSheetService extends Service implements FloatingSheetView.O
 
         // 用户主动取消 -> 立即强制销毁，绝不等待任何动画，绝不受 mHiding 阻塞！
         if (immediate) {
-            SafeLog.i(TAG, "用户主动触发取消/关闭 -> 立即强制销毁悬浮面板与光效层");
+            SafeLog.i(TAG, mYieldNoCancel ? "[PANEL] 执行模式让位：自动收起面板与光效层（不是用户关的，任务照常继续）"   // [exec-ground-1124] 以前一律写「用户主动取消」，看日志会误判
+                    : "[PANEL] 立即收起面板与光效层（用户关闭、外部要求收起，或截图 / 圈选等功能让位）");
             detachFromWindowImmediate();
             return;
         }

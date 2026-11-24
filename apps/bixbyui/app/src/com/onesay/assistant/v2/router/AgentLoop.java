@@ -909,7 +909,11 @@ public class AgentLoop {
                     ConversationMemory.getInstance().budgetTokens());
             if (ctxFit.folded > 0 || ctxFit.outputClamped) SafeLog.i(TAG, "[AGENT-LOOP] [CTX] " + ctxFit.log());
             final java.util.List<ConversationMemory.Turn> history = ctxFit.history;
-            final boolean historyTainted = appendHistory(messages, history);
+            // [exec-ground-1124] 污染只跟着产生它的任务和直接接续走：明显新起的任务不继承，之前读到的外部原文也不进这次上下文
+            final boolean inheritTaint = TaintScope.inherits(query);
+            final boolean historyTainted = appendHistory(messages, history, inheritTaint);
+            if (!inheritTaint && anyTainted(history))
+                SafeLog.i(TAG, "[AGENT-LOOP] [LOGIC-1] 新起的任务：之前读到的外部内容不带进来，本任务不继承污染（敏感动作照常确认）");
             JSONObject userMsg = new JSONObject();
             userMsg.put("role", "user");
             // 相对时间先由本机换算成绝对时刻（“40分钟后叫醒我” →
@@ -957,6 +961,7 @@ public class AgentLoop {
             final boolean longCtxOn = !(cb instanceof Unattended) && !history0.isEmpty();
             if (longCtxOn) {
                 String lc = ConversationMemory.getInstance().tailFor(query, null);
+                if (lc != null && !inheritTaint) lc = TaintScope.stripUntrusted(lc);   // [exec-ground-1124]
                 if (lc != null) withScreen = withScreen + "\n————\n" + lc;
             }
             userMsg.put("content", withScreen);
@@ -2109,11 +2114,33 @@ public class AgentLoop {
     static final int AGENT_USER_RESERVE = 3000;
 
     static boolean appendHistory(JSONArray messages, java.util.List<ConversationMemory.Turn> history) throws org.json.JSONException {
+        return appendHistory(messages, history, true);
+    }
+
+    /** [exec-ground-1124] 有没有带污点的 Turn。 */
+    static boolean anyTainted(java.util.List<ConversationMemory.Turn> history) {
+        if (history == null) return false;
+        for (ConversationMemory.Turn t : history) if (t != null && t.isTainted()) return true;
+        return false;
+    }
+
+    /**
+     * [exec-ground-1124] inherit = false（新起的任务）：带污点的 Turn 只留问句，答复换成 {@link TaintScope#DROPPED}，不算污染。
+     * inherit = true 与改前一致。
+     */
+    static boolean appendHistory(JSONArray messages, java.util.List<ConversationMemory.Turn> history, boolean inherit) throws org.json.JSONException {
         boolean any = false;
         if (history == null) return false;
         for (ConversationMemory.Turn t : history) {
             if (t == null) continue;
             boolean tt = t.isTainted();
+            if (tt && !inherit) {
+                if (t.question != null && t.question.length() > 0) {
+                    messages.put(new JSONObject().put("role", "user").put("content", t.question));
+                    messages.put(new JSONObject().put("role", "assistant").put("content", TaintScope.DROPPED));
+                }
+                continue;
+            }
             if (t.question != null && t.question.length() > 0) {
                 JSONObject q = new JSONObject();
                 q.put("role", "user");

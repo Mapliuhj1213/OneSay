@@ -75,6 +75,21 @@ public final class PhoneAgent {
         String next(String system, String user);
     }
 
+    /** [exec-ground-1124] 能把截图一起发给主模型看的 planner（主模型原生看图）。 */
+    public interface VisionPlanner extends Planner {
+        /** jpeg = 这一屏截图；返回模型原文（JSON）；null = 模型不可用。 */
+        String nextWithImage(String system, String user, byte[] jpeg);
+    }
+
+    /** [exec-ground-1124] 截图定位要的驱动能力（FastScreenDriver 实现；JVM 假驱动可以实现来测）。 */
+    public interface GroundDriver extends Driver {
+        /** 给模型看的截图（JPEG）；markX/markY = 上一下点的 0–999 坐标，画个圈（-1 = 不画）。拿不到 = null。 */
+        byte[] groundShot(int markX999, int markY999);
+
+        /** 画面指纹（亮度格子，见 {@link ScreenGround#frameSig}）；拿不到 = null。 */
+        String frameSig();
+    }
+
     /** 界面宿主（Android 侧：灵动岛 + 护罩 + 返回键观察）。 */
     public interface Host {
         void onStep(String shortWord, int stepNo);
@@ -199,6 +214,42 @@ public final class PhoneAgent {
         return u;
     }
 
+    /** [exec-ground-1124] 截图定位模式开关（测试可关；改前口径 legacyOneStep 不走）。 */
+    static volatile boolean GROUND = true;
+    /** [exec-ground-1124] 统计：发了几张截图给模型、连着要截图几次、退回首页几次、开局弹窗处理了几次。 */
+    public int groundShots, resets, launchDialogs;
+    private int mShotStreak;
+    /** 上一下坐标点（0–999），下一张截图上画圈核对；-1 = 没有。 */
+    private int mLastTapX = -1, mLastTapY = -1;
+    /** 动作前的画面指纹（树不可用时判断画面变没变）。 */
+    private String mFrameBefore;
+    /** 这次任务要打开 / 开局所在的 App（reset_app 没写 app 时退回它）。 */
+    private String mTaskPkg;
+
+    /** 截图定位能不能用（驱动和模型都支持看图、识屏没关）。 */
+    private boolean groundCapable(boolean visionOff) {
+        return GROUND && !legacyOneStep && !visionOff && mD instanceof GroundDriver && mP instanceof VisionPlanner;
+    }
+
+    /** 这一屏要不要以截图为准。 */
+    private boolean blindNow(UiTree u) {
+        return GROUND && !legacyOneStep && mD instanceof GroundDriver && ScreenGround.treeBlind(u);
+    }
+
+    private String frameNow() {
+        try {
+            return mD instanceof GroundDriver ? ((GroundDriver) mD).frameSig() : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 判卡住用的界面签名：树不可用时带上画面指纹（不然每一轮都是同一个空树签名，3 轮就判卡住）。 */
+    private String turnSig(UiTree u) {
+        String sig = u == null ? "" : u.signature();
+        return blindNow(u) ? ScreenGround.withFrame(sig, frameNow()) : sig;
+    }
+
     /** [fix-1123-dexec B40] 「开局现状」提示开关（测试可关）。 */
     static volatile boolean STATE_FIRST = true;
 
@@ -226,6 +277,8 @@ public final class PhoneAgent {
     }
 
     public AppGuard appGuard;
+    /** [exec-ground-1124] 上一次 launch 步骤解析出的包名（弹窗核对用）。 */
+    private String mResolvedLaunch;
 
     /** [chat-1124] 打开 app（名字或包名）：解析 → 高风险确认 → 和用户点名的核对 → launch。返回 null = 打开了，否则是没打开的说法。 */
     String openApp(String app) {
@@ -246,6 +299,7 @@ public final class PhoneAgent {
                 return "打不开 " + pkg + "：" + why;
             }
         }
+        mResolvedLaunch = pkg;
         if (mD.launch(pkg)) return null;
         String why = launchNote();   // [exec-1124 C] 打开后核对没到前台：如实说，不在错的页面上空转
         return why != null ? "打不开 " + pkg + "：" + why : "打不开 " + pkg;
@@ -349,6 +403,12 @@ public final class PhoneAgent {
             }
         }
         UiTree screen = startPkg != null && startPkg.length() > 0 ? observeAfterAction("打开应用") : obs();
+        mTaskPkg = startPkg != null && startPkg.length() > 0 ? startPkg : screen != null ? screen.pkg : null;
+        if (startPkg != null && startPkg.length() > 0) {   // [exec-ground-1124] 打开时冒出系统弹窗：选择器选目标，别的不猜、请用户处理
+            UiTree[] box = new UiTree[]{screen};
+            if (!launchDialog(box, startPkg, budget)) return finish(res, Status.STOPPED, "", "打开应用时系统弹了提示，你没让我继续", budget, t0);
+            screen = box[0];
+        }
         String lastBatchReport = "";
         boolean wantShot = false;
         boolean visionOff = visionKnownOff;   // ★ overnight-1119：识屏用不了（第一次拿不到描述就记下）；★ fix/1123-bug2：开局已知就直接关
@@ -357,7 +417,7 @@ public final class PhoneAgent {
         String stateNote = STATE_FIRST ? StateFirst.note(screen, mD instanceof LaunchInfo && ((LaunchInfo) mD).lastLaunchSkipped()) : "";
         // [fix-1123-dexec B39] 刚打开目标 App，前台却是别的包、而且读不到内容（多半是系统的「是否打开」安全框）：
         //   能看图就让模型先看一眼；看图也用不了就请用户手动点一下，点完继续
-        if (JUMP_GATE && startPkg != null && startPkg.length() > 0 && unreadableForeign(screen, startPkg)) {
+        if (JUMP_GATE && startPkg != null && startPkg.length() > 0 && unreadableForeign(screen, startPkg) && !LaunchDialog.systemPkg(screen.pkg)) {
             if (!visionOff) {
                 wantShot = true;
                 res.trace.add("jump-confirm unreadable → shot");
@@ -439,7 +499,20 @@ public final class PhoneAgent {
             }
             // ③ 问模型
             String desc = null;
-            if (screen != null && !visionOff && (wantShot || !UiTree.Q_OK.equals(screen.quality()))) {
+            byte[] shot = null;
+            boolean blind = blindNow(screen);
+            if (groundCapable(visionOff) && (wantShot || blind)) {   // [exec-ground-1124] 截图模式：把截图本身发给主模型
+                try {
+                    shot = ((GroundDriver) mD).groundShot(mLastTapX, mLastTapY);
+                } catch (Throwable t) {
+                    shot = null;
+                }
+                if (shot != null) {
+                    groundShots++;
+                    if (groundShots == 1) res.trace.add("ground on: " + ScreenGround.blindWhy(screen));
+                }
+            }
+            if (shot == null && screen != null && !visionOff && (wantShot || !UiTree.Q_OK.equals(screen.quality()))) {
                 desc = mD.describeScreen();
                 // ★ overnight-1119 魅族：识屏用不了（没配 Key / 截屏不可用）→ 这次任务不再截屏、不再给模型「要看图」这条路
                 if (desc == null) {
@@ -514,6 +587,9 @@ public final class PhoneAgent {
                 if (mDeliveryNote != null) lastBatchReport = lastBatchReport == null || lastBatchReport.length() == 0 ? mDeliveryNote : mDeliveryNote + "\n" + lastBatchReport;
             }
             String user = PhonePrompt.user(goal, screen, desc, history, lastBatchReport, budget.info(mD.now()), maxElementLines, stateNote);
+            if (budget.calls == 0 && !legacyOneStep && GROUND)   // [exec-ground-1124] 开局先定位：在哪一页、差什么，不在起点先回首页
+                user = ScreenGround.startNote(resets < ScreenGround.MAX_RESETS) + "\n" + user;
+            if (shot != null) user = ScreenGround.userNote(groundShots, mLastTapX, mLastTapY, ScreenGround.blindWhy(screen)) + user;
             if (redactor != null) user = redactor.redact(user);   // ★ borrow-1112：手机号 / 身份证 / 银行卡 / 邮箱 / 验证码换成占位符再发
             budget.onModelCall();
             mH.onStep("思考", stepNo);
@@ -521,10 +597,13 @@ public final class PhoneAgent {
             if (mika != null) sys = sys + mika.promptAddendum(labels);
             if (labels) sys = sys + PhonePrompt.labelsAddendum();   // ★ a11y-labels
             if (visionOff) sys = PhonePrompt.withoutShot(sys);        // ★ overnight-1119：识屏用不了就不给「要看画面」这条路
-            String out = mP.next(sys, user);
+            if (shot != null) sys = sys + ScreenGround.addendum();   // [exec-ground-1124]
+            String out = shot != null ? ((VisionPlanner) mP).nextWithImage(sys, user, shot) : mP.next(sys, user);
             if (out == null) return finish(res, Status.FAILED, "", "模型没有返回", budget, t0);
-            PhonePlan plan = PhonePlan.parse(out, mika != null && mika.f.dosteps);
-            budget.onTurn(screen == null ? "" : screen.signature());
+            boolean mikaSteps = mika != null && mika.f.dosteps;
+            PhonePlan plan = PhonePlan.parse(out, mikaSteps, mikaSteps || shot != null || blind);
+            budget.onTurn(turnSig(screen));
+            if (plan.kind != PhonePlan.Kind.SHOT) mShotStreak = 0;
             res.trace.add("model#" + budget.calls + " " + plan.kind + (plan.error.length() > 0 ? " err=" + plan.error : "") + " " + clip(out, 300));
             switch (plan.kind) {
                 case DONE:
@@ -553,8 +632,21 @@ public final class PhoneAgent {
                         if (shotRefused >= 2) return finish(res, Status.FAILED, "", "这台手机现在看不了屏幕图像（没配识屏 Key 或截屏不可用），读屏结果又不够判断，没法接着点", budget, t0);
                         continue;
                     }
+                    // [exec-ground-1124] 真机 7 连 SHOT：给的是文字描述、模型又没有坐标可点，只好一直要。现在下一轮附的是截图本身，
+                    //   连着要第 3 次起不再截、回一句别再要，第 4 次停下（不瞎点）
+                    mShotStreak++;
+                    if (mShotStreak >= ScreenGround.STOP_SHOT_STREAK) {
+                        res.trace.add("shot streak stop " + mShotStreak);
+                        return finish(res, Status.FAILED, "", ScreenGround.SHOT_STOP, budget, t0);
+                    }
+                    if (mShotStreak > ScreenGround.MAX_SHOT_STREAK) {
+                        res.trace.add("shot refused streak=" + mShotStreak);
+                        lastBatchReport = ScreenGround.shotRefused(groundCapable(visionOff));
+                        history.add("（又要看画面，已经连着给过了）");
+                        continue;
+                    }
                     wantShot = true;
-                    lastBatchReport = "（下一轮附屏幕的视觉描述）";
+                    lastBatchReport = groundCapable(visionOff) ? "（下一轮附屏幕截图，按截图上的位置写 x/y 坐标）" : "（下一轮附屏幕的视觉描述）";
                     continue;
                 case COLLECT: {
                     if (mRec != null) mRec.taint("收集列表的步骤不回放");
@@ -787,11 +879,17 @@ public final class PhoneAgent {
             }
             mH.onStep(word(s, cur), ++stepNo);
             long a0 = mD.now();
+            boolean blindStep = blindNow(cur);   // [exec-ground-1124] 树不可用：动作前记一下画面，之后按画面判断变没变
+            mFrameBefore = blindStep ? frameNow() : null;
             String effect = exec(s, cur);
+            boolean xyStep = (s.op.equals("tap") || s.op.equals("long")) && s.id < 0 && s.x >= 0 && s.y >= 0;
+            mLastTapX = xyStep ? s.x : -1;
+            mLastTapY = xyStep ? s.y : -1;
             if (paceSite != null) mika.paceDone(paceSite, mD.now());
             UiTree after;
             String wait;
             mLastUnstable = false;
+            mFrameNoChange = false;
             if (s.isWaitUntil()) {   // ★ borrow-1112：等到条件出现 / 消失（复用稳定读屏轮询，期间画面变化记进时间轴）
                 Object[] w = waitUntil(s, cur);
                 after = (UiTree) w[0];
@@ -810,7 +908,22 @@ public final class PhoneAgent {
             }
             if (mLastUnstable && settle != null)
                 wait = wait.length() == 0 ? "界面仍在变化（等了 " + settle.maxWaitMs + "ms 没稳定，读的是最后一次）" : wait + "，界面仍在变化";
+            if (s.op.equals("launch") && after != null) {   // [exec-ground-1124] 打开后冒出系统弹窗：和开局同一套处理
+                UiTree[] box = new UiTree[]{after};
+                if (!launchDialog(box, mResolvedLaunch != null ? mResolvedLaunch : s.app, budget)) {
+                    br.stopAll = true;
+                    br.report = "打开应用时系统弹了提示，你没让我继续";
+                    break;
+                }
+                after = box[0];
+            }
             boolean changed = after != null && cur != null && !after.signature().equals(cur.signature());
+            if (blindStep && mFrameBefore != null) {   // [exec-ground-1124] 树看不出变化：按画面指纹
+                String fa = frameNow();
+                boolean fc = ScreenGround.frameChanged(mFrameBefore, fa);
+                changed = changed || fc;
+                if (xyStep) effect = effect + (fc ? "（画面变了）" : "（画面没变，可能没点中）");
+            }
             budget.onAction(s.sig(), changed);
             done++;
             br.lastEffect = effect;
@@ -823,8 +936,10 @@ public final class PhoneAgent {
             }
             String mk = mika != null ? mika.afterStep(s, cur, after, effect) : "";   // ★ mika-plug：effect + 守卫阶梯 + 卡住建议
             noteTaint(after, res);
+            boolean fgAlready = s.op.equals("launch") && effect.startsWith("已打开") && mD instanceof LaunchInfo && ((LaunchInfo) mD).lastLaunchSkipped();
+            if (fgAlready) effect = effect + "（本来就在前台，没重新打开）";   // [exec-ground-1124] 已在前台的 launch 直接算成功
             String line = "第 " + (i + 1) + " 步 " + s + " → " + effect + (wait.length() > 0 ? "，" + wait : "") + "（" + (mD.now() - a0) + "ms）" + mk
-                    + receipt(res, StepReceipt.ofEffect(s.op, effect, wait, changed));
+                    + receipt(res, StepReceipt.ofEffect(s.op, effect, wait, changed || fgAlready));
             rep.append(line).append('\n');
             res.trace.add(line);
             if (sum.length() > 0) sum.append("；");
@@ -833,6 +948,10 @@ public final class PhoneAgent {
             cur = after;
             if (mika != null && mika.stopReason != null) break;   // ★ mika-plug：守卫叫停
             if (wait.startsWith("没等到")) break;   // 条件没满足：交回模型
+            if (blindStep && !changed && !s.op.equals("wait") && !s.isWaitUntil() && !s.op.equals("launch") && !s.op.equals("reset_app")) {   // [exec-ground-1124] 看不见文字、画面也没变：不接着盲点
+                if (i < plan.steps.size() - 1) rep.append("画面没变，剩下 ").append(plan.steps.size() - i - 1).append(" 步交回给你，先看新截图再排。\n");
+                break;
+            }
             boolean last = i == plan.steps.size() - 1;
             if (!last && after != null && prev != null) {
                 String why = unexpected(prev, after, s, plan.steps.get(i + 1));
@@ -883,6 +1002,7 @@ public final class PhoneAgent {
         if (s.op.equals("home")) return mD.key("home") ? "已回桌面" : "失败";
         if (s.op.equals("key")) return mD.key(s.key) ? "已按 " + s.key : "按键失败";
         if (s.op.equals("launch")) {
+            mResolvedLaunch = null;
             String no = openApp(s.app);   // [chat-1124] 解析名字、核对用户点名的 App（B6 风险确认、exec-1124 C 前台核对照旧）
             return no == null ? "已打开 " + s.app : no;
         }
@@ -892,11 +1012,17 @@ public final class PhoneAgent {
             return ok ? "已滑动" : "滑动失败";
         }
         if (s.op.equals("wait") || s.isWaitUntil()) return "等待";
+        if (s.op.equals("reset_app")) return resetApp(s.app, cur);   // [exec-ground-1124]
         return "不支持";
     }
 
     /** 代码侧等待：每次界面安静后读一次屏，看条件成立没有；不是固定 sleep。返回 {after, 说明}。 */
     Object[] waitFor(PhonePlan.Step s, UiTree before) {
+        // [exec-ground-1124] 树不可用：文字条件没法判，按画面指纹变没变、稳没稳来等（不当失败）
+        if (blindNow(before) && (s.expect.length() > 0 || s.expectGone.length() > 0 || s.waitStable || s.op.equals("wait"))) {
+            Object[] fw = waitFrame(s, before, s.op.equals("wait") ? s.timeoutMs : Math.min(s.timeoutMs, ScreenGround.FRAME_WAIT_MS + 2000));
+            if (fw != null) return fw;
+        }
         long end = mD.now() + s.timeoutMs;
         long w0 = mD.now();
         UiTree t = null;
@@ -904,8 +1030,11 @@ public final class PhoneAgent {
         int stable = 0;
         // ★ fast-screen-v2（真机：设置首页的「连接」摘要里本来就有「蓝牙」，点完 223 ms 就判「条件已满足」，
         //   紧接着的返回键在新页面打开前按下去被吞掉）：条件在动作之前就已成立时，还要求界面确实变过一次
+        // [exec-ground-1124] 真机 11:59:00：App 本来就在前台、launch 没重新拉起，expect_app 又是它 → 以前要求「界面变过一次」，
+        //   树读不到时签名永远不变，白等 5 秒报超时。launch 的「已在前台」本身就是条件满足，不再要求变化。
         boolean preMet = before != null && !s.op.equals("wait")
-                && ((s.expect.length() > 0 && before.hasText(s.expect)) || (s.expectApp.length() > 0 && s.expectApp.equals(before.pkg)));
+                && ((s.expect.length() > 0 && before.hasText(s.expect))
+                || (s.expectApp.length() > 0 && s.expectApp.equals(before.pkg) && !s.op.equals("launch")));
         String beforeSig = before == null ? null : before.signature();
         boolean changedOnce = false;
         // ★ stable-screen：条件看起来成立时，再确认画面已稳定（读到的不是转场半截），稳定后的那屏仍满足才算数；
@@ -936,6 +1065,45 @@ public final class PhoneAgent {
         }
         return new Object[]{t, "没等到" + cond(s) + "（等了 " + (mD.now() - w0) + "ms）"};
     }
+
+    /**
+     * [exec-ground-1124] 按画面等：动作前的画面（{@link #mFrameBefore}，没有就现在截一次）→ 轮询指纹，变了以后再等它稳住；
+     * 超时也不算失败，如实写「画面没变 / 还在动」，交给下一轮看截图。看不了画面（拿不到指纹）返回 null，走原来的树等待。
+     */
+    Object[] waitFrame(PhonePlan.Step s, UiTree before, long capMs) {
+        long w0 = mD.now();
+        long end = w0 + Math.max(500, capMs);
+        String base = mFrameBefore != null ? mFrameBefore : frameNow();
+        if (base == null) return null;
+        boolean needChange = !s.op.equals("wait");
+        String prev = null, f = null;
+        boolean changed = false, stable = false;
+        while (true) {
+            mD.waitIdle(250, 1200);
+            f = frameNow();
+            if (f == null) break;
+            if (ScreenGround.frameChanged(base, f)) changed = true;
+            if ((changed || !needChange) && ScreenGround.frameSame(prev, f)) {
+                stable = true;
+                break;
+            }
+            prev = f;
+            if (mD.now() >= end || mH.stopRequested()) break;
+            mD.sleep(150);
+        }
+        UiTree t = obs();
+        long ms = mD.now() - w0;
+        if (t != null && s.expectApp.length() > 0 && !s.expectApp.equals(t.pkg) && !(s.op.equals("launch") && s.expectApp.equals(t.pkg)))
+            return new Object[]{t, "没等到" + cond(s) + "（等了 " + ms + "ms）"};
+        if (t != null && !ScreenGround.treeBlind(t) && (s.expect.length() > 0 || s.expectGone.length() > 0) && condMet(s, t, before, false, true))
+            return new Object[]{t, "条件已满足（等了 " + ms + "ms）"};
+        String how = f == null ? "看不了画面" : changed ? (stable ? "画面变了、已稳定" : "画面变了、还在动") : needChange ? "画面没变" : stable ? "画面已稳定" : "画面还在动";
+        mFrameNoChange = needChange && !changed;
+        return new Object[]{t, "读不到界面文字，按画面判断：" + how + "（等了 " + ms + "ms，下一轮看截图确认）"};
+    }
+
+    /** 上一次按画面等的结果是「画面没变」（这一批就此交回模型，不接着盲点）。 */
+    private boolean mFrameNoChange;
 
     /** waitFor 的条件判断（拆出来给「稳定后再判一次」复用）。 */
     static boolean condMet(PhonePlan.Step s, UiTree t, UiTree before, boolean preMet, boolean changedOnce) {
@@ -1135,6 +1303,94 @@ public final class PhoneAgent {
         return handleJump(r.value);
     }
 
+    /**
+     * [exec-ground-1124] 打开 pkg 以后读到的这一屏是系统弹窗（前台是系统界面、不是目标 App）：
+     * 「打开方式」选择器 → 点目标 App、再点「仅此一次」；别的框不猜 → 请用户处理后点继续（停止 = 返回 false）。
+     * 跳转确认框已经由 {@link #handleJump} 处理过。box[0] 换成处理后的新界面。
+     */
+    boolean launchDialog(UiTree[] box, String pkg, TaskBudget budget) {
+        UiTree u = box[0];
+        if (!JUMP_GATE || u == null || pkg == null || pkg.length() == 0 || pkg.equals(u.pkg) || !LaunchDialog.systemPkg(u.pkg)) return true;
+        String label = appLabel(pkg);
+        LaunchDialog.Verdict v = LaunchDialog.classify(u, pkg, label);
+        launchDialogs++;
+        if (v.kind == LaunchDialog.Kind.CHOOSER) {
+            if (mRes != null) mRes.trace.add("launch-dialog chooser " + u.pkg);
+            mD.tap(u.find(v.targetId));
+            mD.waitIdle(300, 1500);
+            UiTree t = obs();
+            if (t != null && v.onceId >= 0 && !pkg.equals(t.pkg)) {
+                UiTree.El once = t.findText("仅此一次");
+                if (once == null) once = t.find(v.onceId);
+                if (once != null) mD.tap(once);
+                mD.waitIdle(300, 2000);
+                t = obs();
+            }
+            box[0] = t != null ? t : u;
+            if (box[0] == null || pkg.equals(box[0].pkg) || !LaunchDialog.systemPkg(box[0].pkg)) return true;
+            u = box[0];
+            v = LaunchDialog.classify(u, pkg, label);
+        }
+        if (mRes != null) mRes.trace.add("launch-dialog ask " + u.pkg + " els=" + u.els.size());
+        long w0 = mD.now();
+        String[] sup = new String[1];
+        Resume r = mH.awaitResume(LaunchDialog.askText(label, v.summary), sup);
+        if (budget != null) budget.pausedMs += mD.now() - w0;
+        if (r == Resume.STOP) return false;
+        if (budget != null) budget.resetProgress();
+        UiTree t = obs();
+        box[0] = t != null ? t : u;
+        return true;
+    }
+
+    /** 包名 → 用户说的名字（appGuard 认得就用；不认得用包名最后一截，不给模型以外的人看包名）。 */
+    String appLabel(String pkg) {
+        if (appLabels != null) {
+            String l = appLabels.get(pkg);
+            if (l != null) return l;
+        }
+        return "";
+    }
+
+    /** [exec-ground-1124] 包名 → 显示名（PhoneHooks 填；null = 不知道）。 */
+    public java.util.Map<String, String> appLabels;
+
+    /**
+     * [exec-ground-1124] reset_app：退回 App 首页。按返回键（最多 {@link ScreenGround#RESET_BACKS} 次），离开了这个 App 就从桌面重新打开；
+     * 返回键按了画面也不动就当已经在顶层。一次任务最多 {@link ScreenGround#MAX_RESETS} 次（卡住循环两次即停）。
+     */
+    String resetApp(String app, UiTree cur) {
+        if (resets >= ScreenGround.MAX_RESETS) return "没退：这次任务已经退回首页 " + resets + " 次了，不再退，按当前画面接着做，或者问用户";
+        String pkg = app != null && app.length() > 0 ? app : mTaskPkg != null ? mTaskPkg : cur != null ? cur.pkg : "";
+        if (appGuard != null && pkg.length() > 0) {
+            String r = appGuard.resolve(pkg);
+            if (r != null) pkg = r;
+        }
+        if (pkg == null || pkg.length() == 0 || LaunchDialog.systemPkg(pkg)) return "没退：不知道要退回哪个 App";
+        resets++;
+        if (mRes != null) mRes.trace.add("reset_app " + pkg + " #" + resets);
+        int backs = 0;
+        UiTree t = cur != null ? cur : obs();
+        while (backs < ScreenGround.RESET_BACKS && t != null && pkg.equals(t.pkg) && !mH.stopRequested()) {
+            String f0 = frameNow(), s0 = t.signature();
+            mD.key("back");
+            backs++;
+            mD.waitIdle(300, 1500);
+            t = obs();
+            if (t == null || !pkg.equals(t.pkg)) break;
+            String f1 = frameNow();
+            boolean moved = !t.signature().equals(s0) || ScreenGround.frameChanged(f0, f1);
+            if (!moved && f0 != null && f1 != null) break;   // 返回键不动了 = 已经在顶层
+        }
+        if (t == null || !pkg.equals(t.pkg)) {
+            mResolvedLaunch = pkg;
+            boolean ok = mD.launch(pkg);
+            mD.waitIdle(400, 4000);
+            return ok ? "已退回首页（按了 " + backs + " 次返回，退到了外面，重新打开了 " + pkg + "）" : "按了 " + backs + " 次返回，重新打开 " + pkg + " 没成功";
+        }
+        return "已退回首页（按了 " + backs + " 次返回）";
+    }
+
     /** [fix-1123-dexec B39] 打开 startPkg 后前台是别的包且读不到（null / 不可用）。 */
     static boolean unreadableForeign(UiTree u, String startPkg) {
         if (u == null || !UiTree.Q_UNUSABLE.equals(u.quality())) return false;   // 完全没读到（null）不算：可能只是读屏断了
@@ -1230,6 +1486,10 @@ public final class PhoneAgent {
 
     /** wait_until：轮询读屏（每次等画面稳定，复用 {@link StableRead}），直到条件成立或超时（上限 {@link PhonePlan#UNTIL_MAX_MS}）。 */
     Object[] waitUntil(PhonePlan.Step s, UiTree before) {
+        if (blindNow(before)) {   // [exec-ground-1124] 树不可用：按画面等，不硬等文字
+            Object[] fw = waitFrame(s, before, Math.min(Math.max(500, s.timeoutMs), PhonePlan.UNTIL_MAX_MS));
+            if (fw != null) return fw;
+        }
         long w0 = mD.now();
         long end = w0 + Math.min(Math.max(500, s.timeoutMs), PhonePlan.UNTIL_MAX_MS);
         StableRead.Params p = settle != null ? settle : StableRead.Params.defaults();
@@ -1416,6 +1676,8 @@ public final class PhoneAgent {
     static String word(PhonePlan.Step s, UiTree cur) {
         UiTree.El e = s.id >= 0 && cur != null ? cur.find(s.id) : null;
         String n = e == null ? "" : clip(e.label, 6);
+        if (n.length() == 0 && s.x >= 0 && s.target != null && s.target.length() > 0) n = clip(s.target, 6);   // [exec-ground-1124] 坐标点用 target
+        if (s.op.equals("reset_app")) return "回首页";
         if (s.op.equals("tap")) return n.length() > 0 ? "点" + n : "点击";
         if (s.op.equals("type")) return "输入";
         if (s.op.equals("scroll")) return "滚动";

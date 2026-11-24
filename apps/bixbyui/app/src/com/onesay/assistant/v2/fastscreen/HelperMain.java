@@ -526,6 +526,23 @@ public final class HelperMain {
             } catch (Throwable ignored) {
             }
         }
+        // [exec-ground-1124] 还是几乎没内容、而且刚切过窗口（转场 / WebView、RN 页面节点还没挂上）：等一下、刷新根节点再读一次。
+        //   App 主动藏起来的（新版微信只给空壳根）这一下也读不出来，交给截图定位（PhoneAgent / ScreenGround）。
+        if (t.nodes.size() <= 3 && !t.truncated && SystemClock.uptimeMillis() - sLastEventAt < 800) {
+            SystemClock.sleep(220);
+            AccessibilityNodeInfo r2 = targetRoot(u);
+            if (r2 != null) {
+                try {
+                    r2.refresh();
+                } catch (Throwable ignored) {
+                }
+                FsTree t2 = new FsTree();
+                t2.pkg = r2.getPackageName() == null ? "" : r2.getPackageName().toString();
+                t2.activity = t.pkg.equals(t2.pkg) ? t.activity : topActivity(t2.pkg);
+                walk(r2, -1, 0, 0, t2, maxNodes, t0, 0);
+                if (t2.nodes.size() > t.nodes.size()) t = t2;
+            }
+        }
         try {
             for (AccessibilityWindowInfo w : u.getWindows()) if (w.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) t.ime = true;
         } catch (Throwable ignored) {

@@ -82,7 +82,30 @@ public final class SensitiveGuard {
                 bestClick = e.click;
             }
         }
+        if (best == null && s.target != null && s.target.trim().length() > 0) best = fromTarget(s);   // [exec-ground-1124]
         return best;
+    }
+
+    /**
+     * [exec-ground-1124] 截图模式：坐标下面没有任何节点（树读不到）时，按模型写的 target 当按钮名过同一套闸
+     * （付款亲手点 / 敏感确认 / 读过外部内容后发送确认）。以前这种情况三道闸都拿不到元素、一律放行。
+     */
+    static final Pattern TARGET_KEY = Pattern.compile("确认支付|立即支付|确认付款|去支付|提交订单|立即购买|确认订单|确认转账|免密支付|付款|支付|下单|结算|买单|转账|充值|发红包|"
+            + "确认发送|发送验证码|获取验证码|发送|发布|发表|提交|回复|评论|转发|删除|清空|卸载|注销|退出登录|一键登录|授权登录|登录|注册|授权|"
+            + "pay|checkout|purchase|send|submit|post|publish|delete|login|sign in", Pattern.CASE_INSENSITIVE);
+
+    static UiTree.El fromTarget(PhonePlan.Step s) {
+        UiTree.El e = new UiTree.El();
+        String t = s.target.trim();
+        int q1 = t.indexOf('「'), q2 = t.lastIndexOf('」');   // 「底部「发送」按钮」→ 发送
+        if (q1 >= 0 && q2 > q1 + 1) t = t.substring(q1 + 1, q2);
+        t = t.replaceAll("(按钮|按键|图标|这个|那个)$", "").trim();
+        java.util.regex.Matcher m = TARGET_KEY.matcher(t);   // 「右下角的发送」这类描述：取出里面的动作词，按按钮名判
+        e.label = m.find() ? m.group() : t;
+        e.cls = "android.widget.Button";
+        e.click = true;
+        e.id = -1;
+        return e;
     }
 
     /** @return null = 不敏感；否则是给用户看的原因（「这一步是付款」）。 */

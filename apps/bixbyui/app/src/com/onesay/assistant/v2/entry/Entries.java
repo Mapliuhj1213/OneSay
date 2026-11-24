@@ -117,12 +117,19 @@ public final class Entries {
     static void switchComponent(Context app, String id, boolean on) {
         try {
             if (BuiltinEntries.SHORTCUT.equals(id)) {
-                if (Build.VERSION.SDK_INT >= 25) {
-                    android.content.pm.ShortcutManager sm = app.getSystemService(android.content.pm.ShortcutManager.class);
-                    if (sm != null) {
-                        if (on) sm.enableShortcuts(Arrays.asList(SHORTCUT_ID));
-                        else sm.disableShortcuts(Arrays.asList(SHORTCUT_ID), "已在 OneSay 设置里关闭");
+                // [exec-ground-1124] 桌面快捷方式写在清单（res/xml/onesay_shortcuts.xml）里，系统不让用接口启用 / 停用
+                //   （真机：IllegalArgumentException「Manifest shortcut ID=onesay_voice may not be manipulated via APIs」）。
+                //   不再去改它；关掉以后长按图标还看得到，但点了不会唤起（EntryRegistry.fire 按开关丢弃）。
+                if (!manifestShortcut(SHORTCUT_ID)) {
+                    if (Build.VERSION.SDK_INT >= 25) {
+                        android.content.pm.ShortcutManager sm = app.getSystemService(android.content.pm.ShortcutManager.class);
+                        if (sm != null) {
+                            if (on) sm.enableShortcuts(Arrays.asList(SHORTCUT_ID));
+                            else sm.disableShortcuts(Arrays.asList(SHORTCUT_ID), "已在 OneSay 设置里关闭");
+                        }
                     }
+                } else {
+                    Log.i(TAG, "[ENTRY] 桌面快捷方式在清单里，" + (on ? "开" : "关") + "只记在设置里（关掉后点了不唤起）");
                 }
                 return;
             }
@@ -135,6 +142,14 @@ public final class Entries {
         } catch (Throwable t) {
             Log.w(TAG, "[ENTRY] 切换组件失败 " + id + ": " + t);
         }
+    }
+
+    /** [exec-ground-1124] 写在清单 res/xml/onesay_shortcuts.xml 里的快捷方式 ID（系统不让用接口改）。 */
+    static final String[] MANIFEST_SHORTCUTS = {"onesay_voice", "onesay_screen"};
+
+    public static boolean manifestShortcut(String id) {
+        for (String m : MANIFEST_SHORTCUTS) if (m.equals(id)) return true;
+        return false;
     }
 
     /** prefs 存储；本地唤醒词映射到 {@link WakeWordSettings}（原开关，默认关）。 */

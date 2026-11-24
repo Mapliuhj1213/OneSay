@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit;
  *   <li>滚动优先无障碍 SCROLL_FORWARD/BACKWARD；没有可滚动节点才注入滑动（滑动路径整条开孔）。</li>
  * </ul>
  */
-public final class FastScreenDriver implements PhoneAgent.LaunchInfo, PhoneAgent.MikaDriver {
+public final class FastScreenDriver implements PhoneAgent.LaunchInfo, PhoneAgent.MikaDriver, PhoneAgent.GroundDriver {
 
     private static final String TAG = "PhoneAgent";
 
@@ -953,6 +953,90 @@ public final class FastScreenDriver implements PhoneAgent.LaunchInfo, PhoneAgent
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    // ------------------------------------------------------------------ [exec-ground-1124] 截图定位
+
+    /** 给模型看的截图：读屏助手截 JPEG（宽 ≤ 720），上一下点的位置画个红圈；整屏几乎全黑（页面禁止截屏）= null。 */
+    @Override public byte[] groundShot(int markX999, int markY999) {
+        if (dead("shot") || mA11yFallback) return null;
+        try {
+            byte[] j = mFs.shotJpeg(75, ScreenGround.SHOT_MAX_W);
+            if (j == null || j.length < 1024) return null;
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inMutable = true;
+            android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeByteArray(j, 0, j.length, o);
+            if (bm == null) return j;
+            try {
+                if (meanLuma(bm) < 6) {
+                    SafeLog.i(TAG, "[PHONE] 截图几乎全黑（页面可能禁止截屏），这一轮不发截图");
+                    return null;
+                }
+                if (markX999 < 0 || markY999 < 0) return j;
+                android.graphics.Canvas c = new android.graphics.Canvas(bm);
+                android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                p.setStyle(android.graphics.Paint.Style.STROKE);
+                p.setStrokeWidth(Math.max(3f, bm.getWidth() / 160f));
+                p.setColor(0xFFFF2A2A);
+                float cx = com.onesay.assistant.plug.screen.core.UiElement.denormalize(markX999, bm.getWidth());
+                float cy = com.onesay.assistant.plug.screen.core.UiElement.denormalize(markY999, bm.getHeight());
+                c.drawCircle(cx, cy, Math.max(14f, bm.getWidth() / 28f), p);
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(j.length + 4096);
+                bm.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, out);
+                return out.toByteArray();
+            } finally {
+                bm.recycle();
+            }
+        } catch (Throwable t) {
+            SafeLog.w(TAG, "[PHONE] 截图模式截图失败: " + t.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    /** 画面指纹：截一张很小的图（宽 90），按 {@link ScreenGround#GRID_COLS} × {@link ScreenGround#GRID_ROWS} 格子取平均亮度。 */
+    @Override public String frameSig() {
+        if (mAborted || mA11yFallback) return null;
+        try {
+            byte[] j = mFs.shotJpeg(40, 90);
+            if (j == null) return null;
+            android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeByteArray(j, 0, j.length);
+            if (bm == null) return null;
+            try {
+                return ScreenGround.frameSig(grid(bm, ScreenGround.GRID_COLS, ScreenGround.GRID_ROWS), ScreenGround.GRID_COLS, ScreenGround.GRID_ROWS);
+            } finally {
+                bm.recycle();
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    static int[] grid(android.graphics.Bitmap bm, int cols, int rows) {
+        int w = bm.getWidth(), h = bm.getHeight();
+        int[] px = new int[w * h];
+        bm.getPixels(px, 0, w, 0, 0, w, h);
+        long[] sum = new long[cols * rows];
+        int[] cnt = new int[cols * rows];
+        for (int y = 0; y < h; y++) {
+            int r = Math.min(rows - 1, y * rows / h);
+            for (int x = 0; x < w; x++) {
+                int c = Math.min(cols - 1, x * cols / w);
+                int v = px[y * w + x];
+                int l = (((v >> 16) & 0xff) * 299 + ((v >> 8) & 0xff) * 587 + (v & 0xff) * 114) / 1000;
+                sum[r * cols + c] += l;
+                cnt[r * cols + c]++;
+            }
+        }
+        int[] out = new int[cols * rows];
+        for (int i = 0; i < out.length; i++) out[i] = cnt[i] == 0 ? 0 : (int) (sum[i] / cnt[i]);
+        return out;
+    }
+
+    static int meanLuma(android.graphics.Bitmap bm) {
+        int[] g = grid(bm, 4, 4);
+        long s = 0;
+        for (int v : g) s += v;
+        return (int) (s / g.length);
     }
 
     @Override public long now() {

@@ -201,9 +201,13 @@ public final class PhoneHooks {
             PhoneAgent agent = new PhoneAgent(new TrackingDriver(drv, exec), script != null ? script : planner, h);
             if (!legacy) {   // [chat-1124] 用户点名的 App：打开前核对 + 前台漂移提醒（改前口径不加）
                 try {
+                    java.util.Map<String, String> idx = new com.onesay.assistant.v2.executor.IntentExecutor(app).labelIndex();
                     AppNameMatch.Guard g = new AppNameMatch.Guard(userSaid != null && userSaid.trim().length() > 0 ? userSaid : goal,
-                            new com.onesay.assistant.v2.executor.IntentExecutor(app).labelIndex(), app.getPackageName());
+                            idx, app.getPackageName());
                     agent.appGuard = g;
+                    java.util.Map<String, String> byPkg = new java.util.HashMap<String, String>();   // [exec-ground-1124] 包名 → 名字（打开时的系统弹窗里认目标 App）
+                    for (java.util.Map.Entry<String, String> en : idx.entrySet()) if (!byPkg.containsKey(en.getValue())) byPkg.put(en.getValue(), en.getKey());
+                    agent.appLabels = byPkg;
                     SafeLog.i(TAG, "[PHONE] 用户点名的 App：" + g.named());
                 } catch (Throwable t) {
                     SafeLog.w(TAG, "[PHONE] 点名 App 核对没装上（按改前处理）: " + t);
@@ -323,7 +327,7 @@ public final class PhoneHooks {
     }
 
     /** 读屏时顺手把岛上的 App 图标换成当前前台。 */
-    static final class TrackingDriver implements PhoneAgent.MikaDriver, PhoneAgent.LaunchInfo {
+    static final class TrackingDriver implements PhoneAgent.MikaDriver, PhoneAgent.LaunchInfo, PhoneAgent.GroundDriver {
         @Override public boolean lastLaunchSkipped() {   // [fix-1123-dexec B40]
             return d.lastLaunchSkipped();
         }
@@ -390,6 +394,14 @@ public final class PhoneHooks {
 
         @Override public String describeScreen() {
             return d.describeScreen();
+        }
+
+        @Override public byte[] groundShot(int x, int y) {   // [exec-ground-1124]
+            return d.groundShot(x, y);
+        }
+
+        @Override public String frameSig() {
+            return d.frameSig();
         }
 
         @Override public long now() {

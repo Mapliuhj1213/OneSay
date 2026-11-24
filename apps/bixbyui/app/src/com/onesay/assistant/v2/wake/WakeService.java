@@ -1795,7 +1795,29 @@ public class WakeService extends Service {
     }
 
     /** 2. 初始化引擎并进入麦克风主循环 */
+    /** [exec-ground-1124] 没有麦克风权限时状态栏 / 运行状态里的说法。 */
+    static final String NO_MIC_STATUS = "没有麦克风权限，语音收音先不开（在设置里允许麦克风后自动恢复）";
+
     private void bootEngine() {
+        // [exec-ground-1124] 没有麦克风权限：不去建录音器（以前硬建，AudioRecord 初始化失败抛异常、通知栏写「启动故障」）。
+        //   记成「引擎没起来」，用户允许麦克风以后，下一次唤醒走原来的重建路径自动起来；设置清单里「麦克风权限：没开」如实显示
+        if (!hasRecordPermission()) {
+            try { if (mAudioRecord != null) mAudioRecord.release(); } catch (Throwable ignore) {}
+            mAudioRecord = null;
+            sEngineFailed = true;
+            final boolean wasRebuild = sEngineRebuilding;
+            mMainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (wasRebuild && !sMicReady && sColdWakes.size() > 0) failQueuedWakesNow(false);
+                }
+            });
+            if (mMicState.onStopped("没有麦克风权限")) updateWakeLock("mic-no-permission");
+            Log.i(TAG, "[MIC] 没有麦克风权限：不启动收音（允许以后再唤醒会自动重新启动）");
+            sStatus = NO_MIC_STATUS;
+            updateNotification(sStatus);
+            return;
+        }
         try {
             sStatus = "正在初始化语音引擎...";
             updateNotification(sStatus);

@@ -816,3 +816,9 @@ com/onesay/assistant/v2/kernel/plugins/SelfSettingsPlugin.java
 com/onesay/assistant/v2/ui/console/EntryRows.java
 com/onesay/assistant/v2/ui/console/LogRows.java
 com/onesay/assistant/v2/ui/console/DeviceCapsPage.java
+# [exec-ground-1124]
+com/onesay/assistant/v2/phone/ScreenGround.java
+com/onesay/assistant/v2/phone/LaunchDialog.java
+com/onesay/assistant/v2/router/TaintScope.java
+com/onesay/assistant/v2/phone/LlmPhonePlanner.java
+com/onesay/assistant/v2/entry/Entries.java
