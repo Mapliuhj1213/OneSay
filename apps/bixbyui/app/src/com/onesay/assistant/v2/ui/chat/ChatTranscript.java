@@ -51,6 +51,11 @@ public final class ChatTranscript {
 
     private final List<Round> mRounds = new ArrayList<Round>();
     private int mSeq;
+    /**
+     * ★ fix/chat-vision-1124 第 3 条：刚发出去、还没有自己那一轮的图（发图那一下，新的一轮要等「正在解析」的边界之后才建）。
+     * 只绑给<b>之后新建</b>的那一轮（= 发出它的那条消息），绑上就清；冻结上一轮时不会被挂到上一轮上。
+     */
+    private Object mOutgoing;
     private final int mMax;
 
     public ChatTranscript() {
@@ -68,6 +73,10 @@ public final class ChatTranscript {
             r = new Round(++mSeq);
             mRounds.add(r);
             trim();
+            if (mOutgoing != null) {   // ★ fix/chat-vision-1124 第 3 条：发出去的图绑到它自己这一轮（按轮次编号，之后不再挪）
+                r.image = mOutgoing;
+                mOutgoing = null;
+            }
         }
         if (question != null && question.trim().length() > 0) r.question = question.trim();
         r.answer = answer == null ? "" : answer;
@@ -134,6 +143,38 @@ public final class ChatTranscript {
 
     public synchronized void clear() {
         mRounds.clear();
+        mOutgoing = null;
+    }
+
+    /** 会话超时清历史，但刚发出去的那张图还要跟着它自己的那一轮（边界在发图之后才到）。 */
+    public synchronized void clearKeepOutgoing() {
+        mRounds.clear();
+    }
+
+    /** ★ fix/chat-vision-1124 第 3 条：带图发出一条消息（它的那一轮还没建）。null = 撤掉。 */
+    public synchronized void attachOutgoing(Object image) {
+        mOutgoing = image;
+    }
+
+    /** 还没绑到轮次上的那张图（没有 → null）。 */
+    public synchronized Object pendingImage() {
+        return mOutgoing;
+    }
+
+    /**
+     * 屏上正在显示的这一轮该配的图：这一轮自己的图；这一轮还没建（刚发出去）→ 等着绑的那张；都没有 → null。
+     * 绝不会拿历史里别的轮的图。
+     */
+    public synchronized Object liveImage() {
+        if (mOutgoing != null) return mOutgoing;
+        Round r = live();
+        return r == null ? null : r.image;
+    }
+
+    /** 第 seq 轮（不在了 → null）。 */
+    public synchronized Round round(int seq) {
+        for (Round r : mRounds) if (r.seq == seq) return r;
+        return null;
     }
 
     /** 已冻结的历史展开成列表项（按时间往下排）。 */

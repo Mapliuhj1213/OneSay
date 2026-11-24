@@ -308,12 +308,12 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
                 mTranscript.size(), panel, memory, console);
         if (d == ChatWindowPolicy.Decision.RESET_CARD) {
             Log.i(TAG, "[CHAT] 会话已超时 → 清空对话窗历史（" + mTranscript.size() + " 轮），本次照旧底部卡");
-            mTranscript.clear();
+            mTranscript.clearKeepOutgoing();   // ★ fix/chat-vision-1124 第 3 条：刚发出的图还要配给它自己这一轮
             return false;
         }
         if (d == ChatWindowPolicy.Decision.RESET_EXPAND) {
             Log.i(TAG, "[CHAT] 会话已超时 → 清空旧历史（" + mTranscript.size() + " 轮），新会话直接进对话窗");
-            mTranscript.clear();
+            mTranscript.clearKeepOutgoing();
             d = ChatWindowPolicy.Decision.EXPAND;
         }
         ChatTranscript.Round frozen = freezeLive();
@@ -358,7 +358,21 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
     public void onRequestStart() {
         mReqAt = android.os.SystemClock.elapsedRealtime();
         mRoute = null;
+        // ★ fix/chat-vision-1124 第 3 条：发图那条消息自己会开始一次请求；又开始了一次、图还没配上轮次（那次没出结果，比如中途收起了）
+        //   → 这张图不属于新的这条，撤掉，免得挂到下一条消息上
+        if (mTranscript.pendingImage() != null && ++mOutgoingStarts >= 2) {
+            mTranscript.attachOutgoing(null);
+            mOutgoingStarts = 0;
+            if (mTranscript.liveImage() == null) {
+                mLiveThumb = null;
+                mLiveImage.setImageDrawable(null);
+                mLiveImage.setVisibility(View.GONE);
+            }
+        }
     }
+
+    /** 发图后开始了几次请求（第 3 条：只有第一次是它自己的）。 */
+    private int mOutgoingStarts;
 
     public void noteRoute(String route) {
         mRoute = route;
@@ -369,7 +383,10 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         if (answer == null || answer.trim().length() == 0) return;
         long ms = mReqAt > 0 ? android.os.SystemClock.elapsedRealtime() - mReqAt : 0L;
         ChatTranscript.Round r = mTranscript.upsert(question, answer, mRoute, ms);
-        if (mLiveThumb != null) r.image = mLiveThumb;
+        // ★ fix/chat-vision-1124 第 3 条：图在 upsert 新建轮次时已按轮次绑好（发出它的那条消息），这里不再把「手上那张图」挂给当前轮
+        //   （以前 :372 这一行 + 冻结时 :391 那一行，会把图挂到恰好在屏上的那一轮，图就跟着最新消息走）
+        Object li = mTranscript.liveImage();
+        mLiveThumb = li instanceof Bitmap ? (Bitmap) li : null;
         com.onesay.assistant.v2.timeline.ExecTimeline tl = mHost.liveTimeline();   // ★ feat/api-first
         if (tl != null && tl.visible()) r.timeline = tl;
         if (mActive) rebuildLiveFooter();
@@ -388,7 +405,7 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         } catch (Throwable t) {
             Log.w(TAG, "[CHAT] 执行卡快照失败: " + t);
         }
-        if (mLiveThumb != null && live.image == null) live.image = mLiveThumb;
+        // ★ fix/chat-vision-1124 第 3 条：不再把手上的图挂到被冻结的这一轮（刚发出的图属于下一轮，按轮次编号绑）
         if (live.timeline == null) {   // ★ feat/api-first：执行时间轴随这一轮冻结（历史里折叠显示）
             com.onesay.assistant.v2.timeline.ExecTimeline tl = mHost.liveTimeline();
             if (tl != null && tl.visible()) {
@@ -396,13 +413,17 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
                 live.timeline = tl;
             }
         }
-        mLiveThumb = null;
-        mLiveImage.setImageDrawable(null);
-        mLiveImage.setVisibility(View.GONE);
+        ChatTranscript.Round r0 = mTranscript.freeze();
+        Object keep = mTranscript.pendingImage();   // 刚发出、还没轮次的图：留在屏上等它自己那一轮
+        mLiveThumb = keep instanceof Bitmap ? (Bitmap) keep : null;
+        if (mLiveThumb == null) {
+            mLiveImage.setImageDrawable(null);
+            mLiveImage.setVisibility(View.GONE);
+        }
         mLiveFooter.removeAllViews();
         mLiveFooter.setVisibility(View.GONE);
         mLastBubble = null;
-        ChatTranscript.Round r = mTranscript.freeze();
+        ChatTranscript.Round r = r0;
         if (r != null) Log.i(TAG, "[CHAT] 第 " + r.seq + " 轮冻结进历史（卡片快照 " + r.cards.size() + "）");
         return r;
     }
@@ -854,6 +875,8 @@ public final class ChatWindowController implements ChatAdapter.Actions, ChatBott
         if (mPendingImagePath != null) {
             String path = mPendingImagePath;
             mLiveThumb = mPendingThumb;
+            mOutgoingStarts = 0;
+            mTranscript.attachOutgoing(mPendingThumb);   // ★ fix/chat-vision-1124 第 3 条：图属于这条消息（它的那一轮在边界之后才建）
             boolean screen = mPendingIsScreen;
             mPendingImagePath = null;
             mPendingThumb = null;
