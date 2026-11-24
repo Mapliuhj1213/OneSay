@@ -11,7 +11,6 @@ public final class ObserveFallback {
 
     private ObserveFallback() {}
 
-    /** 助手这次读到的树值不值得再用无障碍读一次。 */
     /** [exec-1124 B] 执行模式下读到的元素少于这个数就记一条日志。 */
     public static final int THIN_ELEMENTS = 8;
 
@@ -24,6 +23,7 @@ public final class ObserveFallback {
         return elements < THIN_ELEMENTS || hidden >= 10 && hidden > elements * 2;
     }
 
+    /** 助手这次读到的树值不值得再用无障碍读一次（[exec-1124 C] 反过来：无障碍先读时，也用它判断要不要再用助手读一次）。 */
     public static boolean suspect(String quality, String pkg, String selfPkg) {
         if (!UiTree.Q_OK.equals(quality)) return true;
         if (pkg == null || pkg.length() == 0) return true;

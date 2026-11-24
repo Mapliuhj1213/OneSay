@@ -215,6 +215,23 @@ public final class FastScreenDriver implements PhoneAgent.LaunchInfo, PhoneAgent
             SafeLog.w(TAG, "[PHONE] 执行模式读屏偏少：元素=" + u.els.size() + " 跳过看不见=" + t.hidden + " 后端=" + (mLastB2 ? "无障碍" : "助手")
                     + " 护罩=" + com.onesay.assistant.v2.exec.ShieldMode.zh(shNow.mode()) + " pkg=" + u.pkg);
         }
+        // [exec-1124 C] 两者都在、无障碍先读但读得可疑 → 用助手再读一次，助手那份更好就换（B7 反过来）
+        if (mLastB2 && a11yFirst() && ObserveFallback.suspect(u.quality(), u.pkg, mApp.getPackageName())) {
+            try {
+                FsTree th = mx != null && mx.f.screen ? mFs.tree(mx.f.allWindows) : mFs.tree();
+                if (th != null) {
+                    UiTree uh = mx != null && mx.f.screen ? mx.build(th, ids, mW, mH) : UiTree.from(th, ids, mW, mH);
+                    if (ObserveFallback.preferA11y(u.quality(), u.pkg, u.els.size(), uh.quality(), uh.pkg, uh.els.size(), mApp.getPackageName())) {
+                        mLastB2 = false;   // 之后的动作用助手的节点
+                        SafeLog.i(TAG, "[PHONE] 无障碍读屏不完整（" + u.quality() + " pkg=" + u.pkg + "）→ 改用助手读屏 pkg=" + uh.pkg
+                                + " 元素=" + uh.els.size() + " 质量=" + uh.quality());
+                        return uh;
+                    }
+                }
+            } catch (Throwable e) {
+                SafeLog.w(TAG, "[PHONE] 助手补读失败: " + e);
+            }
+        }
         // [fix-1123-dexec B7] 助手读到的不完整（被自家悬浮窗挡住、只读到最上层）且无障碍连着 → 用无障碍再读一次，更好就换
         if (!mLastB2 && ObserveFallback.suspect(u.quality(), u.pkg, mApp.getPackageName())) {
             try {
@@ -585,7 +602,7 @@ public final class FastScreenDriver implements PhoneAgent.LaunchInfo, PhoneAgent
             com.onesay.assistant.v2.a11y.A11yBackend b = lead();   // [exec-1124 C] 两者都在时无障碍先滚，滚不了再助手
             String r = b != null ? b.scrollAt(e.cx(), e.cy(), dir) : null;   // ★ a11y-1118
             if (r == null && !mA11yFallback) r = mFs.scroll(e.cx(), e.cy(), dir);
-            if (r == null) r = swipeDir(e.cx(), dir) ? "swipe" : null;
+            if (r == null && a11yLead()) r = swipeDir(e.cx(), dir) ? "swipe" : null;   // 只助手 / root：原样，不补滑
             return r != null && !r.equals("edge");
         }
         int x = e != null ? e.cx() : mW / 2;
