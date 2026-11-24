@@ -82,6 +82,11 @@ public final class ConversationMemory {
     private long mLastActivityAt;
     /** 面板离屏的时刻（0 = 面板开着）。 */
     private long mClosedAt;
+    /**
+     * ★ fix/chat-vision-1124 第 4 条：面板正开着（{@link #onPanelShown} 置上、{@link #onPanelClosed} 放下）。开着就不到期：
+     * 人还在对话窗里，没说话也是这次对话。不随 record / 清空改动（它是面板的状态，不是会话的）。
+     */
+    private boolean mPanelOpen;
     /** 更早轮次的摘要（被预算挤出的部分，不丢）。 */
     private String mSummary = "";
     private Clock mClock = SYSTEM_CLOCK;
@@ -426,6 +431,7 @@ public final class ConversationMemory {
      * 超时后由 {@link #expireIfIdle()}（面板离屏时排的延时任务，或下一次读写）结束会话并触发 onClear（soul 记忆整理照旧）。
      */
     public synchronized void onPanelClosed() {
+        mPanelOpen = false;
         if (mTurns.isEmpty() && mSummary.length() == 0) return;
         mClosedAt = mClock.now();
     }
@@ -433,7 +439,21 @@ public final class ConversationMemory {
     /** 面板重新出现：会话没超时就继续。 */
     public synchronized void onPanelShown() {
         expireIfIdleLocked();
+        mPanelOpen = true;
         mClosedAt = 0L;
+    }
+
+    /**
+     * ★ fix/chat-vision-1124 第 4 条：用户还在用（打开「历史对话」页、回到首页）。没到期就把保持期从现在重新算，
+     * 免得看着历史、翻着设置，这次对话在身后被清掉（以前第二次打开历史页就空了）。已经到期的照旧结束，不复活。
+     *
+     * @return 会话还在（有内容）
+     */
+    public synchronized boolean touch() {
+        expireIfIdleLocked();
+        if (mTurns.isEmpty() && mSummary.length() == 0) return false;
+        mLastActivityAt = mClock.now();
+        return true;
     }
 
     /** 超时则结束会话（返回是否结束了）。 */
@@ -447,10 +467,17 @@ public final class ConversationMemory {
         return true;
     }
 
+    /**
+     * 到期判断。★ fix/chat-vision-1124 第 4 条：以前只按上次问答算 5 分钟（面板开着、人在看历史也照样清，
+     * 历史页每次打开都读快照 → 第二次打开就空了）。现在：面板开着不到期；离屏后从「上次问答 / 用户还在用（{@link #touch}）」
+     * 和「面板离屏」两者较晚的那个时刻起算。
+     */
     private boolean idleExpired() {
         if (mTurns.isEmpty() && mSummary.length() == 0) return false;
-        long now = mClock.now();
-        return mLastActivityAt > 0 && now - mLastActivityAt >= mKeepMs;
+        if (mPanelOpen) return false;
+        if (mLastActivityAt <= 0) return false;
+        long since = Math.max(mLastActivityAt, mClosedAt);
+        return mClock.now() - since >= mKeepMs;
     }
 
     /** 锁内调用：超时就清（onClear 通知放到锁外，避免监听方回调进来死锁 —— 这里只在 record / snapshot 里用，先收集再异步通知）。 */

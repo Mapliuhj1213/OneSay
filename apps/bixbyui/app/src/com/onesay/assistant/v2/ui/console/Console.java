@@ -161,6 +161,10 @@ public final class Console implements ConsoleHost {
             }
         });
         com.onesay.assistant.v2.suggest.SuggestHost.permissionPoke();   // ★ fix/shot-1104：从系统权限页回来 → 截图源立刻重查存储权限
+        try {   // ★ fix/chat-vision-1124 第 4 条：回到首页 / 设置 = 用户还在用，这次对话的保持期从现在重新算（到期的不复活）
+            com.onesay.assistant.v2.router.ConversationMemory.getInstance().touch();
+        } catch (Throwable ignored) {
+        }
         if (!mResumedOnce) {   // 第一次 onResume 紧跟 start()（setRoot 已经刷新过）
             mResumedOnce = true;
             return;

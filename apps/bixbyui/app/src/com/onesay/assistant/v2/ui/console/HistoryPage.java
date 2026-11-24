@@ -21,7 +21,10 @@ final class HistoryPage extends Console.BuiltPage {
         final ConsoleKit k = c.kit;
         List<String[]> l;
         try {
-            l = ConsoleHomeModel.historyRows(com.onesay.assistant.v2.router.ConversationMemory.getInstance().snapshot());
+            // ★ fix/chat-vision-1124 第 4 条：打开历史页 = 用户还在用，先续上保持期再读（读快照本身会清掉到期的会话）
+            com.onesay.assistant.v2.router.ConversationMemory m = com.onesay.assistant.v2.router.ConversationMemory.getInstance();
+            m.touch();
+            l = ConsoleHomeModel.historyRows(m.snapshot());
         } catch (Throwable t) {
             l = new ArrayList<String[]>();
         }
