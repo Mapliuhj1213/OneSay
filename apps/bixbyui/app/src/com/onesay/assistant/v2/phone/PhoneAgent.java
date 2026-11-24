@@ -252,6 +252,24 @@ public final class PhoneAgent {
 
     /** [fix-1123-dexec B6] 高风险 App 打开前的确认闸（测试可关）。 */
     static volatile boolean RISK_GATE = true;
+
+    /** ★ fix/chat-vision-1124 第 1 条：「送不了这个地址」先问用户换哪个（false = 原行为，只给对比测试用）。 */
+    static volatile boolean DELIVERY_GATE = true;
+    /** 送不了的状态：页面写着送不了 / 正在看地址列表。 */
+    private boolean mDeliveryActive, mDeliveryList, mDeliveryEntryUsed;
+    /** 用户选的地址文字、允许点的换地址入口文字、问过的情况、要附给模型的话。 */
+    private String mDeliveryChosen, mDeliveryEntry, mDeliverySeen, mDeliveryNote;
+    private int mDeliveryAsks;
+
+    private void resetDelivery() {
+        mDeliveryActive = false;
+        mDeliveryList = false;
+        mDeliveryEntryUsed = false;
+        mDeliveryChosen = null;
+        mDeliveryEntry = null;
+        mDeliverySeen = null;
+        mDeliveryNote = null;
+    }
     /** 用户已允许打开的高风险包（本次任务内只问一次）。 */
     private final java.util.Set<String> mRiskOk = new java.util.HashSet<String>();
     /** 用户不允许打开的那个 App（非 null = 本次任务就此停下）。 */
@@ -292,6 +310,8 @@ public final class PhoneAgent {
         mGoal = goal == null ? "" : goal;   // [fix-1123-dexec B39]
         Result res = new Result();
         mRes = res;
+        resetDelivery();   // ★ fix/chat-vision-1124 第 1 条：每个任务从头算
+        mDeliveryAsks = 0;
         long t0 = mD.now();
         TaskBudget budget = TaskBudget.forTask(unattended, t0);
         List<String> history = new ArrayList<String>();
@@ -429,6 +449,63 @@ public final class PhoneAgent {
                     lastBatchReport = lastBatchReport == null || lastBatchReport.length() == 0 ? dn : dn + "\n" + lastBatchReport;
                     res.trace.add("app-drift " + screen.pkg);
                 }
+            }
+            if (DELIVERY_GATE && !legacyOneStep && screen != null) {   // ★ fix/chat-vision-1124 第 1 条：送不了这个地址 → 换哪个由用户定
+                DeliveryBlock.Verdict dv = DeliveryBlock.check(screen, mDeliveryList);
+                if (dv.blocked) {
+                    if (!mDeliveryActive) res.trace.add("delivery blocked");
+                    mDeliveryActive = true;
+                    String sig = dv.signature();
+                    if (mDeliveryChosen == null && !sig.equals(mDeliverySeen)) {
+                        mDeliverySeen = sig;
+                        if (!dv.options.isEmpty() && mDeliveryAsks < 3) {
+                            mDeliveryAsks++;
+                            if (mRec != null) mRec.taint("中途问过用户换地址");
+                            long w0 = mD.now();
+                            String[] ans = new String[1];
+                            boolean ok = mH.confirm("原地址送不了", DeliveryBlock.askText(dv), ans);
+                            budget.pausedMs += mD.now() - w0;
+                            if (!ok) {
+                                res.trace.add("delivery ask → 不换");
+                                return finish(res, Status.STOPPED, "", "原地址送不了，你没让换地址，我停在这里", budget, t0);
+                            }
+                            int k = DeliveryBlock.pick(ans[0], dv.options.size());
+                            if (k < 0) {
+                                res.trace.add("delivery ask → 编号不对");
+                                return finish(res, Status.STOPPED, "", "原地址送不了，没听出要换成第几个地址，我停在这里", budget, t0);
+                            }
+                            UiTree.El ch = dv.options.get(k);
+                            mDeliveryChosen = ch.label;
+                            mDeliveryNote = DeliveryBlock.changeOnlyNote(ch);
+                            res.trace.add("delivery ask → " + (k + 1));
+                            history.add("原地址送不了，用户同意换成「" + DeliveryBlock.clip(ch.label, 30) + "」");
+                            budget.resetProgress();
+                        } else if (dv.switchEntry != null && !mDeliveryList) {
+                            mDeliveryList = true;
+                            mDeliveryEntry = dv.switchEntry.label;
+                            mDeliveryNote = DeliveryBlock.listOnlyNote(dv.switchEntry);
+                            res.trace.add("delivery list-only");
+                        } else {
+                            res.trace.add("delivery stuck");
+                            long w0 = mD.now();
+                            String[] sup = new String[1];
+                            Resume r = mH.awaitResume(DeliveryBlock.stuckText(dv), sup);
+                            budget.pausedMs += mD.now() - w0;
+                            if (r == Resume.STOP) return finish(res, Status.STOPPED, "", "原地址送不了，页面上找不到能换的地址，我停在这里", budget, t0);
+                            resetDelivery();
+                            mDeliveryAsks = 0;
+                            history.add("原地址送不了，用户手动处理后点了继续" + (sup[0] != null && sup[0].length() > 0 ? "，补充：" + sup[0] : ""));
+                            budget.resetProgress();
+                            screen = obs();
+                            lastBatchReport = "（用户刚手动处理过地址，界面已重新读取）";
+                            continue;
+                        }
+                    }
+                } else if (mDeliveryActive && !mDeliveryList) {
+                    res.trace.add("delivery clear");
+                    resetDelivery();
+                }
+                if (mDeliveryNote != null) lastBatchReport = lastBatchReport == null || lastBatchReport.length() == 0 ? mDeliveryNote : mDeliveryNote + "\n" + lastBatchReport;
             }
             String user = PhonePrompt.user(goal, screen, desc, history, lastBatchReport, budget.info(mD.now()), maxElementLines, stateNote);
             if (redactor != null) user = redactor.redact(user);   // ★ borrow-1112：手机号 / 身份证 / 银行卡 / 邮箱 / 验证码换成占位符再发
@@ -603,6 +680,26 @@ public final class PhoneAgent {
             if (bad != null) {
                 rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(bad).append(receipt(res, StepReceipt.ofValidate(bad))).append("\n");
                 break;
+            }
+            if (mDeliveryActive && cur != null && (s.op.equals("tap") || s.op.equals("long")) && s.id >= 0) {   // ★ fix/chat-vision-1124 第 1 条
+                UiTree.El te = cur.find(s.id);
+                String db = DeliveryBlock.tapBlocked(te, mDeliveryChosen, mDeliveryEntryUsed ? null : mDeliveryEntry);
+                if (db != null) {
+                    res.trace.add("delivery tap blocked [" + s.id + "]");
+                    rep.append("第 ").append(i + 1).append(" 步 ").append(s).append(" 没执行：").append(db)
+                            .append("。").append(receipt(res, StepReceipt.Code.NEEDS_USER_TAP)).append("\n");
+                    break;
+                }
+                if (te != null && mDeliveryChosen != null && mDeliveryChosen.equals(te.label)) {   // 点的就是用户选的 → 这次换地址做完
+                    res.trace.add("delivery chosen tapped");
+                    mDeliveryChosen = null;
+                    mDeliveryNote = null;
+                    mDeliverySeen = null;
+                    mDeliveryList = false;
+                    mDeliveryEntryUsed = true;
+                } else if (te != null && mDeliveryEntry != null && mDeliveryEntry.equals(te.label)) {
+                    mDeliveryEntryUsed = true;
+                }
             }
             String mustTap = SensitiveGuard.userMustTap(s, cur);
             if (mustTap != null) {   // ★ approve-not-block 硬规则 ①：最终付款按钮机器人不点，批了也不点
