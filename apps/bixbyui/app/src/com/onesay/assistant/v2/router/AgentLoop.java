@@ -1812,7 +1812,7 @@ public class AgentLoop {
         String q = query == null ? "" : query;
         // ★ fix/1123-bug2：识屏没配好不是邮箱没配好，别把人往邮箱设置里指
         if (all.contains(com.onesay.assistant.v2.vision.VisionAvailability.NO_KEY_TEXT) || all.contains("vision no key")) {
-            return "识屏要先在设置里填好识屏用的 Key；在那之前我只能读屏幕上的文字，看不了图。";
+            return "看图要先在设置里填好主模型的 Key；在那之前我只能读屏幕上的文字，看不了图。";
         }
         if (all.contains("未配置") || all.contains("not configured") || all.contains("NOT_CONFIGURED")
                 || ((q.contains("邮件") || q.contains("邮箱")) && !all.contains("\"ok\":true"))) {

@@ -100,7 +100,7 @@ public class Fix1123dmTest {
 
     @Test public void b31_noKeyTextCleanAndPreflight() {
         clean(VisionAvailability.NO_KEY_USER);
-        assertTrue(VisionAvailability.NO_KEY_USER.contains("识屏要先在设置里填好识屏用的 Key"));
+        assertTrue(VisionAvailability.NO_KEY_USER.contains("看图要先在设置里填好主模型的 Key"));   // ★ fix/chat-vision-1124：看图走主模型，缺的是主模型 Key
         assertTrue(VisionAvailability.keyMissing(null));
         assertTrue(VisionAvailability.keyMissing("  "));
         assertFalse(VisionAvailability.keyMissing("x"));

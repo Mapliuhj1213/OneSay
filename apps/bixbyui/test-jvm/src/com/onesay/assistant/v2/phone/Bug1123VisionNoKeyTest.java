@@ -80,7 +80,7 @@ public class Bug1123VisionNoKeyTest {
         assertFalse(r.ok);
         assertEquals(ErrorCode.NOT_CONFIGURED, r.code);
         assertFalse("不可重试", ErrorCode.NOT_CONFIGURED.retryable);
-        assertTrue(r.userMessage, r.userMessage.contains("识屏还没配好"));
+        assertTrue(r.userMessage, r.userMessage.contains("看图还没配好"));   // ★ fix/chat-vision-1124：缺的是主模型 Key
         assertFalse("大白话里不带内部 ID", r.userMessage.contains("vision.") || r.userMessage.contains("DashScope"));
         // 收尾建议说识屏，不再把人指到邮箱设置
         java.lang.reflect.Method m = Class.forName("com.onesay.assistant.v2.router.AgentLoop").getDeclaredMethod("planFor", List.class, String.class);
@@ -90,7 +90,7 @@ public class Bug1123VisionNoKeyTest {
         List<Object> steps = new ArrayList<Object>();
         steps.add(st);
         String plan = (String) m.invoke(null, steps, "看看屏幕上写了什么");
-        assertTrue(plan, plan.contains("识屏"));
+        assertTrue(plan, plan.contains("主模型的 Key"));   // ★ fix/chat-vision-1124：看图走主模型
         assertFalse(plan, plan.contains("邮箱"));
     }
 

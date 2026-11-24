@@ -101,8 +101,9 @@ public class HttpExchangeTest {
 
     @Test public void visionEngineUsesExchange() {
         String v = com.onesay.assistant.v2.kernel.KernelWiring.src("app/src/com/onesay/assistant/v2/vision/ScreenVisionEngine.java");
-        // 再进一步改走共享 HttpClient.execute（doExecute 的 finally 同样关流 + disconnect），见 VisionHttpClientTest
-        assertTrue(v.contains("HttpClient.execute("));
+        // 再进一步改走共享 HttpClient.execute（doExecute 的 finally 同样关流 + disconnect），见 VisionHttpClientTest；
+        // ★ fix/chat-vision-1124：看图改走主模型客户端 LlmClient（同样统一关流 / 超时 / 重试），不再自己开连接
+        assertTrue(v.contains("nativeClient().post("));
         assertFalse(v.contains("conn.getErrorStream()"));
     }
 }

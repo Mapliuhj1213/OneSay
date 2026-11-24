@@ -24,26 +24,29 @@ public final class VisionAvailability {
     public static final String SIGN = "vision.screen.understand";
 
     /** 给用户 / 模型看的一句话（大白话，不出现内部 ID）。 */
-    public static final String NO_KEY_TEXT = "识屏还没配好（缺识屏用的 Key），这次看不了屏幕图像";
+    public static final String NO_KEY_TEXT = "看图还没配好（缺主模型的 Key），这次看不了屏幕图像";
 
     /** ★ 1123d B31：识屏引擎没 Key 时给用户的话（截屏前就说，不出现服务商名）。 */
-    public static final String NO_KEY_USER = "识屏要先在设置里填好识屏用的 Key，这次看不了屏幕图像。";
+    public static final String NO_KEY_USER = "看图要先在设置里填好主模型的 Key，这次看不了图。";
 
     /** 给模型的处理提示：别再要识屏。 */
-    public static final String NO_KEY_HINT = "识屏用不了：不要再调用识屏；改用读屏文字结果，或如实告诉用户要先在设置里填好识屏用的 Key";
+    public static final String NO_KEY_HINT = "识屏用不了：不要再调用识屏；改用读屏文字结果，或如实告诉用户要先在设置里填好主模型的 Key";
 
     public static boolean keyMissing(String key) {
         return key == null || key.trim().length() == 0;
     }
 
     /**
-     * 本机识屏能不能用。ctx 为 null（JVM 单测 / 自测假宿主）= 不知道 → 当能用，保持原行为。
+     * 本机识屏 / 看图能不能用。ctx 为 null（JVM 单测 / 自测假宿主）= 不知道 → 当能用，保持原行为。
      * 读配置出错也当能用（宁可多试一次，也不把能用的识屏误关）。
+     *
+     * <p>★ fix/chat-vision-1124：看图走主模型原生视觉（{@link VisionRoute}），所以只看<b>主模型 Key</b>；
+     * 以前这里看的是另配的看图模型 Key（没配就把识屏工具整个拿掉、聊天发图直接报「没配 Key」），这就是用户填了主模型 Key 还看不了图的原因。
      */
     public static boolean usable(Context ctx) {
         if (ctx == null) return true;
         try {
-            return !keyMissing(new com.onesay.assistant.v2.asr.AliyunAsrConfig(ctx).getDashScopeKey());
+            return !keyMissing(com.onesay.assistant.v2.router.L2LLMCompiler.mainApiKey(ctx));
         } catch (Throwable t) {
             return true;
         }

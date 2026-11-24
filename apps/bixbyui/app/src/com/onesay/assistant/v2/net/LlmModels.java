@@ -85,6 +85,9 @@ public final class LlmModels {
         if (req == null) return null;
         try {
             String m = resolve(req.optString("model", ""));
+            // ★ fix/chat-vision-1124：带图的请求 —— 主模型是不能看图的 DeepSeek 型号（deepseek-v4-pro）就换成能看图的 deepseek-flash
+            //   （官方 Models & Pricing 页 Vision 一行：flash ✓、v4-pro Not supported）；别家模型名原样
+            if (com.onesay.assistant.v2.vision.VisionRoute.hasImage(req)) m = com.onesay.assistant.v2.vision.VisionRoute.nativeModel(m);
             req.put("model", m);
             if (thinkingByDefault(m) && !req.has("thinking")) {
                 JSONObject t = new JSONObject();

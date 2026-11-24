@@ -239,7 +239,7 @@ final class RegionSelectController {
         StringBuilder sb = new StringBuilder();
         if (region.texts.isEmpty()) {
             sb.append("圈选区域里没有读到文字（可能是图片）。");
-            if (!ScreenRefSettings.vlFallbackEnabled(mSvc)) sb.append("识屏兜底（VL）已关闭，开启后可以识别图片。");
+            if (!ScreenRefSettings.vlFallbackEnabled(mSvc)) sb.append("看图兜底已关闭，打开后可以识别图片。");
         } else {
             sb.append("框里有：");
             int n = 0;

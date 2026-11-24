@@ -168,6 +168,18 @@ public class L2LLMCompiler implements IRouter {
         return com.onesay.assistant.v2.security.SecretPrefs.get(sp, KEY_API_KEY);
     }
 
+    /**
+     * ★ fix/chat-vision-1124：主模型那把 Key（与 {@link #getApiKey()} 同口径：主对话选了别家 → 那家的 Key，否则 DeepSeek 自己的）。
+     * 看图 / 识屏走主模型原生视觉时用它，不用另配的看图 Key。不建编译器、不打日志。
+     */
+    public static String mainApiKey(Context ctx) {
+        String routed = com.onesay.assistant.v2.llm.ProviderRouting.mainKeyOverride();
+        if (routed != null) return routed;
+        if (ctx == null) return null;
+        SharedPreferences sp = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        return com.onesay.assistant.v2.security.SecretPrefs.get(sp, KEY_API_KEY);
+    }
+
     /** ★ priv-llm：DeepSeek 自己存的 Key（不受「主对话服务商」影响；DeepSeek Key 编辑框用）。 */
     public String getDeepseekKey() {
         SharedPreferences sp = mContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);

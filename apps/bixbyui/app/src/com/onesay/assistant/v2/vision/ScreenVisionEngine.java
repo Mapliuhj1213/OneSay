@@ -24,8 +24,9 @@ import java.io.File;
  *    物理截取当前显示屏完整画面（~200ms）；
  * 2. 【智能图损压缩】：自适应降采样（长边限制 1080px）+ JPEG 75% 压缩，
  *    将 1.3MB 裸图大幅压缩至 ~80KB，并在内存中完成高效 Base64 编码，兼顾极速上传与低功耗；
- * 3. 【多模态端点调用】：直连阿里云百炼 DashScope 视觉多模态大模型（qwen-vl-plus / qwen-vl-max），
- *    OpenAI 兼容协议传输图像与提示词；
+ * 3. 【多模态端点调用】：★ fix/chat-vision-1124 起交给<b>主模型原生视觉</b>（主模型地址 + 主模型 Key，DeepSeek 官方地址用
+ *    deepseek-flash，见 {@link VisionRoute}），OpenAI 兼容协议传输图像与提示词；另配的看图模型（VL）只留给视频全量抽帧，
+ *    没配它的 Key 不挡看图；
  * 4. 【异步流转与异常兜底】：全生命周期进度回调（截图 -> 编码 -> 云端分析 -> 结构化答复）。
  */
 public class ScreenVisionEngine {
@@ -77,8 +78,14 @@ public class ScreenVisionEngine {
      * {@code bixby_asr_cfg}）。没配就直接报错，不再静默使用任何内置凭据。
      */
     private static String visionApiUrl() { return com.onesay.assistant.v2.net.LlmEndpoints.dashscopeChatUrl(); }
+    /** ★ fix/chat-vision-1124：VL 模型地址（只给视频全量抽帧用；普通图片 / 截图 / 识屏不走这里）。 */
+    static String videoFramesUrl() { return visionApiUrl(); }
+
     /**
-     * qwen-vl-plus 自 2026-10-10 起云端返回 404 model_not_found（百炼「部分历史主线模型下线」公告，
+     * ★ fix/chat-vision-1124：下面的 DEFAULT_MODEL / vision_model 只管<b>视频全量抽帧</b>用的 VL 模型；
+     * 普通看图的模型名见 {@link #effectiveModel}（主模型原生视觉）。旧的 vision_model 设置以前会把所有识屏都拉去 VL，现在不再影响看图。
+     *
+     * <p>qwen-vl-plus 自 2026-10-10 起云端返回 404 model_not_found（百炼「部分历史主线模型下线」公告，
      * 生效 2026-10-10 00:00；真机 03:52 还是 200、22:11 起 404）→ 默认改 qwen3-vl-plus（百炼视觉理解文档当前列出的 Qwen3-VL 主线）。
      * 可在 bixby_asr_cfg 里用 vision_model 覆盖（例如改回旧名或换 qwen3-vl-flash）。
      */
@@ -98,7 +105,26 @@ public class ScreenVisionEngine {
         return VisionAvailability.keyMissing(apiKey) ? VisionAvailability.NO_KEY_USER : null;
     }
 
+    /**
+     * ★ fix/chat-vision-1124：看图实际用的模型（显示用）= 主模型原生视觉：主对话选了别家 → 那家的模型；
+     * 否则当前主对话模型，不能看图的 DeepSeek 型号换成 deepseek-flash。ctx 不用（保留签名，调用方不改）。
+     */
     public static String effectiveModel(Context ctx) {
+        return nativeModelName();
+    }
+
+    static String nativeModelName() {
+        try {
+            com.onesay.assistant.v2.llm.ProviderRoute r = com.onesay.assistant.v2.llm.ProviderRouting.active();
+            if (r != null && r.model != null && r.model.trim().length() > 0) return r.model.trim();
+            return VisionRoute.nativeModel(com.onesay.assistant.v2.net.LlmModels.chat());
+        } catch (Throwable t) {
+            return VisionRoute.DEEPSEEK_VISION_MODEL;
+        }
+    }
+
+    /** ★ fix/chat-vision-1124：视频全量抽帧用的 VL 模型（只有那条路用；可用 bixby_asr_cfg/vision_model 覆盖）。 */
+    public static String videoFramesModel(Context ctx) {
         try {
             return pickModel(ctx.getSharedPreferences("bixby_asr_cfg", Context.MODE_PRIVATE).getString(PREF_VISION_MODEL, ""));
         } catch (Throwable t) {
@@ -106,12 +132,33 @@ public class ScreenVisionEngine {
         }
     }
 
-    private String model() {
+    /** 看图请求体里写的模型名：主模型缺省名，发送前由 LlmModels.prepare 换成当前主模型、不能看图就换 deepseek-flash。 */
+    private static String model() {
+        return com.onesay.assistant.v2.net.LlmModels.DEEPSEEK_DEFAULT;
+    }
+
+    /** ★ fix/chat-vision-1124：主模型那把 Key（不是另配的看图 Key）。 */
+    private String mainKey() {
         try {
-            return pickModel(mContext.getSharedPreferences("bixby_asr_cfg", Context.MODE_PRIVATE).getString(PREF_VISION_MODEL, ""));
+            String k = com.onesay.assistant.v2.router.L2LLMCompiler.mainApiKey(mContext);
+            return k == null ? "" : k;
         } catch (Throwable t) {
-            return DEFAULT_MODEL;
+            return "";
         }
+    }
+
+    /** 看图连接：连 12 s、首字节 30 s（图比文字慢），总时长 60 s；走主模型地址（含「大模型服务商」选的别家）。 */
+    static final int NATIVE_CONNECT_MS = 12000, NATIVE_FIRST_BYTE_MS = 30000;
+
+    private com.onesay.assistant.v2.net.LlmClient nativeClient() {
+        try {
+            com.onesay.assistant.v2.net.LlmEndpoints.load(mContext);   // 主模型地址 / 服务商（引擎可能先于编译器被用到）
+        } catch (Throwable ignored) {
+        }
+        return new com.onesay.assistant.v2.net.LlmClient(com.onesay.assistant.v2.net.LlmClient.DEEPSEEK_URL,
+                new com.onesay.assistant.v2.net.LlmClient.KeyProvider() {
+                    @Override public String apiKey() { return mainKey(); }
+                }, NATIVE_CONNECT_MS, NATIVE_FIRST_BYTE_MS).withTag("vision");
     }
 
     private final Context mContext;
@@ -252,7 +299,7 @@ public class ScreenVisionEngine {
                     boolean captured;
                     File shotFile;
                     // ★ 1123d B31：没 Key 先说，不白截一张图（原先截完屏才发现缺 Key）
-                    String preErr = preflightError(mAsrConfig.getDashScopeKey());
+                    String preErr = preflightError(mainKey());   // ★ fix/chat-vision-1124：看主模型 Key，不看另配的看图 Key
                     if (preErr != null) {
                         Log.w(TAG, "[VISION] 没配识屏 Key：不截屏，直接告诉用户");
                         if (callback != null) callback.onError(preErr);
@@ -415,60 +462,39 @@ public class ScreenVisionEngine {
                     messages.put(userMsg);
                     payload.put("messages", messages);
 
-                    // 4. 发起 HTTP POST 请求
-                    String apiKey = mAsrConfig.getDashScopeKey();
+                    // 4. 发起 HTTP POST 请求（★ fix/chat-vision-1124：主模型原生视觉，主模型 Key）
+                    String apiKey = mainKey();
                     // 内置兜底 Key 已被移除（2026-10-23 恒空的兜底常量一并删掉），所以这里必须
                     //   **明确报错**，而不是带着空的 Bearer 去打云端 —— 那样只会拿到一个
                     //   语焉不详的 401，用户根本看不出是"没配 Key"。
                     if (apiKey == null || apiKey.trim().length() == 0) {
-                        Log.w(TAG, "[VISION] 未配置 DashScope Key，识屏无法进行");
+                        Log.w(TAG, "[VISION] 没填主模型 Key，看图无法进行");
                         if (callback != null) {
                             callback.onError(VisionAvailability.NO_KEY_USER);   // ★ 1123d B31：文案去服务商名
                         }
                         return;
                     }
 
-                    // 改走共享 HttpClient（与 LLM / 搜索同一套超时、关流、错误分类），不再自己开连接。
-                    //   网络异常照旧落到下面的「识屏过程出现异常」（以前是 IOException 抛到外层 catch）。
-                    byte[] bodyBytes = payload.toString().getBytes("UTF-8");
+                    // ★ fix/chat-vision-1124：走主模型客户端（LlmClient：同一套地址核对 / 超时 / 重试 / 服务商路由 / 发送前换模型名）。
                     // ★ LOGIC-8 检查点②：POST 前 —— 已取消就不发
                     if (shouldAbort(startGen, mGen.get(), callback)) {
                         Log.i(TAG, "[VISION] POST 前检测到取消，不上传");
                         if (callback != null) callback.onError(ERR_CANCELLED);
                         return;
                     }
-                    com.onesay.assistant.v2.net.HttpClient.Response resp = com.onesay.assistant.v2.net.HttpClient.execute(
-                            visionRequest(visionApiUrl(), apiKey.trim(), bodyBytes));
-                    if (resp.error != null) {
-                        throw resp.error;
-                    }
-                    int code = resp.code;
-                    String respStr = resp.body;
+                    com.onesay.assistant.v2.net.LlmResponse lr = nativeClient().post(payload.toString());
                     long tTotal = SystemClock.elapsedRealtime() - t0;
-                    Log.i(TAG, "[VISION] 云端返回 HTTP " + code + ", 总耗时=" + tTotal + "ms");
-
-                    if (code != 200) {
-                        // 把云端错误码 / 信息打进日志（10-10 22:11 起真机连续 HTTP 404，旧日志只有状态码、查不出是模型下线还是账号无权限）
-                        String why = cloudErrorSummary(respStr);
-                        Log.w(TAG, "[VISION] 云端错误 HTTP " + code + (why.length() > 0 ? "：" + why : "（无错误体）") + " model=" + model());
+                    Log.i(TAG, "[VISION] 主模型看图返回 HTTP " + lr.httpCode + "，总耗时=" + tTotal + "ms model=" + nativeModelName());
+                    if (!lr.ok()) {
+                        String why = cloudErrorSummary(lr.rawBody);
+                        Log.w(TAG, "[VISION] 看图失败 HTTP " + lr.httpCode + (why.length() > 0 ? "：" + why : "（" + lr.error + "）"));
                         if (callback != null) {
-                            callback.onError("视觉分析请求失败(HTTP " + code + ")" + (why.length() > 0 ? "：" + why : ""));
+                            callback.onError(lr.httpCode > 0 ? "看图请求失败(HTTP " + lr.httpCode + ")" + (why.length() > 0 ? "：" + why : "")
+                                    : "网络不太好，图没传上去");
                         }
                         return;
                     }
-
-                    // 5. 解析回答正文
-                    JSONObject respJson = new JSONObject(respStr);
-                    JSONArray choices = respJson.optJSONArray("choices");
-                    if (choices == null || choices.length() == 0) {
-                        if (callback != null) {
-                            callback.onError("视觉模型未返回有效内容");
-                        }
-                        return;
-                    }
-
-                    JSONObject msg = choices.getJSONObject(0).optJSONObject("message");
-                    String answer = (msg != null) ? msg.optString("content", "") : "";
+                    String answer = lr.content();
                     if (answer == null || answer.trim().length() == 0) {
                         if (callback != null) {
                             callback.onError("视觉模型返回内容为空");

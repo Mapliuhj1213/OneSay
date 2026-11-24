@@ -90,7 +90,7 @@ final class AdvancedPage extends Console.BuiltPage {
         } catch (Throwable t) {
             vm = "未知";
         }
-        if (expert) k.valueRow(go, "视觉模型", "识屏 / 看图总结用（语音识别同一把 Key）", vm, ConsoleHost.TONE_NORMAL);
+        if (expert) k.valueRow(go, "视觉模型", "识屏 / 看图用主模型自己看（和主模型同一把 Key）", vm, ConsoleHost.TONE_NORMAL);
         if (basic) k.linkRow(go, "语音识别 Key", (ds ? "语音识别 已配置" : "语音识别 未配置") + " · " + (ds && voice ? "朗读 可用" : "朗读 未配置") + " · 在「API 密钥」面板里填", 0, keys);
         if (expert) k.linkRow(go, "备用语音识别（高级 · 可选）", "用另一组识别密钥代替默认识别", 0, new Runnable() {
             @Override public void run() {

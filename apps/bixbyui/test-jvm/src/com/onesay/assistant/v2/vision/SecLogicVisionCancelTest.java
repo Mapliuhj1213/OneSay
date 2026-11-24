@@ -39,7 +39,7 @@ public class SecLogicVisionCancelTest {
         int cp1 = s.indexOf("LOGIC-8 检查点①");
         int encode = s.indexOf("Base64.encodeToString(jpegBytes");
         int cp2 = s.indexOf("LOGIC-8 检查点②");
-        int post = s.indexOf("com.onesay.assistant.v2.net.HttpClient.execute(");
+        int post = s.indexOf("nativeClient().post(");   // ★ fix/chat-vision-1124：看图改走主模型客户端
         assertTrue(cp1 > 0 && cp1 < encode);
         assertTrue(cp2 > encode && cp2 < post);
         assertTrue("普通识屏入口开 rejectBlack", s.contains("recognizeInternal(userQuestion, null, 0, 0, null, null, true, callback);"));
