@@ -21,6 +21,8 @@ import static org.junit.Assert.*;
 /** ★ borrow-1112 ④：主模型超时 / 5xx / 429 → 已配置的备用模型；没配置照旧报错；时间轴记「已切换到备用模型」。 */
 public class LlmFallbackTest {
 
+    static { LlmEndpoints.sTestAllowLoopback = true; }   // [chat-1124] 假服务器在 127.0.0.1（http）；以前靠同一 JVM 先跑 LlmClientTest 置位，换个分组顺序就失败
+
     private static final String OK = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"备用答的\"}}]}";
     private HttpServer server;
     private volatile int primaryStatus = 503;

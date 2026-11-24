@@ -23,6 +23,8 @@ public final class TaskContinuation {
     public static final String MARKER = "【接着上一轮】";
     /** 上一轮有效期：5 分钟。 */
     public static final long TTL_MS = 5 * 60 * 1000L;
+    /** [chat-1124] 没做成的任务等「再试一次」多久：15 分钟（用户可能先自己去看了一眼再回来）。 */
+    public static final long UNFINISHED_TTL_MS = 15 * 60 * 1000L;
 
     public enum Origin { AGENT, ERRAND }
 
@@ -31,12 +33,19 @@ public final class TaskContinuation {
         public final String answer;
         public final Origin origin;
         public final long at;
+        /** [chat-1124] 上一轮没做成（失败 / 取消 / 卡住）：「再试一次」「你打开错了」可以接回来重做。 */
+        public final boolean unfinished;
 
         Last(String query, String answer, Origin origin, long at) {
+            this(query, answer, origin, at, false);
+        }
+
+        Last(String query, String answer, Origin origin, long at, boolean unfinished) {
             this.query = query;
             this.answer = answer;
             this.origin = origin;
             this.at = at;
+            this.unfinished = unfinished;
         }
     }
 
@@ -72,6 +81,15 @@ public final class TaskContinuation {
         else sLast = null;
     }
 
+    /**
+     * [chat-1124] 任务没做成时调用（失败 / 取消 / 卡住 / 只做了一半）：记下原话，之后 {@link #TTL_MS} 内的「再试一次」「你打开错了」接回来重做。
+     * 原话里已有接续标记 → 只记标记前的原话（重试几次都还是同一个任务）。
+     */
+    public static void recordUnfinished(String query, String answer, Origin origin, long at) {
+        if (query == null || strip(query).length() == 0) return;
+        sLast = new Last(strip(query), answer == null ? "" : answer.trim(), origin, at, true);
+    }
+
     public static void clear() {
         sLast = null;
     }
@@ -79,7 +97,7 @@ public final class TaskContinuation {
     public static Last last(long now) {
         Last l = sLast;
         if (l == null) return null;
-        if (now - l.at > TTL_MS || now < l.at) {
+        if (now - l.at > (l.unfinished ? UNFINISHED_TTL_MS : TTL_MS) || now < l.at) {
             sLast = null;
             return null;
         }
@@ -93,6 +111,11 @@ public final class TaskContinuation {
         if (command == null || command.indexOf(MARKER) >= 0) return null;
         Last l = last(now);
         if (l == null) return null;
+        // [chat-1124] 上一轮没做成 + 这句是「再试一次」或纠错（「你打开错了」「不是 X 是 Y」）→ 接回同一个任务，带上用户的话重做
+        if (l.unfinished && RetryIntent.isRetryOrCorrection(command)) {
+            sLast = null;
+            return retryText(l, command.trim());
+        }
         if (!isAffirm(command)) {
             sLast = null;
             return null;
@@ -100,6 +123,26 @@ public final class TaskContinuation {
         sLast = null;   // 一次应答只接一次
         return l.query + " " + MARKER + "用户答：" + command.trim() + "；你上一轮最后说：「" + lastSentence(l.answer, 60)
                 + "」。按你上一轮的提议 / 你自己的判断直接接着做，不要再反问。";
+    }
+
+    /** [chat-1124] 重做上一轮没做成的任务时交给模型的整句（原话照常被分诊认出，标记后的内容只给模型看）。 */
+    static String retryText(Last l, String command) {
+        String said = RetryIntent.isRetry(command) && !RetryIntent.isCorrection(command) ? "让你再试一次" : "纠正你：" + command;
+        String prev = l.answer == null || l.answer.length() == 0 ? "" : "你上一轮最后说：「" + lastSentence(l.answer, 60) + "」。";
+        return l.query + " " + MARKER + "用户答：" + command + "；" + RETRY_TAG + "，用户" + said + "。" + prev
+                + "这是同一个任务，用你手里的全部工具从头再做一遍（要在 App 里点就用点界面的工具），把用户的纠正当真："
+                + "上一轮哪里错了就照用户说的改（比如打开错了 App，这次先确认打开的是用户说的那个）。"
+                + "不要说自己没有这个能力，也不要再解释上一轮为什么失败；真做不到，说清卡在哪一步。";
+    }
+
+    /** [chat-1124] 重做上一轮没做成的任务时整句里带的标记语。 */
+    public static final String RETRY_TAG = "上一轮这个任务没做成";
+
+    /** [chat-1124] 是不是「重做没做成的任务」改写出来的整句（工具层据此一开局就把点界面的工具给全）。 */
+    public static boolean isRetry(String q) {
+        if (q == null) return false;
+        int k = q.indexOf(MARKER);
+        return k >= 0 && q.indexOf(RETRY_TAG, k) > 0;
     }
 
     public static boolean isContinuation(String q) {

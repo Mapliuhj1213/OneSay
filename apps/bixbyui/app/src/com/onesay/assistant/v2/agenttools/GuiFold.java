@@ -108,6 +108,8 @@ public final class GuiFold {
      * @param upperTierStrong  候选里有没有强相关的前三档工具（接口 / 查信息 / 深链；不算常驻的探针与兜底链）
      */
     public static Reason initial(String query, String triageLabel, boolean upperTierStrong) {
+        // [chat-1124] 重做上一轮没做成的任务（「再试一次」「你打开错了」接回来的）：上一轮已经试过了，工具一开局就给全（含点界面）
+        if (com.onesay.assistant.v2.router.TaskContinuation.isRetry(query)) return Reason.UPPER_TIERS_FAILED;
         if (explicitUi(query)) return Reason.EXPLICIT_UI;
         if (triageGui(query, triageLabel)) return Reason.TRIAGE_GUI;
         if (!upperTierStrong) return Reason.NO_UPPER_TIER;

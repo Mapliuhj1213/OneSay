@@ -204,6 +204,47 @@ public final class PhoneAgent {
         String lastLaunchNote();
     }
 
+    /**
+     * [chat-1124] 打开前核对「用户说的 App」：名字 → 包名、要打开的包和用户点名的对不对得上、前台有没有漂到别的 App。
+     * null = 不核对（和改前一样）。
+     */
+    public interface AppGuard {
+        /** 名字或包名 → 包名；找不到 null。 */
+        String resolve(String app);
+
+        /** 打开 pkg 之前：null = 可以开；否则不开的原因（大白话）。 */
+        String beforeLaunch(String pkg);
+
+        /** 前台是 fgPkg 时给模型的提醒；对得上 / 系统界面 → null。 */
+        String drift(String fgPkg);
+    }
+
+    public AppGuard appGuard;
+
+    /** [chat-1124] 打开 app（名字或包名）：解析 → 高风险确认 → 和用户点名的核对 → launch。返回 null = 打开了，否则是没打开的说法。 */
+    String openApp(String app) {
+        String pkg = app;
+        if (appGuard != null) {
+            String r = appGuard.resolve(app);
+            if (r == null) {
+                if (mRes != null) mRes.trace.add("launch-unresolved " + app);
+                return "打不开 " + app + "：手机上没找到叫「" + app + "」的应用";
+            }
+            pkg = r;
+        }
+        if (RISK_GATE && !riskyOk(pkg, app)) return "没打开 " + app + "：用户没同意";   // [fix-1123-dexec B6]
+        if (appGuard != null) {
+            String why = appGuard.beforeLaunch(pkg);
+            if (why != null) {
+                if (mRes != null) mRes.trace.add("launch-mismatch " + pkg);
+                return "打不开 " + pkg + "：" + why;
+            }
+        }
+        if (mD.launch(pkg)) return null;
+        String why = launchNote();   // [exec-1124 C] 打开后核对没到前台：如实说，不在错的页面上空转
+        return why != null ? "打不开 " + pkg + "：" + why : "打不开 " + pkg;
+    }
+
     /** [exec-1124 C] 驱动给的「没打开」原因（没有就 null）。 */
     private String launchNote() {
         return mD instanceof LaunchInfo ? ((LaunchInfo) mD).lastLaunchNote() : null;
@@ -256,6 +297,19 @@ public final class PhoneAgent {
         List<String> history = new ArrayList<String>();
         if (startPkg != null && startPkg.length() > 0) {
             mFirstPkgSeen = true;   // 开局要我们打开 App：之后进到的高风险 App 都要问（startPkg 本身下面先问）
+            if (appGuard != null) {   // [chat-1124] 名字 → 包名（风险确认要看真包名）；找不到 / 和用户说的对不上 → 不开，写进开局提示
+                String r = appGuard.resolve(startPkg);
+                String why0 = r == null ? "手机上没找到叫「" + startPkg + "」的应用，没打开" : appGuard.beforeLaunch(r);
+                if (why0 != null) {
+                    res.trace.add((r == null ? "launch-unresolved " : "launch-mismatch ") + startPkg);
+                    history.add("打开 " + startPkg + "：" + why0);
+                    startPkg = null;
+                } else {
+                    startPkg = r;
+                }
+            }
+        }
+        if (startPkg != null && startPkg.length() > 0) {
             if (RISK_GATE && !riskyOk(startPkg, startPkg)) {   // [fix-1123-dexec B6] 开局就要开高风险 App：先过确认卡
                 return finish(res, Status.STOPPED, "", "用户没有同意：打开 " + startPkg, budget, t0);
             }
@@ -369,6 +423,13 @@ public final class PhoneAgent {
             }
             wantShot = false;
             noteTaint(screen, res);
+            if (appGuard != null && screen != null) {   // [chat-1124] 前台漂到用户没说的 App（开屏广告跳走 / 点错）→ 这一轮提醒模型先回去
+                String dn = appGuard.drift(screen.pkg);
+                if (dn != null) {
+                    lastBatchReport = lastBatchReport == null || lastBatchReport.length() == 0 ? dn : dn + "\n" + lastBatchReport;
+                    res.trace.add("app-drift " + screen.pkg);
+                }
+            }
             String user = PhonePrompt.user(goal, screen, desc, history, lastBatchReport, budget.info(mD.now()), maxElementLines, stateNote);
             if (redactor != null) user = redactor.redact(user);   // ★ borrow-1112：手机号 / 身份证 / 银行卡 / 邮箱 / 验证码换成占位符再发
             budget.onModelCall();
@@ -719,10 +780,8 @@ public final class PhoneAgent {
         if (s.op.equals("home")) return mD.key("home") ? "已回桌面" : "失败";
         if (s.op.equals("key")) return mD.key(s.key) ? "已按 " + s.key : "按键失败";
         if (s.op.equals("launch")) {
-            if (RISK_GATE && !riskyOk(s.app, s.app)) return "没打开 " + s.app + "：用户没同意";   // [fix-1123-dexec B6]
-            if (mD.launch(s.app)) return "已打开 " + s.app;
-            String why = launchNote();   // [exec-1124 C] 打开后核对没到前台：如实说，不在错的页面上空转
-            return why != null ? "打不开 " + s.app + "：" + why : "打不开 " + s.app;
+            String no = openApp(s.app);   // [chat-1124] 解析名字、核对用户点名的 App（B6 风险确认、exec-1124 C 前台核对照旧）
+            return no == null ? "已打开 " + s.app : no;
         }
         if (s.op.equals("swipe")) {
             int w = cur == null ? 1080 : cur.screenW, h = cur == null ? 2220 : cur.screenH;

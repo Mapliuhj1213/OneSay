@@ -77,7 +77,19 @@ public class CapabilityRetriever {   // 审计 R-1：原名 TriageEngine —— 
             return CapabilityRegistry.getInstance().listCapabilities();
         }
         // ★ fix/shop-research（R2）：购物 / 比价句不配亮度 / 音量 / 开关这类无关工具（「买鼠标」曾召回亮度三件套）
-        return dropIrrelevant(com.onesay.assistant.v2.agenttools.AgentToolset.candidates(query, scoreAll(query), k), query);
+        return dropIrrelevant(com.onesay.assistant.v2.agenttools.AgentToolset.candidates(query, scoreAll(scoreQuery(query)), k), query);
+    }
+
+    /**
+     * [chat-1124] 打分用的句子：接续 / 重试改写过的整句只拿「原任务 + 用户这句」打分（后面给模型的说明不参与，免得把工具打偏）。
+     * 会话仍用整句开（插件按整句找会话）。
+     */
+    static String scoreQuery(String query) {
+        if (query == null || !TaskContinuation.isContinuation(query)) return query;
+        if (TaskContinuation.isRetry(query)) return TaskContinuation.strip(query);   // 重做：纠正里提到的别的 App 不参与打分
+        int k = query.indexOf(TaskContinuation.MARKER);
+        String ans = TaskContinuation.answerOf(query.substring(k));
+        return TaskContinuation.strip(query) + (ans != null && ans.length() > 0 ? " " + ans : "");
     }
 
     /** ★ fix/shop-research：购物句去掉无关工具（句子本身点名了亮度 / 音量等就不去）。非购物句原样返回。 */

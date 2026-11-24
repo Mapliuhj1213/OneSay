@@ -142,7 +142,10 @@ public final class PhonePlugin extends FeaturePlugin {
         String goal = args == null ? "" : args.optString("goal", "");
         String app = PhoneHooks.normalizePkg(args == null ? "" : args.optString("app", ""));   // ★ 11-04 B：「三星浏览器（com.sec…）」→ 包名，开局直接拉起目标 App
         long runT0 = android.os.SystemClock.elapsedRealtime();
-        PhoneAgent.Result r = PhoneHooks.runBlocking(ctx, goal, app, false, true);
+        // [chat-1124] 用户原话（接续 / 重试时只取原任务那句）一起交下去：打开前核对点名的 App
+        com.onesay.assistant.v2.agenttools.AgentToolset.Session ses = com.onesay.assistant.v2.agenttools.AgentToolset.current();
+        String userSaid = ses != null ? com.onesay.assistant.v2.router.TaskContinuation.strip(ses.query) : null;
+        PhoneAgent.Result r = PhoneHooks.runBlocking(ctx, goal, app, false, true, null, userSaid);
         // [fix-1123-dexec B9] 用户在这次点界面里点了停止 = 整个任务停：报 CANCELLED，外层循环直接收尾，不再换别的工具接着点
         if (r.status == PhoneAgent.Status.STOPPED && com.onesay.assistant.v2.exec.ExecStopGate.stoppedSince(runT0)) {
             return ExecutionResult.failed(com.onesay.assistant.v2.executor.ErrorCode.CANCELLED, "已停止：你点了停止，这个任务不再继续",
@@ -169,6 +172,9 @@ public final class PhonePlugin extends FeaturePlugin {
 
     /** ★ a11y-labels：「显示按钮」给可点控件标号、「N号」点选（只认整句就是这个意思的说法）。 */
     @Override public boolean interceptCommand(com.onesay.assistant.v2.ui.FloatingSheetService svc, String command) {
+        // [chat-1124] 「再试一次 / 你打开错了」接回上一个没做成的任务：平时由跑腿插件接；跑腿关着时这里接（同一份记录，只接一次）
+        if (svc != null && !com.onesay.assistant.v2.errand.ErrandHooks.enabled(svc)
+                && com.onesay.assistant.v2.errand.ErrandHooks.interceptContinuation(svc, command)) return true;
         return com.onesay.assistant.v2.a11ylabel.ButtonNumbersHooks.intercept(svc, command);
     }
 

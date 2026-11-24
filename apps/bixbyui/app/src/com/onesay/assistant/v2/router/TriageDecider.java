@@ -378,6 +378,11 @@ public final class TriageDecider {
     public static Decision decide(String utterance, Signals s, boolean allowDiagnose, boolean allowImplicitMemory, boolean allowImageSave,
                                   boolean allowSummary, boolean allowS3) {
         if (s == null) s = Signals.offline();
+        // [chat-1124] 接续 / 重试改写过的整句（原话【接着上一轮】用户答：…）先认：后半段是给模型看的纠正，里面的「不是 / 别」不能被
+        //   否定句规则当成「叫我别做」，整句变长也不能落到超长分支
+        if (TaskContinuation.isContinuation(utterance) && TaskContinuation.strip(utterance).length() > 0) {
+            return new Decision(Label.DO_ACT, true, 0.95, "0c-continue", TaskContinuation.strip(utterance), false, true, "rule");
+        }
         // ★ rel-1118 B08：超长输入（> MAX_RULE_LEN 字）不跑规则表，交模型分诊；core 只留前 MAX_RULE_LEN 字（本地问答引擎不会再扫全文）
         if (tooLongForRules(utterance)) {
             return build(Label.AMBIGUOUS, 0.0, "0-too-long", utterance.substring(0, MAX_RULE_LEN), false, false, "rule", s);

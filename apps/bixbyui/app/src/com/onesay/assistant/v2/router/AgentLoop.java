@@ -501,6 +501,12 @@ public class AgentLoop {
         if (r != null) {
             r.tainted = mLastTainted;
             finishRun(r, rs, cb);
+            // [chat-1124] 没做成（失败 / 取消 / 卡住 / 点界面最后一步没成）→ 记下，「再试一次」「你打开错了」接回这个任务重做
+            if (!(cb instanceof Unattended) && unfinished(r)) {
+                TaskContinuation.recordUnfinished(query, r.answer != null && r.answer.length() > 0 ? r.answer : r.reason,
+                        TaskContinuation.Origin.AGENT, System.currentTimeMillis());
+                SafeLog.i(TAG, "[AGENT-LOOP] [RETRY] 这次没做成，记下原任务（" + r.outcome + "），「再试一次 / 你打开错了」可接回");
+            }
             if (rs.plugs != null && r.answer != null) r.sources = rs.plugs.rankSources(r.sources, r.answer);
             // ★ skill-pack（mika.skilllearn，默认关）：成功任务沉淀草稿技能到 debug 目录（只记工具与参数键，不加载）
             if (r.finished && r.outcome == com.onesay.assistant.v2.agent.Outcome.DONE && r.steps != null && r.steps.size() >= 2
@@ -515,6 +521,20 @@ public class AgentLoop {
             }
         }
         return r;
+    }
+
+    /** [chat-1124] 这次算不算没做成：结局不是 done，或者点界面的最后一次没成功（模型却写了收工的话）。 */
+    static boolean unfinished(Result r) {
+        if (r == null) return false;
+        if (r.outcome != com.onesay.assistant.v2.agent.Outcome.DONE || !r.finished) return true;
+        Boolean lastGui = null;
+        if (r.steps != null) {
+            for (Step st : r.steps) {
+                String t = st.tool == null ? "" : st.tool;
+                if (t.contains("phone") && t.contains("operate") && !st.gated) lastGui = st.ok;
+            }
+        }
+        return lastGui != null && !lastGui;
     }
 
     /**

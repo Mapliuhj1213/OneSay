@@ -52,10 +52,16 @@ public final class KnownApps {
         put("com.dianping.v1", "大众点评", "点评");
         put("ctrip.android.view", "携程", "携程旅行");
         put("com.MobileTicket", "12306", "铁路12306");
+        put("com.sankuai.meituan.takeoutnew", "美团外卖");   // [chat-1124]
     }
 
     static String norm(String s) {
         return s == null ? "" : s.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("[\\s「」\"'“”]", "");
+    }
+
+    /** [chat-1124] 所有收录的名字（已归一，小写、去空格）→ 包名，只读。 */
+    public static Map<String, String> names() {
+        return java.util.Collections.unmodifiableMap(MAP);
     }
 
     /** App 名 → 包名；查不到 null。 */

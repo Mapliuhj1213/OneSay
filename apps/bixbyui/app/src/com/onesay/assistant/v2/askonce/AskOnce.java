@@ -137,6 +137,28 @@ public final class AskOnce {
         return new Ask(Topic.MSG_CHANNEL, "用什么发？选一次就记住，以后「发消息」都用它（设置 › 记忆 › 常用默认 可以改）。", MSG_CHIPS, original);
     }
 
+    // ================================================================== [chat-1124] 什么时候能出固定追问
+
+    /**
+     * 固定追问（购物方式、发消息渠道、看哪类邮件）只在用户真在说这件新事时出：
+     * 接着上一轮的整句（带接续标记）、纠错（「你打开错了」「不是 X 是 Y」「当然找不到」）、重试（「再试一次」）都不出。
+     */
+    public static boolean askable(String q) {
+        if (q == null) return false;
+        if (com.onesay.assistant.v2.router.TaskContinuation.isContinuation(q)) return false;
+        return !com.onesay.assistant.v2.router.RetryIntent.isRetryOrCorrection(q);
+    }
+
+    /** 出了一次追问：这一问一答也进会话历史（以前不进，下一句「再试一次」时模型看不到中间这轮，答得前后接不上）。 */
+    public static void noteAsked(String query, Ask a) {
+        try {
+            if (query != null && a != null && a.text != null && a.text.length() > 0) {
+                com.onesay.assistant.v2.router.ConversationMemory.getInstance().record(query.trim(), a.text);
+            }
+        } catch (Throwable ignore) {
+        }
+    }
+
     // ================================================================== 购物：浏览器跑腿还是直接操作 App
 
     public static String shopModeOf(String answer) {

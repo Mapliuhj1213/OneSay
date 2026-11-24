@@ -131,6 +131,15 @@ public final class PhoneHooks {
 
     /** script != null：用脚本化 planner（debug 直测执行层，不需要大模型 Key）。 */
     public static PhoneAgent.Result runBlocking(Context ctx, String goal, String pkg, boolean legacy, boolean execMode, PhoneAgent.Planner script) {
+        return runBlocking(ctx, goal, pkg, legacy, execMode, script, null);
+    }
+
+    /**
+     * [chat-1124] userSaid = 用户原话（不是模型改写的 goal）：从里面认出点名的 App，打开前核对「要打开的 App 和用户说的对不对得上」、
+     * 做的过程中前台漂到别的 App 时提醒模型。null = 用 goal 认（直测入口）。
+     */
+    public static PhoneAgent.Result runBlocking(Context ctx, String goal, String pkg, boolean legacy, boolean execMode, PhoneAgent.Planner script,
+                                                String userSaid) {
         Context app = ctx.getApplicationContext();
         PhoneAgent.Result res;
         // ★ overnight-1119 魅族：暂停中（你来操作 / 卡住等继续）的旧任务不挡新任务——停掉它，等它收尾（最多 5 秒），岛上提示换成了新任务
@@ -190,6 +199,16 @@ public final class PhoneHooks {
             if (exec != null) exec.begin(drv);
             final PhoneAgent.Host h = host;
             PhoneAgent agent = new PhoneAgent(new TrackingDriver(drv, exec), script != null ? script : planner, h);
+            if (!legacy) {   // [chat-1124] 用户点名的 App：打开前核对 + 前台漂移提醒（改前口径不加）
+                try {
+                    AppNameMatch.Guard g = new AppNameMatch.Guard(userSaid != null && userSaid.trim().length() > 0 ? userSaid : goal,
+                            new com.onesay.assistant.v2.executor.IntentExecutor(app).labelIndex(), app.getPackageName());
+                    agent.appGuard = g;
+                    SafeLog.i(TAG, "[PHONE] 用户点名的 App：" + g.named());
+                } catch (Throwable t) {
+                    SafeLog.w(TAG, "[PHONE] 点名 App 核对没装上（按改前处理）: " + t);
+                }
+            }
             MikaExec mika = mika0;   // ★ mika-plug：执行层插件（全关 = null，原行为）
             if (mika != null) {
                 drv.setMika(mika);

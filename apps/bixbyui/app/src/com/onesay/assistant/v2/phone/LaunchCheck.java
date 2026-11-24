@@ -76,6 +76,29 @@ public final class LaunchCheck {
         return new Result(seen ? Outcome.FAIL : Outcome.UNKNOWN, last, re, p.now() - t0);
     }
 
+    /** [chat-1124] 到前台后再看多久，防开屏广告之类把它带到别的 App。 */
+    public static final long STAY_MS = 1500;
+
+    /**
+     * [chat-1124] 目标到前台以后再看 {@link #STAY_MS}：前台变成了别的 App（不是目标、也不是系统界面）→ 返回那个包名；一直是目标 / 读不到 / 系统弹框 → null。
+     */
+    public static String jumpedAway(String target, String selfPkg, Probe p) {
+        long t0 = p.now();
+        while (p.now() - t0 < STAY_MS) {
+            p.sleep(POLL_MS);
+            String fg = p.foreground();
+            if (fg != null && fg.length() > 0 && !fg.equals(target) && !AppNameMatch.systemPkg(fg, selfPkg)) return fg;
+        }
+        return null;
+    }
+
+    /** [chat-1124] 打开后被带走（补拉过还是不行）时的话。 */
+    public static String jumpNote(String label, String otherLabel) {
+        String name = label == null || label.trim().length() == 0 ? "这个应用" : "「" + label.trim() + "」";
+        String other = otherLabel == null || otherLabel.trim().length() == 0 ? "别的应用" : "「" + otherLabel.trim() + "」";
+        return "打开" + name + "以后被带到了" + other + "（多半是开屏广告跳走了），不是要的那个。可以等广告过去再让我试一次，或者先自己把它打开，我再接着做。";
+    }
+
     /** 失败时给用户 / 模型看的话（大白话，不出现别家名字）。 */
     public static String failNote(String label, boolean stillOther) {
         String name = label == null || label.trim().length() == 0 ? "这个应用" : "「" + label.trim() + "」";

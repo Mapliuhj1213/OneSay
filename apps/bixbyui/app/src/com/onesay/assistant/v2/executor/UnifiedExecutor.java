@@ -147,6 +147,18 @@ public class UnifiedExecutor implements IExecutor {
         return run(capability, args, false, isConfirmed, null, isTainted);
     }
 
+    /** [chat-1124] app 名为空 / 本身是包名 / 和 pkg 的名字对得上 → true。名字表读不到时只靠常用名表。 */
+    boolean pkgAgreesWithName(String appName, String pkg) {
+        if (appName == null || appName.trim().length() == 0 || com.onesay.assistant.v2.phone.AppNameMatch.looksLikePkg(appName)) return true;
+        String label = null;
+        if (mApps instanceof IntentExecutor) {
+            for (Map.Entry<String, String> e : ((IntentExecutor) mApps).labelIndex().entrySet()) {
+                if (pkg.equals(e.getValue())) { label = e.getKey(); break; }
+            }
+        }
+        return com.onesay.assistant.v2.phone.AppNameMatch.matches(appName, label, pkg);
+    }
+
     // ------------------------------------------------------------------ 流水线
 
     private ExecutionResult run(Capability capability, JSONObject args, boolean tokenMode,
@@ -186,6 +198,11 @@ public class UnifiedExecutor implements IExecutor {
             if (hintPkg.length() > 0 && hintPkg.matches("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+") && mApps != null) {
                 component = mApps.resolveComponent(hintPkg);
                 if (component != null && !component.startsWith(hintPkg + "/")) component = null;
+                // [chat-1124] 模型自己填的 pkg 和它写的 App 名对不上（app=美团、pkg=另一个 App 的包名）→ 不信 pkg，按名字解析
+                if (component != null && !args.has("role") && !pkgAgreesWithName(appName, hintPkg)) {
+                    Log.w(TAG, "app.launch 的 pkg 和 App 名对不上，按名字解析: app=" + appName + " pkg=" + hintPkg);
+                    component = null;
+                }
             }
             if (component == null && !(args.has("role") && hintPkg.length() > 0)) {
                 component = mApps != null ? mApps.resolveComponent(appName) : null;

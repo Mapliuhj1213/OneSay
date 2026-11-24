@@ -178,6 +178,13 @@ public class IntentExecutor implements AppResolver {
         }
     }
 
+    /** [chat-1124] 已装应用的名字表（归一后的名字 → 包名）副本；打开前核对「用户说的 App」用。 */
+    public Map<String, String> labelIndex() {
+        ensureAppIndex();
+        AppIndex idx = sIndex;
+        return idx == null ? new HashMap<String, String>() : new HashMap<String, String>(idx.labelToPkg);
+    }
+
     /**
      * 根据应用名称或品类词解析唯一启动组件（pkg/activity）。
      */
@@ -215,10 +222,21 @@ public class IntentExecutor implements AppResolver {
         }
 
         // 2. 单向包含模糊匹配
+        //    [chat-1124] 以前按 HashMap 顺序取第一个含这几个字的名字（同样的说法换个顺序就落到别的 App）；
+        //    现在：说法至少两个字、至少占名字的一半，多个都含时取名字最短（最贴近）的那个
+        String fuzzyPkg = null, fuzzyLabel = null;
+        int fuzzyLen = Integer.MAX_VALUE;
         for (Map.Entry<String, String> entry : labelToPkg.entrySet()) {
-            if (entry.getKey().contains(key)) {
-                return pkgToComponent.get(entry.getValue());
+            String label = entry.getKey();
+            if (key.length() >= 2 && label.contains(key) && key.length() * 2 >= label.length()
+                    && (label.length() < fuzzyLen || (label.length() == fuzzyLen && label.compareTo(fuzzyLabel) < 0))) {
+                fuzzyPkg = entry.getValue();
+                fuzzyLabel = label;
+                fuzzyLen = label.length();
             }
+        }
+        if (fuzzyPkg != null && pkgToComponent.containsKey(fuzzyPkg)) {
+            return pkgToComponent.get(fuzzyPkg);
         }
 
         // 3. 品类别名匹配

@@ -84,6 +84,7 @@ public final class AskOnceHooks {
     static AskOnce.Ask needAsk(Context ctx, String query) {
         if (ctx == null || query == null) return null;
         String q = query.trim();
+        if (!AskOnce.askable(q)) return null;   // [chat-1124] 接着上一轮 / 纠错 / 重试的话不出固定追问
         if (AskOnce.mailGeneric(q)) return AskOnce.askMail(q);
         if (AskOnce.msgNoChannel(q) != null && AskOnce.msgLabel(get(ctx, AskOnce.K_MSG)) == null) return AskOnce.askMsg(q);
         String[] wx = AskOnce.wechatSend(q);
@@ -136,6 +137,7 @@ public final class AskOnceHooks {
             if (a == null) return null;
             setPending(a);
             Log.i(TAG, "[ASK-ONCE] 先问一次 " + a);
+            AskOnce.noteAsked(query, a);   // [chat-1124]
             return askInvocation(a, query);
         } catch (Throwable t) {
             Log.w(TAG, "[ASK-ONCE] route 异常，回落原流程: " + t.getMessage());

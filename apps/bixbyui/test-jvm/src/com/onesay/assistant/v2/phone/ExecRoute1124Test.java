@@ -301,7 +301,7 @@ public class ExecRoute1124Test {
         String fs = src("fastscreen/FastScreen.java");
         assertTrue(fs.contains("public boolean rootHelper()") && fs.contains("mPeerUid = peer;") && fs.contains("mPeerUid = 2000;"));
         String pa = src("phone/PhoneAgent.java");
-        assertTrue(pa.contains("String lastLaunchNote();") && pa.contains("\"打不开 \" + s.app + \"：\" + why"));
+        assertTrue(pa.contains("String lastLaunchNote();") && pa.contains("\"打不开 \" + pkg + \"：\" + why"));   // [chat-1124] 打开收进 openApp（先解析名字再核对）
         assertTrue(src("phone/PhoneHooks.java").contains("return d.lastLaunchNote();"));
         // 审计补：root / 只助手时滚动不额外补滑（原样）；无障碍先读读得可疑时用助手再读一次
         assertTrue(d.contains("if (r == null && a11yLead()) r = swipeDir(e.cx(), dir) ? \"swipe\" : null;"));

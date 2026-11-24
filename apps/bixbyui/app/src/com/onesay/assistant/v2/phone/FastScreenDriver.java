@@ -741,7 +741,7 @@ public final class FastScreenDriver implements PhoneAgent.LaunchInfo, PhoneAgent
         });
         if (r.outcome == LaunchCheck.Outcome.OK) {
             SafeLog.i(TAG, "[PHONE] 已打开 " + pkg + "（" + r.waitedMs + "ms 到前台" + (r.relaunched ? "，助手补拉过" : "") + "）");
-            return true;
+            return stayed(pkg);
         }
         if (r.outcome == LaunchCheck.Outcome.UNKNOWN) {
             SafeLog.w(TAG, "[PHONE] 打开 " + pkg + " 后读不到前台，核对不了，按已打开处理");
@@ -749,6 +749,57 @@ public final class FastScreenDriver implements PhoneAgent.LaunchInfo, PhoneAgent
         }
         mLaunchNote = LaunchCheck.failNote(label(pkg), r.lastForeground != null && !r.lastForeground.equals(pkg));
         SafeLog.w(TAG, "[PHONE] 打开 " + pkg + " 没到前台（前台=" + r.lastForeground + (r.relaunched ? "，助手补拉过" : "") + "）");
+        return false;
+    }
+
+    /** [chat-1124] 到前台以后再看一会儿：被带到别的 App（开屏广告跳走）→ 补拉一次目标；还是被带走 = 失败 + 原因。 */
+    private boolean stayed(final String pkg) {
+        LaunchCheck.Probe probe = new LaunchCheck.Probe() {
+            @Override public String foreground() {
+                return mAborted ? pkg : foregroundPkg();
+            }
+
+            @Override public long now() {
+                return SystemClock.elapsedRealtime();
+            }
+
+            @Override public void sleep(long ms) {
+                SystemClock.sleep(ms);
+            }
+
+            @Override public boolean relaunch() {
+                return false;
+            }
+        };
+        String self = mApp.getPackageName();
+        String other = LaunchCheck.jumpedAway(pkg, self, probe);
+        if (other == null) return true;
+        SafeLog.w(TAG, "[PHONE] 打开 " + pkg + " 后被带到 " + other + "，补拉一次");
+        try {
+            Intent it = mApp.getPackageManager().getLaunchIntentForPackage(pkg);
+            if (it != null) {
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                mApp.startActivity(it);
+            }
+        } catch (Throwable t) {
+            SafeLog.w(TAG, "[PHONE] 补拉 " + pkg + " 失败: " + t);
+        }
+        String other2 = null;
+        long end = SystemClock.elapsedRealtime() + LaunchCheck.WAIT_MS;
+        boolean back = false;
+        while (SystemClock.elapsedRealtime() < end && !mAborted) {
+            String fg = foregroundPkg();
+            if (pkg.equals(fg)) { back = true; break; }
+            SystemClock.sleep(LaunchCheck.POLL_MS);
+        }
+        if (back) other2 = LaunchCheck.jumpedAway(pkg, self, probe);
+        if (back && other2 == null) {
+            SafeLog.i(TAG, "[PHONE] 补拉后 " + pkg + " 留在前台了");
+            return true;
+        }
+        String o = other2 != null ? other2 : other;
+        mLaunchNote = LaunchCheck.jumpNote(label(pkg), label(o));
+        SafeLog.w(TAG, "[PHONE] 打开 " + pkg + " 补拉后还是被带到 " + o);
         return false;
     }
 

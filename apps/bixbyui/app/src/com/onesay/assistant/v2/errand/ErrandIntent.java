@@ -208,7 +208,8 @@ public final class ErrandIntent {
         Site site = findSite(raw);
 
         boolean shopStrong = SHOP_STRONG.matcher(raw).find();
-        boolean shopSite = site != null && SHOP_VERB.matcher(raw).find();
+        // [chat-1124] 「找不到 / 没找到 / 找到了」不是要去找（「你打开了某购物 App，当然找不到」被认成购物）
+        boolean shopSite = site != null && SHOP_VERB.matcher(raw.replaceAll("找不[到着见]|没找[到着见]|找到了|找错了?|买错了?|买过|买了", "")).find();
         boolean shopBuy = site == null && url == null && isBuy(raw);
         if (shopStrong || shopSite || shopBuy) {
             String q = clean(raw, url);
