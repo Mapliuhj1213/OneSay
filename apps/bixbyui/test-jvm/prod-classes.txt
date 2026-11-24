@@ -767,6 +767,7 @@ com/onesay/assistant/v2/fastscreen/ReadBack.java
 com/onesay/assistant/v2/llm/ProviderModels.java
 com/onesay/assistant/v2/phongent/PgApprove.java
 com/onesay/assistant/v2/fastscreen/FsStdio.java
+com/onesay/assistant/v2/fastscreen/InjectPlan.java
 com/onesay/assistant/v2/search/ParallelSearchProvider.java
 com/onesay/assistant/v2/search/WebSearchClient.java
 com/onesay/assistant/v2/exec/ShieldHoles.java

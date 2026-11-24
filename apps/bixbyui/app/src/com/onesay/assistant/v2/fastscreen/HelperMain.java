@@ -829,58 +829,146 @@ public final class HelperMain {
 
     // ------------------------------------------------------------------ 注入
 
-    static Object sIm;
-    static Method sInject;
+    static InjectPlan.Injector sInj;
+    static boolean sInjTried;
 
+    /** ★ fix/inject-a14：入口先 InputManagerGlobal（安卓 14+），再退旧 InputManager；都取不到抛异常，调用方改走 input 命令。 */
     static boolean inject(InputEvent e) throws Exception {
-        if (sIm == null) {
-            Class<?> c = Class.forName("android.hardware.input.InputManager");
-            sIm = c.getMethod("getInstance").invoke(null);
-            sInject = c.getMethod("injectInputEvent", InputEvent.class, int.class);
+        if (!sInjTried) {
+            sInj = InjectPlan.resolve(InjectPlan.SYSTEM, InputEvent.class);
+            sInjTried = true;
         }
-        return (Boolean) sInject.invoke(sIm, e, 1 /* WAIT_FOR_RESULT */);
+        if (sInj == null) throw new IllegalStateException("NO_INJECTOR");
+        return (Boolean) sInj.method.invoke(sInj.target, e, 1 /* WAIT_FOR_RESULT */);
+    }
+
+    static Method sSetDisplay;
+    static boolean sSetDisplayTried;
+
+    /** 事件落到显示屏 0（隐藏接口，反射失败就算了）。 */
+    static void display0(InputEvent e) {
+        try {
+            if (!sSetDisplayTried) {
+                sSetDisplayTried = true;
+                sSetDisplay = InputEvent.class.getMethod("setDisplayId", int.class);
+            }
+            if (sSetDisplay != null) sSetDisplay.invoke(e, 0);
+        } catch (Throwable ignore) {
+            // 老系统没有
+        }
     }
 
     static MotionEvent motion(long down, long t, int action, float x, float y) {
         MotionEvent e = MotionEvent.obtain(down, t, action, x, y, 0);
         e.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        display0(e);
         return e;
     }
 
-    static Object tap(int x, int y, int holdMs) throws Exception {
-        long d = SystemClock.uptimeMillis();
-        boolean a = inject(motion(d, d, MotionEvent.ACTION_DOWN, x, y));
-        if (holdMs > 60) {
-            long end = d + holdMs;
-            while (SystemClock.uptimeMillis() < end) {
-                SystemClock.sleep(50);
-                inject(motion(d, SystemClock.uptimeMillis(), MotionEvent.ACTION_MOVE, x, y));
+    /** 跑 input 命令（助手是 shell 身份），退出码 0 算成功。 */
+    static boolean shellInput(String[] argv) throws Exception {
+        Process pr = new ProcessBuilder(argv).redirectErrorStream(true).start();
+        readAll(pr.getInputStream(), 4096);
+        return pr.waitFor() == 0;
+    }
+
+    static Object tap(final int x, final int y, final int holdMs) throws Exception {
+        final long d = SystemClock.uptimeMillis();
+        String via = InjectPlan.run(new InjectPlan.Gesture() {
+            @Override
+            public boolean down() throws Exception {
+                return inject(motion(d, d, MotionEvent.ACTION_DOWN, x, y));
             }
-        } else SystemClock.sleep(holdMs);
-        boolean b = inject(motion(d, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y));
-        return a && b ? "tapped" : new Err("INJECT_FAILED");
+
+            @Override
+            public boolean moves() throws Exception {
+                if (holdMs > 60) {
+                    long end = d + holdMs;
+                    while (SystemClock.uptimeMillis() < end) {
+                        SystemClock.sleep(50);
+                        inject(motion(d, SystemClock.uptimeMillis(), MotionEvent.ACTION_MOVE, x, y));
+                    }
+                } else SystemClock.sleep(holdMs);
+                return true;
+            }
+
+            @Override
+            public boolean up() throws Exception {
+                return inject(motion(d, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y));
+            }
+
+            @Override
+            public boolean shell() throws Exception {
+                return shellInput(InjectPlan.tapArgv(x, y, holdMs));
+            }
+        });
+        return via != null ? "tapped" : new Err("INJECT_FAILED");
     }
 
-    static Object swipe(int x1, int y1, int x2, int y2, int ms) throws Exception {
-        long d = SystemClock.uptimeMillis();
-        boolean ok = inject(motion(d, d, MotionEvent.ACTION_DOWN, x1, y1));
-        int steps = Math.max(4, ms / 16);
-        for (int k = 1; k <= steps; k++) {
-            float f = k / (float) steps;
-            float e = (float) (1 - Math.pow(1 - f, 2));   // 缓出
-            SystemClock.sleep(Math.max(1, ms / steps));
-            ok &= inject(motion(d, SystemClock.uptimeMillis(), MotionEvent.ACTION_MOVE, x1 + (x2 - x1) * e, y1 + (y2 - y1) * e));
-        }
-        ok &= inject(motion(d, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x2, y2));
-        return ok ? "swiped" : new Err("INJECT_FAILED");
+    static Object swipe(final int x1, final int y1, final int x2, final int y2, final int ms) throws Exception {
+        final long d = SystemClock.uptimeMillis();
+        String via = InjectPlan.run(new InjectPlan.Gesture() {
+            @Override
+            public boolean down() throws Exception {
+                return inject(motion(d, d, MotionEvent.ACTION_DOWN, x1, y1));
+            }
+
+            @Override
+            public boolean moves() throws Exception {
+                boolean ok = true;
+                int steps = Math.max(4, ms / 16);
+                for (int k = 1; k <= steps; k++) {
+                    float f = k / (float) steps;
+                    float e = (float) (1 - Math.pow(1 - f, 2));   // 缓出
+                    SystemClock.sleep(Math.max(1, ms / steps));
+                    ok &= inject(motion(d, SystemClock.uptimeMillis(), MotionEvent.ACTION_MOVE, x1 + (x2 - x1) * e, y1 + (y2 - y1) * e));
+                }
+                return ok;
+            }
+
+            @Override
+            public boolean up() throws Exception {
+                return inject(motion(d, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x2, y2));
+            }
+
+            @Override
+            public boolean shell() throws Exception {
+                return shellInput(InjectPlan.swipeArgv(x1, y1, x2, y2, ms));
+            }
+        });
+        return via != null ? "swiped" : new Err("INJECT_FAILED");
     }
 
-    static Object key(int code) throws Exception {
-        long t = SystemClock.uptimeMillis();
-        KeyEvent dn = new KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
-        KeyEvent up = new KeyEvent(t, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
-                InputDevice.SOURCE_KEYBOARD);
-        return inject(dn) && inject(up) ? "key " + code : new Err("INJECT_FAILED");
+    static Object key(final int code) throws Exception {
+        final long t = SystemClock.uptimeMillis();
+        String via = InjectPlan.run(new InjectPlan.Gesture() {
+            @Override
+            public boolean down() throws Exception {
+                KeyEvent dn = new KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
+                        InputDevice.SOURCE_KEYBOARD);
+                display0(dn);
+                return inject(dn);
+            }
+
+            @Override
+            public boolean moves() {
+                return true;
+            }
+
+            @Override
+            public boolean up() throws Exception {
+                KeyEvent up = new KeyEvent(t, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
+                        InputDevice.SOURCE_KEYBOARD);
+                display0(up);
+                return inject(up);
+            }
+
+            @Override
+            public boolean shell() throws Exception {
+                return shellInput(InjectPlan.keyArgv(code));
+            }
+        });
+        return via != null ? "key " + code : new Err("INJECT_FAILED");
     }
 
     static Object launch(String pkg) throws Exception {
@@ -926,8 +1014,15 @@ public final class HelperMain {
         int rot = rotation();
         int w = sz.x, h = sz.y;
         boolean swap = rot == 1 || rot == 3;
-        Class<?> sc = Class.forName("android.view.SurfaceControl");
-        Bitmap b = (Bitmap) sc.getMethod("screenshot", int.class, int.class).invoke(null, swap ? h : w, swap ? w : h);
+        // ★ fix/inject-a14：安卓 12 起旧截图接口没了，走 screencap（出图已按屏幕方向，不用再转）
+        if (InjectPlan.useScreencap(android.os.Build.VERSION.SDK_INT)) return screencap();
+        Bitmap b;
+        try {
+            Class<?> sc = Class.forName("android.view.SurfaceControl");
+            b = (Bitmap) sc.getMethod("screenshot", int.class, int.class).invoke(null, swap ? h : w, swap ? w : h);
+        } catch (Throwable t) {
+            return screencap();
+        }
         if (b == null) return null;
         if (b.getConfig() == Bitmap.Config.HARDWARE) b = b.copy(Bitmap.Config.ARGB_8888, false);
         if (rot != 0) {
@@ -940,7 +1035,18 @@ public final class HelperMain {
         return b;
     }
 
-    static Object shotJpeg(int q, int maxW) throws Exception {
+    /** screencap -p 到助手临时文件再读回，读完删掉。 */
+    static Bitmap screencap() throws Exception {
+        java.io.File f = new java.io.File("/data/local/tmp/onesay_fs_shot_" + android.os.Process.myPid() + ".png");
+        try {
+            if (!shellInput(InjectPlan.screencapArgv(f.getAbsolutePath()))) return null;
+            return android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath());
+        } finally {
+            f.delete();
+        }
+    }
+
+        static Object shotJpeg(int q, int maxW) throws Exception {
         Bitmap b = grab();
         if (b == null) return new Err("SCREENSHOT_NULL");
         if (maxW > 0 && b.getWidth() > maxW) {
