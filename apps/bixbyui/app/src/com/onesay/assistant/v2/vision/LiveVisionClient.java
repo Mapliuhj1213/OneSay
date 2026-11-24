@@ -67,7 +67,7 @@ public final class LiveVisionClient {
         if (!r.ok()) {
             String why = ScreenVisionEngine.cloudErrorSummary(r.rawBody);
             Log.w(TAG, "[LIVE-VISION] HTTP " + r.httpCode + " " + ms + "ms " + why);
-            return new Result(false, "看图出错了（HTTP " + r.httpCode + "）");
+            return new Result(false, ScreenVisionEngine.userVisionError(r.httpCode));
         }
         String a = r.content();
         Log.i(TAG, "[LIVE-VISION] HTTP 200 主模型看图 帧=" + (jpeg == null ? 0 : jpeg.length) + "B 历史="

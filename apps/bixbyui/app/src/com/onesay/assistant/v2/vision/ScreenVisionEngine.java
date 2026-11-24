@@ -31,6 +31,14 @@ import java.io.File;
  */
 public class ScreenVisionEngine {
 
+    /** 看图失败时给用户看的话：不带状态码、不带服务端原文（那些只进日志）。 */
+    static String userVisionError(int httpCode) {
+        if (httpCode == 401 || httpCode == 403) return "看图没成功：主模型的 Key 好像不对或没开通看图，去设置里检查一下";
+        if (httpCode == 429) return "看图没成功：请求太勤了，等一会儿再试";
+        if (httpCode >= 500) return "看图没成功：模型那边暂时出了问题，过一会儿再试";
+        return "看图没成功：模型没接这次的图，换张图或过一会儿再试";
+    }
+
     /**
      * 从云端错误体里摘出 {@code code / message}（OpenAI 兼容格式 {@code {"error":{"code","message"}}}
      * 或 DashScope 原生 {@code {"code","message"}}），≤ 120 字；任何形如 sk-… 的串打码。解析不了返回空串。
@@ -489,8 +497,7 @@ public class ScreenVisionEngine {
                         String why = cloudErrorSummary(lr.rawBody);
                         Log.w(TAG, "[VISION] 看图失败 HTTP " + lr.httpCode + (why.length() > 0 ? "：" + why : "（" + lr.error + "）"));
                         if (callback != null) {
-                            callback.onError(lr.httpCode > 0 ? "看图请求失败(HTTP " + lr.httpCode + ")" + (why.length() > 0 ? "：" + why : "")
-                                    : "网络不太好，图没传上去");
+                            callback.onError(lr.httpCode > 0 ? userVisionError(lr.httpCode) : "网络不太好，图没传上去");
                         }
                         return;
                     }

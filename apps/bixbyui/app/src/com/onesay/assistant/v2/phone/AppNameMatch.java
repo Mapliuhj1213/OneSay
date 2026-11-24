@@ -120,7 +120,7 @@ public final class AppNameMatch {
         if (systemPkg(pkg, selfPkg)) return null;
         for (String n : named) if (matches(n, label, pkg)) return null;
         String said = named.get(0);
-        String what = label != null && label.trim().length() > 0 ? "「" + label.trim() + "」" : "另一个应用（" + pkg + "）";
+        String what = label != null && label.trim().length() > 0 ? "「" + label.trim() + "」" : "另一个应用";
         return "你说的是「" + said + "」，可我要打开的是" + what + "，两个对不上，这次先不打开它。";
     }
 
